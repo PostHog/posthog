@@ -152,7 +152,6 @@
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
         "query-selector-shadow-dom": "^1.0.0",
-        "rc-picker": "~2.5.17",
         "rc-trigger": "^5.2.5",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",

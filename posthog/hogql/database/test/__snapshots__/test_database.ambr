@@ -22,6 +22,7 @@
               "uuid": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "uuid",
                   "name": "uuid",
                   "schema_valid": true,
                   "table": null,
@@ -30,6 +31,7 @@
               "event": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "event",
                   "name": "event",
                   "schema_valid": true,
                   "table": null,
@@ -38,6 +40,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -46,6 +49,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -54,6 +58,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -62,6 +67,7 @@
               "elements_chain": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "elements_chain",
                   "name": "elements_chain",
                   "schema_valid": true,
                   "table": null,
@@ -70,6 +76,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -78,6 +85,7 @@
               "$session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$session_id`",
                   "name": "$session_id",
                   "schema_valid": true,
                   "table": null,
@@ -86,6 +94,7 @@
               "$window_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$window_id`",
                   "name": "$window_id",
                   "schema_valid": true,
                   "table": null,
@@ -99,6 +108,7 @@
                       "person_id",
                       "person"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -111,6 +121,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "poe",
                   "name": "poe",
                   "schema_valid": true,
                   "table": "events",
@@ -123,6 +134,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_0",
                   "name": "goe_0",
                   "schema_valid": true,
                   "table": "events",
@@ -135,6 +147,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_1",
                   "name": "goe_1",
                   "schema_valid": true,
                   "table": "events",
@@ -147,6 +160,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_2",
                   "name": "goe_2",
                   "schema_valid": true,
                   "table": "events",
@@ -159,6 +173,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_3",
                   "name": "goe_3",
                   "schema_valid": true,
                   "table": "events",
@@ -171,6 +186,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_4",
                   "name": "goe_4",
                   "schema_valid": true,
                   "table": "events",
@@ -182,6 +198,7 @@
                       "person"
                   ],
                   "fields": null,
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": null,
@@ -193,6 +210,7 @@
                       "person_id"
                   ],
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -201,6 +219,7 @@
               "$group_0": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_0`",
                   "name": "$group_0",
                   "schema_valid": true,
                   "table": null,
@@ -216,6 +235,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_0",
                   "name": "group_0",
                   "schema_valid": true,
                   "table": "groups",
@@ -224,6 +244,7 @@
               "$group_1": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_1`",
                   "name": "$group_1",
                   "schema_valid": true,
                   "table": null,
@@ -239,6 +260,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_1",
                   "name": "group_1",
                   "schema_valid": true,
                   "table": "groups",
@@ -247,6 +269,7 @@
               "$group_2": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_2`",
                   "name": "$group_2",
                   "schema_valid": true,
                   "table": null,
@@ -262,6 +285,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_2",
                   "name": "group_2",
                   "schema_valid": true,
                   "table": "groups",
@@ -270,6 +294,7 @@
               "$group_3": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_3`",
                   "name": "$group_3",
                   "schema_valid": true,
                   "table": null,
@@ -285,6 +310,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_3",
                   "name": "group_3",
                   "schema_valid": true,
                   "table": "groups",
@@ -293,6 +319,7 @@
               "$group_4": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_4`",
                   "name": "$group_4",
                   "schema_valid": true,
                   "table": null,
@@ -308,6 +335,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_4",
                   "name": "group_4",
                   "schema_valid": true,
                   "table": "groups",
@@ -343,6 +371,7 @@
                       "duration",
                       "$is_bounce"
                   ],
+                  "hogql_value": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -358,6 +387,7 @@
               "index": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "index",
                   "name": "index",
                   "schema_valid": true,
                   "table": null,
@@ -366,6 +396,7 @@
               "key": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "key",
                   "name": "key",
                   "schema_valid": true,
                   "table": null,
@@ -374,6 +405,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -382,6 +414,7 @@
               "updated_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "updated_at",
                   "name": "updated_at",
                   "schema_valid": true,
                   "table": null,
@@ -390,6 +423,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -405,6 +439,7 @@
               "id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "id",
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
@@ -413,6 +448,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -421,6 +457,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -429,6 +466,7 @@
               "is_identified": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "is_identified",
                   "name": "is_identified",
                   "schema_valid": true,
                   "table": null,
@@ -441,6 +479,7 @@
                       "distinct_id",
                       "person_id"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -449,6 +488,7 @@
               "$virt_initial_referring_domain_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$virt_initial_referring_domain_type`",
                   "name": "$virt_initial_referring_domain_type",
                   "schema_valid": true,
                   "table": null,
@@ -457,6 +497,7 @@
               "$virt_initial_channel_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$virt_initial_channel_type`",
                   "name": "$virt_initial_channel_type",
                   "schema_valid": true,
                   "table": null,
@@ -472,6 +513,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -480,6 +522,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -497,6 +540,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -512,6 +556,7 @@
               "old_person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "old_person_id",
                   "name": "old_person_id",
                   "schema_valid": true,
                   "table": null,
@@ -520,6 +565,7 @@
               "override_person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "override_person_id",
                   "name": "override_person_id",
                   "schema_valid": true,
                   "table": null,
@@ -528,6 +574,7 @@
               "oldest_event": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "oldest_event",
                   "name": "oldest_event",
                   "schema_valid": true,
                   "table": null,
@@ -536,6 +583,7 @@
               "merged_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "merged_at",
                   "name": "merged_at",
                   "schema_valid": true,
                   "table": null,
@@ -544,6 +592,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -559,6 +608,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -567,6 +617,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -575,6 +626,7 @@
               "first_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "first_url",
                   "name": "first_url",
                   "schema_valid": true,
                   "table": null,
@@ -583,6 +635,7 @@
               "click_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "click_count",
                   "name": "click_count",
                   "schema_valid": true,
                   "table": null,
@@ -591,6 +644,7 @@
               "keypress_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "keypress_count",
                   "name": "keypress_count",
                   "schema_valid": true,
                   "table": null,
@@ -599,6 +653,7 @@
               "mouse_activity_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "mouse_activity_count",
                   "name": "mouse_activity_count",
                   "schema_valid": true,
                   "table": null,
@@ -607,6 +662,7 @@
               "active_milliseconds": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "active_milliseconds",
                   "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
@@ -615,6 +671,7 @@
               "console_log_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_log_count",
                   "name": "console_log_count",
                   "schema_valid": true,
                   "table": null,
@@ -623,6 +680,7 @@
               "console_warn_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_warn_count",
                   "name": "console_warn_count",
                   "schema_valid": true,
                   "table": null,
@@ -631,6 +689,7 @@
               "console_error_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_error_count",
                   "name": "console_error_count",
                   "schema_valid": true,
                   "table": null,
@@ -639,6 +698,7 @@
               "size": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "size",
                   "name": "size",
                   "schema_valid": true,
                   "table": null,
@@ -647,6 +707,7 @@
               "event_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "event_count",
                   "name": "event_count",
                   "schema_valid": true,
                   "table": null,
@@ -655,6 +716,7 @@
               "message_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "message_count",
                   "name": "message_count",
                   "schema_valid": true,
                   "table": null,
@@ -694,6 +756,7 @@
                       "group_4",
                       "session"
                   ],
+                  "hogql_value": "events",
                   "name": "events",
                   "schema_valid": true,
                   "table": "events",
@@ -705,6 +768,7 @@
                       "properties"
                   ],
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -718,6 +782,7 @@
                       "person_id",
                       "person"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -734,6 +799,7 @@
                       "message",
                       "level"
                   ],
+                  "hogql_value": "console_logs",
                   "name": "console_logs",
                   "schema_valid": true,
                   "table": "console_logs_log_entries",
@@ -745,6 +811,7 @@
                       "person"
                   ],
                   "fields": null,
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": null,
@@ -756,6 +823,7 @@
                       "person_id"
                   ],
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -791,6 +859,7 @@
                       "duration",
                       "$is_bounce"
                   ],
+                  "hogql_value": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -799,6 +868,7 @@
               "start_time": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "start_time",
                   "name": "start_time",
                   "schema_valid": true,
                   "table": null,
@@ -807,6 +877,7 @@
               "end_time": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "end_time",
                   "name": "end_time",
                   "schema_valid": true,
                   "table": null,
@@ -822,6 +893,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -830,6 +902,7 @@
               "cohort_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "cohort_id",
                   "name": "cohort_id",
                   "schema_valid": true,
                   "table": null,
@@ -847,6 +920,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -862,6 +936,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -870,6 +945,7 @@
               "cohort_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "cohort_id",
                   "name": "cohort_id",
                   "schema_valid": true,
                   "table": null,
@@ -887,6 +963,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -902,6 +979,7 @@
               "log_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "log_source",
                   "name": "log_source",
                   "schema_valid": true,
                   "table": null,
@@ -910,6 +988,7 @@
               "log_source_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "log_source_id",
                   "name": "log_source_id",
                   "schema_valid": true,
                   "table": null,
@@ -918,6 +997,7 @@
               "instance_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "instance_id",
                   "name": "instance_id",
                   "schema_valid": true,
                   "table": null,
@@ -926,6 +1006,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -934,6 +1015,7 @@
               "message": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "message",
                   "name": "message",
                   "schema_valid": true,
                   "table": null,
@@ -942,6 +1024,7 @@
               "level": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "level",
                   "name": "level",
                   "schema_valid": true,
                   "table": null,
@@ -957,6 +1040,7 @@
               "id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "id",
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
@@ -965,6 +1049,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -973,6 +1058,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -981,6 +1067,7 @@
               "$start_timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$start_timestamp`",
                   "name": "$start_timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -989,6 +1076,7 @@
               "$end_timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$end_timestamp`",
                   "name": "$end_timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -997,6 +1085,7 @@
               "$urls": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$urls`",
                   "name": "$urls",
                   "schema_valid": true,
                   "table": null,
@@ -1005,6 +1094,7 @@
               "$entry_current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_current_url`",
                   "name": "$entry_current_url",
                   "schema_valid": true,
                   "table": null,
@@ -1013,6 +1103,7 @@
               "$entry_pathname": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_pathname`",
                   "name": "$entry_pathname",
                   "schema_valid": true,
                   "table": null,
@@ -1021,6 +1112,7 @@
               "$exit_current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$exit_current_url`",
                   "name": "$exit_current_url",
                   "schema_valid": true,
                   "table": null,
@@ -1029,6 +1121,7 @@
               "$exit_pathname": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$exit_pathname`",
                   "name": "$exit_pathname",
                   "schema_valid": true,
                   "table": null,
@@ -1037,6 +1130,7 @@
               "$entry_utm_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_source`",
                   "name": "$entry_utm_source",
                   "schema_valid": true,
                   "table": null,
@@ -1045,6 +1139,7 @@
               "$entry_utm_campaign": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_campaign`",
                   "name": "$entry_utm_campaign",
                   "schema_valid": true,
                   "table": null,
@@ -1053,6 +1148,7 @@
               "$entry_utm_medium": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_medium`",
                   "name": "$entry_utm_medium",
                   "schema_valid": true,
                   "table": null,
@@ -1061,6 +1157,7 @@
               "$entry_utm_term": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_term`",
                   "name": "$entry_utm_term",
                   "schema_valid": true,
                   "table": null,
@@ -1069,6 +1166,7 @@
               "$entry_utm_content": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_content`",
                   "name": "$entry_utm_content",
                   "schema_valid": true,
                   "table": null,
@@ -1077,6 +1175,7 @@
               "$entry_referring_domain": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_referring_domain`",
                   "name": "$entry_referring_domain",
                   "schema_valid": true,
                   "table": null,
@@ -1085,6 +1184,7 @@
               "$entry_gclid": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_gclid`",
                   "name": "$entry_gclid",
                   "schema_valid": true,
                   "table": null,
@@ -1093,6 +1193,7 @@
               "$entry_gad_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_gad_source`",
                   "name": "$entry_gad_source",
                   "schema_valid": true,
                   "table": null,
@@ -1101,6 +1202,7 @@
               "$pageview_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$pageview_count`",
                   "name": "$pageview_count",
                   "schema_valid": true,
                   "table": null,
@@ -1109,6 +1211,7 @@
               "$autocapture_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$autocapture_count`",
                   "name": "$autocapture_count",
                   "schema_valid": true,
                   "table": null,
@@ -1117,6 +1220,7 @@
               "$channel_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$channel_type`",
                   "name": "$channel_type",
                   "schema_valid": true,
                   "table": null,
@@ -1125,6 +1229,7 @@
               "$session_duration": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$session_duration`",
                   "name": "$session_duration",
                   "schema_valid": true,
                   "table": null,
@@ -1133,6 +1238,7 @@
               "duration": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "duration",
                   "name": "duration",
                   "schema_valid": true,
                   "table": null,
@@ -1141,6 +1247,7 @@
               "$is_bounce": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$is_bounce`",
                   "name": "$is_bounce",
                   "schema_valid": true,
                   "table": null,
@@ -1156,6 +1263,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -1164,6 +1272,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -1172,6 +1281,7 @@
               "x": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "x",
                   "name": "x",
                   "schema_valid": true,
                   "table": null,
@@ -1180,6 +1290,7 @@
               "y": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "y",
                   "name": "y",
                   "schema_valid": true,
                   "table": null,
@@ -1188,6 +1299,7 @@
               "scale_factor": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "scale_factor",
                   "name": "scale_factor",
                   "schema_valid": true,
                   "table": null,
@@ -1196,6 +1308,7 @@
               "viewport_width": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "viewport_width",
                   "name": "viewport_width",
                   "schema_valid": true,
                   "table": null,
@@ -1204,6 +1317,7 @@
               "viewport_height": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "viewport_height",
                   "name": "viewport_height",
                   "schema_valid": true,
                   "table": null,
@@ -1212,6 +1326,7 @@
               "pointer_target_fixed": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "pointer_target_fixed",
                   "name": "pointer_target_fixed",
                   "schema_valid": true,
                   "table": null,
@@ -1220,6 +1335,7 @@
               "current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "current_url",
                   "name": "current_url",
                   "schema_valid": true,
                   "table": null,
@@ -1228,6 +1344,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -1236,6 +1353,7 @@
               "type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "type",
                   "name": "type",
                   "schema_valid": true,
                   "table": null,
@@ -1257,6 +1375,7 @@
               "uuid": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "uuid",
                   "name": "uuid",
                   "schema_valid": true,
                   "table": null,
@@ -1265,6 +1384,7 @@
               "event": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "event",
                   "name": "event",
                   "schema_valid": true,
                   "table": null,
@@ -1273,6 +1393,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -1281,6 +1402,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -1289,6 +1411,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -1297,6 +1420,7 @@
               "elements_chain": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "elements_chain",
                   "name": "elements_chain",
                   "schema_valid": true,
                   "table": null,
@@ -1305,6 +1429,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -1313,6 +1438,7 @@
               "$session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$session_id`",
                   "name": "$session_id",
                   "schema_valid": true,
                   "table": null,
@@ -1321,6 +1447,7 @@
               "$window_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$window_id`",
                   "name": "$window_id",
                   "schema_valid": true,
                   "table": null,
@@ -1334,6 +1461,7 @@
                       "person_id",
                       "person"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -1346,6 +1474,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "poe",
                   "name": "poe",
                   "schema_valid": true,
                   "table": "events",
@@ -1358,6 +1487,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_0",
                   "name": "goe_0",
                   "schema_valid": true,
                   "table": "events",
@@ -1370,6 +1500,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_1",
                   "name": "goe_1",
                   "schema_valid": true,
                   "table": "events",
@@ -1382,6 +1513,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_2",
                   "name": "goe_2",
                   "schema_valid": true,
                   "table": "events",
@@ -1394,6 +1526,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_3",
                   "name": "goe_3",
                   "schema_valid": true,
                   "table": "events",
@@ -1406,6 +1539,7 @@
                       "created_at",
                       "properties"
                   ],
+                  "hogql_value": "goe_4",
                   "name": "goe_4",
                   "schema_valid": true,
                   "table": "events",
@@ -1416,6 +1550,7 @@
                       "poe"
                   ],
                   "fields": null,
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": null,
@@ -1424,6 +1559,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -1432,6 +1568,7 @@
               "$group_0": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_0`",
                   "name": "$group_0",
                   "schema_valid": true,
                   "table": null,
@@ -1447,6 +1584,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_0",
                   "name": "group_0",
                   "schema_valid": true,
                   "table": "groups",
@@ -1455,6 +1593,7 @@
               "$group_1": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_1`",
                   "name": "$group_1",
                   "schema_valid": true,
                   "table": null,
@@ -1470,6 +1609,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_1",
                   "name": "group_1",
                   "schema_valid": true,
                   "table": "groups",
@@ -1478,6 +1618,7 @@
               "$group_2": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_2`",
                   "name": "$group_2",
                   "schema_valid": true,
                   "table": null,
@@ -1493,6 +1634,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_2",
                   "name": "group_2",
                   "schema_valid": true,
                   "table": "groups",
@@ -1501,6 +1643,7 @@
               "$group_3": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_3`",
                   "name": "$group_3",
                   "schema_valid": true,
                   "table": null,
@@ -1516,6 +1659,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_3",
                   "name": "group_3",
                   "schema_valid": true,
                   "table": "groups",
@@ -1524,6 +1668,7 @@
               "$group_4": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$group_4`",
                   "name": "$group_4",
                   "schema_valid": true,
                   "table": null,
@@ -1539,6 +1684,7 @@
                       "updated_at",
                       "properties"
                   ],
+                  "hogql_value": "group_4",
                   "name": "group_4",
                   "schema_valid": true,
                   "table": "groups",
@@ -1574,6 +1720,7 @@
                       "duration",
                       "$is_bounce"
                   ],
+                  "hogql_value": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -1589,6 +1736,7 @@
               "index": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "index",
                   "name": "index",
                   "schema_valid": true,
                   "table": null,
@@ -1597,6 +1745,7 @@
               "key": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "key",
                   "name": "key",
                   "schema_valid": true,
                   "table": null,
@@ -1605,6 +1754,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -1613,6 +1763,7 @@
               "updated_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "updated_at",
                   "name": "updated_at",
                   "schema_valid": true,
                   "table": null,
@@ -1621,6 +1772,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -1636,6 +1788,7 @@
               "id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "id",
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
@@ -1644,6 +1797,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -1652,6 +1806,7 @@
               "properties": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -1660,6 +1815,7 @@
               "is_identified": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "is_identified",
                   "name": "is_identified",
                   "schema_valid": true,
                   "table": null,
@@ -1672,6 +1828,7 @@
                       "distinct_id",
                       "person_id"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -1680,6 +1837,7 @@
               "$virt_initial_referring_domain_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$virt_initial_referring_domain_type`",
                   "name": "$virt_initial_referring_domain_type",
                   "schema_valid": true,
                   "table": null,
@@ -1688,6 +1846,7 @@
               "$virt_initial_channel_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$virt_initial_channel_type`",
                   "name": "$virt_initial_channel_type",
                   "schema_valid": true,
                   "table": null,
@@ -1703,6 +1862,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -1711,6 +1871,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -1728,6 +1889,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -1743,6 +1905,7 @@
               "old_person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "old_person_id",
                   "name": "old_person_id",
                   "schema_valid": true,
                   "table": null,
@@ -1751,6 +1914,7 @@
               "override_person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "override_person_id",
                   "name": "override_person_id",
                   "schema_valid": true,
                   "table": null,
@@ -1759,6 +1923,7 @@
               "oldest_event": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "oldest_event",
                   "name": "oldest_event",
                   "schema_valid": true,
                   "table": null,
@@ -1767,6 +1932,7 @@
               "merged_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "merged_at",
                   "name": "merged_at",
                   "schema_valid": true,
                   "table": null,
@@ -1775,6 +1941,7 @@
               "created_at": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "created_at",
                   "name": "created_at",
                   "schema_valid": true,
                   "table": null,
@@ -1790,6 +1957,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -1798,6 +1966,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -1806,6 +1975,7 @@
               "first_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "first_url",
                   "name": "first_url",
                   "schema_valid": true,
                   "table": null,
@@ -1814,6 +1984,7 @@
               "click_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "click_count",
                   "name": "click_count",
                   "schema_valid": true,
                   "table": null,
@@ -1822,6 +1993,7 @@
               "keypress_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "keypress_count",
                   "name": "keypress_count",
                   "schema_valid": true,
                   "table": null,
@@ -1830,6 +2002,7 @@
               "mouse_activity_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "mouse_activity_count",
                   "name": "mouse_activity_count",
                   "schema_valid": true,
                   "table": null,
@@ -1838,6 +2011,7 @@
               "active_milliseconds": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "active_milliseconds",
                   "name": "active_milliseconds",
                   "schema_valid": true,
                   "table": null,
@@ -1846,6 +2020,7 @@
               "console_log_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_log_count",
                   "name": "console_log_count",
                   "schema_valid": true,
                   "table": null,
@@ -1854,6 +2029,7 @@
               "console_warn_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_warn_count",
                   "name": "console_warn_count",
                   "schema_valid": true,
                   "table": null,
@@ -1862,6 +2038,7 @@
               "console_error_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "console_error_count",
                   "name": "console_error_count",
                   "schema_valid": true,
                   "table": null,
@@ -1870,6 +2047,7 @@
               "size": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "size",
                   "name": "size",
                   "schema_valid": true,
                   "table": null,
@@ -1878,6 +2056,7 @@
               "event_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "event_count",
                   "name": "event_count",
                   "schema_valid": true,
                   "table": null,
@@ -1886,6 +2065,7 @@
               "message_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "message_count",
                   "name": "message_count",
                   "schema_valid": true,
                   "table": null,
@@ -1925,6 +2105,7 @@
                       "group_4",
                       "session"
                   ],
+                  "hogql_value": "events",
                   "name": "events",
                   "schema_valid": true,
                   "table": "events",
@@ -1936,6 +2117,7 @@
                       "properties"
                   ],
                   "fields": null,
+                  "hogql_value": "properties",
                   "name": "properties",
                   "schema_valid": true,
                   "table": null,
@@ -1949,6 +2131,7 @@
                       "person_id",
                       "person"
                   ],
+                  "hogql_value": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -1965,6 +2148,7 @@
                       "message",
                       "level"
                   ],
+                  "hogql_value": "console_logs",
                   "name": "console_logs",
                   "schema_valid": true,
                   "table": "console_logs_log_entries",
@@ -1976,6 +2160,7 @@
                       "person"
                   ],
                   "fields": null,
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": null,
@@ -1987,6 +2172,7 @@
                       "person_id"
                   ],
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -2022,6 +2208,7 @@
                       "duration",
                       "$is_bounce"
                   ],
+                  "hogql_value": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -2030,6 +2217,7 @@
               "start_time": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "start_time",
                   "name": "start_time",
                   "schema_valid": true,
                   "table": null,
@@ -2038,6 +2226,7 @@
               "end_time": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "end_time",
                   "name": "end_time",
                   "schema_valid": true,
                   "table": null,
@@ -2053,6 +2242,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -2061,6 +2251,7 @@
               "cohort_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "cohort_id",
                   "name": "cohort_id",
                   "schema_valid": true,
                   "table": null,
@@ -2078,6 +2269,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -2093,6 +2285,7 @@
               "person_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "person_id",
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
@@ -2101,6 +2294,7 @@
               "cohort_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "cohort_id",
                   "name": "cohort_id",
                   "schema_valid": true,
                   "table": null,
@@ -2118,6 +2312,7 @@
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type"
                   ],
+                  "hogql_value": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -2133,6 +2328,7 @@
               "log_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "log_source",
                   "name": "log_source",
                   "schema_valid": true,
                   "table": null,
@@ -2141,6 +2337,7 @@
               "log_source_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "log_source_id",
                   "name": "log_source_id",
                   "schema_valid": true,
                   "table": null,
@@ -2149,6 +2346,7 @@
               "instance_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "instance_id",
                   "name": "instance_id",
                   "schema_valid": true,
                   "table": null,
@@ -2157,6 +2355,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -2165,6 +2364,7 @@
               "message": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "message",
                   "name": "message",
                   "schema_valid": true,
                   "table": null,
@@ -2173,6 +2373,7 @@
               "level": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "level",
                   "name": "level",
                   "schema_valid": true,
                   "table": null,
@@ -2188,6 +2389,7 @@
               "id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "id",
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
@@ -2196,6 +2398,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -2204,6 +2407,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -2212,6 +2416,7 @@
               "$start_timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$start_timestamp`",
                   "name": "$start_timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -2220,6 +2425,7 @@
               "$end_timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$end_timestamp`",
                   "name": "$end_timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -2228,6 +2434,7 @@
               "$urls": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$urls`",
                   "name": "$urls",
                   "schema_valid": true,
                   "table": null,
@@ -2236,6 +2443,7 @@
               "$entry_current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_current_url`",
                   "name": "$entry_current_url",
                   "schema_valid": true,
                   "table": null,
@@ -2244,6 +2452,7 @@
               "$entry_pathname": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_pathname`",
                   "name": "$entry_pathname",
                   "schema_valid": true,
                   "table": null,
@@ -2252,6 +2461,7 @@
               "$exit_current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$exit_current_url`",
                   "name": "$exit_current_url",
                   "schema_valid": true,
                   "table": null,
@@ -2260,6 +2470,7 @@
               "$exit_pathname": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$exit_pathname`",
                   "name": "$exit_pathname",
                   "schema_valid": true,
                   "table": null,
@@ -2268,6 +2479,7 @@
               "$entry_utm_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_source`",
                   "name": "$entry_utm_source",
                   "schema_valid": true,
                   "table": null,
@@ -2276,6 +2488,7 @@
               "$entry_utm_campaign": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_campaign`",
                   "name": "$entry_utm_campaign",
                   "schema_valid": true,
                   "table": null,
@@ -2284,6 +2497,7 @@
               "$entry_utm_medium": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_medium`",
                   "name": "$entry_utm_medium",
                   "schema_valid": true,
                   "table": null,
@@ -2292,6 +2506,7 @@
               "$entry_utm_term": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_term`",
                   "name": "$entry_utm_term",
                   "schema_valid": true,
                   "table": null,
@@ -2300,6 +2515,7 @@
               "$entry_utm_content": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_utm_content`",
                   "name": "$entry_utm_content",
                   "schema_valid": true,
                   "table": null,
@@ -2308,6 +2524,7 @@
               "$entry_referring_domain": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_referring_domain`",
                   "name": "$entry_referring_domain",
                   "schema_valid": true,
                   "table": null,
@@ -2316,6 +2533,7 @@
               "$entry_gclid": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_gclid`",
                   "name": "$entry_gclid",
                   "schema_valid": true,
                   "table": null,
@@ -2324,6 +2542,7 @@
               "$entry_gad_source": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$entry_gad_source`",
                   "name": "$entry_gad_source",
                   "schema_valid": true,
                   "table": null,
@@ -2332,6 +2551,7 @@
               "$pageview_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$pageview_count`",
                   "name": "$pageview_count",
                   "schema_valid": true,
                   "table": null,
@@ -2340,6 +2560,7 @@
               "$autocapture_count": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$autocapture_count`",
                   "name": "$autocapture_count",
                   "schema_valid": true,
                   "table": null,
@@ -2348,6 +2569,7 @@
               "$channel_type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$channel_type`",
                   "name": "$channel_type",
                   "schema_valid": true,
                   "table": null,
@@ -2356,6 +2578,7 @@
               "$session_duration": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$session_duration`",
                   "name": "$session_duration",
                   "schema_valid": true,
                   "table": null,
@@ -2364,6 +2587,7 @@
               "duration": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "duration",
                   "name": "duration",
                   "schema_valid": true,
                   "table": null,
@@ -2372,6 +2596,7 @@
               "$is_bounce": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "`$is_bounce`",
                   "name": "$is_bounce",
                   "schema_valid": true,
                   "table": null,
@@ -2387,6 +2612,7 @@
               "session_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "session_id",
                   "name": "session_id",
                   "schema_valid": true,
                   "table": null,
@@ -2395,6 +2621,7 @@
               "distinct_id": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "distinct_id",
                   "name": "distinct_id",
                   "schema_valid": true,
                   "table": null,
@@ -2403,6 +2630,7 @@
               "x": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "x",
                   "name": "x",
                   "schema_valid": true,
                   "table": null,
@@ -2411,6 +2639,7 @@
               "y": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "y",
                   "name": "y",
                   "schema_valid": true,
                   "table": null,
@@ -2419,6 +2648,7 @@
               "scale_factor": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "scale_factor",
                   "name": "scale_factor",
                   "schema_valid": true,
                   "table": null,
@@ -2427,6 +2657,7 @@
               "viewport_width": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "viewport_width",
                   "name": "viewport_width",
                   "schema_valid": true,
                   "table": null,
@@ -2435,6 +2666,7 @@
               "viewport_height": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "viewport_height",
                   "name": "viewport_height",
                   "schema_valid": true,
                   "table": null,
@@ -2443,6 +2675,7 @@
               "pointer_target_fixed": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "pointer_target_fixed",
                   "name": "pointer_target_fixed",
                   "schema_valid": true,
                   "table": null,
@@ -2451,6 +2684,7 @@
               "current_url": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "current_url",
                   "name": "current_url",
                   "schema_valid": true,
                   "table": null,
@@ -2459,6 +2693,7 @@
               "timestamp": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "timestamp",
                   "name": "timestamp",
                   "schema_valid": true,
                   "table": null,
@@ -2467,6 +2702,7 @@
               "type": {
                   "chain": null,
                   "fields": null,
+                  "hogql_value": "type",
                   "name": "type",
                   "schema_valid": true,
                   "table": null,
