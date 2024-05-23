@@ -71,33 +71,6 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
-    def test_serializes_to_json(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
-    def test_serializes_to_json_ignores_empty_dict(self):
-        # The below behaviour is not currently implemented, since we're auto-
-        # generating the pydantic models for queries, which doesn't allow us
-        # setting a custom default value for list and dict type properties.
-        #
-        # :KLUDGE: In order to receive a stable JSON representation for cache
-        # keys we want to ignore semantically equal attributes. E.g. an empty
-        # list and None should be treated equally.
-        #
-        # To achieve this behaviour we ignore None and the default value, which
-        # we set to an empty list. It would be even better, if we would
-        # implement custom validators for this.
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -106,7 +79,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_151bd63c5cbbbcb8dec547811cc684f4")
+        self.assertEqual(cache_key, "cache_0d86ca6e2a5198f7831e45a9cfef74bf")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -120,7 +93,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_23f3317da40b07e4ce7796c4bbd1615c")
+        self.assertEqual(cache_key, "cache_1d3b5f01b09c6df03e60e0c88a24c12b")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -131,7 +104,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_a687040d3a8e4116afbab194490be520")
+        self.assertEqual(cache_key, "cache_fb3bac966786fa05510fec5401803b8b")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()

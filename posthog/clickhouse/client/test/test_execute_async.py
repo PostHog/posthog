@@ -164,6 +164,26 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_async_query_refreshes_if_requested(self, process_query_dict_mock, process_query_task_mock):
+        query = build_query("SELECT 8 + 8")
+        query_id = "query_id"
+
+        client.enqueue_process_query_task(
+            self.team,
+            self.user,
+            query,
+            query_id=query_id,
+            _test_only_bypass_celery=True,
+            refresh_requested=True,
+        )
+
+        self.assertEqual(process_query_dict_mock.call_count, 0)
+        self.assertEqual(process_query_task_mock.call_count, 1)
+        _, kwargs = process_query_task_mock.call_args
+        self.assertTrue(kwargs["refresh_requested"])
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.
