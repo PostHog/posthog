@@ -5,6 +5,8 @@ import threading
 import structlog
 
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
@@ -50,7 +52,6 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
-
 # Configure all logs to be handled by structlog `ProcessorFormatter` and
 # rendered either as pretty colored console lines or as single JSON lines.
 LOGGING = {
@@ -80,7 +81,9 @@ LOGGING = {
             "filters": ["filter_statsd"],
         },
         "posthog": {
-            "class": "posthog.logging.handlers.PosthogHandler",
+            "class": "posthog.logging.handlers.PosthogHandler"
+            if get_from_env("ENABLE_POSTHOG_LOG_HANDLER", False, type_cast=str_to_bool)
+            else "logging.NullHandler",
         },
         "null": {
             "class": "logging.NullHandler",
