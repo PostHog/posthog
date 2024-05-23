@@ -227,20 +227,21 @@ export function PipelinePluginConfiguration({
                         ) : null}
                     </div>
 
-                    <div className="border bg-bg-light rounded p-3 flex-2 min-w-100 space-y-2">
-                        <>
-                            {fields.length ? (
-                                fields
-                            ) : (
-                                <span className="italic text-muted-alt">
-                                    This app does not have specific configuration options
-                                </span>
-                            )}
-                        </>
+                    <div className="flex-2 min-w-100 space-y-4">
+                        <div className="border bg-bg-light rounded p-3  space-y-2">
+                            <>
+                                {fields.length ? (
+                                    fields
+                                ) : (
+                                    <span className="italic text-muted-alt">
+                                        This app does not have specific configuration options
+                                    </span>
+                                )}
+                            </>
+                        </div>
+                        <div className="flex gap-2 justify-end">{buttons}</div>
                     </div>
                 </div>
-
-                <div className="flex gap-2 justify-end">{buttons}</div>
             </Form>
         </div>
     )
