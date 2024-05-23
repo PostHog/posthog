@@ -29,7 +29,9 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             maxWidth="30rem"
             footer={
                 ssoEnforcement ? (
-                    <SSOEnforcedLoginButton provider={ssoEnforcement} email={user!.email} size="medium" />
+                    <span className="flex-1">
+                        <SSOEnforcedLoginButton provider={ssoEnforcement} email={user!.email} size="medium" />
+                    </span>
                 ) : showPassword ? (
                     <LemonButton
                         type="primary"
