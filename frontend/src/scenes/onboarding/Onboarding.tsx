@@ -228,17 +228,18 @@ const SurveysOnboarding = (): JSX.Element => {
     )
 }
 
+export const onboardingViews = {
+    [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+    [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+    [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    [ProductKey.SURVEYS]: SurveysOnboarding,
+}
+
 export function Onboarding(): JSX.Element | null {
     const { product } = useValues(onboardingLogic)
 
     if (!product) {
         return <></>
-    }
-    const onboardingViews = {
-        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
-        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
-        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
-        [ProductKey.SURVEYS]: SurveysOnboarding,
     }
     const OnboardingView = onboardingViews[product.type]
 

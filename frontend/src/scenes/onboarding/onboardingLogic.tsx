@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
+import { AvailableOnboardingProducts, BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -28,25 +28,36 @@ export enum OnboardingStepKey {
     INVITE_TEAMMATES = 'invite_teammates',
 }
 
-const productKeyToProductName = {
-    [ProductKey.PRODUCT_ANALYTICS]: 'Product Analytics',
-    [ProductKey.SESSION_REPLAY]: 'Session Replay',
-    [ProductKey.FEATURE_FLAGS]: 'Feature Flags',
-    [ProductKey.SURVEYS]: 'Surveys',
-}
-
-const productKeyToURL = {
-    [ProductKey.PRODUCT_ANALYTICS]: urls.insights(),
-    [ProductKey.SESSION_REPLAY]: urls.replay(),
-    [ProductKey.FEATURE_FLAGS]: urls.featureFlags(),
-    [ProductKey.SURVEYS]: urls.surveys(),
-}
-
-const productKeyToScene = {
-    [ProductKey.PRODUCT_ANALYTICS]: Scene.SavedInsights,
-    [ProductKey.SESSION_REPLAY]: Scene.Replay,
-    [ProductKey.FEATURE_FLAGS]: Scene.FeatureFlags,
-    [ProductKey.SURVEYS]: Scene.Surveys,
+export const availableOnboardingProducts: AvailableOnboardingProducts = {
+    [ProductKey.PRODUCT_ANALYTICS]: {
+        name: 'Product Analytics',
+        icon: 'IconGraph',
+        iconColor: 'blue',
+        url: urls.insights(),
+        scene: Scene.SavedInsights,
+    },
+    [ProductKey.SESSION_REPLAY]: {
+        name: 'Session Replay',
+        icon: 'IconRewindPlay',
+        iconColor: 'var(--warning)',
+        url: urls.replay(),
+        scene: Scene.Replay,
+    },
+    [ProductKey.FEATURE_FLAGS]: {
+        name: 'Feature Flags & A/B Testing',
+        breadcrumbsName: 'Feature Flags',
+        icon: 'IconToggle',
+        iconColor: 'seagreen',
+        url: urls.featureFlags(),
+        scene: Scene.FeatureFlags,
+    },
+    [ProductKey.SURVEYS]: {
+        name: 'Surveys',
+        icon: 'IconMessage',
+        iconColor: 'salmon',
+        url: urls.surveys(),
+        scene: Scene.Surveys,
+    },
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
@@ -154,11 +165,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return [
                     {
                         key: Scene.Onboarding,
-                        name: productKeyToProductName[productKey ?? ''],
-                        path: productKeyToURL[productKey ?? ''],
+                        name:
+                            availableOnboardingProducts[productKey as ProductKey].breadcrumbsName ??
+                            availableOnboardingProducts[productKey as ProductKey].name,
+                        path: availableOnboardingProducts[productKey as ProductKey].url,
                     },
                     {
-                        key: productKeyToScene[productKey ?? ''],
+                        key: availableOnboardingProducts[productKey as ProductKey].scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
@@ -317,9 +330,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         goToNextStep: () => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
@@ -331,9 +343,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     `/onboarding/${values.productKey}`,
                     { ...router.values.searchParams, step: nextStep.props.stepKey },
                 ]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         goToPreviousStep: () => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
@@ -345,9 +356,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     `/onboarding/${values.productKey}`,
                     { ...router.values.searchParams, step: previousStep.props.stepKey },
                 ]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
