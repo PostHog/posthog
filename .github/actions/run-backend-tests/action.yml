@@ -12,7 +12,7 @@ inputs:
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        description: Either 'Core', 'Legacy insights backend', or 'Temporal'
+        description: Either 'Core' or 'Temporal'
     concurrency:
         required: true
         description: Count of concurrency groups
@@ -149,7 +149,7 @@ runs:
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
-              HOGQL_INSIGHTS_OVERRIDE: ${{ inputs.segment == 'Legacy insights backend' && '0' || '1' }}
+              HOGQL_INSIGHTS_OVERRIDE: '1' # HogQL insights are fully rolled out in production
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{
