@@ -286,7 +286,9 @@ class OrganizationMembership(UUIDModel):
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             if new_level == OrganizationMembership.Level.OWNER:
                 if self.level != OrganizationMembership.Level.OWNER:
-                    raise exceptions.PermissionDenied("You can only make another member owner if you're its owner.")
+                    raise exceptions.PermissionDenied(
+                        "You can only make another member owner if you're this organization's owner."
+                    )
                 self.save()
             elif new_level > self.level:
                 raise exceptions.PermissionDenied(

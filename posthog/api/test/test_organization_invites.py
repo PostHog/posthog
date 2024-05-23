@@ -93,6 +93,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "hedgehog_config": None,
                 },
                 "is_expired": False,
+                "level": 1,
                 "emailing_attempt_made": True,
                 "message": None,
             },
