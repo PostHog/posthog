@@ -9,7 +9,7 @@ from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.proxy_service import CreateHostedProxyInputs, DeleteHostedProxyInputs
+from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
 
 from rest_framework.response import Response
 
@@ -58,7 +58,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         temporal = sync_connect()
-        inputs = CreateHostedProxyInputs(
+        inputs = CreateManagedProxyInputs(
             organization_id=record.organization_id,
             proxy_record_id=record.id,
             domain=record.domain,
@@ -84,7 +84,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.delete()
         elif record:
             temporal = sync_connect()
-            inputs = DeleteHostedProxyInputs(
+            inputs = DeleteManagedProxyInputs(
                 organization_id=record.organization_id,
                 proxy_record_id=record.id,
                 domain=record.domain,
