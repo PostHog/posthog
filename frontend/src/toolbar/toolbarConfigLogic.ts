@@ -16,7 +16,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     props({} as ToolbarProps),
 
     actions({
-        authenticate: true,
         logout: true,
         tokenExpired: true,
         clearUserIntent: true,
@@ -24,6 +23,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         hideButton: true,
         persistConfig: true,
         authorize: true,
+        authIssue: (message: string) => ({ message }),
         checkAuthorization: true,
     }),
 
@@ -43,6 +43,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             } as ToolbarAuthorizationState,
             {
                 authorize: async () => {
+                    toolbarPosthogJS.capture('toolbar authenticate', {
+                        is_authenticated: values.isAuthenticated,
+                    })
+
                     // TODO: Error handling
                     const res = await toolbarFetch(`/api/client_authorization/start`, 'POST')
 
@@ -77,6 +81,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                         accessToken: payload.access_token,
                     }
                 },
+
+                authIssue: () => {
+                    return null
+                },
             },
         ],
     })),
@@ -99,11 +107,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        authenticate: async () => {
-            toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
-            actions.authorize()
-        },
-
         authorizeSuccess: async () => {
             // TRICKY: Need to do on the next tick to ensure the loader values are ready
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
@@ -120,7 +123,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
         },
-        tokenExpired: () => {
+        auth: () => {
             toolbarPosthogJS.capture('toolbar token expired')
             console.warn('PostHog Toolbar API token expired. Clearing session.')
             if (values.props.source !== 'localstorage') {
@@ -196,13 +199,10 @@ export async function toolbarFetch(
         },
     })
     if (response.status === 403) {
-        const responseData = await response.json()
-        if (responseData.detail === "You don't have access to the project.") {
-            toolbarConfigLogic.actions.authenticate()
-        }
+        toolbarConfigLogic.actions.authIssue('forbidden')
     }
     if (response.status == 401) {
-        toolbarConfigLogic.actions.tokenExpired()
+        toolbarConfigLogic.actions.authIssue('forbidden')
     }
     return response
 }
