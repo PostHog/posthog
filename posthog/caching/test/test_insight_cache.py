@@ -3,6 +3,7 @@ from typing import Optional
 from collections.abc import Callable
 from unittest.mock import call, patch
 
+from django.test import override_settings
 import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -40,7 +41,10 @@ def create_insight_caching_state(
     **kw,
 ):
     with mute_selected_signals():
-        insight = create_insight(team, user, filters=filters)
+        with override_settings(HOGQL_INSIGHTS_OVERRIDE=False):
+            # HogQL-based insights handle caching fully inside query runners,
+            # so the tests in this file only pertain to the legacy engine
+            insight = create_insight(team, user, filters=filters)
 
     upsert(team, insight)
 
