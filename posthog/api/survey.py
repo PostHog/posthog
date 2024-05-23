@@ -266,7 +266,14 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             instance.targeting_flag.save()
 
         instance = super().update(instance, validated_data)
-        if end_date is None and "iteration_count" in validated_data and "iteration_frequency_days" in validated_data:
+        if "iteration_count" in validated_data and "iteration_frequency_days" in validated_data:
+            iteration_count = validated_data.get("iteration_count")
+
+            if instance.current_iteration is not None and instance.current_iteration > iteration_count:
+                raise serializers.ValidationError(
+                    f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
+                )
+
             instance.iteration_start_dates = list(
                 rrule(
                     DAILY,
@@ -276,8 +283,15 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 )
             )
 
-            instance.current_iteration = 1
-            instance.current_iteration_start_date = instance.start_date
+            if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
+                instance.current_iteration = 1
+                instance.current_iteration_start_date = instance.start_date
+
+            instance.save()
+        else:
+            instance.iteration_start_dates = []
+            instance.current_iteration = None
+            instance.current_iteration_start_date = None
             instance.save()
 
         self._add_user_survey_interacted_filters(instance, end_date)

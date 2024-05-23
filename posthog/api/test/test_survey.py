@@ -9,7 +9,7 @@ from django.test.client import Client
 from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
-
+from nanoid import generate
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
     APIBaseTest,
@@ -1581,11 +1581,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
 
 
 class TestSurveysRecurringIterations(APIBaseTest):
-    def test_can_create_recurring_survey(self):
+    def _create_recurring_survey(self) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Recurring NPS SUrvey",
+                "name": f"Recurring NPS Survey {random_id}",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [
@@ -1607,6 +1608,10 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_start_dates"] is None
         assert response_data["current_iteration"] is None
         survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
+    def test_can_create_recurring_survey(self):
+        survey = self._create_recurring_survey()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
@@ -1622,31 +1627,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
 
     @freeze_time("2024-05-22 14:40:09")
     def test_iterations_always_start_from_start_date(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Recurring NPS SUrvey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "question": "this is my question",
-                        "description": "Get feedback on the new notebooks feature",
-                        "type": "popover",
-                        "questions": "this is my question",
-                    }
-                ],
-                "iteration_count": 2,
-                "iteration_frequency_days": 30,
-            },
-            format="json",
-        )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-
-        assert response_data["iteration_start_dates"] is None
-        assert response_data["current_iteration"] is None
-        survey = Survey.objects.get(id=response_data["id"])
+        survey = self._create_recurring_survey()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
@@ -1670,17 +1651,81 @@ class TestSurveysRecurringIterations(APIBaseTest):
             "2024-08-20T14:40:09Z",
         ]
 
-    def test_cannot_remove_questions(self):
-        pass
-
-    def test_cannot_remove_options_from_questions(self):
-        pass
-
     def test_cannot_reduce_iterations_lt_current_iteration(self):
-        pass
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+        survey.refresh_from_db()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 1,
+                "iteration_frequency_days": 30,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
+
+    def test_can_turn_off_recurring_schedule(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        response_data = response.json()
+        assert len(response_data["iteration_start_dates"]) == 0
+        assert response_data["current_iteration"] is None
 
     def test_can_stop_and_resume_survey(self):
-        pass
+        # start the survey with a recurring schedule
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+        survey.refresh_from_db()
+
+        # now stop  the survey with a recurring schedule
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "end_date": datetime.now() + timedelta(days=2),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
 
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
