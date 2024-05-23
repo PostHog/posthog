@@ -197,9 +197,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             str(item[0]): {
                 "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
                 "clickhouse": item[1],
-                "valid": True
-                if "-" not in str(item[0])  # Clickhouse doesn't like a dash in the column name
-                else False,
+                "valid": True,
             }
             for item in result
         }
@@ -251,10 +249,8 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 column_invalid = False
 
-            if (
-                not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns)
-            ) and "-" not in column:  # Dashes in column names breaks clickhouse
-                structure.append(f"{column} {clickhouse_type}")
+            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+                structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):

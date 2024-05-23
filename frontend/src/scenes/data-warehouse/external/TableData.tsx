@@ -150,7 +150,7 @@ export function TableData(): JSX.Element {
                                                 ({ table, fields, chain, schema_valid }) =>
                                                     !table && !fields && !chain && schema_valid
                                             )
-                                            .map(({ name }) => name)} FROM ${table.name} LIMIT 100`,
+                                            .map(({ hogql_value }) => hogql_value)} FROM ${table.name} LIMIT 100`,
                                     },
                                 })
                             )}

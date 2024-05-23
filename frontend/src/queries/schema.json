@@ -2335,6 +2335,9 @@
                     },
                     "type": "array"
                 },
+                "hogql_value": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -2348,7 +2351,7 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["name", "type", "schema_valid"],
+            "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
         "DatabaseSchemaPostHogTable": {

@@ -116,7 +116,7 @@ class TestTable(BaseTest):
                 "id-hype": {
                     "clickhouse": "String",
                     "hogql": "StringDatabaseField",
-                    "valid": False,
+                    "valid": True,
                 }
             }
 
