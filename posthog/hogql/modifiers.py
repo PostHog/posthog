@@ -7,6 +7,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     OptimizeJoinedFilters,
+    PersonsJoinMode,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +47,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.optimizeJoinedFilters is None:
         modifiers.optimizeJoinedFilters = OptimizeJoinedFilters.false
+
+    if modifiers.personsJoinMode is None:
+        modifiers.personsJoinMode = PersonsJoinMode.inner
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

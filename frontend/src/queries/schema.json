@@ -4149,6 +4149,10 @@
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
+                "personsJoinMode": {
+                    "enum": ["inner", "left"],
+                    "type": "string"
+                },
                 "personsOnEventsMode": {
                     "enum": [
                         "disabled",

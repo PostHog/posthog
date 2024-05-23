@@ -517,6 +517,11 @@ class PersonsArgMaxVersion(str, Enum):
     v2 = "v2"
 
 
+class PersonsJoinMode(str, Enum):
+    inner = "inner"
+    left = "left"
+
+
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
@@ -534,6 +539,7 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[OptimizeJoinedFilters] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
 

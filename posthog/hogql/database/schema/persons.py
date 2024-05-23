@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.schema import PersonsArgMaxVersion
+from posthog.schema import PersonsArgMaxVersion, PersonsJoinMode
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -108,7 +108,10 @@ def join_with_persons_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
-    join_expr.join_type = "INNER JOIN"
+    if context.modifiers.personsJoinMode == PersonsJoinMode.left:
+        join_expr.join_type = "LEFT JOIN"
+    else:
+        join_expr.join_type = "INNER JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
