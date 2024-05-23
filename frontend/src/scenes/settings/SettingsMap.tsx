@@ -326,7 +326,7 @@ export const SettingsMap: SettingSection[] = [
         settings: [
             {
                 id: 'organization-proxy',
-                title: 'Proxy',
+                title: 'Managed reverse proxies',
                 component: <ManagedReverseProxy />,
             },
         ],
