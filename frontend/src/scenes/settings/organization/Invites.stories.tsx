@@ -38,7 +38,7 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const Default = (): JSX.Element => {
+export const CurrentUserIsOwner = (): JSX.Element => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -47,6 +47,48 @@ export const Default = (): JSX.Element => {
                 realm: 'hosted-clickhouse',
                 available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
             },
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.settings('organization-members'))
+    }, [])
+    return <App />
+}
+
+export const CurrentUserIsAdmin = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+            },
+            '/api/organizations/@current/': (): MockSignature => [
+                200,
+                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Admin },
+            ],
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.settings('organization-members'))
+    }, [])
+    return <App />
+}
+
+export const CurrentUserIsMember = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+            },
+            '/api/organizations/@current/': (): MockSignature => [
+                200,
+                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Member },
+            ],
         },
     })
     useEffect(() => {
