@@ -400,4 +400,14 @@ describe('runComposeWebhook', () => {
 
         expect(composeWebhook).toHaveBeenCalledTimes(0)
     })
+
+    it('handles malformed filters and does logs an error', async () => {
+        mockPluginConfig.filters = {
+            wat: 'is up',
+        } as any
+
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(0)
+    })
 })

@@ -1434,7 +1434,7 @@ describe('ActionMatcher.checkFilters', () => {
         const event = createTestEvent(partialEvent)
         const filters = createFilters(partialFilters)
 
-        expect(actionMatcher.checkFilters(event, filters.events)).toEqual(expectation)
+        expect(actionMatcher.checkFilters(event, filters)).toEqual(expectation)
     })
 })
 

@@ -453,7 +453,7 @@ async function filterPluginMethodsForActionMatches<T>(
 
             if (pluginConfig.filters) {
                 try {
-                    const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters.events)
+                    const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters)
                     matches.push(matchedFilters)
                 } catch (error) {
                     // We consider an exception to be bad enough to drop the event (we should also log it as a processing error)

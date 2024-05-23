@@ -13,7 +13,7 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
-    PluginConfigFilter,
+    PluginConfigFilters,
     PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
@@ -162,10 +162,10 @@ export class ActionMatcher {
         return matches
     }
 
-    public checkFilters(event: PostIngestionEvent, filters: PluginConfigFilter[]): boolean {
+    public checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): boolean {
         // NOTE: We should likely convert this to use HogVM or some other generic matching action
 
-        for (const filter of filters) {
+        for (const filter of filters.events) {
             if (!filter.name || filter.name === event.event) {
                 // Matches the event name or null (all events)
 
