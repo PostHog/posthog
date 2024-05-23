@@ -8,6 +8,7 @@ from django.db import transaction
 from posthog import settings
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import ExportedAsset
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
 EXPORT_QUEUED_COUNTER = Counter(
@@ -42,7 +43,10 @@ EXPORT_TIMER = Histogram(
 @shared_task(
     acks_late=True,
     ignore_result=False,
-    time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
+    # we let the hogql query run for HOGQL_INCREASED_MAX_EXECUTION_TIME
+    # give this an extra two minutes for the other stuff around it
+    soft_time_limit=2,
+    time_limit=3,
     queue=CeleryQueue.EXPORTS.value,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     retry_backoff=1,
@@ -60,6 +64,13 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
         pk=exported_asset_id
     )
 
+    import time
+
+    print("presleep")
+    for i in range(100):
+        time.sleep(1)
+        print(i)
+    print("postsleep")
     if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
         csv_exporter.export_tabular(exported_asset, limit=limit)
         EXPORT_QUEUED_COUNTER.labels(type="csv").inc()

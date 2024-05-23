@@ -5,10 +5,10 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -209,4 +209,4 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._run_web_overview_query("2023-12-01", "2023-12-03", limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
