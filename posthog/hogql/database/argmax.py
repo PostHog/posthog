@@ -1,6 +1,11 @@
 from typing import Optional
 from collections.abc import Callable
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from posthog.hogql.ast import SelectQuery
+
 
 def argmax_select(
     table_name: str,
@@ -8,7 +13,7 @@ def argmax_select(
     group_fields: list[str],
     argmax_field: str,
     deleted_field: Optional[str] = None,
-):
+) -> "SelectQuery":
     from posthog.hogql import ast
 
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(

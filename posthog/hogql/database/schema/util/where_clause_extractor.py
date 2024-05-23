@@ -1,18 +1,17 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
 
 SESSION_BUFFER_DAYS = 3
 
 
-@dataclass
-class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
+class WhereClauseExtractor(CloningVisitor):
     """This class extracts the Where clause from the lazy sessions table, to the clickhouse sessions table.
 
     The sessions table in Clickhouse is an AggregatingMergeTree, and will have one row per session per day. This means that
@@ -47,13 +46,39 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
     context: HogQLContext
     clear_types: bool = False
     clear_locations: bool = False
+    capture_timestamp_comparisons: bool = False
+    our_tables: list[ast.LazyTable | ast.LazyJoin]
+
+    limits: Literal["", "session_min"] = ""
+
+    def __init__(self, context: HogQLContext):
+        super().__init__()
+        self.context = context
+        self.our_tables = []
+
+    def import_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
+        if isinstance(join_or_table, LazyJoinToAdd):
+            if join_or_table.lazy_join not in self.our_tables:
+                self.our_tables.append(join_or_table.lazy_join)
+        elif isinstance(join_or_table, LazyTableToAdd):
+            if join_or_table.lazy_table not in self.our_tables:
+                self.our_tables.append(join_or_table.lazy_table)
 
     def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
-        if not parsed_query.where:
+        if not parsed_query.where and not parsed_query.prewhere:
             return None
 
         # visit the where clause
-        where = self.visit(parsed_query.where)
+        wheres = []
+        if parsed_query.where:
+            wheres.append(parsed_query.where)
+        if parsed_query.prewhere:
+            wheres.append(parsed_query.prewhere)
+
+        if len(wheres) == 1:
+            where = self.visit(wheres[0])
+        else:
+            where = self.visit(ast.And(exprs=wheres))
 
         if isinstance(where, ast.Constant):
             return None
@@ -63,8 +88,12 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         is_left_constant = is_time_or_interval_constant(node.left)
         is_right_constant = is_time_or_interval_constant(node.right)
-        is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context)
-        is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context)
+        is_left_timestamp_field = self.capture_timestamp_comparisons and is_simple_timestamp_field_expression(
+            node.left, self.context
+        )
+        is_right_timestamp_field = self.capture_timestamp_comparisons and is_simple_timestamp_field_expression(
+            node.right, self.context
+        )
 
         if is_left_constant and is_right_constant:
             # just ignore this comparison
@@ -140,6 +169,28 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
                     )
                 )
 
+        # Check if any of the fields are a field on our requested table
+        if len(self.our_tables) > 0:
+            left = self.visit(node.left)
+            right = self.visit(node.right)
+            if isinstance(left, ast.Constant) and left.value is False:
+                return left
+            if isinstance(right, ast.Constant) and right.value is False:
+                return right
+            if (
+                isinstance(left, ast.Constant)
+                and left.value is True
+                and isinstance(right, ast.Constant)
+                and right.value is True
+            ):
+                return left
+
+            return ast.CompareOperation(op=node.op, left=left, right=right)
+
+        return ast.Constant(value=True)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
+        # going too deep, bail
         return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
@@ -174,13 +225,47 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
             return self.visit_compare_operation(
                 ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
             )
+        elif node.name == "like":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Like, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "notLike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.NotLike, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "ilike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.ILike, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "notIlike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
+            )
         return ast.Constant(value=True)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
+        # if field in requested list
+        type = node.type
+        if isinstance(type, ast.PropertyType):
+            type = type.field_type
+        if isinstance(type, ast.FieldAliasType):
+            type = type.type
+        if isinstance(type, ast.FieldType):
+            table_type = type.table_type
+            if (isinstance(table_type, ast.LazyTableType) and table_type.table in self.our_tables) or (
+                isinstance(table_type, ast.LazyJoinType) and table_type.lazy_join in self.our_tables
+            ):
+                new_field = cast(ast.Field, clone_expr(node))
+                if isinstance(node.type, ast.PropertyType):
+                    chain_length = len(node.type.chain) + 1
+                else:
+                    chain_length = 1
+                new_field.chain = new_field.chain[-chain_length:]
+                return new_field
         return ast.Constant(value=True)
 
     def visit_constant(self, node: ast.Constant) -> ast.Expr:
-        return ast.Constant(value=True)
+        return ast.Constant(value=node.value)
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
         raise Exception()  # this should never happen, as placeholders should be resolved before this runs
@@ -229,6 +314,12 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
 
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
         return self.visit(node.expr)
+
+
+@dataclass
+class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
+    limits = "session_min"
+    capture_timestamp_comparisons = True
 
 
 def is_time_or_interval_constant(expr: ast.Expr) -> bool:

@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 from pydantic import ConfigDict, BaseModel
@@ -94,23 +95,23 @@ class Table(FieldOrTable):
     def get_asterisk(self):
         fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
         asterisk: dict[str, FieldOrTable] = {}
-        for key, field in self.fields.items():
+        for key, fld in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
+            if isinstance(fld, Table) or isinstance(fld, LazyJoin) or isinstance(fld, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
-            elif isinstance(field, DatabaseField):
-                if not field.hidden:  # Skip over hidden fields
-                    asterisk[key] = field
+            elif isinstance(fld, DatabaseField):
+                if not fld.hidden:  # Skip over hidden field
+                    asterisk[key] = fld
             else:
-                raise ResolutionError(f"Unknown field type {type(field).__name__} for asterisk")
+                raise ResolutionError(f"Unknown field type {type(fld).__name__} for asterisk")
         return asterisk
 
 
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, dict[str, Any], "HogQLContext", "SelectQuery"], Any]
+    join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
@@ -134,12 +135,25 @@ class LazyTable(Table):
 
     def lazy_select(
         self,
-        requested_fields: dict[str, list[str | int]],
-        limiting_filters: list[Expr],
+        table_to_add: "LazyTableToAdd",
         context: "HogQLContext",
         node: "SelectQuery",
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
+
+
+@dataclass
+class LazyTableToAdd:
+    lazy_table: LazyTable
+    fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+
+
+@dataclass
+class LazyJoinToAdd:
+    from_table: str
+    to_table: str
+    lazy_join: LazyJoin
+    fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 
 class VirtualTable(Table):

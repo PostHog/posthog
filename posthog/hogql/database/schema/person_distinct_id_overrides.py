@@ -1,5 +1,4 @@
 from posthog.hogql.ast import SelectQuery
-from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -11,6 +10,8 @@ from posthog.hogql.database.models import (
     LazyJoin,
     LazyTable,
     FieldOrTable,
+    LazyTableToAdd,
+    LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
@@ -41,24 +42,22 @@ def select_from_person_distinct_id_overrides_table(requested_fields: dict[str, l
 
 
 def join_with_person_distinct_id_overrides_table(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, list[str]],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_id_overrides")
-    join_expr = ast.JoinExpr(table=select_from_person_distinct_id_overrides_table(requested_fields))
+    join_expr = ast.JoinExpr(table=select_from_person_distinct_id_overrides_table(join_to_add.fields_accessed))
     join_expr.join_type = "LEFT OUTER JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "distinct_id"]),
-            right=ast.Field(chain=[to_table, "distinct_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
         ),
         constraint_type="ON",
     )
@@ -84,12 +83,11 @@ class PersonDistinctIdOverridesTable(LazyTable):
 
     def lazy_select(
         self,
-        requested_fields: dict[str, list[str | int]],
-        limiting_filters: list[Expr],
+        table_to_add: LazyTableToAdd,
         context: HogQLContext,
         node: SelectQuery,
     ):
-        return select_from_person_distinct_id_overrides_table(requested_fields)
+        return select_from_person_distinct_id_overrides_table(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context):
         return "person_distinct_id_overrides"

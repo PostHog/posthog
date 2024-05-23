@@ -506,6 +506,11 @@ class MaterializationMode(str, Enum):
     disabled = "disabled"
 
 
+class OptimizeJoinedFilters(str, Enum):
+    true = "true"
+    false = "false"
+
+
 class PersonsArgMaxVersion(str, Enum):
     auto = "auto"
     v1 = "v1"
@@ -527,6 +532,7 @@ class HogQLQueryModifiers(BaseModel):
     debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
+    optimizeJoinedFilters: Optional[OptimizeJoinedFilters] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None

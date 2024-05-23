@@ -131,8 +131,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.limit_by or []:
             self.visit(expr)
-        (self.visit(node.limit),)
-        (self.visit(node.offset),)
+        self.visit(node.limit)
+        self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
