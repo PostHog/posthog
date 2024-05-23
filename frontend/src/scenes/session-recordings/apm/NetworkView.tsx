@@ -7,7 +7,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import AssetProportions from 'scenes/session-recordings/apm/components/AssetProportions'
 import { PerformanceCardRow } from 'scenes/session-recordings/apm/components/PerformanceCard'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
@@ -97,7 +96,7 @@ function Pager(): JSX.Element {
 }
 
 function WaterfallMeta(): JSX.Element | null {
-    const { currentPage, sessionPerson, sizeBreakdown } = useValues(networkViewLogic)
+    const { currentPage, sizeBreakdown } = useValues(networkViewLogic)
 
     if (!currentPage[0]) {
         return null
@@ -110,9 +109,6 @@ function WaterfallMeta(): JSX.Element | null {
                     {/*we shouldn't need to check for currentPage[0] with the elvis operator here,
                     but React is so eager to just call functions willy-nilly*/}
                     <h2 className="m-0 truncate">{currentPage[0].name}</h2>
-                    <div>
-                        <PersonDisplay person={sessionPerson} withIcon={true} noEllipsis={true} />
-                    </div>
                 </div>
             </div>
             <LemonDivider />
@@ -139,8 +135,7 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="NetworkView px-4 py-2">
-                {/*<div className="pre">{JSON.stringify(sessionPlayerMetaData, null, 2)}</div>*/}
+            <div className="NetworkView overflow-auto px-4 py-2">
                 <WaterfallMeta />
                 <LemonDivider />
                 <div className="space-y-1">
