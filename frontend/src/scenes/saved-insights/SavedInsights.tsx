@@ -314,6 +314,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTrends,
         inMenu: true,
     },
+    [NodeKind.WebTimeOfActivityQuery]: {
+        name: 'Activity by time',
+        description: 'View activity by time/dat',
+        icon: IconTrends,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
