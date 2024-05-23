@@ -45,7 +45,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null
 
     if modifiers.personsJoinMode is None:
-        modifiers.personsJoinMode = PersonsJoinMode.inner
+        modifiers.personsJoinMode = PersonsJoinMode.left
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
