@@ -1,4 +1,5 @@
 import json
+from posthog.clickhouse.client.connection import Workload
 import uuid
 
 from django.test import TestCase
@@ -215,3 +216,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
+
+    @patch("posthog.clickhouse.client.execute.get_pool")
+    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
+        from posthog.clickhouse.query_tagging import tag_queries
+
+        with self.capture_select_queries():
+            tag_queries(kind="request", id="1", access_method="personal_api_key")
+            sync_execute("select 1")
+
+            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)
