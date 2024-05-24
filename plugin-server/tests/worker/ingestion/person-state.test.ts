@@ -105,8 +105,7 @@ describe('PersonState.update()', () => {
             timestampParam,
             processPerson,
             customHub ? customHub.db : hub.db,
-            lazyPersonCreation,
-            overridesMode?.getWriter(customHub ?? hub)
+            lazyPersonCreation
         )
     }
 
