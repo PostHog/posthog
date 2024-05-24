@@ -21,13 +21,13 @@ export const mergeFinalFailuresCounter = new Counter({
 export const mergeTxnAttemptCounter = new Counter({
     name: 'person_merge_txn_attempt_total',
     help: 'Number of person merge attempts.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 // used to prevent identify from being used with generic IDs
