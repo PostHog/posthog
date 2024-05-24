@@ -179,7 +179,7 @@ def execute_hogql_query(
 
             try:
                 results, types = sync_execute(
-                    clickhouse_sql.replace("SELECT", "SELECT sleep(3),"),
+                    clickhouse_sql,
                     clickhouse_context.values,
                     with_column_types=True,
                     workload=workload,
