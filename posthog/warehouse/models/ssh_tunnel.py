@@ -6,12 +6,6 @@ from paramiko import RSAKey
 
 
 @dataclasses.dataclass
-class SSHTunnelResult:
-    bind_host: str
-    bind_port: int
-
-
-@dataclasses.dataclass
 class SSHTunnel:
     enabled: bool
 
