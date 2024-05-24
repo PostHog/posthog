@@ -1,7 +1,7 @@
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
-import { ActionWebhookFormatter } from '../../../src/worker/ingestion/action-webhook-formatter'
+import { WebhookFormatter } from '../../../src/worker/ingestion/webhook-formatter'
 
-type ActionWebhookFormatterOptions = {
+type WebhookFormatterOptions = {
     webhookUrl?: string
     messageFormat?: string
     action?: Action
@@ -11,7 +11,7 @@ type ActionWebhookFormatterOptions = {
     personProperties?: PostIngestionEvent['person_properties']
 }
 
-describe('ActionWebhookFormatter', () => {
+describe('WebhookFormatter', () => {
     const team = { id: 123, person_display_name_properties: null } as Team
     const action = {
         id: 1,
@@ -30,8 +30,8 @@ describe('ActionWebhookFormatter', () => {
         timestamp: '2021-10-31T00%3A44%3A00.000Z' as ISOTimestamp,
     }
 
-    const createFormatter = (options?: ActionWebhookFormatterOptions) => {
-        return new ActionWebhookFormatter(
+    const createFormatter = (options?: WebhookFormatterOptions) => {
+        return new WebhookFormatter(
             options?.webhookUrl ?? 'https://example.com/',
             options?.messageFormat ?? 'User [person] did [action.name]',
             options?.action ?? action,
@@ -49,7 +49,7 @@ describe('ActionWebhookFormatter', () => {
     })
 
     describe('webhook formatting options', () => {
-        const cases: [ActionWebhookFormatterOptions][] = [
+        const cases: [WebhookFormatterOptions][] = [
             [{ messageFormat: '[person]' }],
             [{ messageFormat: '[person.link]' }],
             [{ messageFormat: '[user.name]' }], // Alias for person name
@@ -114,7 +114,7 @@ describe('ActionWebhookFormatter', () => {
 
     describe('slack webhook formatting options', () => {
         // Additional checks for the standard slack webhook formats
-        const cases: [ActionWebhookFormatterOptions][] = [
+        const cases: [WebhookFormatterOptions][] = [
             [{ messageFormat: '[person]' }],
             [{ messageFormat: '[action.name]' }],
             [{ messageFormat: '[event]', event: { ...event, eventUuid: '**>)', event: 'text><new link' } }], // Special escaping

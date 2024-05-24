@@ -1,7 +1,7 @@
 import { Webhook } from '@posthog/plugin-scaffold'
 import { format } from 'util'
 
-import { Action, PostIngestionEvent, Team } from '../../types'
+import { PostIngestionEvent, Team } from '../../types'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 
 enum WebhookType {
@@ -23,34 +23,38 @@ const determineWebhookType = (url: string): WebhookType => {
     return WebhookType.Other
 }
 
-export class ActionWebhookFormatter {
+export type WebhookFormatterOptions = {
+    webhookUrl: string
+    messageFormat: string
+    event: PostIngestionEvent
+    team: Team
+    siteUrl: string
+    sourcePath: string
+    sourceName: string
+}
+
+export class WebhookFormatter {
     private webhookType: WebhookType
     private projectUrl: string
     private personLink: string
-    private actionLink: string
     private eventLink: string
+    private sourceLink: string
 
-    constructor(
-        private webhookUrl: string,
-        private messageFormat: string,
-        private action: Action,
-        private event: PostIngestionEvent,
-        private team: Team,
-        private siteUrl: string
-    ) {
-        this.webhookType = determineWebhookType(webhookUrl)
-        this.projectUrl = `${siteUrl}/project/${team.id}`
+    constructor(private options: WebhookFormatterOptions) {
+        this.webhookType = determineWebhookType(options.webhookUrl)
+        this.projectUrl = `${options.siteUrl}/project/${options.team.id}`
 
-        this.personLink = `${this.projectUrl}/person/${encodeURIComponent(event.distinctId)}`
-        this.actionLink = `${this.projectUrl}/action/${action.id}`
-        this.eventLink = `${this.projectUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
-            event.timestamp
+        this.personLink = `${this.projectUrl}/person/${encodeURIComponent(options.event.distinctId)}`
+        this.eventLink = `${this.projectUrl}/events/${encodeURIComponent(options.event.eventUuid)}/${encodeURIComponent(
+            options.event.timestamp
         )}`
+
+        this.sourceLink = `${this.projectUrl}${options.sourcePath}`
     }
 
     composeWebhook(): Webhook {
         return {
-            url: this.webhookUrl,
+            url: this.options.webhookUrl,
             body: JSON.stringify(this.generateWebhookPayload()),
             headers: {
                 'Content-Type': 'application/json',
@@ -91,9 +95,9 @@ export class ActionWebhookFormatter {
             messageText = format(tokenizedMessage, ...values)
             messageMarkdown = format(tokenizedMessage, ...markdownValues)
         } catch (error) {
-            const [actionName, actionMarkdown] = this.getActionDetails()
-            messageText = `⚠ Error: There are one or more formatting errors in the message template for action "${actionName}".`
-            messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for action "${actionMarkdown}".*`
+            const [sourceName, sourceMarkdown] = this.getSourceDetails()
+            messageText = `⚠ Error: There are one or more formatting errors in the message template for source "${sourceName}".`
+            messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for source "${sourceMarkdown}".*`
         }
 
         return [messageText, messageMarkdown]
@@ -145,33 +149,35 @@ export class ActionWebhookFormatter {
     private getPersonDetails(): [string, string] {
         // Sync the logic below with the frontend `asDisplay`
         const personDisplayNameProperties =
-            this.team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        const customPropertyKey = personDisplayNameProperties.find((x) => this.event.person_properties?.[x])
-        const propertyIdentifier = customPropertyKey ? this.event.person_properties[customPropertyKey] : undefined
+            this.options.team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        const customPropertyKey = personDisplayNameProperties.find((x) => this.options.event.person_properties?.[x])
+        const propertyIdentifier = customPropertyKey
+            ? this.options.event.person_properties[customPropertyKey]
+            : undefined
 
         const customIdentifier: string =
             typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-        const display: string | undefined = (customIdentifier || this.event.distinctId)?.trim()
+        const display: string | undefined = (customIdentifier || this.options.event.distinctId)?.trim()
 
         return this.toWebhookLink(display, this.personLink)
     }
 
-    private getActionDetails(): [string, string] {
-        return this.toWebhookLink(this.action.name, this.actionLink)
+    private getSourceDetails(): [string, string] {
+        return this.toWebhookLink(this.options.sourceName, this.sourceLink)
     }
 
     private getEventDetails(): [string, string] {
-        return this.toWebhookLink(this.event.event, this.eventLink)
+        return this.toWebhookLink(this.options.event.event, this.eventLink)
     }
 
     private getTokens(): [string[], string] {
         // This finds property value tokens, basically any string contained in square brackets
         // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
         // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
-        const matchedTokens = this.messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
+        const matchedTokens = this.options.messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
         // Replace the tokens with placeholders, and unescape leftover brackets
-        const tokenizedMessage = this.messageFormat
+        const tokenizedMessage = this.options.messageFormat
             .replace(TOKENS_REGEX_BRACKETS_INCLUDED, '%s')
             .replace(/\\(\[|\])/g, '$1')
         return [matchedTokens, tokenizedMessage]
@@ -188,7 +194,7 @@ export class ActionWebhookFormatter {
                 ;[text, markdown] = this.getPersonDetails()
             } else {
                 const propertyName = `$${tokenParts[1]}`
-                const property = this.event.properties?.[propertyName]
+                const property = this.options.event.properties?.[propertyName]
                 markdown = text = this.webhookEscape(property)
             }
         } else if (tokenParts[0] === 'person') {
@@ -197,16 +203,16 @@ export class ActionWebhookFormatter {
             } else if (tokenParts[1] === 'link') {
                 markdown = text = this.webhookEscape(this.personLink)
             } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-                const property = this.event.person_properties
-                    ? getPropertyValueByPath(this.event.person_properties, tokenParts.slice(2))
+                const property = this.options.event.person_properties
+                    ? getPropertyValueByPath(this.options.event.person_properties, tokenParts.slice(2))
                     : undefined
                 markdown = text = this.webhookEscape(property)
             }
-        } else if (tokenParts[0] === 'action') {
+        } else if (tokenParts[0] === 'action' || tokenParts[0] === 'source') {
             if (tokenParts[1] === 'name') {
-                ;[text, markdown] = this.getActionDetails()
+                ;[text, markdown] = this.getSourceDetails()
             } else if (tokenParts[1] === 'link') {
-                markdown = text = this.webhookEscape(this.actionLink)
+                markdown = text = this.webhookEscape(this.sourceLink)
             }
         } else if (tokenParts[0] === 'event') {
             if (tokenParts.length === 1) {
@@ -214,19 +220,19 @@ export class ActionWebhookFormatter {
             } else if (tokenParts[1] === 'link') {
                 markdown = text = this.webhookEscape(this.eventLink)
             } else if (tokenParts[1] === 'uuid') {
-                markdown = text = this.webhookEscape(this.event.eventUuid)
+                markdown = text = this.webhookEscape(this.options.event.eventUuid)
             } else if (tokenParts[1] === 'name') {
                 // deprecated
-                markdown = text = this.webhookEscape(this.event.event)
+                markdown = text = this.webhookEscape(this.options.event.event)
             } else if (tokenParts[1] === 'event') {
-                markdown = text = this.webhookEscape(this.event.event)
+                markdown = text = this.webhookEscape(this.options.event.event)
             } else if (tokenParts[1] === 'timestamp') {
-                markdown = text = this.webhookEscape(this.event.timestamp)
+                markdown = text = this.webhookEscape(this.options.event.timestamp)
             } else if (tokenParts[1] === 'distinct_id') {
-                markdown = text = this.webhookEscape(this.event.distinctId)
+                markdown = text = this.webhookEscape(this.options.event.distinctId)
             } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-                const property = this.event.properties
-                    ? getPropertyValueByPath(this.event.properties, tokenParts.slice(2))
+                const property = this.options.event.properties
+                    ? getPropertyValueByPath(this.options.event.properties, tokenParts.slice(2))
                     : undefined
                 markdown = text = this.webhookEscape(property)
             }

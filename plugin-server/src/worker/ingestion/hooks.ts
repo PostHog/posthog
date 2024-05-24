@@ -7,10 +7,10 @@ import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { ActionWebhookFormatter } from './action-webhook-formatter'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
+import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
     name: 'webhook_process_event_duration',
@@ -113,15 +113,16 @@ export class HookCommander {
     ): Record<string, any> {
         const endTimer = webhookProcessStepDuration.labels('messageFormatting').startTimer()
         try {
-            const actionWebhookFormatter = new ActionWebhookFormatter(
+            const webhookFormatter = new WebhookFormatter({
                 webhookUrl,
                 messageFormat,
-                action,
                 event,
                 team,
-                this.siteUrl
-            )
-            return actionWebhookFormatter.generateWebhookPayload()
+                siteUrl: this.siteUrl,
+                sourceName: action.name ?? 'Unamed action',
+                sourcePath: `/action/${action.id}`,
+            })
+            return webhookFormatter.generateWebhookPayload()
         } finally {
             endTimer()
         }
