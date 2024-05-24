@@ -2,14 +2,17 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
-    FieldOrTable,
+    DatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
+    FloatDatabaseField,
+    DateDatabaseField,
 )
 
 
-external_tables: dict[str, dict[str, FieldOrTable]] = {
+external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
