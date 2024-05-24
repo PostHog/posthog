@@ -1,7 +1,9 @@
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
@@ -10,22 +12,25 @@ import { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
-        title: 'ID',
-        key: 'uuid',
-        render: function Render(_, event: LiveEvent) {
-            return <span>{event.uuid}</span>
-        },
-    },
-    {
         title: 'Event',
         key: 'event',
+        className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            return <span>{event.event}</span>
+            return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
         },
     },
     {
-        title: 'Timestamp',
+        title: 'URL / Screen',
+        key: '$current_url',
+        className: 'max-w-80',
+        render: function Render(_, event: LiveEvent) {
+            return <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
+        },
+    },
+    {
+        title: 'Time',
         key: 'timestamp',
+        className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
             return <TZLabel time={event.timestamp} />
         },
