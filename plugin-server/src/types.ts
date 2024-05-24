@@ -199,7 +199,6 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_WRITES_ENABLED_MAX_TEAM_ID: number
     POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
@@ -291,8 +290,6 @@ export interface Hub extends PluginsServerConfig {
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
-    poeEmbraceJoinForTeams: ValueMatcher<number>
-    poeWritesExcludeTeams: ValueMatcher<number>
     lazyPersonCreationTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
