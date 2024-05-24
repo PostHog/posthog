@@ -77,4 +77,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
+    [Scene.ExploreEvents]: () => import('./activity/events/EventsScene'),
+    [Scene.LiveEvents]: () => import('./activity/live-events/LiveEventsTable'),
 }
