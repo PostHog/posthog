@@ -51,6 +51,7 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+    // TODO: Remove this
     poEEmbraceJoin: boolean
 
     constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {

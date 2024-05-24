@@ -92,8 +92,7 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private db: DB,
-        private lazyPersonCreation: boolean,
-        private personOverrideWriter?: DeferredPersonOverrideWriter
+        private lazyPersonCreation: boolean
     ) {
         this.eventProperties = event.properties!
 
@@ -535,7 +534,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -566,13 +564,6 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                if (this.personOverrideWriter) {
-                    await this.personOverrideWriter.addPersonOverride(
-                        tx,
-                        getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
-                    )
-                }
-
                 return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
             }
         )
@@ -582,7 +573,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
         return result
@@ -601,22 +591,6 @@ type PersonOverrideDetails = {
     old_person_id: string
     override_person_id: string
     oldest_event: DateTime
-}
-
-function getPersonOverrideDetails(
-    teamId: number,
-    oldPerson: InternalPerson,
-    overridePerson: InternalPerson
-): PersonOverrideDetails {
-    if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
-        throw new Error('cannot merge persons across different teams')
-    }
-    return {
-        team_id: teamId,
-        old_person_id: oldPerson.uuid,
-        override_person_id: overridePerson.uuid,
-        oldest_event: overridePerson.created_at,
-    }
 }
 
 export class FlatPersonOverrideWriter {
