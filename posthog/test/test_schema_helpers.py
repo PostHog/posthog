@@ -57,74 +57,74 @@ class TestSchemaHelpers(TestCase):
     @parameterized.expand(
         [
             # general: missing filter
-            (None, {}, 0),
+            (None, {}, 8),
             # general: ordering of keys
             (
                 {"funnelVizType": FunnelVizType.time_to_convert, "funnelOrderType": StepOrderValue.strict},
                 {"funnelOrderType": StepOrderValue.strict, "funnelVizType": FunnelVizType.time_to_convert},
-                2,
+                8,
             ),
             # binCount
-            # ({}, {"binCount": 4}, 0),
+            # ({}, {"binCount": 4}, 8),
             (
                 {"binCount": 4, "funnelVizType": FunnelVizType.time_to_convert},
                 {"binCount": 4, "funnelVizType": FunnelVizType.time_to_convert},
-                2,
+                9,
             ),
             # breakdownAttributionType
-            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 0),
+            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 8),
             (
                 {"breakdownAttributionType": BreakdownAttributionType.last_touch},
                 {"breakdownAttributionType": BreakdownAttributionType.last_touch},
-                1,
+                8,
             ),
             # breakdownAttributionValue
-            # ({}, {"breakdownAttributionValue": 2}, 0),
+            # ({}, {"breakdownAttributionValue": 2}, 8),
             (
                 {"breakdownAttributionType": BreakdownAttributionType.step, "breakdownAttributionValue": 2},
                 {"breakdownAttributionType": BreakdownAttributionType.step, "breakdownAttributionValue": 2},
-                2,
+                9,
             ),
             # exclusions
-            ({}, {"exclusions": []}, 0),
+            ({}, {"exclusions": []}, 8),
             (
                 {"exclusions": [FunnelExclusionEventsNode(funnelFromStep=0, funnelToStep=1)]},
                 {"exclusions": [FunnelExclusionEventsNode(funnelFromStep=0, funnelToStep=1)]},
-                1,
+                8,
             ),
             # funnelAggregateByHogQL
-            # ({}, {"funnelAggregateByHogQL": ""}, 0),
-            ({"funnelAggregateByHogQL": "distinct_id"}, {"funnelAggregateByHogQL": "distinct_id"}, 1),
+            # ({}, {"funnelAggregateByHogQL": ""}, 8),
+            ({"funnelAggregateByHogQL": "distinct_id"}, {"funnelAggregateByHogQL": "distinct_id"}, 9),
             # funnelFromStep and funnelToStep
-            ({"funnelFromStep": 1, "funnelToStep": 2}, {"funnelFromStep": 1, "funnelToStep": 2}, 2),
+            ({"funnelFromStep": 1, "funnelToStep": 2}, {"funnelFromStep": 1, "funnelToStep": 2}, 10),
             # funnelOrderType
-            ({}, {"funnelOrderType": StepOrderValue.ordered}, 0),
-            ({"funnelOrderType": StepOrderValue.strict}, {"funnelOrderType": StepOrderValue.strict}, 1),
+            ({}, {"funnelOrderType": StepOrderValue.ordered}, 8),
+            ({"funnelOrderType": StepOrderValue.strict}, {"funnelOrderType": StepOrderValue.strict}, 8),
             # funnelStepReference
-            ({}, {"funnelStepReference": FunnelStepReference.total}, 0),
+            ({}, {"funnelStepReference": FunnelStepReference.total}, 8),
             (
                 {"funnelStepReference": FunnelStepReference.previous},
                 {"funnelStepReference": FunnelStepReference.previous},
-                1,
+                8,
             ),
             # funnelVizType
-            ({}, {"funnelVizType": FunnelVizType.steps}, 0),
-            ({"funnelVizType": FunnelVizType.trends}, {"funnelVizType": FunnelVizType.trends}, 1),
+            ({}, {"funnelVizType": FunnelVizType.steps}, 8),
+            ({"funnelVizType": FunnelVizType.trends}, {"funnelVizType": FunnelVizType.trends}, 8),
             # funnelWindowInterval
-            ({}, {"funnelWindowInterval": 14}, 0),
-            ({"funnelWindowInterval": 12}, {"funnelWindowInterval": 12}, 1),
+            ({}, {"funnelWindowInterval": 14}, 8),
+            ({"funnelWindowInterval": 12}, {"funnelWindowInterval": 12}, 8),
             # funnelWindowIntervalUnit
-            ({}, {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.day}, 0),
+            ({}, {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.day}, 8),
             (
                 {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.week},
                 {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.week},
-                1,
+                8,
             ),
             # hidden_legend_breakdowns
-            # ({}, {"hidden_legend_breakdowns": []}, 0),
+            # ({}, {"hidden_legend_breakdowns": []}, 8),
             # layout
-            ({}, {"layout": FunnelLayout.vertical}, 0),
-            ({"layout": FunnelLayout.horizontal}, {"layout": FunnelLayout.horizontal}, 1),
+            ({}, {"layout": FunnelLayout.vertical}, 8),
+            ({"layout": FunnelLayout.horizontal}, {"layout": FunnelLayout.horizontal}, 8),
         ]
     )
     def test_clean_query_funnel_filter(self, f1, f2, num_keys):
@@ -132,7 +132,4 @@ class TestSchemaHelpers(TestCase):
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 
         self.assertEqual(to_json(q1), to_json(q2))
-        if num_keys == 0:
-            self.assertEqual("funnelsFilter" in json.loads(to_json(q1)), False)
-        else:
-            self.assertEqual(num_keys, len(json.loads(to_json(q1))["funnelsFilter"].keys()))
+        self.assertEqual(num_keys, len(json.loads(to_json(q1))["funnelsFilter"].keys()))
