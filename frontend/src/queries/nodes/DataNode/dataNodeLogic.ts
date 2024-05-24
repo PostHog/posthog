@@ -122,7 +122,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props, values }, oldProps) => {
+    propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -131,8 +131,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
         if (
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            ((!values.response?.['result'] && !values.response?.['results']) ||
-                !queryEqual(props.query, oldProps.query)) &&
+            !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
