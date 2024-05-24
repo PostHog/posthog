@@ -59,6 +59,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
@@ -931,6 +932,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
@@ -975,6 +977,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
