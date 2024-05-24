@@ -355,7 +355,7 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+    def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(
                 team=self.team,
