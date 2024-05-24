@@ -121,7 +121,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             const { eventType } = values.filters
             const url = new URL(`${liveEventsHostOrigin()}/events`)
-            url.searchParams.append('teamId', '2')
+            url.searchParams.append('teamId', values.currentTeam.id.toString())
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
@@ -159,11 +159,18 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         },
         pollStats: async () => {
             try {
-                const response = await fetch(`${liveEventsHostOrigin()}/stats?teamId=${'2'}`, {
-                    headers: {
-                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
-                    },
-                })
+                if (!values.currentTeam) {
+                    return
+                }
+
+                const response = await fetch(
+                    `${liveEventsHostOrigin()}/stats?teamId=${values.currentTeam.id.toString()}`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                        },
+                    }
+                )
                 const data = await response.json()
                 actions.setStats(data)
             } catch (error) {
