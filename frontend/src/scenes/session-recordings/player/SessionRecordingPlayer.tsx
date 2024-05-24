@@ -3,6 +3,7 @@ import './SessionRecordingPlayer.scss'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -96,6 +97,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
+    const allowWaterfallView = useFeatureFlag('SESSION_REPLAY_NETWORK_VIEW')
+
     useKeyboardHotkeys(
         {
             f: {
@@ -180,6 +183,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const viewOptions: LemonSegmentedButtonOption<PlaybackViewType>[] = [{ value: 'playback', label: 'Playback' }]
     if (!noInspector) {
         viewOptions.push({ value: 'inspector', label: 'Inspector' })
+    }
+    if (allowWaterfallView) {
         viewOptions.push({
             value: 'waterfall',
             label: (
