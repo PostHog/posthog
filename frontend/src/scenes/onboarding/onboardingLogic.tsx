@@ -10,7 +10,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableOnboardingProducts, BillingProductV2Type, Breadcrumb, OnboardingProduct, ProductKey } from '~/types'
+import {
+    AvailableOnboardingProducts,
+    BillingProductV2AddonType,
+    Breadcrumb,
+    OnboardingProduct,
+    ProductKey,
+} from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -221,28 +227,25 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing],
-            (
-                product: BillingProductV2Type | null,
-                subscribedDuringOnboarding: boolean,
-                isCloudOrDev: boolean,
-                billing
-            ) => {
-                if (!isCloudOrDev || !billing?.products) {
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
+            (_product, subscribedDuringOnboarding: boolean, isCloudOrDev: boolean, billing, billingProduct) => {
+                if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
-                return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+                const hasAllAddons = billingProduct?.addons?.every(
+                    (addon: BillingProductV2AddonType) => addon.subscribed
+                )
+                return !billingProduct?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
         ],
         shouldShowReverseProxyStep: [
-            (s) => [s.product, s.featureFlags],
-            (product: BillingProductV2Type | null, featureFlags: FeatureFlagsSet) => {
+            (s) => [s.product, s.featureFlags, s.productKey],
+            (_product, featureFlags: FeatureFlagsSet, productKey) => {
                 const productsWithReverseProxy = []
                 if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
                     productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
                 }
-                return productsWithReverseProxy.includes(product?.type as ProductKey)
+                return productsWithReverseProxy.includes(productKey as ProductKey)
             },
         ],
         isStepKeyInvalid: [
@@ -259,13 +262,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 )
             },
         ],
+        billingProduct: [
+            (s) => [s.product, s.productKey, s.billing],
+            (_product, productKey, billing) => {
+                return billing?.products?.find((p) => p.type === productKey)
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
-        // loadBillingSuccess: () => {
-        //     if (window.location.pathname.includes('/onboarding')) {
-        //         actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
-        //     }
-        // },
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
