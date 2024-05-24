@@ -199,7 +199,7 @@ def execute_process_query(
             else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
         )
         if isinstance(results, BaseModel):
-            results = results.model_dump()
+            results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
         query_status.error = False
@@ -270,28 +270,30 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
-    try:
-        cached_response = process_query_dict(
-            team=team,
-            query_json=query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-        )
-        if not isinstance(cached_response, CacheMissResponse):
-            if isinstance(cached_response, BaseModel):
-                cached_response = cached_response.model_dump()
-            # We got a response with results, rather than a `CacheMissResponse`
-            query_status.complete = True
-            query_status.error = False
-            query_status.results = cached_response
-            query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
-            query_status.expiration_time = query_status.end_time + datetime.timedelta(
-                seconds=manager.STATUS_TTL_SECONDS
+    # Skip cache if refresh requested
+    if not refresh_requested:
+        try:
+            cached_response = process_query_dict(
+                team=team,
+                query_json=query_json,
+                limit_context=LimitContext.QUERY_ASYNC,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
             )
-            manager.store_query_status(query_status)
-            return query_status
-    except:
-        sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
+            if not isinstance(cached_response, CacheMissResponse):
+                if isinstance(cached_response, BaseModel):
+                    cached_response = cached_response.model_dump(by_alias=True)
+                # We got a response with results, rather than a `CacheMissResponse`
+                query_status.complete = True
+                query_status.error = False
+                query_status.results = cached_response
+                query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+                query_status.expiration_time = query_status.end_time + datetime.timedelta(
+                    seconds=manager.STATUS_TTL_SECONDS
+                )
+                manager.store_query_status(query_status)
+                return query_status
+        except:
+            sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
 
     if _test_only_bypass_celery:
         process_query_task(

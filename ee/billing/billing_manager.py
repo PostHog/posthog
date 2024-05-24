@@ -223,6 +223,17 @@ class BillingManager:
         except Exception as e:
             capture_exception(e)
 
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        try:
+            admin_emails = list(
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("email", flat=True)
+            )
+            self.update_billing(organization, {"org_admin_emails": admin_emails})
+        except Exception as e:
+            capture_exception(e)
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
@@ -343,6 +354,11 @@ class BillingManager:
             if set_org_usage_summary(organization, new_usage=usage_info):
                 org_modified = True
                 sync_org_quota_limits(organization)
+
+        available_features = data.get("available_features", None)
+        if available_features and available_features != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:

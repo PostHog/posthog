@@ -13,7 +13,6 @@ import {
     EventType,
     PropertyFilterType,
     PropertyOperator,
-    StringMatching,
     TeamType,
 } from '~/types'
 
@@ -58,7 +57,7 @@ export async function createActionFromEvent(
                 ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
                           url: event.properties.$current_url,
-                          url_matching: StringMatching.Exact,
+                          url_matching: 'exact',
                       }
                     : {}),
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),

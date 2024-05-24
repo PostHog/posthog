@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField, NodeKind } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -256,13 +256,13 @@ const HogQLDropdown = ({
 }
 
 interface KeyLabelProps {
-    column: DatabaseSchemaQueryResponseField
+    column: DatabaseSchemaField
 }
 
 export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
     return (
         <span>
-            {column.key}{' '}
+            {column.name}{' '}
             <LemonTag type="success" className="uppercase">
                 {column.type}
             </LemonTag>

@@ -3,12 +3,10 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    AvailableFeature,
     BatchExportConfiguration,
     PipelineStage,
     PluginConfigTypeNew,
@@ -18,13 +16,21 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user', 'hasAvailableFeature'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+        ],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -144,12 +150,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (user): boolean => {
                 return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_DESTINATIONS]
             },
-        ],
-        canEnableNewDestinations: [
-            (s) => [s.user, s.hasAvailableFeature],
-            (user, hasAvailableFeature) =>
-                user?.is_impersonated ||
-                (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
         ],
     }),
     listeners(({ values, actions, asyncActions }) => ({

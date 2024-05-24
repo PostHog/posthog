@@ -1,9 +1,11 @@
-import { IconBrackets, IconDatabase } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconBrackets, IconChevronDown, IconDatabase } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -13,11 +15,11 @@ import { TableData } from './TableData'
 export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
-            <div className="grid md:grid-cols-3">
-                <div className="sm:col-span-3 md:col-span-1 max-h-160">
-                    <DatabaseTableTreeWithItems />
+            <div className="flex flex-wrap items-start gap-2 overflow-hidden">
+                <DatabaseTableTreeWithItems />
+                <div className="flex-3 min-w-80 overflow-hidden">
+                    <TableData />
                 </div>
-                <TableData />
             </div>
             <ViewLinkModal />
         </>
@@ -29,29 +31,23 @@ interface DatabaseTableTreeProps {
 }
 
 export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
-    const {
-        externalTablesBySourceType,
-        dataWarehouseLoading,
-        posthogTables,
-        databaseLoading,
-        savedQueriesFormatted,
-        selectedRow,
-        dataWarehouseSavedQueriesLoading,
-    } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow } =
+        useValues(dataWarehouseSceneLogic)
     const { selectRow } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const [collapsed, setCollapsed] = useState(false)
 
     const treeItems = (): TreeItem[] => {
         if (inline) {
             const items: TreeItem[] = [
                 {
                     name: 'External',
-                    items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                    items: Object.keys(dataWarehouseTablesBySourceType).map((source_type) => ({
                         name: source_type,
-                        items: externalTablesBySourceType[source_type].map((table) => ({
+                        items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                             name: table.name,
-                            items: table.columns.map((column) => ({
-                                name: column.key,
+                            items: Object.values(table.fields).map((column) => ({
+                                name: column.name,
                                 type: column.type,
                                 icon: <IconDatabase />,
                             })),
@@ -62,14 +58,14 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                             No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
                         </span>
                     ),
-                    isLoading: dataWarehouseLoading,
+                    isLoading: databaseLoading,
                 },
                 {
                     name: 'PostHog',
                     items: posthogTables.map((table) => ({
                         name: table.name,
-                        items: table.columns.map((column) => ({
-                            name: column.key,
+                        items: Object.values(table.fields).map((column) => ({
+                            name: column.name,
                             type: column.type,
                             icon: <IconDatabase />,
                         })),
@@ -81,16 +77,16 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
                 items.push({
                     name: 'Views',
-                    items: savedQueriesFormatted.map((table) => ({
+                    items: views.map((table) => ({
                         name: table.name,
-                        items: table.columns.map((column) => ({
-                            name: column.key,
+                        items: Object.values(table).map((column) => ({
+                            name: column.name,
                             type: column.type,
                             icon: <IconDatabase />,
                         })),
                     })),
                     emptyLabel: <span className="text-muted">No views found</span>,
-                    isLoading: dataWarehouseSavedQueriesLoading,
+                    isLoading: databaseLoading,
                 })
             }
 
@@ -100,9 +96,9 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         const items: TreeItem[] = [
             {
                 name: 'External',
-                items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                items: Object.keys(dataWarehouseTablesBySourceType).map((source_type) => ({
                     name: source_type,
-                    items: externalTablesBySourceType[source_type].map((table) => ({
+                    items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                         table: table,
                         icon: <IconDatabase />,
                     })),
@@ -112,7 +108,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
                     </span>
                 ),
-                isLoading: dataWarehouseLoading,
+                isLoading: databaseLoading,
             },
             {
                 name: 'PostHog',
@@ -127,17 +123,40 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
             items.push({
                 name: 'Views',
-                items: savedQueriesFormatted.map((table) => ({
+                items: views.map((table) => ({
                     table: table,
                     icon: <IconBrackets />,
                 })),
                 emptyLabel: <span className="text-muted">No views found</span>,
-                isLoading: dataWarehouseSavedQueriesLoading,
+                isLoading: databaseLoading,
             })
         }
 
         return items
     }
 
-    return <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+    return (
+        <div
+            className={clsx(
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
+                !collapsed ? 'min-w-80 flex-1' : 'flex-0'
+            )}
+        >
+            {collapsed ? (
+                <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
+            ) : (
+                <>
+                    <LemonButton
+                        size="xsmall"
+                        onClick={() => setCollapsed(true)}
+                        fullWidth
+                        sideIcon={<IconChevronDown className="rotate-90 text-xl" />}
+                    >
+                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                    </LemonButton>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>
+            )}
+        </div>
+    )
 }

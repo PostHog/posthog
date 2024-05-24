@@ -144,7 +144,7 @@ function FieldInput({
                 <LemonCalendarSelectInput
                     clearable
                     placeholder="Choose a date"
-                    showTime
+                    granularity="minute"
                     value={value ? dayjs(value) : null}
                     onChange={(date) => onChange(date?.toISOString())}
                 />

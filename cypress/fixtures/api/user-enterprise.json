@@ -3,7 +3,6 @@
     "distinct_id": "kOyAmTq2McfCD5XvqwjKf8m6GVecm9uN0L0ypEoRN50",
     "first_name": "Jane",
     "email": "test@posthog.com",
-    "email_opt_in": true,
     "anonymize_data": false,
     "toolbar_mode": "toolbar",
     "has_password": true,

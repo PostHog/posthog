@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
 export interface PipelineBatchExportConfigurationLogicProps {
@@ -46,7 +47,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
     connect(() => ({
-        values: [pipelineDestinationsLogic, ['canEnableNewDestinations']],
+        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),

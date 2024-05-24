@@ -1,3 +1,4 @@
+from datetime import timedelta
 import os
 from functools import partial, wraps
 from typing import Union
@@ -140,10 +141,14 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     return JsonResponse(response)
 
 
-def get_redis_key_type_value_tuple(key: bytes, redis_client):
+def get_redis_key_type_ttl_value_tuple(key: bytes, redis_client):
     """Get a tuple with a Redis key, type, and value from a Redis key."""
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
+    redis_ttl = redis_client.ttl(redis_key)
+
+    if redis_ttl > 0:
+        redis_ttl = timedelta(seconds=redis_ttl)
 
     if redis_type == "string":
         value = redis_client.get(key)
@@ -162,7 +167,7 @@ def get_redis_key_type_value_tuple(key: bytes, redis_client):
     else:
         raise ValueError(f"Key {redis_key} has an unsupported type: {redis_type}")
 
-    return (redis_key, redis_type, value)
+    return (redis_key, redis_type, redis_ttl, value)
 
 
 @staff_member_required
@@ -181,9 +186,10 @@ def redis_values_view(request: HttpRequest):
     redis_client = get_client()
     next_cursor, key_list = redis_client.scan(cursor=cursor, count=keys_per_page, match=query)
 
-    partial_get_redis_key = partial(get_redis_key_type_value_tuple, redis_client=redis_client)
+    partial_get_redis_key = partial(get_redis_key_type_ttl_value_tuple, redis_client=redis_client)
     redis_keys = {
-        redis_key: (redis_type, value) for redis_key, redis_type, value in map(partial_get_redis_key, key_list)
+        redis_key: (redis_type, redis_ttl, value)
+        for redis_key, redis_type, redis_ttl, value in map(partial_get_redis_key, key_list)
     }
 
     context = {
