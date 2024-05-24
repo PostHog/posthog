@@ -20,7 +20,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                personOverrides: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
                 ...sharedCapabilities,
@@ -80,11 +79,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 pluginScheduledTasks: true,
                 appManagementSingleton: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.person_overrides:
-            return {
-                personOverrides: true,
                 ...sharedCapabilities,
             }
     }

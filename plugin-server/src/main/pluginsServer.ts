@@ -21,7 +21,6 @@ import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { RustyHook } from '../worker/rusty-hook'
@@ -479,22 +478,6 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
-        }
-
-        if (capabilities.personOverrides) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-
-            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
-                postgres,
-                kafkaProducer,
-                new FlatPersonOverrideWriter(postgres)
-            ).runTask(5000)
-            personOverridesPeriodicTask.promise.catch(async () => {
-                status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
-                await closeJobs()
-                process.exit(1)
-            })
         }
 
         if (capabilities.http) {
