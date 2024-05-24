@@ -52,9 +52,7 @@ class TestDataImportPipeline(APIBaseTest):
             source=stripe_source(
                 api_key="",
                 account_id="",
-                endpoints=tuple(
-                    schema_name,
-                ),
+                endpoints=(schema_name,),
                 team_id=self.team.pk,
                 job_id=job.pk,
                 schema_id=schema.pk,
