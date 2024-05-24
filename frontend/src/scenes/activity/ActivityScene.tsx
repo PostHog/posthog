@@ -11,42 +11,42 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { activitySceneLogicType } from './ActivitySceneType'
 import { EventsScene } from './events/EventsScene'
-import type { eventsManagementSceneLogicType } from './EventsManagementSceneType'
 import { LiveEventsTable } from './live-events/LiveEventsTable'
 
-export enum EventsManagementTab {
+export enum ActivityTab {
     ExploreEvents = 'explore',
     LiveEvents = 'live',
 }
 
 const tabs: Record<
-    EventsManagementTab,
+    ActivityTab,
     { url: string; label: LemonTab<any>['label']; content: JSX.Element; buttons?: React.ReactNode }
 > = {
-    [EventsManagementTab.ExploreEvents]: {
+    [ActivityTab.ExploreEvents]: {
         url: urls.exploreEvents(),
         label: 'Explore',
         content: <EventsScene />,
     },
-    [EventsManagementTab.LiveEvents]: {
+    [ActivityTab.LiveEvents]: {
         url: urls.liveEvents(),
         label: 'Live',
         content: <LiveEventsTable />,
     },
 }
 
-const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
-    path(['scenes', 'events', 'eventsManagementSceneLogic']),
+const activitySceneLogic = kea<activitySceneLogicType>([
+    path(['scenes', 'events', 'activitySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
-        setTab: (tab: EventsManagementTab) => ({ tab }),
+        setTab: (tab: ActivityTab) => ({ tab }),
     }),
     reducers({
         tab: [
-            EventsManagementTab.ExploreEvents as EventsManagementTab,
+            ActivityTab.ExploreEvents as ActivityTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -58,7 +58,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.EventsManagement,
+                        key: Scene.Activity,
                         name: `Activity`,
                         path: tabs.explore.url,
                     },
@@ -72,14 +72,14 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
         ],
         enabledTabs: [
             () => [],
-            (): EventsManagementTab[] => {
-                return Object.keys(tabs) as EventsManagementTab[]
+            (): ActivityTab[] => {
+                return Object.keys(tabs) as ActivityTab[]
             },
         ],
     }),
     actionToUrl(() => ({
         setTab: ({ tab }) => {
-            const tabUrl = tabs[tab as EventsManagementTab]?.url || tabs.explore.url
+            const tabUrl = tabs[tab as ActivityTab]?.url || tabs.explore.url
             if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
                 // don't clear the parameters if we're already on the right page
                 // otherwise we can't use a url with parameters as a landing page
@@ -94,7 +94,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
                 tab.url,
                 () => {
                     if (values.tab !== key) {
-                        actions.setTab(key as EventsManagementTab)
+                        actions.setTab(key as ActivityTab)
                     }
                 },
             ])
@@ -102,14 +102,14 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
     }),
 ])
 
-export function EventsManagementScene(): JSX.Element {
-    const { tab, enabledTabs } = useValues(eventsManagementSceneLogic)
-    const { setTab } = useActions(eventsManagementSceneLogic)
+export function ActivityScene(): JSX.Element {
+    const { tab, enabledTabs } = useValues(activitySceneLogic)
+    const { setTab } = useActions(activitySceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const lemonTabs: LemonTab<EventsManagementTab>[] = enabledTabs.map((key) => ({
-        key: key as EventsManagementTab,
-        label: <span data-attr={`events-management-${key}-tab`}>{tabs[key].label}</span>,
+    const lemonTabs: LemonTab<ActivityTab>[] = enabledTabs.map((key) => ({
+        key: key as ActivityTab,
+        label: <span data-attr={`activity-${key}-tab`}>{tabs[key].label}</span>,
         content: tabs[key].content,
     }))
 
@@ -127,6 +127,6 @@ export function EventsManagementScene(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: EventsManagementScene,
-    logic: eventsManagementSceneLogic,
+    component: ActivityScene,
+    logic: activitySceneLogic,
 }

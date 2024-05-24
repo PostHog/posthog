@@ -11,7 +11,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
-    [Scene.EventsManagement]: () => import('./events-management/EventsManagementScene'),
+    [Scene.Activity]: () => import('./activity/ActivityScene'),
     [Scene.BatchExports]: () => import('./batch_exports/BatchExportsListScene'),
     [Scene.BatchExportEdit]: () => import('./batch_exports/BatchExportEditScene'),
     [Scene.BatchExport]: () => import('./batch_exports/BatchExportScene'),

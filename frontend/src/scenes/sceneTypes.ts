@@ -16,7 +16,7 @@ export enum Scene {
     Cohort = 'Cohort',
     ExploreEvents = 'ExploreEvents',
     LiveEvents = 'LiveEvents',
-    EventsManagement = 'EventsManagement',
+    Activity = 'Activity',
     DataManagement = 'DataManagement',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',

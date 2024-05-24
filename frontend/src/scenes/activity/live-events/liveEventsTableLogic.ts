@@ -8,7 +8,7 @@ import { LiveEvent } from '~/types'
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
-    path(['scenes', 'events-management', 'live-events', 'liveEventsTableLogic']),
+    path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
     }),

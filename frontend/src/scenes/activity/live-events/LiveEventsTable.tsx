@@ -6,7 +6,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live-events/liveEventsTableLogic'
 
 import { LiveEvent } from '~/types'
 

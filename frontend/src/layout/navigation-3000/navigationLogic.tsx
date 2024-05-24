@@ -404,7 +404,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.EventsManagement,
+                              identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
                               to: urls.exploreEvents(),

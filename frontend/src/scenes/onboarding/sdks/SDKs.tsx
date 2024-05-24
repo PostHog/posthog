@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect, useState } from 'react'
 import React from 'react'
-import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live-events/liveEventsTableLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'

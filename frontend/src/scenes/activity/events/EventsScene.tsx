@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { eventsSceneLogic } from './eventsSceneLogic'
 
 import { Query } from '~/queries/Query/Query'
+
+import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene(): JSX.Element {
     const { query } = useValues(eventsSceneLogic)

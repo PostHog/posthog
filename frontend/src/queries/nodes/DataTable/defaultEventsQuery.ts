@@ -1,4 +1,4 @@
-import { getDefaultEventsSceneQuery } from 'scenes/events-management/events/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/events/defaults'
 
 import { EventsQuery, NodeKind } from '~/queries/schema'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
