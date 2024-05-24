@@ -60,11 +60,11 @@ class RedisMutationForm(forms.ModelForm):
             case (RedisMutation.MutationCommand.APPEND, {"value": str(_)}):
                 pass
 
-            case (RedisMutation.MutationCommand.DEL, rest):
-                if "value" in rest:
+            case (RedisMutation.MutationCommand.DEL, dict(fields)):
+                if "value" in fields:
                     self.cleaned_data["value"] = None
 
-            case (RedisMutation.MutationCommand.EXPIRE, {"value": seconds, **rest}):
+            case (RedisMutation.MutationCommand.EXPIRE, {"value": seconds}):
                 try:
                     self.cleaned_data["value"] = int(seconds)
                 except (ValueError, TypeError):

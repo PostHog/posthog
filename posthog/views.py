@@ -149,7 +149,7 @@ def get_redis_key_type_ttl_value_tuple(key: bytes, redis_client: redis.Redis):
     redis_ttl = redis_client.ttl(redis_key)
 
     if redis_ttl > 0:
-        redis_ttl = timedelta(seconds=redis_ttl)
+        redis_ttl_timedelta = timedelta(seconds=redis_ttl)
 
     if redis_type == "string":
         value = redis_client.get(key)
@@ -168,7 +168,7 @@ def get_redis_key_type_ttl_value_tuple(key: bytes, redis_client: redis.Redis):
     else:
         raise ValueError(f"Key {redis_key} has an unsupported type: {redis_type}")
 
-    return (redis_key, redis_type, redis_ttl, value)
+    return (redis_key, redis_type, redis_ttl_timedelta, value)
 
 
 @staff_member_required
