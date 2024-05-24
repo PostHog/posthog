@@ -55,8 +55,9 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -81,8 +82,9 @@
                     "type": "array"
                 },
                 "properties": {
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -238,6 +240,23 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
+        },
+        "AnyPersonScopeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
+                }
+            ],
+            "description": "Any filter type supported by `property_to_expr(scope=\"person\", ...)`."
         },
         "AnyPropertyFilter": {
             "anyOf": [
@@ -1329,6 +1348,12 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -1858,6 +1883,12 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "dateFrom": {
+                                    "type": "string"
+                                },
+                                "dateTo": {
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -2248,6 +2279,105 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DatabaseSchemaDataWarehouseTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema": {
+                    "$ref": "#/definitions/DatabaseSchemaSchema"
+                },
+                "source": {
+                    "$ref": "#/definitions/DatabaseSchemaSource"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                },
+                "url_pattern": {
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "type": "object"
+        },
+        "DatabaseSchemaField": {
+            "additionalProperties": false,
+            "properties": {
+                "chain": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "fields": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hogql_value": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema_valid": {
+                    "type": "boolean"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                }
+            },
+            "required": ["name", "hogql_value", "type", "schema_valid"],
+            "type": "object"
+        },
+        "DatabaseSchemaPostHogTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "posthog",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
@@ -2267,43 +2397,125 @@
             "type": "object"
         },
         "DatabaseSchemaQueryResponse": {
-            "additionalProperties": {
-                "items": {
-                    "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
-                },
-                "type": "array"
-            },
-            "type": "object"
-        },
-        "DatabaseSchemaQueryResponseField": {
             "additionalProperties": false,
             "properties": {
-                "chain": {
-                    "items": {
-                        "type": "string"
+                "tables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaTable"
                     },
-                    "type": "array"
-                },
-                "fields": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "key": {
+                    "type": "object"
+                }
+            },
+            "required": ["tables"],
+            "type": "object"
+        },
+        "DatabaseSchemaSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
                     "type": "string"
                 },
-                "schema_valid": {
+                "incremental": {
                     "type": "boolean"
                 },
-                "table": {
+                "last_synced_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "should_sync": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "should_sync", "incremental", "status"],
+            "type": "object"
+        },
+        "DatabaseSchemaSource": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "last_synced_at": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "status", "source_type", "prefix"],
+            "type": "object"
+        },
+        "DatabaseSchemaTable": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DatabaseSchemaPostHogTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaDataWarehouseTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaViewTable"
+                }
+            ]
+        },
+        "DatabaseSchemaTableCommon": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                    "enum": ["posthog", "data_warehouse", "view"],
+                    "type": "string"
                 }
             },
-            "required": ["key", "type", "schema_valid"],
+            "required": ["type", "id", "name", "fields"],
+            "type": "object"
+        },
+        "DatabaseSchemaViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "type": {
+                    "const": "view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
             "type": "object"
         },
         "DatabaseSerializedFieldType": {
@@ -3934,6 +4146,10 @@
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsJoinMode": {
+                    "enum": ["inner", "left"],
                     "type": "string"
                 },
                 "personsOnEventsMode": {
@@ -5669,6 +5885,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -5990,6 +6212,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -6362,12 +6590,16 @@
                     "type": "object"
                 },
                 {
-                    "additionalProperties": {
-                        "items": {
-                            "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
-                        },
-                        "type": "array"
+                    "additionalProperties": false,
+                    "properties": {
+                        "tables": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/DatabaseSchemaTable"
+                            },
+                            "type": "object"
+                        }
                     },
+                    "required": ["tables"],
                     "type": "object"
                 }
             ]
@@ -6495,7 +6727,9 @@
                     "type": "string"
                 },
                 "query_async": {
+                    "const": true,
                     "default": true,
+                    "description": "ONLY async queries use QueryStatus.",
                     "type": "boolean"
                 },
                 "query_progress": {
@@ -7676,6 +7910,12 @@
         "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"

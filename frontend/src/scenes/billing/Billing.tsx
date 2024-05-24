@@ -88,7 +88,7 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     return (
-        <div ref={ref}>
+        <div ref={ref} className="pb-60">
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">

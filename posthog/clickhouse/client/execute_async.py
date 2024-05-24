@@ -3,9 +3,10 @@ import datetime
 import orjson as json
 import math
 from functools import partial
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import uuid
 
+from pydantic import BaseModel
 import sentry_sdk
 import structlog
 from prometheus_client import Histogram
@@ -19,8 +20,12 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus, ClickhouseQueryStatus
+from posthog.schema import CacheMissResponse, QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -161,7 +166,7 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query, ExecutionMode
+    from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.models import Team
     from posthog.models.user import User
 
@@ -185,7 +190,7 @@ def execute_process_query(
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
-        results = process_query(
+        results = process_query_dict(
             team=team,
             query_json=query_json,
             limit_context=limit_context,
@@ -193,6 +198,8 @@ def execute_process_query(
             if refresh_requested
             else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
         )
+        if isinstance(results, BaseModel):
+            results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
         query_status.error = False
@@ -236,34 +243,62 @@ def kick_off_task(
 
 
 def enqueue_process_query_task(
-    team_id: int,
-    user_id: int,
+    team: "Team",
+    user: "User",
     query_json: dict,
     query_id: Optional[str] = None,
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
 ) -> QueryStatus:
+    from posthog.api.services.query import process_query_dict
+    from posthog.hogql_queries.query_runner import ExecutionMode
+
     if not query_id:
         query_id = uuid.uuid4().hex
 
-    manager = QueryStatusManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team.id)
 
     if force:
-        cancel_query(team_id, query_id)
+        cancel_query(team.id, query_id)
 
     if manager.has_results() and not refresh_requested:
         # If we've seen this query before return and don't resubmit it.
         return manager.get_query_status()
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team_id, start_time=datetime.datetime.now(datetime.timezone.utc))
+    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
+
+    # Skip cache if refresh requested
+    if not refresh_requested:
+        try:
+            cached_response = process_query_dict(
+                team=team,
+                query_json=query_json,
+                limit_context=LimitContext.QUERY_ASYNC,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+            )
+            if not isinstance(cached_response, CacheMissResponse):
+                if isinstance(cached_response, BaseModel):
+                    cached_response = cached_response.model_dump(by_alias=True)
+                # We got a response with results, rather than a `CacheMissResponse`
+                query_status.complete = True
+                query_status.error = False
+                query_status.results = cached_response
+                query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+                query_status.expiration_time = query_status.end_time + datetime.timedelta(
+                    seconds=manager.STATUS_TTL_SECONDS
+                )
+                manager.store_query_status(query_status)
+                return query_status
+        except:
+            sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
 
     if _test_only_bypass_celery:
         process_query_task(
-            team_id,
-            user_id,
+            team.id,
+            user.id,
             query_id,
             query_json,
             limit_context=LimitContext.QUERY_ASYNC,
@@ -271,7 +306,7 @@ def enqueue_process_query_task(
         )
     else:
         transaction.on_commit(
-            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
+            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team.id, user.id)
         )
 
     return query_status

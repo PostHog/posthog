@@ -571,6 +571,7 @@ class Call(Expr):
 @dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
+    constraint_type: Literal["ON", "USING"]
 
 
 @dataclass(kw_only=True)

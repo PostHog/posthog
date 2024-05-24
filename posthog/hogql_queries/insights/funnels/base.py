@@ -515,7 +515,8 @@ class FunnelBase(ABC):
                     left=ast.Field(chain=[FunnelEventQuery.EVENT_TABLE_ALIAS, "person_id"]),
                     right=ast.Field(chain=["cohort_join", "cohort_person_id"]),
                     op=ast.CompareOperationOp.Eq,
-                )
+                ),
+                constraint_type="ON",
             ),
         )
 

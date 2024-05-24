@@ -18,6 +18,6 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
 
         remove_deleted_person_data(mutations_sync=True)
 
-        count = sync_execute("SELECT count() FROM person where team_id = {}".format(self.team.pk))[0][0]
+        count = sync_execute("SELECT count() FROM person")[0][0]
 
         assert count == 1

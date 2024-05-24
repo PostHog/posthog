@@ -16,6 +16,7 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    DatabaseSchemaQueryResponse,
     DashboardFilter,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -28,14 +29,14 @@ from posthog.schema import (
 logger = structlog.get_logger(__name__)
 
 
-def process_query(
+def process_query_dict(
     team: Team,
     query_json: dict,
     *,
     dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
@@ -55,7 +56,7 @@ def process_query_model(
     dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     result: dict | BaseModel
 
     try:
@@ -75,7 +76,7 @@ def process_query_model(
         elif isinstance(query, DatabaseSchemaQuery):
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = serialize_database(context)
+            result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         elif isinstance(query, TimeToSeeDataSessionsQuery):
             sessions_query_serializer = SessionsQuerySerializer(data=query)
             sessions_query_serializer.is_valid(raise_exception=True)
@@ -98,6 +99,4 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         result = query_runner.run(execution_mode=execution_mode)
 
-    if isinstance(result, BaseModel):
-        return result.model_dump()
     return result

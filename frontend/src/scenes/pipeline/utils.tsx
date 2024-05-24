@@ -25,7 +25,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
 import {
     Destination,
@@ -316,7 +316,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -350,7 +350,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
         {

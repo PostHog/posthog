@@ -299,8 +299,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         if (props.productRef?.current) {
                             props.productRef?.current.scrollIntoView({
                                 behavior: 'smooth',
-                                block: 'start',
+                                block: 'center',
                             })
+                            props.productRef?.current.classList.add('border')
+                            props.productRef?.current.classList.add('border-primary-3000')
                         }
                     }, 0)
                 }

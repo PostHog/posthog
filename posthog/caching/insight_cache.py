@@ -12,7 +12,7 @@ from prometheus_client import Counter
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.services.query import process_query
+from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_filter_based_insight
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
@@ -116,14 +116,14 @@ def update_cache(caching_state_id: UUID):
     with flagged_conversion_to_query_based(insight):
         try:
             if insight.query:
-                response = process_query(
+                response = process_query_dict(
                     insight.team,
                     insight.query,
                     dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                     execution_mode=ExecutionMode.CALCULATION_ALWAYS,
                 )
                 # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
-                cache_key, cache_type, result = response.get("cache_key"), None, None
+                cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
             else:
                 cache_key, cache_type, result = calculate_for_filter_based_insight(insight=insight, dashboard=dashboard)
         except Exception as err:
@@ -171,7 +171,7 @@ def update_cache(caching_state_id: UUID):
 def update_cached_state(
     team_id: int,
     cache_key: str,
-    timestamp: datetime,
+    timestamp: datetime | str,
     result: Any,
     ttl: Optional[int] = None,
 ):

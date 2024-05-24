@@ -1,4 +1,5 @@
 from rest_framework import status
+from unittest.mock import call, patch
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -48,7 +49,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-    def test_delete_organization_member(self):
+    @patch("posthog.models.user.User.update_billing_admin_emails")
+    def test_delete_organization_member(self, mock_update_billing_admin_emails):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
@@ -63,14 +65,26 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(membership_queryset.exists(), False)
 
-    def test_leave_organization(self):
+        assert mock_update_billing_admin_emails.call_count == 1
+        assert mock_update_billing_admin_emails.call_args_list == [
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_admin_emails")
+    def test_leave_organization(self, mock_update_billing_admin_emails):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
         response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 
-    def test_change_organization_member_level(self):
+        assert mock_update_billing_admin_emails.call_count == 1
+        assert mock_update_billing_admin_emails.call_args_list == [
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_admin_emails")
+    def test_change_organization_member_level(self, mock_update_billing_admin_emails):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
@@ -105,8 +119,13 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
+        assert mock_update_billing_admin_emails.call_count == 1
+        assert mock_update_billing_admin_emails.call_args_list == [
+            call(self.organization),
+        ]
 
-    def test_admin_can_promote_to_admin(self):
+    @patch("posthog.models.user.User.update_billing_admin_emails")
+    def test_admin_can_promote_to_admin(self, mock_update_billing_admin_emails):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
@@ -120,7 +139,13 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
 
-    def test_change_organization_member_level_requires_admin(self):
+        assert mock_update_billing_admin_emails.call_count == 1
+        assert mock_update_billing_admin_emails.call_args_list == [
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_admin_emails")
+    def test_change_organization_member_level_requires_admin(self, mock_update_billing_admin_emails):
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
@@ -141,6 +166,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             },
         )
         self.assertEqual(response.status_code, 403)
+
+        assert mock_update_billing_admin_emails.call_count == 0
 
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
