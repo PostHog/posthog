@@ -1754,6 +1754,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     first_name: string
+    level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserBasicType | null
