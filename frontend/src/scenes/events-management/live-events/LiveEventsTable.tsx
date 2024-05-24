@@ -1,4 +1,5 @@
-import { LemonBanner, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -44,26 +45,6 @@ export function LiveEventsTable(): JSX.Element {
     const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    // const menuOptions = [
-    //     {
-    //         label: 'Event Type',
-    //         key: '$event_type',
-    //         queryKey: 'eventType',
-    //         onClick: () => {
-    //             const newFilter: EventPropertyFilter = {
-    //                 key: '$event_type',
-    //                 type: PropertyFilterType.Event,
-    //                 operator: PropertyOperator.Exact,
-    //             }
-    //             setCurEventProperties([...curEventProperties, newFilter])
-    //         },
-    //     },
-    // ]
-
-    // const filteredMenuOptions = menuOptions.filter((option) => {
-    //     return !curEventProperties.some((filter: any) => filter.key === option.key)
-    // })
-
     return (
         <div data-attr="manage-events-table">
             <LemonBanner className="mb-4" type="info">
@@ -73,58 +54,37 @@ export function LiveEventsTable(): JSX.Element {
             </LemonBanner>
             <div className="mb-2 flex w-full justify-between items-center">
                 <div className="flex justify-center">
-                    <div className="flex flex-justify-center items-center bg-white px-2 py-1 rounded border border-3000 text-xs font-medium text-gray-600">
-                        <p className="mb-0">
-                            🚀 Live users on product: {stats?.users_on_product ? `🟢 ${stats?.users_on_product}` : '-'}
-                        </p>
-                    </div>
+                    <Tooltip title="This number represents the current number of unique users on events being send to PostHog.">
+                        <div className="flex flex-justify-center items-center bg-white px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
+                            <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-50" />
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
+                            </span>
+                            <p className="mb-0 text-sm">
+                                Live users on product:{' '}
+                                <b>{stats?.users_on_product ? `${stats?.users_on_product}` : '-'}</b>
+                            </p>
+                        </div>
+                    </Tooltip>
                 </div>
-                {/* <div className="space-y-2 flex-1">
-                    {filteredMenuOptions.length > 0 && (
-                        <LemonMenu items={[{ items: filteredMenuOptions }]}>
-                            <LemonButton size="small" type="secondary">
-                                Choose filter
-                            </LemonButton>
-                        </LemonMenu>
-                    )}
-
-                    <PropertyFilters
-                        pageKey="live-events-$event_type"
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                        ]}
-                        propertyFilters={curEventProperties}
-                        onChange={(properties) => {
-                            const tempFilters = { ...filters }
-                            properties.forEach((property) => {
-                                const value = Array.isArray(property.value) ? property.value.join(',') : property.value
-                                const queryKey = menuOptions.find((option) => option.key === property.key)?.queryKey
-                                if (queryKey) {
-                                    tempFilters[queryKey] = value
-                                }
-                            })
-                            setFilters(tempFilters)
-                            setCurEventProperties(properties)
-                        }}
-                        allowNew={false}
-                        openOnInsert
-                        disablePopover
-                    />
-                </div> */}
                 <div>
-                    <LemonSwitch
-                        bordered
-                        data-attr="live-events-refresh-toggle"
-                        id="live-events-switch"
-                        label={streamPaused ? 'Resume' : 'Pause'}
-                        checked={!streamPaused}
-                        onChange={streamPaused ? resumeStream : pauseStream}
-                    />
+                    <LemonButton
+                        icon={
+                            streamPaused ? (
+                                <IconPlayFilled className="w-4 h-4" />
+                            ) : (
+                                <IconPauseFilled className="w-4 h-4" />
+                            )
+                        }
+                        type="primary"
+                        onClick={streamPaused ? resumeStream : pauseStream}
+                    >
+                        {streamPaused ? 'Play' : 'Pause'}
+                    </LemonButton>
                 </div>
             </div>
             <LemonTable
-                // @ts-expect-error
+                // @ts-expect-error - TODO: Fix LemonTable types
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"
