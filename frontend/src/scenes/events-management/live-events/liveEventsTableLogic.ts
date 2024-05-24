@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -135,7 +136,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             source.onmessage = function (event: any) {
                 const eventData = JSON.parse(event.data)
                 batch.push(eventData)
-                // Batch events to avoid re-rendering too often
                 // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
                 if (batch.length >= 10 || Date.now() - (values.lastBatchTimestamp || 0) > 300) {
                     actions.addEvents(batch)
@@ -144,7 +144,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
 
             source.onerror = function () {
-                // Handle errors, possibly retrying connection
+                lemonToast.error('Failed to connect to live events stream. Please refresh and try again.')
             }
 
             actions.updateEventsSource(source)
