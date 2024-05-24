@@ -12,7 +12,7 @@ jest.mock('lib/colors', () => {
 
 describe('calculatePerformanceParts', () => {
     it('can calculate TTFB', () => {
-        const perfEvent = {
+        const perfEvent: PerformanceEvent = {
             connect_end: 9525.599999964237,
             connect_start: 9525.599999964237,
             decoded_body_size: 18260,
