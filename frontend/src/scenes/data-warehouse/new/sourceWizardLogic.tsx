@@ -164,10 +164,17 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                                 value: 'key_pair',
                                 fields: [
                                     {
+                                        name: 'private_key',
+                                        label: 'Tunnel private_key',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
                                         name: 'passphrase',
                                         label: 'Tunnel passphrase',
                                         type: 'password',
-                                        required: true,
+                                        required: false,
                                         placeholder: '',
                                     },
                                 ],
@@ -212,7 +219,9 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     },
 }
 
-const buildKeaFormDefaultFromSourceDetails = (): Record<string, any> => {
+export const buildKeaFormDefaultFromSourceDetails = (
+    sourceDetails: Record<string, SourceConfig>
+): Record<string, any> => {
     const fieldDefaults = (field: SourceFieldConfig, obj: Record<string, any>): void => {
         if (field.type === 'switch-group') {
             obj[field.name] = {}
@@ -228,7 +237,7 @@ const buildKeaFormDefaultFromSourceDetails = (): Record<string, any> => {
                 obj[field.name]['selection'] = field.defaultValue
                 field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj[field.name]))
             } else {
-                obj[field.name] = ''
+                obj[field.name] = field.defaultValue
             }
             return
         }
@@ -237,10 +246,10 @@ const buildKeaFormDefaultFromSourceDetails = (): Record<string, any> => {
         obj[field.name] = ''
     }
 
-    const sourceDetailsKeys = Object.keys(SOURCE_DETAILS)
+    const sourceDetailsKeys = Object.keys(sourceDetails)
     const formDefault = sourceDetailsKeys.reduce(
         (defaults, cur) => {
-            const fields = SOURCE_DETAILS[cur].fields
+            const fields = sourceDetails[cur].fields
             fields.forEach((f) => fieldDefaults(f, defaults['payload']))
 
             return defaults
@@ -647,7 +656,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
-            defaults: buildKeaFormDefaultFromSourceDetails(),
+            defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
                 return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
             },
@@ -691,7 +700,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
 ])
 
-const getErrorsForFields = (
+export const getErrorsForFields = (
     fields: SourceFieldConfig[],
     values: { prefix: string; payload: Record<string, any> } | undefined
 ): Record<string, any> => {
@@ -724,8 +733,6 @@ const getErrorsForFields = (
             if (!hasOptionFields) {
                 if (field.required && !valueObj[field.name]) {
                     errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
-                } else {
-                    errorsObj[field.name] = undefined
                 }
             } else {
                 errorsObj[field.name] = {}

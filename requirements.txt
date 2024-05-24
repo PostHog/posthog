@@ -52,6 +52,8 @@ attrs==23.2.0
     #   trio
 backoff==2.2.1
     # via posthoganalytics
+bcrypt==4.1.3
+    # via paramiko
 billiard==4.1.0
     # via celery
 black==23.9.1
@@ -87,6 +89,7 @@ certifi==2019.11.28
 cffi==1.14.5
     # via
     #   cryptography
+    #   pynacl
     #   snowflake-connector-python
 charset-normalizer==2.1.0
     # via
@@ -117,6 +120,7 @@ cryptography==37.0.2
     # via
     #   -r requirements.in
     #   django-fernet-encrypted-fields
+    #   paramiko
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
@@ -383,6 +387,10 @@ packaging==23.1
     #   webdriver-manager
 pandas==2.2.0
     # via -r requirements.in
+paramiko==3.4.0
+    # via
+    #   -r requirements.in
+    #   sshtunnel
 pathspec==0.12.1
     # via black
 pathvalidate==3.2.0
@@ -444,6 +452,8 @@ pyjwt==2.4.0
     #   -r requirements.in
     #   snowflake-connector-python
     #   social-auth-core
+pynacl==1.5.0
+    # via paramiko
 pyopenssl==22.0.0
     # via
     #   snowflake-connector-python
@@ -500,7 +510,7 @@ referencing==0.31.1
     #   jsonschema-specifications
 regex==2023.12.25
     # via tiktoken
-requests==2.32.0
+requests==2.32.2
     # via
     #   -r requirements.in
     #   dlt
@@ -586,6 +596,8 @@ sqlparse==0.4.4
     # via
     #   -r requirements.in
     #   django
+sshtunnel==0.4.0
+    # via -r requirements.in
 statshog==1.0.6
     # via -r requirements.in
 stripe==7.4.0
@@ -674,7 +686,7 @@ wcwidth==0.2.6
     # via prompt-toolkit
 webdriver-manager==4.0.1
     # via -r requirements.in
-wheel==0.42.0
+wheel==0.43.0
     # via astunparse
 whitenoise==6.5.0
     # via -r requirements.in
