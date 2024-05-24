@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
@@ -11,10 +13,13 @@ from posthog.redis import get_client
 class RedisMutationForm(forms.ModelForm):
     """Custom form for 'RedisMutationAdmin' to add custom styling and defaults."""
 
+    value = forms.CharField(empty_value=None)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["redis_key"].widget = forms.TextInput(attrs={"size": 50})
         self.fields["value"].widget = forms.Textarea(attrs={"rows": 10, "cols": 50})
+        self.fields["value"].required = False
 
     def clean(self):
         """Execute validation of the cleaned data after passing additional required values.
@@ -22,6 +27,13 @@ class RedisMutationForm(forms.ModelForm):
         These additional values are not part of the form, so we set them here.
         """
         super().clean()
+
+        value = self.cleaned_data.get("value", None)
+        try:
+            value = json.loads(value)
+        except Exception:
+            value = value
+        self.cleaned_data["value"] = value
 
         self.cleaned_data["status"] = "created"
 
@@ -45,39 +57,64 @@ class RedisMutationForm(forms.ModelForm):
             raise ValidationError("Command is not a valid choice")
 
         match (command, self.cleaned_data):
-            case (RedisMutation.MutationCommand.EXPIRE, {"value": value}):
-                try:
-                    int(value)
-                except (ValueError, TypeError):
-                    raise ValidationError(f"EXPIRE requires the provided value of '{value}' to be castable to 'int'.")
-
-            case (RedisMutation.MutationCommand.SET, {"value": value}):
-                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
-
-                if value is None:
-                    raise ValidationError(f"SET command must take some 'str' value")
-
-            case (RedisMutation.MutationCommand.APPEND, {"value": value}):
-                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
-
-                if value is None:
-                    raise ValidationError(f"APPEND command must take some 'str' value")
-
-            case (RedisMutation.MutationCommand.SADD, {"value": value}):
-                # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
-                redis_type = self.cleaned_data["redis_type"]
-                if redis_type is not None and redis_type != "set":
-                    raise ValidationError(f"SADD can only operate on 'set' type, not '{redis_type}'")
-
-                if value is None:
-                    raise ValidationError(f"SADD command must take at least one value")
+            case (RedisMutation.MutationCommand.APPEND, {"value": str(_)}):
+                pass
 
             case (RedisMutation.MutationCommand.DEL, rest):
                 if "value" in rest:
                     self.cleaned_data["value"] = None
 
-            case (command, _):
-                raise ValidationError(f"Command '{command}' is not supported")
+            case (RedisMutation.MutationCommand.EXPIRE, {"value": seconds, **rest}):
+                try:
+                    self.cleaned_data["value"] = int(seconds)
+                except (ValueError, TypeError):
+                    raise ValidationError(f"EXPIRE requires the provided value of '{seconds}' to be castable to 'int'.")
+
+            case (RedisMutation.MutationCommand.LPUSH, {"value": str(_), "redis_type": "list" | None}):
+                # TODO: Support multiple members with one LPUSH
+                pass
+
+            case (
+                RedisMutation.MutationCommand.LSET,
+                {"value": {"index": int(_), "value": str(_)}, "redis_type": "list" | None},
+            ):
+                pass
+
+            case (RedisMutation.MutationCommand.RPUSH, {"value": str(_), "redis_type": "list" | None}):
+                # TODO: Support multiple members with one RPUSH
+                pass
+
+            case (RedisMutation.MutationCommand.HSET, {"value": str(_)}):
+                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
+                pass
+
+            case (RedisMutation.MutationCommand.SADD, {"value": str(_), "redis_type": "set" | None}):
+                pass
+
+            case (RedisMutation.MutationCommand.SET, {"value": str(_)}):
+                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
+                pass
+
+            case (RedisMutation.MutationCommand.ZADD, {"value": dict(zadd_dict), "redis_type": "zset" | None}):
+                # TODO: Floating point support for scores
+                for key, value in zadd_dict.items():
+                    try:
+                        self.cleaned_data["value"][key] = int(value)
+                    except (ValueError, TypeError):
+                        raise ValidationError(
+                            f"ZADD requires all provided scores to be castable to 'int', and the score '{value}' of '{key}' isn't."
+                        )
+
+            case (
+                RedisMutation.MutationCommand.ZINCRBY,
+                {"value": {"amount": int(_), "value": str(_)}, "redis_type": "zset"},
+            ):
+                pass
+
+            case (command, {"value": value, "redis_key": redis_key, "redis_type": redis_type}):
+                raise ValidationError(
+                    f"Failed to validate command '{command.upper()}' on key '{redis_key}' of type '{redis_type}' with value '{value}'."
+                )
 
     def try_get_redis_type(self, redis_key: str | None) -> str | None:
         """Attempt to obtain the type of given 'redis_key'.
@@ -102,6 +139,7 @@ class RedisMutationForm(forms.ModelForm):
     def save(self, commit=True):
         """Populate instance with additional fields before saving."""
 
+        self.instance.value = self.cleaned_data["value"]
         self.instance.status = self.cleaned_data["status"]
         self.instance.redis_type = self.cleaned_data["redis_type"]
         return super().save(commit=commit)
@@ -112,10 +150,9 @@ class RedisMutationAdmin(admin.ModelAdmin):
 
     fields = [
         "redis_key",
-        "value",
         "command",
         "approval_threshold",
-        "parameters",
+        "optional_command_parameters",
     ]
 
     list_display = [

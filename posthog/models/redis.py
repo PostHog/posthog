@@ -38,8 +38,10 @@ class MutationFailedToSaveError(Exception):
 class NotSupportedCommandError(Exception):
     """Exception raised when attempting to apply an unsupported command to a Redis key of a given type."""
 
-    def __init__(self, redis_key: str, redis_type: str | None, command: str):
-        super().__init__(f"Command '{command.upper()}' is not supported on key '{redis_key}' of type '{redis_type}'.")
+    def __init__(self, redis_key: str, redis_type: str | None, command: str, value: dict | None):
+        super().__init__(
+            f"Command '{command.upper()}' is not supported on key '{redis_key}' of type '{redis_type}' with value '{value}'."
+        )
 
 
 class RedisMutation(models.Model):
@@ -72,34 +74,43 @@ class RedisMutation(models.Model):
     """
 
     class RedisType(models.TextChoices):
-        STRING = "string"
         HASH = "hash"
-        ZSET = "zset"
         LIST = "list"
         SET = "set"
+        STRING = "string"
+        ZSET = "zset"
 
     class Status(models.TextChoices):
-        CREATED = "created"
         APPROVED = "approved"
         COMPLETED = "applied"
-        FAILED = "failed"
+        CREATED = "created"
         DISCARDED = "discarded"
+        FAILED = "failed"
 
     class MutationCommand(models.TextChoices):
-        SET = "set"
         APPEND = "append"
-        EXPIRE = "expire"
         DEL = "del"
-        ZADD = "zadd"
+        EXPIRE = "expire"
+        HSET = "hset"
+        LPUSH = "lpush"
+        LSET = "lset"
+        RPUSH = "rpush"
         SADD = "sadd"
+        SET = "set"
+        ZADD = "zadd"
+        ZINCRBY = "zincrby"
 
     id = models.BigAutoField(primary_key=True, editable=False)
 
     redis_key = models.CharField(max_length=200, null=False, blank=False)
     redis_type = models.CharField(max_length=200, null=True, blank=False, choices=RedisType.choices)
-    value = models.CharField(null=True, blank=True)
+    value = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="JSON encoded mapping with value or values used in the mutation",
+    )
     command = models.CharField(max_length=200, null=False, blank=False, choices=MutationCommand.choices)
-    parameters = models.JSONField(default=dict, blank=True)
+    optional_command_parameters = models.JSONField(default=dict, blank=True)
     approval_threshold = models.IntegerField(null=False, default=2)
 
     status = models.CharField(
@@ -177,44 +188,58 @@ class RedisMutation(models.Model):
 
         Any new supported commands must be added here with their own unique implementation.
         """
-        match self.command:
-            case self.MutationCommand.SET:
-                if self.value is None:
-                    # This should be validated by the form, but in case anything passes, we check again.
-                    raise TypeError("Provided value for SET call cannot be 'None'")
+        match (self.command, self.value):
+            case (self.MutationCommand.APPEND, str(value)):
+                redis_client = get_client()
+                redis_client.append(self.redis_key, value, **self.optional_command_parameters)
 
+            case (self.MutationCommand.DEL, _):
+                redis_client = get_client()
+                redis_client.delete(self.redis_key)
+
+            case (self.MutationCommand.EXPIRE, int(seconds)):
+                redis_client = get_client()
+                redis_client.expire(self.redis_key, time=seconds)
+
+            case (self.MutationCommand.HSET, dict(mapping)):
+                redis_client = get_client()
+                redis_client.hset(self.redis_key, mapping=mapping, **self.optional_command_parameters)
+
+            case (self.MutationCommand.LPUSH, str(value)):
+                redis_client = get_client()
+                redis_client.lpush(self.redis_key, value)
+
+            case (self.MutationCommand.LSET, {"index": int(index), "value": str(value)}):
+                redis_client = get_client()
+                redis_client.lset(self.redis_key, index, value)
+
+            case (self.MutationCommand.RPUSH, str(value)):
+                redis_client = get_client()
+                redis_client.rpush(self.redis_key, value)
+
+            case (self.MutationCommand.SADD, str(value)):
+                # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
+                redis_client = get_client()
+                redis_client.sadd(self.redis_key, value)
+
+            case (self.MutationCommand.SET, str(value)):
                 # We do not need to check here whether current type is 'string' as SET will overwrite
                 # whatever value the key holds, regardless of its current type.
                 # TODO: A warning could be issued if an overwrite to a non-string type happens.
                 redis_client = get_client()
-                redis_client.set(self.redis_key, self.value, **self.parameters)
+                redis_client.set(self.redis_key, value, **self.optional_command_parameters)
 
-            case self.MutationCommand.APPEND:
+            case (self.MutationCommand.ZADD, dict(mapping)):
+                # TODO: Support multiple members with one ZADD, maybe JSON encoding self.value?
                 redis_client = get_client()
-                redis_client.append(self.redis_key, self.value, **self.parameters)
+                redis_client.zadd(self.redis_key, mapping, **self.optional_command_parameters)
 
-            case self.MutationCommand.SADD:
-                if self.value is None:
-                    # This should be validated by the form, but in case anything passes, we check again.
-                    raise TypeError("Provided value for SET call cannot be 'None'")
-
-                # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
+            case (self.MutationCommand.ZINCRBY, {"amount": int(amount), "value": str(value)}):
                 redis_client = get_client()
-                redis_client.sadd(self.redis_key, self.value)
-
-            case self.MutationCommand.DEL:
-                redis_client = get_client()
-                redis_client.delete(self.redis_key)
-
-            case self.MutationCommand.EXPIRE:
-                redis_client = get_client()
-                # This has been validated to be castable to int.
-                # But if the user bypassed the validation, the error should be descriptive.
-                seconds = int(self.value)  # type: ignore
-                redis_client.expire(self.redis_key, time=seconds)
+                redis_client.zincrby(self.redis_key, amount, value)
 
             case _:
-                raise NotSupportedCommandError(self.redis_key, self.redis_type, self.command)
+                raise NotSupportedCommandError(self.redis_key, self.redis_type, self.command, self.value)
 
     def discard(self, discarded_by: str) -> None:
         """Discard this active mutation."""
