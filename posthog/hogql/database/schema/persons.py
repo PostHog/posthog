@@ -52,7 +52,8 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
                SELECT id, max(version) as version
                FROM raw_persons
                GROUP BY id
-               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0) AND created_at < now() + interval 1 day
+               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
+               AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
             )
             """
         )
