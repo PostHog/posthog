@@ -4,7 +4,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.funnel_unordered_persons import (
@@ -34,8 +33,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 

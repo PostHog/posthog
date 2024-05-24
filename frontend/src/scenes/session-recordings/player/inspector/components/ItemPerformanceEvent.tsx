@@ -1,12 +1,15 @@
-import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
+import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
+import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
 
@@ -64,64 +67,6 @@ export interface ItemPerformanceEvent {
     finalTimestamp?: Dayjs
 }
 
-const performanceSummaryCards = [
-    {
-        label: 'First Contentful Paint',
-        description: (
-            <div>
-                The First Contentful Paint (FCP) metric measures the time from when the page starts loading to when any
-                part of the page's content is rendered on the screen.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'first_contentful_paint',
-        scoreBenchmarks: [1800, 3000],
-    },
-    {
-        label: 'DOM Interactive',
-        description: (
-            <div>
-                The document has finished loading and the document has been parsed but sub-resources such as scripts,
-                images, stylesheets and frames are still loading.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'dom_interactive',
-        scoreBenchmarks: [3800, 7300],
-    },
-    {
-        label: 'Page Loaded',
-        description: (
-            <div>
-                The load event is fired when the whole page has loaded, including all dependent resources such as
-                stylesheets and images. This is in contrast to DOMContentLoaded, which is fired as soon as the page DOM
-                has been loaded, without waiting for resources to finish loading.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'load_event_end',
-        scoreBenchmarks: [3800, 7300],
-    },
-]
-
 function renderTimeBenchmark(milliseconds: number): JSX.Element {
     return (
         <span
@@ -162,6 +107,25 @@ function itemSizeInfo(item: PerformanceEvent): {
     }
 }
 
+function emptyPayloadMessage(
+    payloadCaptureIsEnabled: undefined | boolean,
+    item: PerformanceEvent,
+    label: 'Request' | 'Response'
+): JSX.Element | string {
+    return payloadCaptureIsEnabled ? (
+        item.is_initial ? (
+            `${label} captured before PostHog was initialized`
+        ) : (
+            `No ${label.toLowerCase()} body captured`
+        )
+    ) : (
+        <>
+            Payload capture is disabled.{' '}
+            <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+        </>
+    )
+}
+
 export function ItemPerformanceEvent({
     item,
     finalTimestamp,
@@ -169,6 +133,11 @@ export function ItemPerformanceEvent({
     setExpanded,
 }: ItemPerformanceEvent): JSX.Element {
     const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
+
+    const { currentTeam } = useValues(teamLogic)
+    const payloadCaptureIsEnabled =
+        currentTeam?.capture_performance_opt_in &&
+        currentTeam?.session_recording_network_payload_capture_config?.recordBody
 
     const sizeInfo = itemSizeInfo(item)
     const startTime = item.start_time || item.fetch_start || 0
@@ -243,12 +212,10 @@ export function ItemPerformanceEvent({
                         }}
                     />
                     {item.entry_type === 'navigation' ? (
-                        <NavigationItem item={item} expanded={expanded} shortEventName={shortEventName} />
+                        <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                                {shortEventName}
-                            </span>
+                            <PerformanceEventLabel expanded={expanded} name={item.name} />
                             {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
                                 <span
@@ -272,69 +239,32 @@ export function ItemPerformanceEvent({
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    {item.name && (
-                        <CodeSnippet language={Language.Markup} wrap thing="performance event name">
-                            {item.name}
-                        </CodeSnippet>
-                    )}
-
-                    {item.entry_type === 'navigation' ? (
-                        <>
-                            {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
-                                <div key={key}>
-                                    <div className="flex gap-2 font-semibold my-1">
-                                        <span>{label}</span>
-                                        <span>
-                                            {item?.[key] === undefined ? (
-                                                '-'
-                                            ) : (
-                                                <span
-                                                    className={clsx({
-                                                        'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                        'text-warning-dark':
-                                                            item[key] >= scoreBenchmarks[0] &&
-                                                            item[key] < scoreBenchmarks[1],
-                                                    })}
-                                                >
-                                                    {humanFriendlyMilliseconds(item[key])}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </div>
-
-                                    <p>{description}</p>
-                                </div>
-                            ))}
-                        </>
-                    ) : (
-                        <>
-                            <StatusRow item={item} />
-                            <p>
-                                Request started at{' '}
-                                <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
-                                <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                                {sizeInfo.decodedBodySize ? (
-                                    <>
-                                        {' '}
-                                        to load <b>{sizeInfo.decodedBodySize}</b> of data
-                                    </>
-                                ) : null}
-                                {sizeInfo.isFromLocalCache ? (
-                                    <>
-                                        {' '}
-                                        <span className="text-muted">(from local cache)</span>
-                                    </>
-                                ) : null}
-                                {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
-                                    <>
-                                        , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
-                                        <b>{sizeInfo.formattedCompressionPercentage}</b>
-                                    </>
-                                ) : null}
-                                .
-                            </p>
-                        </>
-                    )}
+                    <>
+                        <StatusRow item={item} />
+                        <p>
+                            Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b>{' '}
+                            and took <b>{humanFriendlyMilliseconds(item.duration)}</b>
+                            {sizeInfo.decodedBodySize ? (
+                                <>
+                                    {' '}
+                                    to load <b>{sizeInfo.decodedBodySize}</b> of data
+                                </>
+                            ) : null}
+                            {sizeInfo.isFromLocalCache ? (
+                                <>
+                                    {' '}
+                                    <span className="text-muted">(from local cache)</span>
+                                </>
+                            ) : null}
+                            {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
+                                <>
+                                    , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
+                                    <b>{sizeInfo.formattedCompressionPercentage}</b>
+                                </>
+                            ) : null}
+                            .
+                        </p>
+                    </>
                     <LemonDivider dashed />
                     {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
                         <>
@@ -371,11 +301,11 @@ export function ItemPerformanceEvent({
                                             <BodyDisplay
                                                 content={item.request_body}
                                                 headers={item.request_headers}
-                                                emptyMessage={
-                                                    item.is_initial
-                                                        ? 'Request captured before PostHog was initialized'
-                                                        : 'No request body captured'
-                                                }
+                                                emptyMessage={emptyPayloadMessage(
+                                                    payloadCaptureIsEnabled,
+                                                    item,
+                                                    'Request'
+                                                )}
                                             />
                                         ),
                                     },
@@ -387,17 +317,15 @@ export function ItemPerformanceEvent({
                                                   <BodyDisplay
                                                       content={item.response_body}
                                                       headers={item.response_headers}
-                                                      emptyMessage={
-                                                          item.is_initial
-                                                              ? 'Response captured before PostHog was initialized'
-                                                              : 'No response body captured'
-                                                      }
+                                                      emptyMessage={emptyPayloadMessage(
+                                                          payloadCaptureIsEnabled,
+                                                          item,
+                                                          'Response'
+                                                      )}
                                                   />
                                               ),
                                           }
                                         : false,
-                                    // raw is only available if the feature flag is enabled
-                                    // TODO before proper release we should put raw behind its own flag
                                     {
                                         key: 'raw',
                                         label: 'Json',
@@ -441,12 +369,29 @@ export function BodyDisplay({
     let displayContent = content
     if (typeof displayContent !== 'string') {
         displayContent = JSON.stringify(displayContent, null, 2)
+    } else if (displayContent.trim() === '') {
+        displayContent = '(empty string)'
     }
     if (headerContentType === 'application/json') {
         language = Language.JSON
     }
 
-    return (
+    const isAutoRedaction = /(\[SessionRecording\].*redacted)/.test(displayContent)
+
+    return isAutoRedaction ? (
+        <>
+            <p>
+                This content was redacted by PostHog to protect sensitive data.{' '}
+                <Link
+                    to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
+                    target="_blank"
+                >
+                    Learn how to override PostHog's automatic redaction code.
+                </Link>
+            </p>
+            <pre>received: {displayContent}</pre>
+        </>
+    ) : (
         <CodeSnippet language={language} wrap={true} thing="request body" compact={false}>
             {displayContent}
         </CodeSnippet>
@@ -462,18 +407,32 @@ export function HeadersDisplay({
     response: Record<string, string> | undefined
     isInitial?: boolean
 }): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const isHeadersCaptureEnabled =
+        currentTeam?.capture_performance_opt_in &&
+        currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
     const emptyMessage = isInitial ? 'captured before PostHog was initialized' : 'No headers captured'
+
     return (
         <div className="flex flex-col w-full">
-            <div>
-                <h4 className="font-semibold">Request Headers</h4>
-                <SimpleKeyValueList item={request || {}} emptyMessage={emptyMessage} />
-            </div>
-            <LemonDivider dashed />
-            <div>
-                <h4 className="font-semibold">Response Headers</h4>
-                <SimpleKeyValueList item={response || {}} emptyMessage={emptyMessage} />
-            </div>
+            {isHeadersCaptureEnabled ? (
+                <>
+                    <div>
+                        <h4 className="font-semibold">Request Headers</h4>
+                        <SimpleKeyValueList item={request || {}} emptyMessage={emptyMessage} />
+                    </div>
+                    <LemonDivider dashed />
+                    <div>
+                        <h4 className="font-semibold">Response Headers</h4>
+                        <SimpleKeyValueList item={response || {}} emptyMessage={emptyMessage} />
+                    </div>
+                </>
+            ) : (
+                <>
+                    Headers capture is disabled.{' '}
+                    <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+                </>
+            )}
         </div>
     )
 }
@@ -526,52 +485,4 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
             <LemonDivider dashed />
         </p>
     ) : null
-}
-
-function NavigationItem({
-    item,
-    expanded,
-    shortEventName,
-}: {
-    item: PerformanceEvent
-    expanded: boolean
-    shortEventName: string
-}): JSX.Element | null {
-    return (
-        <>
-            <div className="flex gap-2 items-start p-2 text-xs">
-                <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                    Navigated to {shortEventName}
-                </span>
-            </div>
-            <LemonDivider className="my-0" />
-            <div className="flex items-center p-2">
-                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
-                    <Fragment key={key}>
-                        {index !== 0 && <LemonDivider vertical dashed />}
-                        <Tooltip title={description}>
-                            <div className="flex-1 p-2 text-center">
-                                <div className="text-sm">{label}</div>
-                                <div className="text-lg font-semibold">
-                                    {item?.[key] === undefined ? (
-                                        '-'
-                                    ) : (
-                                        <span
-                                            className={clsx({
-                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                'text-warning-dark':
-                                                    item[key] >= scoreBenchmarks[0] && item[key] < scoreBenchmarks[1],
-                                            })}
-                                        >
-                                            {humanFriendlyMilliseconds(item[key])}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        </Tooltip>
-                    </Fragment>
-                ))}
-            </div>
-        </>
-    )
 }

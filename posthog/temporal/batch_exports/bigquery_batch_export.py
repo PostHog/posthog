@@ -440,6 +440,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 "RefreshError",
                 # Usually means the dataset or project doesn't exist.
                 "NotFound",
+                # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
+                "BadRequest",
+                # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
+                # don't anticipate a `ValueError` thrown from our own export code.
+                "ValueError",
             ],
             finish_inputs=finish_inputs,
         )

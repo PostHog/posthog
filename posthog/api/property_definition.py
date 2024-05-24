@@ -215,7 +215,7 @@ class QueryContext:
             event_names = json.loads(event_names)
 
         if event_names and len(event_names) > 0:
-            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
+            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(

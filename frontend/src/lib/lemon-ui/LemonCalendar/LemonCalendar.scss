@@ -7,6 +7,10 @@
     // Tricky: needs to match the equivalent height button from LemonButton.scss
     --lemon-calendar-time-button-height: 2.3125rem;
 
+    .LemonCalendar__month {
+        width: 100%;
+    }
+
     .LemonCalendar__month > thead > tr:first-child > th,
     .LemonCalendar__month > tbody > tr > td {
         padding: calc(var(--lemon-calendar-row-gap) / 2) 0;
@@ -55,24 +59,33 @@
         background-color: var(--glass-border-3000);
     }
 
-    &--with-time {
-        padding-right: calc(3 * var(--lemon-calendar-time-column-width));
+    &--hour {
+        --lemon-calendar-time-columns: 2;
     }
 
-    .LemonCalendar__time {
-        & > div {
-            width: var(--lemon-calendar-time-column-width);
+    &--minute {
+        --lemon-calendar-time-columns: 3;
+    }
 
-            &.ScrollableShadows {
-                & .ScrollableShadows__inner {
-                    scrollbar-width: none;
-                    scroll-behavior: smooth;
+    &--hour,
+    &--minute {
+        padding-right: calc((var(--lemon-calendar-time-columns) * var(--lemon-calendar-time-column-width)) + 2px);
+
+        .LemonCalendar__time {
+            & > div {
+                width: var(--lemon-calendar-time-column-width);
+
+                &.ScrollableShadows {
+                    & .ScrollableShadows__inner {
+                        scrollbar-width: none;
+                        scroll-behavior: smooth;
+                    }
                 }
             }
-        }
 
-        &--scroll-spacer {
-            height: calc(100% - var(--lemon-calendar-time-button-height));
+            &--scroll-spacer {
+                height: calc(100% - var(--lemon-calendar-time-button-height));
+            }
         }
     }
 }

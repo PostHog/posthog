@@ -1,5 +1,5 @@
-import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconChevronDown, IconDocument, IconPlus } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -9,7 +9,7 @@ import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -20,7 +20,9 @@ import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from
 import { BillingGauge } from './BillingGauge'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingLogic } from './billingLogic'
+import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
+import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { PlanComparisonModal } from './PlanComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -38,150 +40,9 @@ export const getTierDescription = (
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
-export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
-    const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
-    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
-        billingProductLogic({ product: addon })
-    )
-
-    const productType = { plural: `${addon.unit}s`, singular: addon.unit }
-    const tierDisplayOptions: LemonSelectOptions<string> = [
-        { label: `Per ${productType.singular}`, value: 'individual' },
-    ]
-
-    if (billing?.has_active_subscription) {
-        tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
-    }
-
-    // Filter out the addon itself from the features list
-    const addonFeatures = addon.features?.filter((feature) => feature.name !== addon.name)
-
-    return (
-        <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
-            <div className="flex justify-between gap-x-4">
-                <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
-                    <div>
-                        <div className="flex gap-x-2 items-center mt-0 mb-2 ">
-                            <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
-                            {addon.subscribed && (
-                                <div>
-                                    <LemonTag type="primary" icon={<IconCheckCircle />}>
-                                        Subscribed
-                                    </LemonTag>
-                                </div>
-                            )}
-                        </div>
-                        <p className="ml-0 mb-0">{addon.description}</p>
-                    </div>
-                </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
-                    {addon.docs_url && (
-                        <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
-                    )}
-                    {addon.subscribed ? (
-                        <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() => {
-                                                setSurveyResponse(addon.type, '$survey_response_1')
-                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                            }}
-                                        >
-                                            Remove addon
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
-                        </>
-                    ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckCircle />}>
-                            Included with plan
-                        </LemonTag>
-                    ) : (
-                        <>
-                            {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
-                                <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                    <span>${Number(currentAndUpgradePlans?.upgradePlan?.unit_amount_usd)}</span>
-                                    <span>/</span>
-                                    <span>{currentAndUpgradePlans?.upgradePlan?.unit}</span>
-                                </h4>
-                            ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        toggleIsPricingModalOpen()
-                                    }}
-                                >
-                                    View pricing
-                                </LemonButton>
-                            )}
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                size="small"
-                                to={`/api/billing-v2/activation?products=${addon.type}:${
-                                    currentAndUpgradePlans?.upgradePlan?.plan_key
-                                }${redirectPath && `&redirect_path=${redirectPath}`}`}
-                                disableClientSideRouting
-                                loading={billingProductLoading === addon.type}
-                                onClick={() => {
-                                    setBillingProductLoading(addon.type)
-                                }}
-                            >
-                                Add
-                            </LemonButton>
-                        </>
-                    )}
-                </div>
-            </div>
-            <div className="mt-3 ml-11">
-                {addonFeatures?.length > 1 && (
-                    <div>
-                        <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        {addonFeatures?.map((feature, i) => {
-                            return (
-                                i < 6 && (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + i}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name} </b>
-                                        </Tooltip>
-                                    </div>
-                                )
-                            )
-                        })}
-                    </div>
-                )}
-            </div>
-            <ProductPricingModal
-                modalOpen={isPricingModalOpen}
-                onClose={toggleIsPricingModalOpen}
-                product={addon}
-                planKey={
-                    addon.subscribed
-                        ? currentAndUpgradePlans?.currentPlan?.plan_key
-                        : currentAndUpgradePlans?.upgradePlan?.plan_key
-                }
-            />
-            {surveyID && <UnsubscribeSurveyModal product={addon} />}
-        </div>
-    )
-}
-
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -226,104 +87,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         0: 'small',
         700: 'medium',
     })
-
-    const addonPriceColumns = product.addons
-        // only get addons that are subscribed or were subscribed and have a projected amount
-        ?.filter((addon) => addon.subscribed || parseFloat(addon.projected_amount_usd || ''))
-        .map((addon) => ({
-            title: `${addon.name} price`,
-            dataIndex: `${addon.type}-price`,
-        }))
-
-    const tableColumns = [
-        { title: `Priced per ${product.unit}`, dataIndex: 'volume' },
-        { title: addonPriceColumns?.length > 0 ? 'Base price' : 'Price', dataIndex: 'basePrice' },
-        ...(addonPriceColumns || []),
-        { title: 'Current Usage', dataIndex: 'usage' },
-        { title: 'Total', dataIndex: 'total' },
-        { title: 'Projected Total', dataIndex: 'projectedTotal' },
-    ]
-
-    type TableTierDatum = {
-        volume: string
-        basePrice: string
-        [addonPrice: string]: string
-        usage: string
-        total: string
-        projectedTotal: string
-    }
-
-    // TODO: SUPPORT NON-TIERED PRODUCT TYPES
-    // still use the table, but the data will be different
-    const tableTierData: TableTierDatum[] | undefined =
-        product.tiers && product.tiers.length > 0
-            ? product.tiers
-                  ?.map((tier, i) => {
-                      const addonPricesForTier = product.addons?.map((addon) => ({
-                          [`${addon.type}-price`]: `${
-                              addon.tiers?.[i]?.unit_amount_usd !== '0'
-                                  ? '$' + addon.tiers?.[i]?.unit_amount_usd
-                                  : 'Free'
-                          }`,
-                      }))
-                      // take the tier.current_amount_usd and add it to the same tier level for all the addons
-                      const totalForTier =
-                          parseFloat(tier.current_amount_usd || '') +
-                          (product.addons?.reduce(
-                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                              0
-                              // if there aren't any addons we get NaN from the above, so we need to default to 0
-                          ) || 0)
-                      const projectedTotalForTier =
-                          (parseFloat(tier.projected_amount_usd || '') || 0) +
-                          product.addons?.reduce(
-                              (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                              0
-                          )
-
-                      const tierData = {
-                          volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
-                              ? getTierDescription(product.tiers, i, product, billing?.billing_period?.interval || '')
-                              : '',
-                          basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
-                          usage: compactNumber(tier.current_usage),
-                          total: `$${totalForTier.toFixed(2) || '0.00'}`,
-                          projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
-                      }
-                      // if there are any addon prices we need to include, put them in the table
-                      addonPricesForTier?.map((addonPrice) => {
-                          Object.assign(tierData, addonPrice)
-                      })
-                      return tierData
-                  })
-                  // Add a row at the end for the total
-                  .concat({
-                      volume: 'Total',
-                      basePrice: '',
-                      usage: '',
-                      total: `$${product.current_amount_usd || '0.00'}`,
-                      projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
-                  })
-            : undefined
-
-    if (billing?.discount_percent && parseFloat(product.projected_amount_usd || '')) {
-        // If there is a discount, add a row for the total after discount if there is also a projected amount
-        tableTierData?.push({
-            volume: 'Total after discount',
-            basePrice: '',
-            usage: '',
-            total: `$${
-                (parseInt(product.current_amount_usd || '0') * (1 - billing?.discount_percent / 100)).toFixed(2) ||
-                '0.00'
-            }`,
-            projectedTotal: `$${
-                (
-                    parseInt(product.projected_amount_usd || '0') -
-                    parseInt(product.projected_amount_usd || '0') * (billing?.discount_percent / 100)
-                ).toFixed(2) || '0.00'
-            }`,
-        })
-    }
 
     return (
         <div
@@ -529,57 +292,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     ) : null}
                     {/* Table with tiers */}
-                    {showTierBreakdown && (
-                        <div className="pl-16 pb-8">
-                            {product.tiered && tableTierData ? (
-                                <>
-                                    <LemonTable
-                                        stealth
-                                        embedded
-                                        size="small"
-                                        uppercaseHeader={false}
-                                        columns={tableColumns}
-                                        dataSource={tableTierData}
-                                    />
-                                    {product.type === 'feature_flags' && (
-                                        <p className="mt-4 ml-0 text-sm text-muted italic">
-                                            <IconInfo className="mr-1" />
-                                            Using local evaluation? Here's{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation#server-side-local-evaluation"
-                                                className="italic"
-                                            >
-                                                how we calculate usage
-                                            </Link>
-                                            .
-                                        </p>
-                                    )}
-                                </>
-                            ) : (
-                                <LemonTable
-                                    stealth
-                                    embedded
-                                    size="small"
-                                    uppercaseHeader={false}
-                                    columns={[
-                                        { title: '', dataIndex: 'name' },
-                                        { title: 'Total', dataIndex: 'total' },
-                                    ]}
-                                    dataSource={[
-                                        {
-                                            name: product.name,
-                                            total: product.unit_amount_usd,
-                                        },
-                                    ]}
-                                />
-                            )}
-                        </div>
-                    )}
+                    {showTierBreakdown && <BillingProductPricingTable product={product} />}
                     {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
+                                    // TODO: enhanced_persons: remove this filter
                                     .filter((addon) => !addon.inclusion_only)
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
@@ -686,6 +405,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
                                                 loading={billingProductLoading === product.type}
+                                                disabledReason={billingError && billingError.message}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
                                                     setBillingProductLoading(product.type)

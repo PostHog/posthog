@@ -69,20 +69,21 @@ export async function resetTestDatabase(
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
+            bytecode_error: null,
+            bytecode: null,
+            steps_json: [
+                {
+                    tag_name: null,
+                    text: null,
+                    href: null,
+                    selector: null,
+                    url: null,
+                    url_matching: null,
+                    event: null,
+                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                },
+            ],
         } as RawAction)
-        await insertRow(db, 'posthog_actionstep', {
-            id: teamIdToCreate + 911,
-            action_id: teamIdToCreate + 67,
-            tag_name: null,
-            text: null,
-            href: null,
-            selector: null,
-            url: null,
-            url_matching: null,
-            name: null,
-            event: null,
-            properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-        })
         for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
             await insertRow(db, 'posthog_plugin', plugin)
         }

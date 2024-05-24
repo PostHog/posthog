@@ -93,10 +93,6 @@ export const legacyEntityToNode = (
     let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
-        id_field: 'id_field' in entity ? entity.id_field : undefined,
-        timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
-        distinct_id_field: 'distinct_id_field' in entity ? entity.distinct_id_field : undefined,
-        table_name: 'table_name' in entity ? entity.table_name : undefined,
     }
 
     if (isDataWarehouseFilter(entity)) {
@@ -106,7 +102,7 @@ export const legacyEntityToNode = (
             timestamp_field: entity.timestamp_field || undefined,
             distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
-        }
+        } as DataWarehouseNode
     }
 
     if (includeProperties) {
@@ -389,6 +385,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
+        showMean: filters.show_mean,
     })
     // TODO: query.aggregation_group_type_index
 }

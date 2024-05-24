@@ -237,6 +237,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -925,8 +926,6 @@ export enum StringMatching {
 }
 
 export interface ActionStep {
-    id: number
-    action_id: number
     tag_name: string | null
     text: string | null
     /** @default StringMatching.Exact */
@@ -938,7 +937,6 @@ export interface ActionStep {
     url: string | null
     /** @default StringMatching.Contains */
     url_matching: StringMatching | null
-    name: string | null
     event: string | null
     properties: PropertyFilter[] | null
 }
@@ -957,12 +955,13 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
-    bytecode?: any[]
-    bytecode_error?: string
+    steps_json: ActionStep[] | null
+    bytecode: any[] | null
+    bytecode_error: string | null
 }
 
 /** Usable Action model. */
-export interface Action extends RawAction {
+export interface Action extends Omit<RawAction, 'steps_json'> {
     steps: ActionStep[]
     hooks: Hook[]
 }

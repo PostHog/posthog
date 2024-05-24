@@ -14,12 +14,14 @@ import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
-    const { currentTab, canEnableNewDestinations, canGloballyManagePlugins } = useValues(pipelineLogic)
+    const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
+    const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
 
     let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
@@ -43,16 +45,12 @@ export function Pipeline(): JSX.Element {
     }
 
     const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
-    const showNewButton =
-        maybeKind &&
-        currentTab !== PipelineTab.ImportApps &&
-        (currentTab !== PipelineTab.Destinations || canEnableNewDestinations)
 
     return (
         <div className="pipeline-scene">
             <PageHeader
                 caption="Add transformations to the events sent to PostHog or export them to other tools."
-                buttons={showNewButton ? <NewButton stage={maybeKind} /> : undefined}
+                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}

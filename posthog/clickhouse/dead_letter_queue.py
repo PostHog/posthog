@@ -47,7 +47,7 @@ SETTINGS index_granularity=512
     , {index_by_kafka_timestamp(DEAD_LETTER_QUEUE_TABLE)}
     """,
     engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
-    ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
+    ttl_period=ttl_period("_timestamp", 4, unit="WEEK"),
 )
 
 # skip up to 1000 messages per block. blocks can be as large as 65505

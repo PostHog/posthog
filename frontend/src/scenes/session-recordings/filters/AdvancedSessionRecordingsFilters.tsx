@@ -3,7 +3,9 @@ import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -13,6 +15,53 @@ import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
+
+function DateAndDurationFilters({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingFilters
+    setFilters: (filters: RecordingFilters) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonLabel>Time and duration</LemonLabel>
+            <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter
+                    dateFrom={filters.date_from ?? '-3d'}
+                    dateTo={filters.date_to}
+                    disabled={filters.live_mode}
+                    onChange={(changedDateFrom, changedDateTo) => {
+                        setFilters({
+                            date_from: changedDateFrom,
+                            date_to: changedDateTo,
+                        })
+                    }}
+                    dateOptions={[
+                        { key: 'Custom', values: [] },
+                        { key: 'Last 24 hours', values: ['-24h'] },
+                        { key: 'Last 3 days', values: ['-3d'] },
+                        { key: 'Last 7 days', values: ['-7d'] },
+                        { key: 'Last 30 days', values: ['-30d'] },
+                        { key: 'All time', values: ['-90d'] },
+                    ]}
+                    dropdownPlacement="bottom-start"
+                />
+                <DurationFilter
+                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                        setFilters({
+                            session_recording_duration: newRecordingDurationFilter,
+                            duration_type_filter: newDurationType,
+                        })
+                    }}
+                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
+                    durationTypeFilter={filters.duration_type_filter || 'duration'}
+                    pageKey="session-recordings"
+                />
+            </div>
+        </div>
+    )
+}
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -24,6 +73,27 @@ export const AdvancedSessionRecordingsFilters = ({
     showPropertyFilters?: boolean
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const allowedPropertyTaxonomyTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
+        ...groupsTaxonomicTypes,
+    ]
+
+    const hasHogQLFiltering = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]
+
+    if (hasHogQLFiltering) {
+        allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
+    const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+    if (hasHogQLFiltering) {
+        addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
 
     return (
         <div className="space-y-2 bg-light p-3">
@@ -45,13 +115,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 hideDuplicate
                 showNestedArrow={false}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    ...groupsTaxonomicTypes,
-                ]}
+                propertiesTaxonomicGroupTypes={allowedPropertyTaxonomyTypes}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{
                     id: '$pageview',
@@ -61,7 +125,15 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
+            {hasHogQLFiltering ? (
+                <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                    Properties
+                </LemonLabel>
+            ) : (
+                <LemonLabel info="Show recordings by persons who match the set criteria">
+                    Persons and cohorts
+                </LemonLabel>
+            )}
 
             <TestAccountFilter
                 filters={filters}
@@ -71,8 +143,8 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText="Person or cohort"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    buttonText={hasHogQLFiltering ? 'Add filter' : 'Person or cohort'}
+                    taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
                         setFilters({ properties })
@@ -80,39 +152,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 />
             )}
 
-            <LemonLabel>Time and duration</LemonLabel>
-
-            <div className="flex flex-wrap gap-2">
-                <DateFilter
-                    dateFrom={filters.date_from ?? '-7d'}
-                    dateTo={filters.date_to ?? undefined}
-                    onChange={(changedDateFrom, changedDateTo) => {
-                        setFilters({
-                            date_from: changedDateFrom,
-                            date_to: changedDateTo,
-                        })
-                    }}
-                    dateOptions={[
-                        { key: 'Custom', values: [] },
-                        { key: 'Last 24 hours', values: ['-24h'] },
-                        { key: 'Last 7 days', values: ['-7d'] },
-                        { key: 'Last 30 days', values: ['-30d'] },
-                        { key: 'All time', values: ['-90d'] },
-                    ]}
-                    dropdownPlacement="bottom-start"
-                />
-                <DurationFilter
-                    onChange={(newRecordingDurationFilter, newDurationType) => {
-                        setFilters({
-                            session_recording_duration: newRecordingDurationFilter,
-                            duration_type_filter: newDurationType,
-                        })
-                    }}
-                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
-                    durationTypeFilter={filters.duration_type_filter || 'duration'}
-                    pageKey="session-recordings"
-                />
-            </div>
+            <DateAndDurationFilters filters={filters} setFilters={setFilters} />
 
             <ConsoleFilters filters={filters} setFilters={setFilters} />
         </div>

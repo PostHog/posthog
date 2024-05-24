@@ -9,7 +9,6 @@ from posthog.api.test.test_stickiness import (
     stickiness_test_factory,
 )
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group.util import create_group
 from posthog.queries.util import get_earliest_timestamp
@@ -26,8 +25,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
     return action
 
 

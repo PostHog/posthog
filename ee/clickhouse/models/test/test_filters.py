@@ -416,7 +416,9 @@ class TestFilters(PGTestFilters):
                 "events": [
                     {
                         "type": "events",
+                        "distinct_id_field": None,
                         "id": "$pageview",
+                        "id_field": None,
                         "math": None,
                         "math_hogql": None,
                         "math_property": None,
@@ -435,6 +437,8 @@ class TestFilters(PGTestFilters):
                                 }
                             ],
                         },
+                        "table_name": None,
+                        "timestamp_field": None,
                     }
                 ]
             },
@@ -459,7 +463,9 @@ class TestFilters(PGTestFilters):
                 "events": [
                     {
                         "type": "events",
+                        "distinct_id_field": None,
                         "id": "$pageview",
+                        "id_field": None,
                         "math": "unique_group",
                         "math_hogql": None,
                         "math_property": None,
@@ -478,6 +484,8 @@ class TestFilters(PGTestFilters):
                                 }
                             ],
                         },
+                        "table_name": None,
+                        "timestamp_field": None,
                     }
                 ]
             },

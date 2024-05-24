@@ -1,14 +1,19 @@
-export type IntervalKeyType = 'hour' | 'day' | 'week' | 'month'
+export type IntervalKeyType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export type Intervals = {
     [key in IntervalKeyType]: {
         label: string
         newDateFrom?: string
         disabledReason?: string
+        hidden?: boolean
     }
 }
 
 export const intervals: Intervals = {
+    minute: {
+        label: 'minute',
+        newDateFrom: 'hStart',
+    },
     hour: {
         label: 'hour',
         newDateFrom: 'dStart',

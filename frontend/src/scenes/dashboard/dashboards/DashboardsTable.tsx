@@ -107,7 +107,7 @@ export function DashboardsTable({
                                 )}
                             </>
                         }
-                        description={hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) ? description : undefined}
+                        description={description}
                     />
                 )
             },

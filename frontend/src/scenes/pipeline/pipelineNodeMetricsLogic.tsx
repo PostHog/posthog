@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { pipelineNodeMetricsLogicType } from './pipelineNodeMetricsLogicType'
 
 export interface PipelineNodeMetricsProps {
-    pluginConfigId: number
+    id: number | string // PluginConfig ID or batch export destination ID
 }
 const DEFAULT_DATE_FROM = '-7d'
 
@@ -49,7 +49,7 @@ export interface AppMetricErrorDetail {
 
 export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
     props({} as PipelineNodeMetricsProps),
-    key(({ pluginConfigId }: PipelineNodeMetricsProps) => pluginConfigId),
+    key(({ id }: PipelineNodeMetricsProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -68,7 +68,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
                 loadMetrics: async () => {
                     const params = toParams({ date_from: values.dateFrom })
                     return await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}?${params}`
                     )
                 },
             },
@@ -79,7 +79,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
                 openErrorDetailsModal: async ({ errorType }) => {
                     const params = toParams({ error_type: errorType })
                     const { result } = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}/error_details?${params}`
                     )
                     return result
                 },

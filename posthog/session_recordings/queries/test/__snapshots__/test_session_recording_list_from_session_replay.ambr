@@ -21,7 +21,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.min_first_timestamp <= '2023-01-04 00:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -69,7 +69,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.min_first_timestamp <= '2023-01-04 00:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -116,7 +116,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.min_first_timestamp <= '2023-01-04 00:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -164,7 +164,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.min_first_timestamp <= '2023-01-04 00:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -212,7 +212,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-22 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-04 23:59:59'
+    AND s.min_first_timestamp <= '2021-01-04 23:59:59'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -289,7 +289,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -332,7 +332,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -376,7 +376,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -420,7 +420,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -463,7 +463,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -507,7 +507,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -551,7 +551,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -581,7 +581,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
@@ -612,7 +612,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   AND active_seconds > 60
@@ -643,7 +643,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   AND inactive_seconds > 60
@@ -674,7 +674,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY active_seconds DESC
@@ -704,7 +704,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY console_error_count DESC
@@ -734,7 +734,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -764,7 +764,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -794,7 +794,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -824,7 +824,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -854,7 +854,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2021-01-01 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -884,7 +884,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-30 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -914,7 +914,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 12:46:00'
     AND s.min_first_timestamp >= '2020-12-12 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -944,7 +944,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 12:46:00'
     AND s.min_first_timestamp >= '2020-12-11 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -974,7 +974,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 12:46:00'
     AND s.min_first_timestamp >= '2020-12-10 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1004,7 +1004,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2020-12-28 23:59:59'
+    AND s.min_first_timestamp <= '2020-12-28 23:59:59'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1034,7 +1034,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2020-12-29 23:59:59'
+    AND s.min_first_timestamp <= '2020-12-29 23:59:59'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1064,7 +1064,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
@@ -1095,7 +1095,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   AND duration < 60
@@ -1126,7 +1126,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1171,7 +1171,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1216,7 +1216,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1261,7 +1261,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1291,7 +1291,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1337,7 +1337,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1383,7 +1383,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1436,7 +1436,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1481,7 +1481,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1562,7 +1562,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1641,7 +1641,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -1686,7 +1686,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1765,7 +1765,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1842,7 +1842,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1920,7 +1920,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1998,7 +1998,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2044,7 +2044,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2090,7 +2090,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2136,7 +2136,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2182,7 +2182,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2227,7 +2227,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2272,7 +2272,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2323,7 +2323,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2369,7 +2369,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2415,7 +2415,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2461,7 +2461,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2507,7 +2507,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2596,7 +2596,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2641,7 +2641,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2730,7 +2730,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2775,7 +2775,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -2821,14 +2821,14 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND "session_id" in
       (SELECT distinct log_source_id as session_id
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'message 4') > 0 ) as log_text_matching
@@ -2863,14 +2863,14 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND "session_id" in
       (SELECT distinct log_source_id as session_id
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
@@ -2905,14 +2905,14 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND "session_id" in
       (SELECT distinct log_source_id as session_id
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'MESSAGE 5') > 0 ) as log_text_matching
@@ -2947,14 +2947,14 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND "session_id" in
       (SELECT distinct log_source_id as session_id
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['info']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
@@ -2988,7 +2988,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_error_count > 0)
@@ -3019,7 +3019,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
@@ -3050,7 +3050,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
@@ -3081,7 +3081,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0)
@@ -3112,7 +3112,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0)
@@ -3143,7 +3143,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
@@ -3174,7 +3174,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0
@@ -3206,7 +3206,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
@@ -3257,7 +3257,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-08-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -3328,7 +3328,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-08-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -3415,7 +3415,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-08-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -3502,7 +3502,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3548,7 +3548,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3594,7 +3594,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp <= '2021-01-01 13:46:23'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -3639,7 +3639,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3684,7 +3684,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3727,7 +3727,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3772,7 +3772,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3815,7 +3815,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3860,7 +3860,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3903,7 +3903,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3948,7 +3948,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -3991,7 +3991,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4036,7 +4036,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4079,7 +4079,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4124,7 +4124,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4167,7 +4167,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4212,7 +4212,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -4260,7 +4260,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4305,7 +4305,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -4352,7 +4352,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4397,7 +4397,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -4448,7 +4448,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -4493,7 +4493,7 @@
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.min_first_timestamp <= '2021-01-21 20:00:00'
     AND s.distinct_id in
       (select distinct_id
        from

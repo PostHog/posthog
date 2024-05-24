@@ -21,18 +21,16 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
     if (cohortMissing) {
@@ -188,13 +186,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="description" label="Description" data-attr="cohort-description">
-                                <LemonTextArea />
-                            </LemonField>
-                        </div>
-                    )}
+                    <div className="ph-ignore-input">
+                        <LemonField name="description" label="Description" data-attr="cohort-description">
+                            <LemonTextArea />
+                        </LemonField>
+                    </div>
                 </div>
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">

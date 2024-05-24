@@ -133,6 +133,26 @@ jobs:
                         "context": ${{ toJson(github) }}
                       }
 
+            - name: Check for changes that affect general purpose temporal worker
+              id: check_changes_general_purpose_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/proxy_service|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger General Purpose Temporal Worker Cloud deployment
+              if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker-general-purpose",
+                        "context": ${{ toJson(github) }}
+                      }
+
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |

@@ -502,7 +502,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"
-        assert response.results[0]["count"] == 3
+        assert response.results[1]["count"] == 3
 
         assert response.results[2]["compare_label"] == "previous"
         assert response.results[2]["label"] == "Formula (A+2*B)"
@@ -537,7 +537,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"
-        assert response.results[0]["aggregated_value"] == 3
+        assert response.results[1]["aggregated_value"] == 3
 
         assert response.results[2]["compare_label"] == "previous"
         assert response.results[2]["label"] == "Formula (A+2*B)"
@@ -630,7 +630,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, "all"]),
         )
 
-        print(response)  # noqa: T201
         assert len(response.results) == 2
 
         assert response.results[0]["label"] == "Formula (A+B)"
@@ -657,6 +656,24 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
         )
         self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0]["data"])
+
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
+        self._create_test_events()
+
+        self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageviewxxx"), EventsNode(event="$pageleavexxx")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+        self.assertEqual(mock_sync_execute.call_count, 4)
+        for mock_execute_call_args in mock_sync_execute.call_args_list:
+            self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 
     def test_trends_compare(self):
         self._create_test_events()
@@ -1962,19 +1979,61 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # date_to starts at specific time
-        response = runner.to_actors_query(time_frame="2020-01-09", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-09", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 
         # date_from ends at specific time
-        response = runner.to_actors_query(time_frame="2020-01-20", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-20", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
+
+    def test_sampling_adjustment(self):
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        # line graph
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.month,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        # 10% of 30 is 3, so check we're adjusting the results back up
+        assert response.results[0]["count"] > 5 and response.results[0]["count"] < 30
+
+        # big number
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.month,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BoldNumber),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        # 10% of 30 is 3, so check we're adjusting the results back up
+        assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30

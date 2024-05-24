@@ -96,7 +96,8 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     with timer("openai_completion"):
         result = openai.chat.completions.create(
             # model="gpt-4-1106-preview",  # allows 128k tokens
-            model="gpt-4",  # allows 8k tokens
+            # model="gpt-4",  # allows 8k tokens
+            model="gpt-4o",  # allows 128k tokens
             temperature=0.7,
             messages=[
                 {

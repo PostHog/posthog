@@ -9,7 +9,6 @@ from django.utils.timezone import now
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
     Action,
-    ActionStep,
     Dashboard,
     DashboardTile,
     Insight,
@@ -34,30 +33,42 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(team=self.team, name="Hogflix homepage view")
-        ActionStep.objects.create(
-            action=homepage,
-            event="$pageview",
-            url="http://hogflix.com",
-            url_matching="exact",
+        homepage = Action.objects.create(
+            team=self.team,
+            name="Hogflix homepage view",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "http://hogflix.com",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
-        user_signed_up = Action.objects.create(team=self.team, name="Hogflix signed up")
-        ActionStep.objects.create(
-            action=user_signed_up,
-            event="$autocapture",
-            url="http://hogflix.com/1",
-            url_matching="contains",
-            selector="button",
+        user_signed_up = Action.objects.create(
+            team=self.team,
+            name="Hogflix signed up",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "http://hogflix.com/1",
+                    "url_matching": "contains",
+                    "selector": "button",
+                }
+            ],
         )
 
-        user_paid = Action.objects.create(team=self.team, name="Hogflix paid")
-        ActionStep.objects.create(
-            action=user_paid,
-            event="$autocapture",
-            url="http://hogflix.com/2",
-            url_matching="contains",
-            selector="button",
+        user_paid = Action.objects.create(
+            team=self.team,
+            name="Hogflix paid",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "http://hogflix.com/2",
+                    "url_matching": "contains",
+                    "selector": "button",
+                }
+            ],
         )
 
         dashboard = Dashboard.objects.create(name="Web Analytics", pinned=True, team=self.team)

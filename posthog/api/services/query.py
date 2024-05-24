@@ -16,58 +16,34 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
-    FunnelCorrelationQuery,
-    FunnelsQuery,
+    DatabaseSchemaQueryResponse,
+    DashboardFilter,
     HogQLAutocomplete,
     HogQLMetadata,
-    HogQLQuery,
-    EventsQuery,
-    TrendsQuery,
-    RetentionQuery,
     QuerySchemaRoot,
-    LifecycleQuery,
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
-    ActorsQuery,
-    SessionsTimelineQuery,
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
-    StickinessQuery,
-    PathsQuery,
-    InsightActorsQueryOptions,
 )
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WITH_RUNNER_USING_CACHE = (
-    TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | FunnelCorrelationQuery
-    | WebOverviewQuery
-    | WebTopClicksQuery
-    | WebStatsTableQuery
-)
-QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery | InsightActorsQueryOptions
 
-
-def process_query(
+def process_query_dict(
     team: Team,
     query_json: dict,
     *,
+    dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
+    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     return process_query_model(
         team,
         model.root,
+        dashboard_filters=dashboard_filters,
         limit_context=limit_context,
         execution_mode=execution_mode,
     )
@@ -77,24 +53,20 @@ def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
+    dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     result: dict | BaseModel
 
-    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not isinstance(
-        query,
-        QUERY_WITH_RUNNER_USING_CACHE,  # type: ignore
-    ):
-        result = CacheMissResponse(cache_key=None)
-    else:
-        if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
-            query_runner = get_query_runner(query, team, limit_context=limit_context)
-            result = query_runner.run(execution_mode=execution_mode)
-        elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
-            # TODO: These queries should be using the QueryRunner caching layer too
-            query_runner = get_query_runner(query, team, limit_context=limit_context)
-            result = query_runner.calculate()
+    try:
+        query_runner = get_query_runner(query, team, limit_context=limit_context)
+    except ValueError:  # This query doesn't run via query runner
+        if hasattr(query, "source") and isinstance(query.source, BaseModel):
+            result = process_query_model(team, query.source, execution_mode=execution_mode)
+        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+            # Caching is handled by query runners, so in this case we can only return a cache miss
+            result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
@@ -104,7 +76,7 @@ def process_query_model(
         elif isinstance(query, DatabaseSchemaQuery):
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = serialize_database(context)
+            result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         elif isinstance(query, TimeToSeeDataSessionsQuery):
             sessions_query_serializer = SessionsQuerySerializer(data=query)
             sessions_query_serializer.is_valid(raise_exception=True)
@@ -120,11 +92,11 @@ def process_query_model(
             )
             serializer.is_valid(raise_exception=True)
             result = get_session_events(serializer) or {}
-        elif hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(team, query.source)
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+    else:  # Query runner available - it will handle execution as well as caching
+        if dashboard_filters:
+            query_runner.apply_dashboard_filters(dashboard_filters)
+        result = query_runner.run(execution_mode=execution_mode)
 
-    if isinstance(result, BaseModel):
-        return result.model_dump()
     return result

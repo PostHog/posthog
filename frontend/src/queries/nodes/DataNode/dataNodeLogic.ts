@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
+import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -119,16 +120,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
-        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
+        if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
         if (
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
+            ((!values.response?.['result'] && !values.response?.['results']) ||
+                !queryEqual(props.query, oldProps.query)) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
@@ -150,6 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setPollResponse: (status: QueryStatus | null) => ({ status }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -163,11 +166,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        if (
-                            props.cachedResults['result'] ||
-                            props.cachedResults['results'] ||
-                            !isInsightQueryNode(props.query)
-                        ) {
+                        if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
                     }
@@ -187,6 +186,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
@@ -207,7 +207,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
-                                            queryId
+                                            queryId,
+                                            undefined,
+                                            actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -302,6 +304,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => false,
             },
         ],
+        queryId: [
+            null as null | string,
+            {
+                loadData: (_, { queryId }) => queryId,
+            },
+        ],
         newDataLoading: [
             false,
             {
@@ -325,6 +333,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+            },
+        ],
+        pollResponse: [
+            null as null | Record<string, QueryStatus | null>,
+            {
+                setPollResponse: (state, { status }) => {
+                    return { status, previousStatus: state && state.status }
+                },
             },
         ],
         autoLoadToggled: [
@@ -398,11 +414,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
-        ],
-        hogQLInsightsRetentionFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
-                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -643,9 +654,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
-            // Attention: When on dashboard we don't want to load data on mount
-            // as it will have be loaded by some other logic
+        if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again.
+            // We need to set them here, as the propsChanged listener will not trigger on mount
+            // and if we never change the props, the cached results will never be used.
+            actions.setResponse(props.cachedResults)
+        } else if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
 

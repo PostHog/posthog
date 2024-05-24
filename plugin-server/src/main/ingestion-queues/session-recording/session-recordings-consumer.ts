@@ -182,6 +182,7 @@ export class SessionRecordingIngester {
             this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                globalServerConfig.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
                 24 * 3600, // One day,
                 CAPTURE_OVERFLOW_REDIS_KEY,
                 captureRedis

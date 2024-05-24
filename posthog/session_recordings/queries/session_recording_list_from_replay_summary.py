@@ -107,19 +107,16 @@ class LogQuery:
     def ttl_days(self):
         return ttl_days(self._team)
 
-    # We want to select events beyond the range of the recording to handle the case where
-    # a recording spans the time boundaries
-    # TODO This is just copied from below
     @cached_property
     def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
             timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
-            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(hours=12)
+            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(minutes=2)
         if self._filter.date_to:
             timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
-            timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
+            timestamp_params["event_end_time"] = self._filter.date_to
         return timestamp_clause, timestamp_params
 
     @staticmethod
@@ -389,7 +386,10 @@ class SessionIdEventsQuery(EventQuery):
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
+                # NOTE: Do we need a short circuit here for "none" - i.e. all events?
+                event_names_to_filter.extend(
+                    [ae for ae in action.get_step_events() if ae and ae not in event_names_to_filter]
+                )
             else:
                 if entity.id and entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
@@ -632,7 +632,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         -- because any not-the-lowest min value is _more_ greater than the min value
         -- and any not-the-highest max value is _less_ lower than the max value
         AND s.min_first_timestamp >= %(start_time)s
-        AND s.max_last_timestamp <= %(end_time)s
+        AND s.min_first_timestamp <= %(end_time)s
         {persons_sub_query}
         {events_sub_query}
     {provided_session_ids_clause}

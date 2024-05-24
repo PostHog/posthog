@@ -1,19 +1,35 @@
 import './HedgehogBuddy.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-import { HedgehogBuddy } from './HedgehogBuddy'
+import { MemberHedgehogBuddy, MyHedgehogBuddy } from './HedgehogBuddy'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 
 export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogBuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogBuddyLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { user } = useValues(userLogic)
 
-    return hedgehogModeEnabled ? (
-        <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} isDarkModeOn={isDarkModeOn} />
+    const { members } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
+
+    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
+
+    return hedgehogConfig.enabled ? (
+        <>
+            <MyHedgehogBuddy onClose={() => patchHedgehogConfig({ enabled: false })} />
+
+            {hedgehogConfig.party_mode_enabled
+                ? members?.map((member) => {
+                      if (member.user.uuid !== user?.uuid && member.user.hedgehog_config) {
+                          return <MemberHedgehogBuddy key={member.user.uuid} member={member} />
+                      }
+                  })
+                : null}
+        </>
     ) : (
         <></>
     )

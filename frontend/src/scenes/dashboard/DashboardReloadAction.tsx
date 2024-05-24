@@ -2,6 +2,7 @@ import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -27,7 +28,11 @@ const intervalOptions = [
 
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
-    const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
+    const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
+
+    usePageVisibility((pageIsVisible) => {
+        setPageVisibility(pageIsVisible)
+    })
 
     const options = intervalOptions.map((option) => {
         return {

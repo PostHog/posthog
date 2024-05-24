@@ -26,7 +26,6 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
-    demo_reset_master_team,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
@@ -128,7 +127,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
     # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
+    # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
 

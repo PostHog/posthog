@@ -4,6 +4,7 @@ from typing import Any, Optional
 from collections.abc import Generator
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
+from pydantic import BaseModel
 import requests
 import structlog
 from openpyxl import Workbook
@@ -11,7 +12,8 @@ from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
 
-from posthog.api.services.query import process_query
+from posthog.api.services.query import process_query_dict
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -248,8 +250,11 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
 
     while True:
         try:
-            query_response = process_query(
-                team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT
+            query_response = process_query_dict(
+                team=exported_asset.team,
+                query_json=query,
+                limit_context=LimitContext.EXPORT,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
             )
         except QuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
@@ -260,6 +265,8 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
             query["breakdownFilter"]["breakdown_limit"] = limit
             continue
 
+        if isinstance(query_response, BaseModel):
+            query_response = query_response.model_dump(by_alias=True)
         yield from _convert_response_to_csv_data(query_response)
         return
 

@@ -188,6 +188,7 @@ def execute_hogql_query(
                 )
             except Exception as e:
                 if debug:
+                    results = []
                     if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                         error = str(e)
                     else:

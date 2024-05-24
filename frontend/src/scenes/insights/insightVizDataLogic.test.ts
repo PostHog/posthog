@@ -326,6 +326,7 @@ describe('insightVizDataLogic', () => {
             expectLogic(builtInsightVizDataLogic).toMatchValues({
                 enabledIntervals: {
                     day: { label: 'day', newDateFrom: undefined },
+                    minute: { label: 'minute', newDateFrom: 'hStart' },
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
@@ -348,6 +349,10 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 enabledIntervals: {
                     day: { label: 'day', newDateFrom: undefined },
+                    minute: {
+                        label: 'minute',
+                        newDateFrom: 'hStart',
+                    },
                     hour: {
                         label: 'hour',
                         newDateFrom: 'dStart',
@@ -363,6 +368,34 @@ describe('insightVizDataLogic', () => {
                     week: { label: 'week', newDateFrom: '-30d' },
                 },
             })
+        })
+
+        it('clears smoothing when switching between intervals', async () => {
+            const trendsQuery = { ...trendsQueryDefault, interval: 'minute' }
+            trendsQuery.trendsFilter = { ...trendsQuery.trendsFilter, smoothingIntervals: 2 }
+            builtInsightVizDataLogic.actions.updateQuerySource(trendsQuery)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    interval: 'hour',
+                } as TrendsQuery)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQuery,
+                            interval: 'hour',
+                            dateRange: {
+                                date_from: '-1h',
+                                date_to: undefined,
+                            },
+                            trendsFilter: { smoothingIntervals: undefined },
+                        },
+                    },
+                })
         })
     })
 

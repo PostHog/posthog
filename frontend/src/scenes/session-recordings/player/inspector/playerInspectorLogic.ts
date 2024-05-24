@@ -444,7 +444,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
+                return matchPaintEvents(
+                    deduplicatePerformanceEvents(
+                        filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
+                    ).sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+                )
             },
         ],
 
@@ -494,20 +498,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
                     const responseStatus = event.response_status || 200
-
-                    // NOTE: Navigation events are missing the first contentful paint info
-                    // so, we find the relevant first contentful paint event and add it to the navigation event
-                    if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
-                        const firstContentfulPaint = performanceEventsArr.find(
-                            (x) =>
-                                x.pageview_id === event.pageview_id &&
-                                x.entry_type === 'paint' &&
-                                x.name === 'first-contentful-paint'
-                        )
-                        if (firstContentfulPaint) {
-                            event.first_contentful_paint = firstContentfulPaint.start_time
-                        }
-                    }
 
                     if (event.entry_type === 'paint') {
                         // We don't include paint events as they are covered in the navigation events
@@ -973,6 +963,50 @@ function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
     // the browser can provide network events that we're not interested in,
     // like a navigation to "about:blank"
     return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name === 'about:blank')
+        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
     })
+}
+
+function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEvent[] {
+    // we capture performance entries in the `isInitial` requests
+    // which are those captured before we've wrapped fetch
+    // since we're trying hard to avoid missing requests we sometimes capture the same request twice
+    // once isInitial and once is the actual fetch
+    // the actual fetch will have more data, so we can discard the isInitial
+    const seen = new Set<string>()
+    return events
+        .reverse()
+        .filter((event) => {
+            const key = `${event.entry_type}-${event.name}-${event.timestamp}-${event.window_id}`
+            // we only want to drop is_initial events
+            if (seen.has(key) && event.is_initial) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+        .reverse()
+}
+
+/**
+ * If we have paint events we should add them to the appropriate navigation event
+ * this makes it easier to draw performance cards for navigation events
+ */
+function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEvent[] {
+    // KLUDGE: this relies on the identity of the events to mutate them, because that's cheaper than copying the potentially large list
+    let lastNavigationEvent: PerformanceEvent | null = null
+    for (const event of performanceEvents.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))) {
+        if (event.entry_type === 'navigation') {
+            lastNavigationEvent = event
+        } else if (
+            event.entry_type === 'paint' &&
+            event.name === 'first-contentful-paint' &&
+            lastNavigationEvent &&
+            lastNavigationEvent.first_contentful_paint === undefined
+        ) {
+            lastNavigationEvent.first_contentful_paint = event.start_time
+        }
+    }
+
+    return performanceEvents
 }

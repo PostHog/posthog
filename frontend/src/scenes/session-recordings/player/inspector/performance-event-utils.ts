@@ -83,7 +83,13 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     initiatorType: 'initiator_type',
     nextHopProtocol: 'next_hop_protocol',
     renderBlockingStatus: 'render_blocking_status',
+
+    // responseStatus if we receive the status via the performance observer
     responseStatus: 'response_status',
+    // status if we receive it from wrapping fetch/xhr
+    // we prefer status if we receive both
+    status: 'response_status',
+
     transferSize: 'transfer_size',
 
     // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
@@ -161,6 +167,7 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                 const data: Partial<PerformanceEvent> = {
                     timestamp: snapshot.timestamp,
                     window_id: windowId,
+                    raw: properties,
                 }
 
                 Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {

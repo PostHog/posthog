@@ -11,7 +11,13 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
+from ee.billing.billing_types import (
+    BillingPeriod,
+    CustomerInfo,
+    CustomerProduct,
+    CustomerProductAddon,
+)
+from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
 from posthog.cloud_utils import (
     TEST_clear_instance_license_cache,
@@ -76,7 +82,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                     {
                         "unit_amount_usd": "0.00045",
                         "up_to": 2000000,
-                        "current_amount_usd": None,
+                        "current_amount_usd": "0.00",
                     },
                 ],
                 tiered=True,
@@ -89,6 +95,39 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 projected_usage=0,
                 projected_amount_usd="0.00",
                 usage_key="events",
+                addons=[
+                    CustomerProductAddon(
+                        name="Addon",
+                        description="Test Addon",
+                        price_description=None,
+                        type="events",
+                        image_url="https://posthog.com/static/images/product-os.png",
+                        free_allocation=10000,
+                        tiers=[
+                            {
+                                "unit_amount_usd": "0.00",
+                                "up_to": 1000000,
+                                "current_amount_usd": "0.00",
+                            },
+                            {
+                                "unit_amount_usd": "0.0000135",
+                                "up_to": 2000000,
+                                "current_amount_usd": "0.00",
+                            },
+                        ],
+                        tiered=True,
+                        unit_amount_usd="0.00",
+                        current_amount_usd="0.00",
+                        current_usage=0,
+                        usage_limit=None,
+                        has_exceeded_limit=False,
+                        percentage_usage=0,
+                        projected_usage=0,
+                        projected_amount_usd="0.00",
+                        usage_key="events",
+                        subscribed=True,
+                    )
+                ],
             )
         ],
         billing_period=BillingPeriod(
@@ -121,22 +160,72 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                         "unit_amount_usd": "0.00",
                         "up_to": 1000000,
                         "current_amount_usd": "0.00",
+                        "current_usage": 0,
+                        "flat_amount_usd": "0",
+                        "projected_amount_usd": "None",
+                        "projected_usage": None,
                     },
                     {
                         "unit_amount_usd": "0.00045",
                         "up_to": 2000000,
-                        "current_amount_usd": None,
+                        "current_amount_usd": "0.00",
+                        "current_usage": 0,
+                        "flat_amount_usd": "0",
+                        "projected_amount_usd": "None",
+                        "projected_usage": None,
+                    },
+                ],
+                addons=[
+                    {
+                        "current_amount_usd": 0.0,
+                        "current_usage": 0,
+                        "description": "Test Addon",
+                        "free_allocation": 10000,
+                        "has_exceeded_limit": False,
+                        "image_url": "https://posthog.com/static/images/product-os.png",
+                        "name": "Addon",
+                        "percentage_usage": 0,
+                        "price_description": None,
+                        "projected_amount_usd": "0.00",
+                        "projected_usage": 0,
+                        "subscribed": True,
+                        "tiered": True,
+                        "tiers": [
+                            {
+                                "current_amount_usd": "0.00",
+                                "current_usage": 0,
+                                "flat_amount_usd": "0",
+                                "projected_amount_usd": "None",
+                                "projected_usage": None,
+                                "unit_amount_usd": "0.00",
+                                "up_to": 1000000,
+                            },
+                            {
+                                "current_amount_usd": "0.00",
+                                "current_usage": 0,
+                                "flat_amount_usd": "0",
+                                "projected_amount_usd": "None",
+                                "projected_usage": None,
+                                "unit_amount_usd": "0.0000135",
+                                "up_to": 2000000,
+                            },
+                        ],
+                        "type": "events",
+                        "unit_amount_usd": "0.00",
+                        "usage_key": "events",
+                        "usage_limit": None,
                     },
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
-                current_amount_usd="0.00",
+                current_amount_usd=0.0,
                 current_usage=0,
                 usage_limit=None,
                 has_exceeded_limit=False,
                 percentage_usage=0,
                 projected_usage=0,
-                projected_amount_usd="0.00",
+                projected_amount=0,
+                projected_amount_usd=0.00,
                 usage_key="events",
             )
         ]
@@ -161,7 +250,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
                 mock.json.return_value = {"detail": "Authorization is missing."}
             elif "api/products" in url:
                 mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
+                mock.json.return_value = create_default_products_response()
 
             return mock
 
@@ -172,7 +261,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "available_features": [],
-            "products": create_billing_products_response()["products"],
+            "products": create_default_products_response()["products"],
         }
 
 
@@ -271,15 +360,23 @@ class TestBillingAPI(APILicensedTest):
                             "unit_amount_usd": "0.00",
                             "up_to": 1000000,
                             "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "flat_amount_usd": "0",
+                            "projected_amount_usd": "None",
+                            "projected_usage": None,
                         },
                         {
                             "unit_amount_usd": "0.00045",
                             "up_to": 2000000,
-                            "current_amount_usd": None,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "flat_amount_usd": "0",
+                            "projected_amount_usd": "None",
+                            "projected_usage": None,
                         },
                     ],
                     "tiered": True,
-                    "current_amount_usd": "0.00",
+                    "current_amount_usd": 0.00,
                     "current_usage": 0,
                     "usage_limit": None,
                     "percentage_usage": 0,
@@ -288,7 +385,48 @@ class TestBillingAPI(APILicensedTest):
                     "projected_amount_usd": "0.00",
                     "projected_usage": 0,
                     "usage_key": "events",
-                }
+                    "addons": [
+                        {
+                            "current_amount_usd": 0.00,
+                            "current_usage": 0,
+                            "description": "Test Addon",
+                            "free_allocation": 10000,
+                            "has_exceeded_limit": False,
+                            "image_url": "https://posthog.com/static/images/product-os.png",
+                            "name": "Addon",
+                            "percentage_usage": 0,
+                            "price_description": None,
+                            "projected_amount_usd": "0.00",
+                            "projected_usage": 0,
+                            "subscribed": True,
+                            "tiered": True,
+                            "tiers": [
+                                {
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "flat_amount_usd": "0",
+                                    "projected_amount_usd": "None",
+                                    "projected_usage": None,
+                                    "unit_amount_usd": "0.00",
+                                    "up_to": 1000000,
+                                },
+                                {
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "flat_amount_usd": "0",
+                                    "projected_amount_usd": "None",
+                                    "projected_usage": None,
+                                    "unit_amount_usd": "0.0000135",
+                                    "up_to": 2000000,
+                                },
+                            ],
+                            "type": "events",
+                            "unit_amount_usd": "0.00",
+                            "usage_key": "events",
+                            "usage_limit": None,
+                        },
+                    ],
+                },
             ],
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
@@ -342,25 +480,75 @@ class TestBillingAPI(APILicensedTest):
                             "unit_amount_usd": "0.00",
                             "up_to": 1000000,
                             "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "flat_amount_usd": "0",
+                            "projected_amount_usd": "None",
+                            "projected_usage": None,
                         },
                         {
                             "unit_amount_usd": "0.00045",
                             "up_to": 2000000,
-                            "current_amount_usd": None,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "flat_amount_usd": "0",
+                            "projected_amount_usd": "None",
+                            "projected_usage": None,
                         },
                     ],
                     "current_usage": 0,
-                    "percentage_usage": 0.0,
-                    "current_amount_usd": "0.00",
+                    "percentage_usage": 0,
+                    "current_amount_usd": 0.0,
                     "has_exceeded_limit": False,
-                    "projected_amount_usd": "0.00",
+                    "projected_amount_usd": 0.0,
+                    "projected_amount": 0,
                     "projected_usage": 0,
                     "tiered": True,
                     "unit_amount_usd": "0.00",
                     "usage_limit": None,
                     "image_url": "https://posthog.com/static/images/product-os.png",
-                    "percentage_usage": 0.0,
+                    "percentage_usage": 0,
                     "usage_key": "events",
+                    "addons": [
+                        {
+                            "current_amount_usd": 0.0,
+                            "current_usage": 0,
+                            "description": "Test Addon",
+                            "free_allocation": 10000,
+                            "has_exceeded_limit": False,
+                            "image_url": "https://posthog.com/static/images/product-os.png",
+                            "name": "Addon",
+                            "percentage_usage": 0,
+                            "price_description": None,
+                            "projected_amount_usd": "0.00",
+                            "projected_usage": 0,
+                            "subscribed": True,
+                            "tiered": True,
+                            "tiers": [
+                                {
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "flat_amount_usd": "0",
+                                    "projected_amount_usd": "None",
+                                    "projected_usage": None,
+                                    "unit_amount_usd": "0.00",
+                                    "up_to": 1000000,
+                                },
+                                {
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "flat_amount_usd": "0",
+                                    "projected_amount_usd": "None",
+                                    "projected_usage": None,
+                                    "unit_amount_usd": "0.0000135",
+                                    "up_to": 2000000,
+                                },
+                            ],
+                            "type": "events",
+                            "unit_amount_usd": "0.00",
+                            "usage_key": "events",
+                            "usage_limit": None,
+                        },
+                    ],
                 }
             ],
             "billing_period": {
@@ -460,7 +648,7 @@ class TestBillingAPI(APILicensedTest):
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_available_features_updated_if_different(self, mock_request):
+    def test_organization_available_product_features_updated_if_different(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -471,20 +659,31 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(available_features=["feature1", "feature2"])
+                    customer=create_billing_customer(
+                        available_product_features=[
+                            {"key": "feature1", "name": "feature1"},
+                            {"key": "feature2", "name": "feature2"},
+                        ]
+                    )
                 )
 
             return mock
 
         mock_request.side_effect = mock_implementation
 
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
-        assert self.organization.available_features == []
+        assert self.organization.available_product_features == []
         self.client.get("/api/billing-v2")
         self.organization.refresh_from_db()
-        assert self.organization.available_features == ["feature1", "feature2"]
+        assert self.organization.available_product_features == [
+            {
+                "key": "feature1",
+                "name": "feature1",
+            },
+            {"key": "feature2", "name": "feature2"},
+        ]
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_update(self, mock_request):
@@ -502,7 +701,7 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True)
+                    customer=create_billing_customer(has_active_subscription=True),
                 )
                 mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
 
@@ -536,6 +735,27 @@ class TestBillingAPI(APILicensedTest):
             },
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
+
+        self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
+        self.organization.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        res_json = res.json()
+        # Should update product usage to reflect today's usage
+        assert res_json["products"][0]["current_usage"] == 1101000
+        assert res_json["products"][0]["current_amount_usd"] == 45.45
+        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
+
+        assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.36"
 
         def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
