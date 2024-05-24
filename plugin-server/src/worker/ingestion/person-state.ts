@@ -4,14 +4,12 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
-import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
+import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
-import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
+import { PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
 import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 
@@ -575,133 +573,4 @@ export class PersonState {
             .inc()
         return result
     }
-}
-
-/**
- * A record of a merge operation occurring.
- *
- * These property names need to be kept in sync with the ``PersonOverride``
- * Django model (and ``posthog_personoverride`` table schema) as defined in
- * ``posthog/models/person/person.py``.
- */
-type PersonOverrideDetails = {
-    team_id: number
-    old_person_id: string
-    override_person_id: string
-    oldest_event: DateTime
-}
-
-export class FlatPersonOverrideWriter {
-    constructor(private postgres: PostgresRouter) {}
-
-    public async addPersonOverride(
-        tx: TransactionClient,
-        overrideDetails: PersonOverrideDetails
-    ): Promise<ProducerRecord[]> {
-        const mergedAt = DateTime.now()
-
-        await this.postgres.query(
-            tx,
-            SQL`
-                INSERT INTO posthog_flatpersonoverride (
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                ) VALUES (
-                    ${overrideDetails.team_id},
-                    ${overrideDetails.old_person_id},
-                    ${overrideDetails.override_person_id},
-                    ${overrideDetails.oldest_event},
-                    0
-                )
-            `,
-            undefined,
-            'personOverride'
-        )
-
-        const { rows: transitiveUpdates } = await this.postgres.query(
-            tx,
-            SQL`
-                UPDATE
-                    posthog_flatpersonoverride
-                SET
-                    override_person_id = ${overrideDetails.override_person_id},
-                    version = COALESCE(version, 0)::numeric + 1
-                WHERE
-                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
-                RETURNING
-                    old_person_id,
-                    version,
-                    oldest_event
-            `,
-            undefined,
-            'transitivePersonOverrides'
-        )
-
-        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
-
-        const personOverrideMessages: ProducerRecord[] = [
-            {
-                topic: KAFKA_PERSON_OVERRIDE,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: overrideDetails.team_id,
-                            old_person_id: overrideDetails.old_person_id,
-                            override_person_id: overrideDetails.override_person_id,
-                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
-                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                            version: 0,
-                        }),
-                    },
-                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
-                        value: JSON.stringify({
-                            team_id: overrideDetails.team_id,
-                            old_person_id: old_person_id,
-                            override_person_id: overrideDetails.override_person_id,
-                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
-                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                            version: version,
-                        }),
-                    })),
-                ],
-            },
-        ]
-
-        return personOverrideMessages
-    }
-
-    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
-        const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            SQL`
-                SELECT
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event
-                FROM posthog_flatpersonoverride
-                WHERE team_id = ${teamId}
-            `,
-            undefined,
-            'getPersonOverrides'
-        )
-        return rows.map((row) => ({
-            ...row,
-            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
-            oldest_event: DateTime.fromISO(row.oldest_event),
-        }))
-    }
-}
-
-function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {
-    // Generates a node-pq compatible query object given a tagged
-    // template literal. The intention is to remove the need to match up
-    // the positional arguments with the $1, $2, etc. placeholders in
-    // the query string.
-    const text = sqlParts.reduce((acc, part, i) => acc + '$' + i + part)
-    const values = args
-    return { text, values }
 }
