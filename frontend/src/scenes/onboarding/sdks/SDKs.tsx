@@ -2,7 +2,7 @@ import { IconArrowLeft, IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import React from 'react'
 import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,7 +34,8 @@ export function SDKs({
         useValues(sdksLogic)
     const { productKey, hasNextStep } = useValues(onboardingLogic)
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
-    const [eventsFound, setEventsFound] = React.useState(false)
+
+    const [eventsFound, setEventsFound] = useState(false)
 
     const { filteredEvents } = useValues(liveEventsTableLogic)
     const { pauseStream } = useActions(liveEventsTableLogic)
@@ -137,7 +138,7 @@ export function SDKs({
                             <div>
                                 <h2 className="font-bold mb-4">Verify installation</h2>
                                 <p className="flex items-center italic text-muted">
-                                    {!currentTeam?.[teamPropertyToVerify] && !eventsFound ? (
+                                    {!eventsFound ? (
                                         <>
                                             <Spinner className="text-3xl mr-2" /> Verifying installation...
                                         </>
@@ -151,7 +152,7 @@ export function SDKs({
                             <div>
                                 {!showSideBySide && panel === 'options' ? (
                                     <></>
-                                ) : !currentTeam?.[teamPropertyToVerify] ? (
+                                ) : !eventsFound ? (
                                     <LemonButton
                                         type="secondary"
                                         onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
