@@ -34,28 +34,6 @@ interface PersonOverridesMode {
     ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
 }
 
-const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
-    disabled: undefined,
-    'deferred, without mappings (flat)': {
-        supportsSyncTransaction: false,
-        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            const syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
-            await new DeferredPersonOverrideWorker(
-                hub.db.postgres,
-                hub.db.kafkaProducer,
-                syncWriter
-            ).processPendingOverrides()
-            return new Set(
-                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
-                    old_person_id,
-                    override_person_id,
-                }))
-            )
-        },
-    },
-}
-
 describe('PersonState.update()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -1288,74 +1266,68 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.each(Object.keys(PersonOverridesModes))('on $merge_dangerously events', (useOverridesMode) => {
-        beforeEach(() => {
-            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
-        })
+    describe('on $merge_dangerously events', () => {
+        // only difference between $merge_dangerously and $identify
+        it(`merge_dangerously can merge people when alias id user is identified`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
 
-        describe(`overrides: ${useOverridesMode}`, () => {
-            // only difference between $merge_dangerously and $identify
-            it(`merge_dangerously can merge people when alias id user is identified`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
+            const person = await personState({
+                event: '$merge_dangerously',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    alias: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
 
-                const person = await personState({
-                    event: '$merge_dangerously',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        alias: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
 
-                expect(person).toEqual(
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+            expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons.length).toEqual(2)
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: expect.any(String),
-                        properties: {},
-                        created_at: timestamp,
+                        id: expect.any(String),
+                        properties: '{}',
+                        created_at: timestampch,
                         version: 1,
-                        is_identified: true,
-                    })
-                )
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(String),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
+            )
+            expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
 
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-                expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-
-                // verify ClickHouse persons
-                await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-                const clickhousePersons = await fetchPersonsRows() // but verify full state
-                expect(clickhousePersons.length).toEqual(2)
-                expect(clickhousePersons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            properties: '{}',
-                            created_at: timestampch,
-                            version: 1,
-                            is_identified: 1,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            is_deleted: 1,
-                            version: 100,
-                        }),
-                    ])
-                )
-                expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
-
-                // verify ClickHouse distinct_ids
-                await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-                const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
-                expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
     })
 
@@ -1654,7 +1626,7 @@ describe('PersonState.update()', () => {
             )
         })
     })
-    describe.each(Object.keys(PersonOverridesModes))('on persons merges', (useOverridesMode) => {
+    describe('on persons merges', () => {
         // For some reason these tests failed if I ran them with a hub shared
         // with other tests, so I'm creating a new hub for each test.
         let hub: Hub
@@ -1662,7 +1634,6 @@ describe('PersonState.update()', () => {
 
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub({})
-            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
 
             jest.spyOn(hub.db, 'fetchPerson')
             jest.spyOn(hub.db, 'updatePersonDeprecated')
@@ -1671,614 +1642,475 @@ describe('PersonState.update()', () => {
         afterEach(async () => {
             await closeHub()
         })
-        describe(`overrides: ${useOverridesMode}`, () => {
-            it(`no-op if persons already merged`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, [
-                    firstUserDistinctId,
-                    secondUserDistinctId,
-                ])
-                const state: PersonState = personState({}, hub)
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                const person = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
-                await hub.db.kafkaProducer.flush()
 
-                expect(person).toEqual(
+        it(`no-op if persons already merged`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, [
+                firstUserDistinctId,
+                secondUserDistinctId,
+            ])
+            const state: PersonState = personState({}, hub)
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            const person = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: firstUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it(`postgres and clickhouse get updated`, async () => {
+            const first: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [firstUserDistinctId]
+            )
+            const second: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [secondUserDistinctId]
+            )
+
+            const state: PersonState = personState({}, hub)
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            const person = await state.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: firstUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+
+            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(person)
+            expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: firstUserUuid,
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: secondUserUuid,
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
+            )
+
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person)
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
+
+            // verify Postgres person_id overrides, if applicable
+            if (overridesMode) {
+                const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
+                expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
+                // & CH person overrides
+                // TODO
+            }
+        })
+
+        it(`throws if postgres unavailable`, async () => {
+            const first: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [firstUserDistinctId]
+            )
+            const second: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [secondUserDistinctId]
+            )
+
+            const state: PersonState = personState({}, hub)
+            // break postgres
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
+                throw error
+            })
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            await expect(
+                state.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+            ).rejects.toThrow(error)
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
+            jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
+            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
                         id: expect.any(Number),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
                         version: 0,
-                        is_identified: true,
-                    })
-                )
-                expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
-                expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: secondUserUuid,
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
+        })
+
+        it(`retries merges up to retry limit if postgres down`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [firstUserDistinctId])
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                secondUserDistinctId,
+            ])
+
+            const state: PersonState = personState({}, hub)
+            // break postgres
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(state, 'mergePeople').mockImplementation(() => {
+                throw error
             })
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
+                error
+            )
 
-            it(`postgres and clickhouse get updated`, async () => {
-                const first: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    firstUserUuid,
-                    [firstUserDistinctId]
-                )
-                const second: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    secondUserUuid,
-                    [secondUserDistinctId]
-                )
+            await hub.db.kafkaProducer.flush()
 
-                const state: PersonState = personState({}, hub)
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                const person = await state.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
+            expect(state.mergePeople).toHaveBeenCalledTimes(3)
+            jest.spyOn(state, 'mergePeople').mockRestore()
+            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
                         id: expect.any(Number),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
-                        version: 1,
-                        is_identified: true,
-                    })
-                )
-
-                expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
-                expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(person)
-                expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
-
-                // verify ClickHouse persons
-                await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-                const clickhousePersons = await fetchPersonsRows() // but verify full state
-                expect(clickhousePersons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: firstUserUuid,
-                            properties: '{}',
-                            created_at: timestampch,
-                            version: 1,
-                            is_identified: 1,
-                        }),
-                        expect.objectContaining({
-                            id: secondUserUuid,
-                            is_deleted: 1,
-                            version: 100,
-                        }),
-                    ])
-                )
-
-                // verify ClickHouse distinct_ids
-                await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-                const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person)
-                expect(clickHouseDistinctIds).toEqual(
-                    expect.arrayContaining([firstUserDistinctId, secondUserDistinctId])
-                )
-
-                // verify Postgres person_id overrides, if applicable
-                if (overridesMode) {
-                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
-                    // & CH person overrides
-                    // TODO
-                }
-            })
-
-            it(`throws if postgres unavailable`, async () => {
-                const first: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    firstUserUuid,
-                    [firstUserDistinctId]
-                )
-                const second: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    secondUserUuid,
-                    [secondUserDistinctId]
-                )
-
-                const state: PersonState = personState({}, hub)
-                // break postgres
-                const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-                jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
-                    throw error
-                })
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                await expect(
-                    state.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
-                ).rejects.toThrow(error)
-                await hub.db.kafkaProducer.flush()
-
-                expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
-                jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
-                expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: firstUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: secondUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                    ])
-                )
-            })
-
-            it(`retries merges up to retry limit if postgres down`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                    firstUserDistinctId,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: secondUserUuid,
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
                 ])
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                    secondUserDistinctId,
-                ])
+            )
+        })
 
-                const state: PersonState = personState({}, hub)
-                // break postgres
-                const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-                jest.spyOn(state, 'mergePeople').mockImplementation(() => {
-                    throw error
-                })
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
-                    error
-                )
+        it(`handleIdentifyOrAlias does not throw on merge failure`, async () => {
+            // TODO: This the current state, we should probably change it
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [firstUserDistinctId])
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                secondUserDistinctId,
+            ])
 
-                await hub.db.kafkaProducer.flush()
-
-                expect(state.mergePeople).toHaveBeenCalledTimes(3)
-                jest.spyOn(state, 'mergePeople').mockRestore()
-                expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: firstUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: secondUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                    ])
-                )
+            const state: PersonState = personState(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    properties: { alias: secondUserDistinctId },
+                },
+                hub
+            )
+            // break postgres
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(state, 'mergePeople').mockImplementation(() => {
+                throw error
             })
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            await state.handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
 
-            it(`handleIdentifyOrAlias does not throw on merge failure`, async () => {
-                // TODO: This the current state, we should probably change it
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                    firstUserDistinctId,
-                ])
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                    secondUserDistinctId,
-                ])
-
-                const state: PersonState = personState(
-                    {
-                        event: '$merge_dangerously',
-                        distinct_id: firstUserDistinctId,
-                        properties: { alias: secondUserDistinctId },
-                    },
-                    hub
-                )
-                // break postgres
-                const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-                jest.spyOn(state, 'mergePeople').mockImplementation(() => {
-                    throw error
-                })
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                await state.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(state.mergePeople).toHaveBeenCalledTimes(3)
-                jest.spyOn(state, 'mergePeople').mockRestore()
-                expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: firstUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: secondUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                    ])
-                )
-            })
-
-            it(`does not commit partial transactions on override conflicts`, async () => {
-                if (!overridesMode?.supportsSyncTransaction) {
-                    return
-                }
-                const first: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    firstUserUuid,
-                    [firstUserDistinctId]
-                )
-                const second: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    secondUserUuid,
-                    [secondUserDistinctId]
-                )
-
-                const state: PersonState = personState({}, hub)
-                const originalPostgresQuery = hub.db.postgres.query.bind(hub.db.postgres)
-                const error = new Error('Conflict')
-                const mockPostgresQuery = jest
-                    .spyOn(hub.db.postgres, 'query')
-                    .mockImplementation(
-                        async (
-                            use: PostgresUse,
-                            query: any,
-                            values: any[] | undefined,
-                            tag: string,
-                            ...args: any[]
-                        ) => {
-                            if (tag === 'transitivePersonOverrides') {
-                                throw error
-                            }
-                            return await originalPostgresQuery(use, query, values, tag, ...args)
-                        }
-                    )
-
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-                await expect(
-                    state.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
-                ).rejects.toThrow(error)
-                await hub.db.kafkaProducer.flush()
-
-                // verify Postgres persons
-                const personsAfterFailure = await fetchPostgresPersonsH()
-                expect(personsAfterFailure).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: firstUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(Number),
-                            uuid: secondUserUuid,
-                            properties: {},
-                            created_at: timestamp,
-                            version: 0,
-                            is_identified: false,
-                        }),
-                    ])
-                )
-
-                // verify Postgres distinct_ids
-                const distinctIdsAfterFailure = [
-                    await hub.db.fetchDistinctIdValues(personsAfterFailure[0]),
-                    await hub.db.fetchDistinctIdValues(personsAfterFailure[1]),
-                ]
-                expect(distinctIdsAfterFailure).toEqual(
-                    expect.arrayContaining([[firstUserDistinctId], [secondUserDistinctId]])
-                )
-
-                // verify Postgres person_id overrides
-                const overridesAfterFailure = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overridesAfterFailure).toEqual(new Set())
-
-                // Now verify we successfully get to our target state if we do not have
-                // any db errors.
-                mockPostgresQuery.mockRestore()
-                const person = await state.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
+            expect(state.mergePeople).toHaveBeenCalledTimes(3)
+            jest.spyOn(state, 'mergePeople').mockRestore()
+            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
                         id: expect.any(Number),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
-                        version: 1,
-                        is_identified: true,
-                    })
-                )
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: secondUserUuid,
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
+        })
 
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
+        // TODO: remove test
+        it(`does not commit partial transactions on override conflicts`, async () => {
+            if (!overridesMode?.supportsSyncTransaction) {
+                return
+            }
+            const first: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [firstUserDistinctId]
+            )
+            const second: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [secondUserDistinctId]
+            )
 
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(person)
-                expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
-
-                // verify Postgres person_id overrides
-                const overrides = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
-            })
-
-            it(`handles a chain of overrides being applied concurrently`, async () => {
-                const first: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    { first: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    firstUserUuid,
-                    [firstUserDistinctId]
-                )
-                const second: InternalPerson = await hub.db.createPerson(
-                    timestamp.plus({ minutes: 2 }),
-                    { second: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    secondUserUuid,
-                    [secondUserDistinctId]
-                )
-                const third: InternalPerson = await hub.db.createPerson(
-                    timestamp.plus({ minutes: 5 }),
-                    { third: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    new UUIDT().toString(),
-                    ['third']
-                )
-
-                // We want to simulate a concurrent update to person_overrides. We do
-                // this by first mocking the implementation to block at a certain point
-                // in the transaction, then running the update function twice.
-                // We then wait for them to block before letting them resume.
-                let resumeExecution: (value: unknown) => void
-
-                const postgresTransaction = hub.db.postgres.transaction.bind(hub.db.postgres)
-                jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(
-                    async (use: PostgresUse, tag: string, transaction: any) => {
-                        if (tag === 'mergePeople') {
-                            return await postgresTransaction(use, tag, async (client) => {
-                                if (resumeExecution) {
-                                    resumeExecution(undefined)
-                                } else {
-                                    await new Promise((resolve) => {
-                                        resumeExecution = resolve
-                                    })
-                                }
-
-                                return await transaction(client)
-                            })
-                        } else {
-                            return await postgresTransaction(use, tag, transaction)
+            const state: PersonState = personState({}, hub)
+            const originalPostgresQuery = hub.db.postgres.query.bind(hub.db.postgres)
+            const error = new Error('Conflict')
+            const mockPostgresQuery = jest
+                .spyOn(hub.db.postgres, 'query')
+                .mockImplementation(
+                    async (use: PostgresUse, query: any, values: any[] | undefined, tag: string, ...args: any[]) => {
+                        if (tag === 'transitivePersonOverrides') {
+                            throw error
                         }
+                        return await originalPostgresQuery(use, query, values, tag, ...args)
                     }
                 )
 
-                await Promise.all([
-                    personState(
-                        {
-                            event: '$merge_dangerously',
-                            distinct_id: firstUserDistinctId,
-                            properties: {
-                                alias: secondUserDistinctId,
-                            },
-                        },
-                        hub
-                    ).handleIdentifyOrAlias(),
-                    personState(
-                        {
-                            event: '$merge_dangerously',
-                            distinct_id: secondUserDistinctId,
-                            properties: {
-                                alias: 'third',
-                            },
-                        },
-                        hub
-                    ).handleIdentifyOrAlias(),
-                ])
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            await expect(
+                state.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+            ).rejects.toThrow(error)
+            await hub.db.kafkaProducer.flush()
 
-                // Note: we can't verify anything here because the concurrency might have enabled both merges to already happen.
-
-                await Promise.all([
-                    personState(
-                        {
-                            event: '$merge_dangerously',
-                            distinct_id: firstUserDistinctId,
-                            properties: {
-                                alias: secondUserDistinctId,
-                            },
-                        },
-                        hub
-                    ).handleIdentifyOrAlias(),
-                    personState(
-                        {
-                            event: '$merge_dangerously',
-                            distinct_id: secondUserDistinctId,
-                            properties: {
-                                alias: 'third',
-                            },
-                        },
-                        hub
-                    ).handleIdentifyOrAlias(),
-                ])
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(
+            // verify Postgres persons
+            const personsAfterFailure = await fetchPostgresPersonsH()
+            expect(personsAfterFailure).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
                         id: expect.any(Number),
-                        uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
-                        // There's a race condition in our code where
-                        // if different distinctIDs are used same time,
-                        // then pros can be dropped, see https://docs.google.com/presentation/d/1Osz7r8bKkDD5yFzw0cCtsGVf1LTEifXS-dzuwaS8JGY
-                        // properties: { first: true, second: true, third: true },
+                        uuid: firstUserUuid,
+                        properties: {},
                         created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
-                        is_identified: true,
-                    })
-                )
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: secondUserUuid,
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
 
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(
-                    expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'third'])
-                )
+            // verify Postgres distinct_ids
+            const distinctIdsAfterFailure = [
+                await hub.db.fetchDistinctIdValues(personsAfterFailure[0]),
+                await hub.db.fetchDistinctIdValues(personsAfterFailure[1]),
+            ]
+            expect(distinctIdsAfterFailure).toEqual(
+                expect.arrayContaining([[firstUserDistinctId], [secondUserDistinctId]])
+            )
 
-                // verify Postgres person_id overrides, if applicable
-                if (overridesMode) {
-                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual(
-                        new Set([
-                            { old_person_id: second.uuid, override_person_id: first.uuid },
-                            { old_person_id: third.uuid, override_person_id: first.uuid },
-                        ])
-                    )
-                }
+            // verify Postgres person_id overrides
+            const overridesAfterFailure = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
+            expect(overridesAfterFailure).toEqual(new Set())
+
+            // Now verify we successfully get to our target state if we do not have
+            // any db errors.
+            mockPostgresQuery.mockRestore()
+            const person = await state.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
             })
+            await hub.db.kafkaProducer.flush()
 
-            it(`handles a chain of overrides being applied out of order`, async () => {
-                const first: InternalPerson = await hub.db.createPerson(
-                    timestamp,
-                    { first: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    firstUserUuid,
-                    [firstUserDistinctId]
-                )
-                const second: InternalPerson = await hub.db.createPerson(
-                    timestamp.plus({ minutes: 2 }),
-                    { second: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    secondUserUuid,
-                    [secondUserDistinctId]
-                )
-                const third: InternalPerson = await hub.db.createPerson(
-                    timestamp.plus({ minutes: 5 }),
-                    { third: true },
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    new UUIDT().toString(),
-                    ['third']
-                )
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: firstUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
 
-                await personState(
-                    {
-                        event: '$merge_dangerously',
-                        distinct_id: secondUserDistinctId,
-                        properties: {
-                            alias: 'third',
-                        },
-                    },
-                    hub
-                ).handleIdentifyOrAlias()
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
 
-                await personState(
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(person)
+            expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
+
+            // verify Postgres person_id overrides
+            const overrides = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
+            expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
+        })
+
+        it(`handles a chain of overrides being applied concurrently`, async () => {
+            const first: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                { first: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [firstUserDistinctId]
+            )
+            const second: InternalPerson = await hub.db.createPerson(
+                timestamp.plus({ minutes: 2 }),
+                { second: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [secondUserDistinctId]
+            )
+            const third: InternalPerson = await hub.db.createPerson(
+                timestamp.plus({ minutes: 5 }),
+                { third: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['third']
+            )
+
+            // We want to simulate a concurrent update to person_overrides. We do
+            // this by first mocking the implementation to block at a certain point
+            // in the transaction, then running the update function twice.
+            // We then wait for them to block before letting them resume.
+            let resumeExecution: (value: unknown) => void
+
+            const postgresTransaction = hub.db.postgres.transaction.bind(hub.db.postgres)
+            jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(
+                async (use: PostgresUse, tag: string, transaction: any) => {
+                    if (tag === 'mergePeople') {
+                        return await postgresTransaction(use, tag, async (client) => {
+                            if (resumeExecution) {
+                                resumeExecution(undefined)
+                            } else {
+                                await new Promise((resolve) => {
+                                    resumeExecution = resolve
+                                })
+                            }
+
+                            return await transaction(client)
+                        })
+                    } else {
+                        return await postgresTransaction(use, tag, transaction)
+                    }
+                }
+            )
+
+            await Promise.all([
+                personState(
                     {
                         event: '$merge_dangerously',
                         distinct_id: firstUserDistinctId,
@@ -2287,39 +2119,162 @@ describe('PersonState.update()', () => {
                         },
                     },
                     hub
-                ).handleIdentifyOrAlias()
+                ).handleIdentifyOrAlias(),
+                personState(
+                    {
+                        event: '$merge_dangerously',
+                        distinct_id: secondUserDistinctId,
+                        properties: {
+                            alias: 'third',
+                        },
+                    },
+                    hub
+                ).handleIdentifyOrAlias(),
+            ])
 
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
-                        properties: { first: true, second: true, third: true },
-                        created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
-                        is_identified: true,
-                    })
+            // Note: we can't verify anything here because the concurrency might have enabled both merges to already happen.
+
+            await Promise.all([
+                personState(
+                    {
+                        event: '$merge_dangerously',
+                        distinct_id: firstUserDistinctId,
+                        properties: {
+                            alias: secondUserDistinctId,
+                        },
+                    },
+                    hub
+                ).handleIdentifyOrAlias(),
+                personState(
+                    {
+                        event: '$merge_dangerously',
+                        distinct_id: secondUserDistinctId,
+                        properties: {
+                            alias: 'third',
+                        },
+                    },
+                    hub
+                ).handleIdentifyOrAlias(),
+            ])
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
+                    // There's a race condition in our code where
+                    // if different distinctIDs are used same time,
+                    // then pros can be dropped, see https://docs.google.com/presentation/d/1Osz7r8bKkDD5yFzw0cCtsGVf1LTEifXS-dzuwaS8JGY
+                    // properties: { first: true, second: true, third: true },
+                    created_at: timestamp,
+                    version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'third']))
+
+            // verify Postgres person_id overrides, if applicable
+            if (overridesMode) {
+                const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
+                expect(overrides).toEqual(
+                    new Set([
+                        { old_person_id: second.uuid, override_person_id: first.uuid },
+                        { old_person_id: third.uuid, override_person_id: first.uuid },
+                    ])
                 )
+            }
+        })
 
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(
-                    expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'third'])
+        it(`handles a chain of overrides being applied out of order`, async () => {
+            const first: InternalPerson = await hub.db.createPerson(
+                timestamp,
+                { first: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [firstUserDistinctId]
+            )
+            const second: InternalPerson = await hub.db.createPerson(
+                timestamp.plus({ minutes: 2 }),
+                { second: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [secondUserDistinctId]
+            )
+            const third: InternalPerson = await hub.db.createPerson(
+                timestamp.plus({ minutes: 5 }),
+                { third: true },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['third']
+            )
+
+            await personState(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: secondUserDistinctId,
+                    properties: {
+                        alias: 'third',
+                    },
+                },
+                hub
+            ).handleIdentifyOrAlias()
+
+            await personState(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    properties: {
+                        alias: secondUserDistinctId,
+                    },
+                },
+                hub
+            ).handleIdentifyOrAlias()
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
+                    properties: { first: true, second: true, third: true },
+                    created_at: timestamp,
+                    version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'third']))
+
+            // verify Postgres person_id overrides, if applicable
+            if (overridesMode) {
+                const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
+                expect(overrides).toEqual(
+                    new Set([
+                        { old_person_id: second.uuid, override_person_id: first.uuid },
+                        { old_person_id: third.uuid, override_person_id: first.uuid },
+                    ])
                 )
-
-                // verify Postgres person_id overrides, if applicable
-                if (overridesMode) {
-                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual(
-                        new Set([
-                            { old_person_id: second.uuid, override_person_id: first.uuid },
-                            { old_person_id: third.uuid, override_person_id: first.uuid },
-                        ])
-                    )
-                }
-            })
+            }
         })
     })
 })
