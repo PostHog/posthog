@@ -217,7 +217,6 @@
         "@types/d3": "^7.4.0",
         "@types/d3-sankey": "^0.12.1",
         "@types/dompurify": "^3.0.3",
-        "@types/eventsource": "^1.1.15",
         "@types/heatmap.js": "^2.0.41",
         "@types/image-blob-reduce": "^4.1.1",
         "@types/jest": "^29.2.3",

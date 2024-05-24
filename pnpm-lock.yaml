@@ -470,9 +470,6 @@ devDependencies:
   '@types/dompurify':
     specifier: ^3.0.3
     version: 3.0.3
-  '@types/eventsource':
-    specifier: ^1.1.15
-    version: 1.1.15
   '@types/heatmap.js':
     specifier: ^2.0.41
     version: 2.0.41
@@ -8023,10 +8020,6 @@ packages:
 
   /@types/estree@1.0.1:
     resolution: {integrity: sha512-LG4opVs2ANWZ1TJoKc937iMmNstM/d0ae1vNbnBvBhqCSezgVUOzcLCqbI5elV8Vy6WKwKjaqR+zO9VKirBBCA==}
-    dev: true
-
-  /@types/eventsource@1.1.15:
-    resolution: {integrity: sha512-XQmGcbnxUNa06HR3VBVkc9+A2Vpi9ZyLJcdS5dwaQQ/4ZMWFO+5c90FnMUpbtMZwB/FChoYHwuVg8TvkECacTA==}
     dev: true
 
   /@types/express-serve-static-core@4.17.41:
