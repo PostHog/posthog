@@ -1,22 +1,15 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { waitForExpect } from '../../../functional_tests/expectations'
 import { Database, Hub, InternalPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import {
-    DeferredPersonOverrideWorker,
-    DeferredPersonOverrideWriter,
-    FlatPersonOverrideWriter,
-    PersonState,
-} from '../../../src/worker/ingestion/person-state'
+import { FlatPersonOverrideWriter, PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
-import { WaitEvent } from '../../helpers/promises'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
 jest.setTimeout(5000) // 5 sec timeout
@@ -1980,185 +1973,5 @@ describe('flat person overrides writer', () => {
                 }))
             )
         )
-    })
-})
-
-describe('deferred person overrides', () => {
-    let hub: Hub
-    let closeHub: () => Promise<void>
-
-    // not always used, but used more often then not
-    let organizationId: string
-    let teamId: number
-
-    let writer: DeferredPersonOverrideWriter
-    let syncWriter: FlatPersonOverrideWriter
-    let worker: DeferredPersonOverrideWorker
-
-    beforeAll(async () => {
-        ;[hub, closeHub] = await createHub({})
-        organizationId = await createOrganization(hub.db.postgres)
-        writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
-        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer, syncWriter)
-    })
-
-    beforeEach(async () => {
-        teamId = await createTeam(hub.db.postgres, organizationId)
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'TRUNCATE TABLE posthog_pendingpersonoverride',
-            undefined,
-            ''
-        )
-    })
-
-    afterEach(() => {
-        jest.restoreAllMocks()
-    })
-
-    afterAll(async () => {
-        await closeHub()
-    })
-
-    const getPendingPersonOverrides = async () => {
-        const { rows } = await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `SELECT old_person_id, override_person_id
-                FROM posthog_pendingpersonoverride
-                WHERE team_id = ${teamId}`,
-            undefined,
-            ''
-        )
-        return rows
-    }
-
-    it('moves overrides from the pending table to the overrides table', async () => {
-        const { postgres } = hub.db
-
-        const override = {
-            old_person_id: new UUIDT().toString(),
-            override_person_id: new UUIDT().toString(),
-        }
-
-        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
-            await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
-        })
-
-        expect(await getPendingPersonOverrides()).toEqual([override])
-
-        expect(await worker.processPendingOverrides()).toEqual(1)
-
-        expect(await getPendingPersonOverrides()).toMatchObject([])
-
-        expect(
-            (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => [
-                old_person_id,
-                override_person_id,
-            ])
-        ).toEqual([[override.old_person_id, override.override_person_id]])
-
-        const clickhouseOverrides = await waitForExpect(async () => {
-            const { data } = await hub.db.clickhouse.querying(
-                `
-                SELECT old_person_id, override_person_id
-                FROM person_overrides
-                WHERE team_id = ${teamId}
-                `,
-                { dataObjects: true }
-            )
-            expect(data).toHaveLength(1)
-            return data
-        })
-        expect(clickhouseOverrides).toEqual([override])
-    })
-
-    it('rolls back on kafka producer error', async () => {
-        const { postgres } = hub.db
-
-        const override = {
-            old_person_id: new UUIDT().toString(),
-            override_person_id: new UUIDT().toString(),
-        }
-
-        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
-            await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
-        })
-
-        expect(await getPendingPersonOverrides()).toEqual([override])
-
-        jest.spyOn(hub.db.kafkaProducer, 'queueMessages').mockImplementation(() => {
-            throw new Error('something bad happened')
-        })
-
-        await expect(worker.processPendingOverrides()).rejects.toThrow()
-
-        expect(await getPendingPersonOverrides()).toEqual([override])
-    })
-
-    it('ensures advisory lock is held before processing', async () => {
-        const { postgres } = hub.db
-
-        let acquiredLock: boolean
-        const tryLockComplete = new WaitEvent()
-        const readyToReleaseLock = new WaitEvent()
-
-        const transactionHolder = postgres
-            .transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
-                const { rows } = await postgres.query(
-                    tx,
-                    `SELECT pg_try_advisory_lock(${worker.lockId}) as acquired, pg_backend_pid()`,
-                    undefined,
-                    ''
-                )
-                ;[{ acquired: acquiredLock }] = rows
-                tryLockComplete.set()
-                await readyToReleaseLock.wait()
-            })
-            .then(() => {
-                acquiredLock = false
-            })
-
-        try {
-            await tryLockComplete.wait()
-            expect(acquiredLock!).toBe(true)
-            await expect(worker.processPendingOverrides()).rejects.toThrow(Error('could not acquire lock'))
-        } finally {
-            readyToReleaseLock.set()
-            await transactionHolder
-        }
-
-        expect(acquiredLock!).toBe(false)
-        await expect(worker.processPendingOverrides()).resolves.toEqual(0)
-    })
-
-    it('respects limit if provided', async () => {
-        const { postgres } = hub.db
-
-        const overrides = [...Array(3)].map(() => ({
-            old_person_id: new UUIDT().toString(),
-            override_person_id: new UUIDT().toString(),
-        }))
-
-        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
-            await Promise.all(
-                overrides.map(
-                    async (override) =>
-                        await writer.addPersonOverride(tx, {
-                            team_id: teamId,
-                            ...override,
-                            oldest_event: DateTime.fromMillis(0),
-                        })
-                )
-            )
-        })
-
-        expect(await getPendingPersonOverrides()).toEqual(overrides)
-
-        expect(await worker.processPendingOverrides(2)).toEqual(2)
-        expect(await getPendingPersonOverrides()).toMatchObject(overrides.slice(-1))
-
-        expect(await worker.processPendingOverrides(2)).toEqual(1)
-        expect(await getPendingPersonOverrides()).toEqual([])
     })
 })
