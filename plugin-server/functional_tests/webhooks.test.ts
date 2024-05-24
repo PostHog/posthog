@@ -2,7 +2,16 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 
 import { UUIDT } from '../src/utils/utils'
-import { capture, createAction, createHook, createOrganization, createTeam, createUser, reloadAction } from './api'
+import {
+    capture,
+    createAction,
+    createHook,
+    createOrganization,
+    createOrganizationRaw,
+    createTeam,
+    createUser,
+    reloadAction,
+} from './api'
 
 test.concurrent(`webhooks: fires slack webhook`, async () => {
     // Create an action with post_to_slack enabled.
@@ -120,9 +129,10 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
         const distinctId = new UUIDT().toString()
         const ts = new Date()
 
-        const organizationId = await createOrganization({
+        const organizationId = await createOrganizationRaw({
             available_product_features: `array ['{ "key": "zapier", "name": "zapier" }'::jsonb]`,
         })
+
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
         const action = await createAction({
