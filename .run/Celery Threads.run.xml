@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Celery" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="Celery Threads" type="PythonConfigurationType" factoryName="Python">
     <module name="posthog" />
     <option name="ENV_FILES" value="$PROJECT_DIR$/bin/celery-queues.env" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -21,7 +21,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/env/bin/celery" />
-    <option name="PARAMETERS" value="-A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-mingle --loglevel=DEBUG --pool=solo" />
+    <option name="PARAMETERS" value="-A posthog worker --without-heartbeat --without-mingle --loglevel=DEBUG --pool=threads" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

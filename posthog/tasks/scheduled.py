@@ -88,8 +88,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
-    # add_periodic_task_with_expiry(sender, 2, poll_query_performance.s(), "2 sec query performance")
-    add_periodic_task_with_expiry(sender, 30, start_poll_query_performance.s(), "30 sec query performance")
+    add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
