@@ -116,6 +116,7 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
+    CLICKHOUSE_WEB_VITALS_KAFKA_TOPIC: string // (advanced) topic to send web vitals data to for clickhouse ingestion
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -1108,6 +1109,17 @@ export type RRWebEvent = Record<string, any> & {
 
 export interface ValueMatcher<T> {
     (value: T): boolean
+}
+
+export type RawClickhouseWebVitalsEvent = {
+    session_id: string
+    current_url: string
+    timestamp: string
+    team_id: number
+    fcp: number | undefined
+    lcp: number | undefined
+    cls: number | undefined
+    inp: number | undefined
 }
 
 export type RawClickhouseHeatmapEvent = {

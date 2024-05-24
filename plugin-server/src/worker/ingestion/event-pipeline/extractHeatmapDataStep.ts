@@ -5,7 +5,7 @@ import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '.
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
-import { captureIngestionWarning } from '../utils'
+import { captureIngestionWarning, isNonEmptyString } from '../utils'
 import { EventPipelineRunner } from './runner'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
@@ -60,10 +60,6 @@ function replacePathInUrl(url: string, newPath: string): string {
     return parsedUrl.toString()
 }
 
-function isValidString(x: unknown): x is string {
-    return typeof x === 'string' && !!x.trim().length
-}
-
 function isValidNumber(n: unknown): n is number {
     return typeof n === 'number' && !isNaN(n)
 }
@@ -114,7 +110,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
         return []
     }
 
-    if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
+    if (!isNonEmptyString(distinctId) || isDistinctIdIllegal(distinctId)) {
         return drop('invalid_distinct_id')
     }
 
@@ -130,7 +126,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     Object.entries(heatmapData).forEach(([url, items]) => {
-        if (!isValidString(url)) {
+        if (!isNonEmptyString(url)) {
             return
         }
 
@@ -144,7 +140,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isValidString(hme.type)) {
+                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isNonEmptyString(hme.type)) {
                                 return null
                             }
 

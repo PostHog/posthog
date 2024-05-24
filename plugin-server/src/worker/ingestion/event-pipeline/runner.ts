@@ -11,6 +11,7 @@ import { status } from '../../../utils/status'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
+import { extractWebVitalsDataStep } from './extractWebVitalsDataStep'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -227,9 +228,19 @@ export class EventPipelineRunner {
             kafkaAcks.push(...heatmapKafkaAcks)
         }
 
+        const [preparedEventWithoutWebVitals, webVitalsKafkaAcks] = await this.runStep(
+            extractWebVitalsDataStep,
+            [this, preparedEventWithoutHeatmaps],
+            event.team_id
+        )
+
+        if (webVitalsKafkaAcks.length > 0) {
+            kafkaAcks.push(...webVitalsKafkaAcks)
+        }
+
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [this, preparedEventWithoutWebVitals, person, processPerson],
             event.team_id
         )
 
