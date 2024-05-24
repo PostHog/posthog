@@ -1,5 +1,5 @@
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -76,13 +76,17 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
-                // @ts-expect-error - TODO: Fix LemonTable types
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"
                 dataSource={events}
                 useURLForSorting={false}
-                emptyState="No live events"
+                emptyState={
+                    <div className="flex flex-col justify-center items-center space-y-3 py-10">
+                        <Spinner className="w-6 h-6" textColored />
+                        <p className="font-medium text-base">Loading live events</p>
+                    </div>
+                }
                 nouns={['event', 'events']}
             />
         </div>
