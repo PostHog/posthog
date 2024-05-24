@@ -1244,6 +1244,16 @@ export interface EventType {
     uuid?: string
 }
 
+export interface LiveEvent {
+    uuid: string
+    event: string
+    properties: Record<string, any>
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
+}
+
 export interface RecordingTimeMixinType {
     playerTime: number | null
 }

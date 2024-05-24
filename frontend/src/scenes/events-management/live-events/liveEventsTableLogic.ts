@@ -24,7 +24,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     })),
     reducers({
         events: [
-            [],
+            [] as LiveEvent[],
             {
                 addEvents: (state, { events }) => {
                     const newState = [...events, ...state]

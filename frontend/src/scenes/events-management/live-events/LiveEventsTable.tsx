@@ -6,15 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
 
-interface LiveEvent {
-    uuid: string
-    event: string
-    properties: Record<string, any>
-    timestamp: string
-    team_id: number
-    distinct_id: string
-    created_at: string
-}
+import { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
