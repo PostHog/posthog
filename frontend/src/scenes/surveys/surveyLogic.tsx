@@ -158,6 +158,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         setShowSurveyRepeatSchedule: (showSurveyRepeatSchedule: boolean) => ({ showSurveyRepeatSchedule }),
+        setSchedule: (schedule: string) => ({ schedule }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
@@ -395,7 +396,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const totalResponses = value.Promoters + value.Passives + value.Detractors
                     const npsScore =
                         (value.Promoters / totalResponses) * 100 - (value.Detractors / totalResponses) * 100
-                    data[parseInt(key)] = npsScore
+                    data[parseInt(key) - 1] = npsScore
                     total += 100
                 })
 
@@ -728,6 +729,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 setShowSurveyRepeatSchedule: (_, { showSurveyRepeatSchedule }) => showSurveyRepeatSchedule,
+            },
+        ],
+        schedule: [
+            'once',
+            {
+                setSchedule: (_, { schedule }) => schedule,
             },
         ],
         flagPropertyErrors: [

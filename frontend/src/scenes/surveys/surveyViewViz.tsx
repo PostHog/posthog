@@ -313,7 +313,9 @@ export function NPSSurveyResultsBarChart({
                                             hoverBackgroundColor: barColor,
                                         },
                                     ]}
-                                    labels={iterationStartDates.map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
+                                    labels={iterationStartDates
+                                        .slice(0, survey.current_iteration + 1)
+                                        .map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
                                 />
                             </BindLogic>
                         </div>

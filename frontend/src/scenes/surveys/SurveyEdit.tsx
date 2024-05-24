@@ -17,6 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -26,7 +27,14 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
-import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, SurveyUrlMatchType } from '~/types'
+import {
+    AvailableFeature,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyQuestion,
+    SurveyType,
+    SurveyUrlMatchType,
+} from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
@@ -49,6 +57,7 @@ export default function SurveyEdit(): JSX.Element {
         isEditingSurvey,
         targetingFlagFilters,
         showSurveyRepeatSchedule,
+        schedule,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -58,10 +67,18 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         setShowSurveyRepeatSchedule,
+        setSchedule,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    setSchedule(survey.iteration_frequency_days === 0 ? 'once' : 'recurring')
+    setShowSurveyRepeatSchedule(
+        survey.iteration_frequency_days !== undefined &&
+            survey.iteration_frequency_days != null &&
+            survey.iteration_frequency_days > 0
+    )
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -649,18 +666,23 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <>
                                     <h2> How often should we show this survey? </h2>
-                                    <LemonField name="ignored">
+                                    <LemonField name="schedule">
                                         {({ onChange }) => {
                                             return (
                                                 <LemonRadio
+                                                    value={schedule}
                                                     onChange={(newValue) => {
+                                                        onChange(newValue)
                                                         if (newValue === 'once') {
-                                                            onChange(newValue)
                                                             setShowSurveyRepeatSchedule(false)
                                                         } else {
-                                                            onChange(newValue)
+                                                            guardAvailableFeature(
+                                                                AvailableFeature.SURVEYS_RECURRING,
+                                                                showSurveyRepeatSchedule
+                                                            )
                                                             setShowSurveyRepeatSchedule(true)
                                                         }
+                                                        setSchedule(newValue)
                                                     }}
                                                     options={[
                                                         {
