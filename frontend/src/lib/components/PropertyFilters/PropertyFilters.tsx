@@ -6,7 +6,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -24,7 +24,7 @@ interface PropertyFiltersProps {
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null

@@ -207,8 +207,9 @@ export const billingLogic = kea<billingLogicType>([
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
-                                    error.detail ||
-                                    `We encountered a problem. Please try again or submit a support ticket.`,
+                                    typeof error.detail === 'string'
+                                        ? error.detail
+                                        : `We encountered a problem. Please try again or submit a support ticket.`,
                             } as UnsubscribeError)
                         }
                         console.error(error)

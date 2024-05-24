@@ -61,6 +61,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
+                'pollResponse as insightPollResponse',
+                'queryId',
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],

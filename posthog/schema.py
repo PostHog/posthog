@@ -178,6 +178,17 @@ class ChartDisplayType(str, Enum):
     WorldMap = "WorldMap"
 
 
+class ClickhouseQueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_cpu_time: int
+    bytes_read: int
+    estimated_rows_total: int
+    rows_read: int
+    time_elapsed: int
+
+
 class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -213,6 +224,35 @@ class DataWarehouseEventsModifier(BaseModel):
     id_field: str
     table_name: str
     timestamp_field: str
+
+
+class DatabaseSchemaSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    incremental: bool
+    last_synced_at: Optional[str] = None
+    name: str
+    should_sync: bool
+    status: str
+
+
+class DatabaseSchemaSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    last_synced_at: Optional[str] = None
+    prefix: str
+    source_type: str
+    status: str
+
+
+class Type(str, Enum):
+    posthog = "posthog"
+    data_warehouse = "data_warehouse"
+    view = "view"
 
 
 class DatabaseSerializedFieldType(str, Enum):
@@ -472,6 +512,11 @@ class PersonsArgMaxVersion(str, Enum):
     v2 = "v2"
 
 
+class PersonsJoinMode(str, Enum):
+    inner = "inner"
+    left = "left"
+
+
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
@@ -488,6 +533,7 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
 
@@ -751,7 +797,8 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
-    query_async: Optional[bool] = True
+    query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
+    query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
@@ -1079,6 +1126,8 @@ class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1451,6 +1500,8 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1576,6 +1627,8 @@ class Response4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1667,16 +1720,37 @@ class DataWarehousePropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class DatabaseSchemaQueryResponseField(BaseModel):
+class DatabaseSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    chain: Optional[list[str]] = None
+    chain: Optional[list[Union[str, int]]] = None
     fields: Optional[list[str]] = None
-    key: str
+    hogql_value: str
+    name: str
     schema_valid: bool
     table: Optional[str] = None
     type: DatabaseSerializedFieldType
+
+
+class DatabaseSchemaPostHogTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaTableCommon(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Type
 
 
 class ElementPropertyFilter(BaseModel):
@@ -2054,6 +2128,8 @@ class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2192,6 +2268,8 @@ class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2697,6 +2775,20 @@ class DataWarehouseNode(BaseModel):
     timestamp_field: str
 
 
+class DatabaseSchemaDataWarehouseTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    format: str
+    id: str
+    name: str
+    schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
+    source: Optional[DatabaseSchemaSource] = None
+    type: Literal["data_warehouse"] = "data_warehouse"
+    url_pattern: str
+
+
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3131,68 +3223,6 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative(
-    RootModel[
-        Union[
-            dict[str, Any],
-            QueryResponseAlternative1,
-            QueryResponseAlternative2,
-            QueryResponseAlternative3,
-            QueryResponseAlternative4,
-            QueryResponseAlternative5,
-            QueryResponseAlternative6,
-            QueryResponseAlternative7,
-            QueryResponseAlternative8,
-            QueryResponseAlternative9,
-            QueryResponseAlternative10,
-            QueryResponseAlternative11,
-            Any,
-            QueryResponseAlternative12,
-            QueryResponseAlternative13,
-            QueryResponseAlternative14,
-            QueryResponseAlternative15,
-            QueryResponseAlternative16,
-            QueryResponseAlternative17,
-            QueryResponseAlternative18,
-            QueryResponseAlternative19,
-            QueryResponseAlternative20,
-            QueryResponseAlternative21,
-            QueryResponseAlternative22,
-            QueryResponseAlternative25,
-            dict[str, list[DatabaseSchemaQueryResponseField]],
-        ]
-    ]
-):
-    root: Union[
-        dict[str, Any],
-        QueryResponseAlternative1,
-        QueryResponseAlternative2,
-        QueryResponseAlternative3,
-        QueryResponseAlternative4,
-        QueryResponseAlternative5,
-        QueryResponseAlternative6,
-        QueryResponseAlternative7,
-        QueryResponseAlternative8,
-        QueryResponseAlternative9,
-        QueryResponseAlternative10,
-        QueryResponseAlternative11,
-        Any,
-        QueryResponseAlternative12,
-        QueryResponseAlternative13,
-        QueryResponseAlternative14,
-        QueryResponseAlternative15,
-        QueryResponseAlternative16,
-        QueryResponseAlternative17,
-        QueryResponseAlternative18,
-        QueryResponseAlternative19,
-        QueryResponseAlternative20,
-        QueryResponseAlternative21,
-        QueryResponseAlternative22,
-        QueryResponseAlternative25,
-        dict[str, list[DatabaseSchemaQueryResponseField]],
-    ]
-
-
 class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3295,15 +3325,15 @@ class DataVisualizationNode(BaseModel):
     source: HogQLQuery
 
 
-class DatabaseSchemaQuery(BaseModel):
+class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    query: HogQLQuery
+    type: Literal["view"] = "view"
 
 
 class FunnelsFilter(BaseModel):
@@ -3835,6 +3865,82 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+
+
+class QueryResponseAlternative(
+    RootModel[
+        Union[
+            dict[str, Any],
+            QueryResponseAlternative1,
+            QueryResponseAlternative2,
+            QueryResponseAlternative3,
+            QueryResponseAlternative4,
+            QueryResponseAlternative5,
+            QueryResponseAlternative6,
+            QueryResponseAlternative7,
+            QueryResponseAlternative8,
+            QueryResponseAlternative9,
+            QueryResponseAlternative10,
+            QueryResponseAlternative11,
+            Any,
+            QueryResponseAlternative12,
+            QueryResponseAlternative13,
+            QueryResponseAlternative14,
+            QueryResponseAlternative15,
+            QueryResponseAlternative16,
+            QueryResponseAlternative17,
+            QueryResponseAlternative18,
+            QueryResponseAlternative19,
+            QueryResponseAlternative20,
+            QueryResponseAlternative21,
+            QueryResponseAlternative22,
+            QueryResponseAlternative25,
+            QueryResponseAlternative26,
+        ]
+    ]
+):
+    root: Union[
+        dict[str, Any],
+        QueryResponseAlternative1,
+        QueryResponseAlternative2,
+        QueryResponseAlternative3,
+        QueryResponseAlternative4,
+        QueryResponseAlternative5,
+        QueryResponseAlternative6,
+        QueryResponseAlternative7,
+        QueryResponseAlternative8,
+        QueryResponseAlternative9,
+        QueryResponseAlternative10,
+        QueryResponseAlternative11,
+        Any,
+        QueryResponseAlternative12,
+        QueryResponseAlternative13,
+        QueryResponseAlternative14,
+        QueryResponseAlternative15,
+        QueryResponseAlternative16,
+        QueryResponseAlternative17,
+        QueryResponseAlternative18,
+        QueryResponseAlternative19,
+        QueryResponseAlternative20,
+        QueryResponseAlternative21,
+        QueryResponseAlternative22,
+        QueryResponseAlternative25,
+        QueryResponseAlternative26,
+    ]
+
+
+class DatabaseSchemaQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+
+
 class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3914,6 +4020,17 @@ class PathsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class DatabaseSchemaQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[DatabaseSchemaQueryResponse] = None
 
 
 class FunnelCorrelationQuery(BaseModel):
@@ -4025,23 +4142,11 @@ class ActorsQuery(BaseModel):
         extra="forbid",
     )
     fixedProperties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+    ] = Field(
+        default=None,
+        description="Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
+    )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -4050,23 +4155,11 @@ class ActorsQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
     properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+    ] = Field(
+        default=None,
+        description="Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
+    )
     response: Optional[ActorsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None

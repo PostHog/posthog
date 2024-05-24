@@ -16,6 +16,7 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -813,17 +814,19 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
 class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         now = datetime.datetime.now()
         with freeze_time(now):
-            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
         with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
-            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
         with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
-            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
@@ -832,5 +835,5 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "attr": None,
             }
 
-            res = self.client.get("/api/projects/@current")
+            res = self.client.get("/api/organizations/@current")
             assert res.status_code == 200

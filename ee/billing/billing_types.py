@@ -81,12 +81,23 @@ class UsageSummary(TypedDict):
     usage: Optional[int]
 
 
+class ProductFeature(TypedDict):
+    key: str
+    name: str
+    description: str
+    unit: Optional[str]
+    limit: Optional[int]
+    note: Optional[str]
+    is_plan_default: bool
+
+
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
     deactivated: bool
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_features: list[AvailableFeature]
+    available_product_features: list[ProductFeature]
     current_total_amount_usd: Optional[str]
     current_total_amount_usd_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
@@ -101,16 +112,6 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
-
-
-class ProductFeature(TypedDict):
-    key: str
-    name: str
-    description: str
-    unit: Optional[str]
-    limit: Optional[int]
-    note: Optional[str]
-    is_plan_default: bool
 
 
 class ProductPlan(TypedDict):

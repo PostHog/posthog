@@ -27,6 +27,12 @@ const ProviderMappings: Record<
         accessKeyLabel: 'Access ID',
         accessSecretLabel: 'Secret',
     },
+    'cloudflare-r2': {
+        fileUrlPatternPlaceholder: 'eg: https://your-account-id.r2.cloudflarestorage.com/airbyte/stripe/invoices/*.pqt',
+        accessKeyPlaceholder: 'eg: AKIAIOSFODNN7EXAMPLE',
+        accessKeyLabel: 'Access key',
+        accessSecretLabel: 'Access secret',
+    },
 }
 
 export function DatawarehouseTableForm(): JSX.Element {

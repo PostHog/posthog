@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -16,6 +17,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -116,6 +118,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+    currentTab?: ReplayTabs
 }
 
 export interface SessionSummaryResponse {
@@ -219,8 +222,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hog_ql_filtering: values.useHogQLFiltering,
                     }
 
-                    if (values.artificialLag) {
-                        params['date_to'] = values.artificialLag
+                    if (values.artificialLag && !params.date_to) {
+                        // values.artificalLag is a number of seconds to delay the recordings by
+                        // convert it to an absolute UTC timestamp as the relative date parsing in the backend
+                        // can't cope with seconds as a relative date
+                        const absoluteLag = now().subtract(values.artificialLag, 'second')
+                        params['date_to'] = absoluteLag.toISOString()
                     }
 
                     if (values.orderBy === 'start_time') {
@@ -493,10 +500,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         artificialLag: [
             (s) => [s.featureFlags],
-            (featureFlags): string | null => {
+            (featureFlags) => {
                 const lag = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_ARTIFICIAL_LAG]
-                // you can't edit variants right now, and I didn't put minus on the variant name 🤷
-                return lag === undefined || lag === 'control' ? null : '-' + lag
+                // lag needs to match `\d+` when present it is a number of seconds delay
+                // relative_date parsing in the backend can't cope with seconds
+                // so it will be converted to an absolute date when added to API call
+                return typeof lag === 'string' && /^\d+$/.test(lag) ? Number.parseInt(lag) : null
             },
         ],
         useHogQLFiltering: [
@@ -554,11 +563,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
             (selectedRecordingId, recordings, autoPlay): SessionRecordingId | undefined => {
-                return selectedRecordingId
-                    ? recordings.find((rec) => rec.id === selectedRecordingId)?.id || selectedRecordingId
-                    : autoPlay
-                    ? recordings[0]?.id
-                    : undefined
+                return selectedRecordingId ? selectedRecordingId : autoPlay ? recordings[0]?.id : undefined
             },
         ],
 

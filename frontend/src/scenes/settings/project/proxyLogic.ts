@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -12,7 +12,7 @@ export type ProxyRecord = {
     id: string
     domain: string
     status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
-    cname_target: string
+    target_cname: string
 }
 
 export type FormState = 'collapsed' | 'active' | 'complete'
@@ -24,6 +24,7 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: true,
         showForm: true,
         completeForm: true,
+        maybeRefreshRecords: true,
     })),
     reducers(() => ({
         formState: [
@@ -43,26 +44,34 @@ export const proxyLogic = kea<proxyLogicType>([
                 })
                 lemonToast.success('Record created')
                 actions.completeForm()
-                return response
+                return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                const response = await api.delete(
-                    `api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`
-                )
-                return response
+                void api.delete(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`)
+                const newRecords = [...values.proxyRecords].map((r) => ({
+                    ...r,
+                    status: r.id === id ? 'deleting' : r.status,
+                }))
+                return newRecords
             },
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    selectors(() => ({
+        shouldRefreshRecords: [
+            (s) => [s.proxyRecords],
+            (proxyRecords) => {
+                return proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
+            },
+        ],
+    })),
+    listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
+        deleteRecordSuccess: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
-        loadRecordsSuccess: () => {
-            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
-            if (shouldRefresh) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadRecords()
-                }, 5000)
+        maybeRefreshRecords: () => {
+            if (values.shouldRefreshRecords) {
+                actions.loadRecords()
             }
         },
     })),
@@ -81,8 +90,9 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadRecords()
+        cache.refreshTimeout = setInterval(() => actions.maybeRefreshRecords(), 5000)
     }),
     beforeUnmount(({ cache }) => {
         if (cache.refreshTimeout) {

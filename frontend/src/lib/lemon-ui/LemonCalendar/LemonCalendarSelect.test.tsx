@@ -71,7 +71,7 @@ describe('LemonCalendarSelect', () => {
                         setValue(value)
                         onChange(value)
                     }}
-                    showTime
+                    granularity="minute"
                 />
             )
         }
@@ -132,7 +132,7 @@ describe('LemonCalendarSelect', () => {
                         setValue(value)
                         onChange(value)
                     }}
-                    showTime
+                    granularity="minute"
                     selectionPeriod="upcoming"
                 />
             )
@@ -199,7 +199,7 @@ describe('LemonCalendarSelect', () => {
                         setValue(value)
                         onChange(value)
                     }}
-                    showTime
+                    granularity="minute"
                     selectionPeriod="past"
                 />
             )

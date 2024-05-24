@@ -1,9 +1,8 @@
 import { IconCheck, IconGear, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCalendarSelectInput, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
-import { DatePicker } from 'lib/components/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -142,14 +141,10 @@ function FieldInput({
             )
         case 'date':
             return (
-                <DatePicker
-                    popupStyle={{ zIndex: 1061 }}
-                    allowClear
+                <LemonCalendarSelectInput
+                    clearable
                     placeholder="Choose a date"
-                    className="retention-date-picker"
-                    suffixIcon={null}
-                    use12Hours
-                    showTime
+                    granularity="minute"
                     value={value ? dayjs(value) : null}
                     onChange={(date) => onChange(date?.toISOString())}
                 />

@@ -54,6 +54,7 @@ export interface PopoverProps {
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
     style?: React.CSSProperties
+    overflowHidden?: boolean
     /**
      * Whether the parent popover should be closed as well on click. Useful for menus.
      *  @default false
@@ -97,6 +98,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         floatingRef: extraFloatingRef,
         style,
         showArrow = false,
+        overflowHidden = false,
     },
     contentRef
 ): JSX.Element {
@@ -265,13 +267,23 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                             style={arrowStyle}
                                         />
                                     )}
-                                    <ScrollableShadows
-                                        className="Popover__content"
-                                        ref={contentRef}
-                                        direction="vertical"
-                                    >
-                                        {overlay}
-                                    </ScrollableShadows>
+
+                                    {!overflowHidden ? (
+                                        <ScrollableShadows
+                                            className="Popover__content"
+                                            ref={contentRef}
+                                            direction="vertical"
+                                        >
+                                            {overlay}
+                                        </ScrollableShadows>
+                                    ) : (
+                                        <div
+                                            className="Popover__content flex flex-col overflow-hidden"
+                                            ref={contentRef}
+                                        >
+                                            {overlay}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </PopoverOverlayContext.Provider>

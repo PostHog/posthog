@@ -648,7 +648,7 @@ class TestBillingAPI(APILicensedTest):
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_available_features_updated_if_different(self, mock_request):
+    def test_organization_available_product_features_updated_if_different(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -659,20 +659,31 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(available_features=["feature1", "feature2"])
+                    customer=create_billing_customer(
+                        available_product_features=[
+                            {"key": "feature1", "name": "feature1"},
+                            {"key": "feature2", "name": "feature2"},
+                        ]
+                    )
                 )
 
             return mock
 
         mock_request.side_effect = mock_implementation
 
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
-        assert self.organization.available_features == []
+        assert self.organization.available_product_features == []
         self.client.get("/api/billing-v2")
         self.organization.refresh_from_db()
-        assert self.organization.available_features == ["feature1", "feature2"]
+        assert self.organization.available_product_features == [
+            {
+                "key": "feature1",
+                "name": "feature1",
+            },
+            {"key": "feature2", "name": "feature2"},
+        ]
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_update(self, mock_request):

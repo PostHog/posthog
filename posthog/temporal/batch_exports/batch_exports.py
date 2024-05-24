@@ -48,13 +48,15 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-TIMESTAMP_PREDICATES = Template("""
+TIMESTAMP_PREDICATES = Template(
+    """
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
 -- As a side-effect, this heuristic will discard historical loads older than a day.
 AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL $lookback_days DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-""")
+"""
+)
 
 
 def get_timestamp_predicates_for_team(team_id: int) -> str:

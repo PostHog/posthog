@@ -99,3 +99,37 @@ class TestBillingManager(BaseTest):
         BillingManager(license).update_billing_customer_email(organization)
         assert billing_patch_request_mock.call_count == 1
         assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y@x.com"
+
+    @patch(
+        "ee.billing.billing_manager.requests.patch",
+        return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
+    )
+    def test_update_billing_admin_emails(self, billing_patch_request_mock: MagicMock):
+        organization = self.organization
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        User.objects.create_and_join(
+            organization=organization,
+            email="y1@x.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        User.objects.create_and_join(
+            organization=organization,
+            email="y2@x.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        User.objects.create_and_join(
+            organization=organization,
+            email="y3@x.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        organization.refresh_from_db()
+        BillingManager(license).update_billing_admin_emails(organization)
+        assert billing_patch_request_mock.call_count == 1
+        assert billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"] == ["y2@x.com", "y3@x.com"]

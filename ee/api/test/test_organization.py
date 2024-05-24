@@ -1,5 +1,4 @@
 import datetime as dt
-import random
 from unittest import mock
 from unittest.mock import ANY, call, patch
 
@@ -29,9 +28,8 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
-    def test_create_two_similarly_named_organizations(self):
-        random.seed(0)
-
+    @patch("secrets.choice", return_value="Y")
+    def test_create_two_similarly_named_organizations(self, mock_choice):
         response = self.client.post(
             "/api/organizations/",
             {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
@@ -53,7 +51,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertDictContainsSubset(
             {
                 "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
-                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yWAc",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY",
             },
             response.json(),
         )

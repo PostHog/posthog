@@ -72,38 +72,7 @@ export function SDKs({
     }, [width])
 
     return (
-        <OnboardingStep
-            title="Install"
-            stepKey={stepKey}
-            continueOverride={
-                <div className="flex gap-x-4 items-center justify-center">
-                    {!showSideBySide && panel === 'options' ? (
-                        <></>
-                    ) : !currentTeam?.[teamPropertyToVerify] ? (
-                        <>
-                            <LemonButton
-                                type="tertiary"
-                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-                            >
-                                Skip setup
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <>
-                            <LemonButton
-                                data-attr="sdk-continue"
-                                sideIcon={hasNextStep ? <IconArrowRight /> : null}
-                                type="primary"
-                                status="alt"
-                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-                            >
-                                Continue
-                            </LemonButton>
-                        </>
-                    )}
-                </div>
-            }
-        >
+        <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
             <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${
@@ -164,18 +133,44 @@ export function SDKs({
                         )}
                         <SDKSnippet sdk={selectedSDK} sdkInstructions={sdkInstructionMap[selectedSDK.key]} />
                         <LemonDivider className="my-8" />
-                        <h2 className="font-bold mb-4">Verify installation</h2>
-                        <p className="flex items-center italic text-muted">
-                            {!currentTeam?.[teamPropertyToVerify] && !eventsFound ? (
-                                <>
-                                    <Spinner className="text-3xl mr-2" /> Verifying installation...
-                                </>
-                            ) : (
-                                <>
-                                    <IconCheck className="text-xl text-success mr-2" /> Installation complete
-                                </>
-                            )}
-                        </p>
+                        <div className="flex justify-between">
+                            <div>
+                                <h2 className="font-bold mb-4">Verify installation</h2>
+                                <p className="flex items-center italic text-muted">
+                                    {!currentTeam?.[teamPropertyToVerify] && !eventsFound ? (
+                                        <>
+                                            <Spinner className="text-3xl mr-2" /> Verifying installation...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <IconCheck className="text-xl text-success mr-2" /> Installation complete
+                                        </>
+                                    )}
+                                </p>
+                            </div>
+                            <div>
+                                {!showSideBySide && panel === 'options' ? (
+                                    <></>
+                                ) : !currentTeam?.[teamPropertyToVerify] ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                                    >
+                                        Skip installation
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        data-attr="sdk-continue"
+                                        sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                                        type="primary"
+                                        status="alt"
+                                        onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                                    >
+                                        Continue
+                                    </LemonButton>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

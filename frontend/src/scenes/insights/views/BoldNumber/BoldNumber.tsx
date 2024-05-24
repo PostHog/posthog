@@ -227,7 +227,11 @@ export function HogQLBoldNumber(): JSX.Element {
     const { response, responseLoading } = useValues(dataVisualizationLogic)
 
     const displayValue =
-        ((!response || responseLoading) && 'loading...') || response?.[0]?.[0] || response?.results?.[0]?.[0] || 'Error'
+        ((!response || responseLoading) && 'Loading...') ||
+        response?.[0]?.[0] ||
+        response?.results?.[0]?.[0] ||
+        response?.result?.[0]?.[0] ||
+        'Error'
 
     return (
         <div className="BoldNumber LemonTable HogQL">

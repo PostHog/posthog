@@ -17,9 +17,7 @@ curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/chec
 
 [ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb )
 
-./bin/start-worker &
 ./bin/start-backend &
 ./bin/start-frontend &
-./bin/temporal-django-worker &
 
 wait
