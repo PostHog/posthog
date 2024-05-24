@@ -108,6 +108,10 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
         .map((_, i) => `\$${i + 1}`)
         .join(',')
     const values = Object.values(object).map((value) => {
+        if (typeof value === 'object' && !Array.isArray(value)) {
+            const escaped = JSON.stringify([value]).replace(/"/g, '\\"')
+            return `{"${escaped}"}`
+        }
         if (Array.isArray(value) && value.length > 0) {
             return JSON.stringify(value)
         }

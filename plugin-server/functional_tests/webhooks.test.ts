@@ -121,7 +121,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
         const ts = new Date()
 
         const organizationId = await createOrganization({
-            available_product_features: `array ['{ "key": "zapier", "name": "zapier" }'::jsonb]`,
+            available_product_features: { key: 'zapier', name: 'zapier' },
         })
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
