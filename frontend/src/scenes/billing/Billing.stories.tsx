@@ -8,7 +8,6 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
 import exportsUnsubscribeConfigs from '~/mocks/fixtures/api/organizations/@current/plugins/exportsUnsubscribeConfigs.json'
-import organizationPlugins from '~/mocks/fixtures/api/organizations/@current/plugins/plugins.json'
 
 import { Billing } from './Billing'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -88,9 +87,6 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
             },
             '/api/organizations/@current/plugins/exports_unsubscribe_configs/': exportsUnsubscribeConfigs,
             '/api/organizations/@current/batch_exports': batchExports,
-            '/api/organizations/@current/plugins': {
-                ...organizationPlugins,
-            },
             '/api/organizations/@current/': {
                 ...organizationCurrent,
             },

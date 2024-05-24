@@ -1,4 +1,5 @@
 import {
+    AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
     Breakdown,
@@ -13,7 +14,6 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntervalType,
@@ -197,6 +197,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -990,10 +991,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    /** Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py. */
-    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
-    /** Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py. */
-    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?: AnyPersonScopeFilter[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -1055,8 +1056,8 @@ export interface SamplingRate {
 
 export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
-    dateFrom: string
-    dateTo: string
+    dateFrom?: string
+    dateTo?: string
 }
 export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
@@ -1317,6 +1318,7 @@ export interface DatabaseSchemaSource {
 
 export interface DatabaseSchemaField {
     name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string

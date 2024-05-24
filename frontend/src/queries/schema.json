@@ -55,16 +55,9 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
-                    "description": "Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -89,16 +82,9 @@
                     "type": "array"
                 },
                 "properties": {
-                    "description": "Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -254,6 +240,23 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
+        },
+        "AnyPersonScopeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
+                }
+            ],
+            "description": "Any filter type supported by `property_to_expr(scope=\"person\", ...)`."
         },
         "AnyPropertyFilter": {
             "anyOf": [
@@ -1394,8 +1397,6 @@
             },
             "required": [
                 "cache_key",
-                "dateFrom",
-                "dateTo",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -1917,7 +1918,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["dateFrom", "dateTo", "results"],
+                            "required": ["results"],
                             "type": "object"
                         },
                         {
@@ -2335,6 +2336,9 @@
                     },
                     "type": "array"
                 },
+                "hogql_value": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -2348,7 +2352,7 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["name", "type", "schema_valid"],
+            "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
         "DatabaseSchemaPostHogTable": {
@@ -4144,6 +4148,10 @@
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
+                "personsJoinMode": {
+                    "enum": ["inner", "left"],
+                    "type": "string"
+                },
                 "personsOnEventsMode": {
                     "enum": [
                         "disabled",
@@ -5912,7 +5920,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -6239,7 +6247,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -7937,7 +7945,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateFrom", "dateTo", "results"],
+            "required": ["results"],
             "type": "object"
         },
         "WebStatsBreakdown": {
