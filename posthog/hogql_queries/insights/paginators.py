@@ -24,7 +24,7 @@ class HogQLHasMorePaginator:
         self.results: list[Any] = []
         self.limit = limit if limit and limit > 0 else DEFAULT_RETURNED_ROWS
         self.offset = offset if offset and offset > 0 else 0
-        self.limit_context = LimitContext.QUERY if limit_context is None else limit_context
+        self.limit_context = limit_context
 
     @classmethod
     def from_limit_context(
@@ -67,8 +67,7 @@ class HogQLHasMorePaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
-                limit_context=self.limit_context,  # Set the limit context to increase timeout
-                **kwargs,
+                **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )
         self.results = self.trim_results()
