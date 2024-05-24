@@ -121,7 +121,8 @@ export function SurveyDisplaySummary({
     survey: Survey | NewSurvey
     targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
-    const hasConditions = survey.conditions?.url || survey.conditions?.selector
+    const hasConditions =
+        survey.conditions?.url || survey.conditions?.selector || survey.conditions?.seenSurveyWaitPeriodInDays
     const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
 
     return (
