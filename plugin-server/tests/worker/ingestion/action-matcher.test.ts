@@ -1343,6 +1343,7 @@ describe('ActionMatcher.checkFilters', () => {
     ): PluginConfigFilters => {
         return {
             events: partials.map((x) => ({
+                id: '0',
                 type: 'events',
                 name: x.name,
                 order: 0,

@@ -60,6 +60,7 @@ describe('sql', () => {
             created_at: expect.anything(),
             updated_at: expect.anything(),
             match_action_id: null,
+            filters: null,
         }
 
         const rows1 = await getPluginConfigRows(hub)
