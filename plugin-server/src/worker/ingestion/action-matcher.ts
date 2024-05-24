@@ -163,8 +163,6 @@ export class ActionMatcher {
     }
 
     public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): Promise<boolean> {
-        // NOTE: We should likely convert this to use HogVM or some other generic matching action
-
         const allFilters = [...(filters.events || []), ...(filters.actions || [])]
 
         for (const filter of allFilters) {
