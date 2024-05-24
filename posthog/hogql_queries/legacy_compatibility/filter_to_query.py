@@ -445,7 +445,9 @@ def filter_to_query(filter: dict) -> InsightQueryNode:
         **_insight_filter(filter),
     }
 
-    return Query(**data)
+    # :KLUDGE: We do this dance to have default values instead of None, when setting
+    # values from a filter above.
+    return Query(**Query(**data).model_dump(exclude_none=True))
 
 
 def filter_str_to_query(filters: str) -> InsightQueryNode:

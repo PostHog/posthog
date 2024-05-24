@@ -5,12 +5,15 @@ from parameterized import parameterized
 from django.test.testcases import TestCase
 
 from posthog.schema import (
+    EventPropertyFilter,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     FunnelStepReference,
     FunnelsQuery,
     FunnelVizType,
     FunnelLayout,
+    PersonPropertyFilter,
+    PropertyOperator,
     StepOrderValue,
     BreakdownAttributionType,
 )
@@ -22,6 +25,34 @@ base_funnel: dict[str, Any] = {"series": []}
 
 class TestSchemaHelpers(TestCase):
     maxDiff = None
+
+    def test_serializes_to_differing_json_for_default_value(self):
+        """
+        The property filters have a `type` key with a literal default value.
+        This test makes sure that the value actually gets serialized, so that otherwise
+        equal property filters can be distinguished.
+        """
+
+        q1 = EventPropertyFilter(key="abc", operator=PropertyOperator.gt)
+        q2 = PersonPropertyFilter(key="abc", operator=PropertyOperator.gt)
+
+        self.assertNotEqual(to_json(q1), to_json(q2))
+        self.assertIn('"type":"event"', str(to_json(q1)))
+
+    def test_serializes_to_same_json_for_default_value(self):
+        """
+        The property filters have an optional `operator` key, with
+        a default value. This test makes sure that different ways of
+        specifying the default value get serialized in the same way.
+        """
+
+        q1 = EventPropertyFilter(key="abc")
+        q2 = EventPropertyFilter(key="abc", operator=None)
+        q3 = EventPropertyFilter(key="abc", operator=PropertyOperator.exact)
+
+        self.assertEqual(to_json(q1), to_json(q2))
+        self.assertEqual(to_json(q2), to_json(q3))
+        self.assertIn('"operator":"exact"', str(to_json(q1)))
 
     @parameterized.expand(
         [
