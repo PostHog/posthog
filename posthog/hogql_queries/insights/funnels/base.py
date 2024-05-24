@@ -204,7 +204,9 @@ class FunnelBase(ABC):
                 )
 
             # execute query
-            results = execute_hogql_query(values_query, self.context.team, limit_context=self.limit_context).results
+            results = execute_hogql_query(
+                values_query, self.context.team, limit_context=self.context.limit_context
+            ).results
             if results is None:
                 raise ValidationError("Apologies, there has been an error computing breakdown values.")
             return [row[0] for row in results[0:breakdown_limit_or_default]]
