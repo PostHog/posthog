@@ -2,6 +2,8 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { LiveEvent } from '~/types'
+
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
@@ -73,6 +75,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 setStats: (_, { stats }) => stats,
             },
         ],
+        lastBatchTimestamp: [
+            null as number | null,
+            {
+                addEvents: (state, { events }) => {
+                    if (events.length > 0) {
+                        return Date.now()
+                    }
+                    return state
+                },
+            },
+        ],
     }),
     selectors(({ selectors }) => ({
         eventCount: [() => [selectors.events], (events: any) => events.length],
@@ -120,10 +133,11 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             const batch: Record<string, any>[] = []
             source.onmessage = function (event: any) {
-                const eventData = JSON.parse(event.data) // Assuming the event data is in JSON format
+                const eventData = JSON.parse(event.data)
                 batch.push(eventData)
-                if (batch.length >= 5) {
-                    // Process in batches of 5
+                // Batch events to avoid re-rendering too often
+                // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
+                if (batch.length >= 10 || Date.now() - (values.lastBatchTimestamp || 0) > 300) {
                     actions.addEvents(batch)
                     batch.length = 0
                 }
