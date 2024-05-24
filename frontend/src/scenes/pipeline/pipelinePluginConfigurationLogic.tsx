@@ -9,7 +9,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
+import {
+    FilterType,
+    PipelineNodeTab,
+    PipelineStage,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    PluginType,
+} from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -51,6 +58,13 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
         name: plugin.name,
         description: plugin.description,
     }
+}
+
+function sanitizeFilters(filters: FilterType): PluginConfigTypeNew['filters'] {
+    const eventFilters = filters.events?.length ? filters.events : undefined
+    const actionFilters = filters.actions?.length ? filters.actions : undefined
+
+    return eventFilters && actionFilters ? { events: eventFilters, actions: actionFilters } : undefined
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
@@ -118,7 +132,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
-                    formData.append('filters', JSON.stringify(filters) ?? null)
+                    formData.append('filters', JSON.stringify(sanitizeFilters(filters)) ?? null)
                     if (match_action) {
                         formData.append('match_action', match_action ?? null)
                     }

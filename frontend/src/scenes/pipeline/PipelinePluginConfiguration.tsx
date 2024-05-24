@@ -2,7 +2,6 @@ import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -178,30 +177,23 @@ export function PipelinePluginConfiguration({
 
                         {actionMatchingEnabled ? (
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="match_action" label="Action filters">
-                                    <LemonSelectAction allowClear disabled={loading} />
-                                </LemonField>
-
-                                <LemonField name="filters" label="Event filters">
+                                <LemonField name="filters" label="Filter by events and actions">
                                     {({ value, onChange }) => (
                                         <ActionFilter
                                             bordered
                                             filters={value ?? {}}
                                             setFilters={(payload) => {
-                                                onChange(
-                                                    payload.events?.length
-                                                        ? {
-                                                              events: payload.events,
-                                                          }
-                                                        : null
-                                                )
+                                                onChange(payload)
                                             }}
                                             typeKey="plugin-filters"
                                             mathAvailability={MathAvailability.None}
                                             hideRename
                                             hideDuplicate
                                             showNestedArrow={false}
-                                            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                            actionsTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.Events,
+                                                TaxonomicFilterGroupType.Actions,
+                                            ]}
                                             propertiesTaxonomicGroupTypes={[
                                                 TaxonomicFilterGroupType.EventProperties,
                                                 TaxonomicFilterGroupType.EventFeatureFlags,
@@ -220,8 +212,7 @@ export function PipelinePluginConfiguration({
                                 </LemonField>
 
                                 <p className="italic text-muted-alt">
-                                    This destination will only be for events matching the configured action{' '}
-                                    <b>or any</b> of the configured event filters.
+                                    This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
                             </div>
                         ) : null}
