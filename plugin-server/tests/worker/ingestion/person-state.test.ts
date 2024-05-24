@@ -739,502 +739,496 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.each(Object.keys(PersonOverridesModes))('on $identify event', (useOverridesMode) => {
-        beforeEach(() => {
-            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
+    describe('on $identify event', () => {
+        it(`no-op when $anon_distinct_id not passed`, async () => {
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { foo: 'bar' },
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(undefined)
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(0)
         })
 
-        describe(`overrides: ${useOverridesMode}`, () => {
-            it(`no-op when $anon_distinct_id not passed`, async () => {
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $set: { foo: 'bar' },
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
+        it(`creates person with both distinct_ids and marks user as is_identified when $anon_distinct_id passed`, async () => {
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { foo: 'bar' },
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
 
-                expect(person).toEqual(undefined)
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(0)
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: { foo: 'bar' },
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
+                newUserDistinctId,
+                oldUserDistinctId,
+            ])
+
+            const personS = personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
             })
+            const person = await personS.handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
 
-            it(`creates person with both distinct_ids and marks user as is_identified when $anon_distinct_id passed`, async () => {
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $set: { foo: 'bar' },
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+            expect(personS.updateIsIdentified).toBeTruthy()
 
-                expect(person).toEqual(
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+        })
+
+        it(`add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
+
+            const personS = personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            })
+            const person = await personS.handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            const persons = await fetchPostgresPersonsH()
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+            expect(personS.updateIsIdentified).toBeTruthy()
+
+            // verify Postgres persons
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+
+            const personS = personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            })
+            const person = await personS.handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            const persons = await fetchPostgresPersonsH()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: oldUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+            expect(personS.updateIsIdentified).toBeTruthy()
+
+            // verify Postgres persons
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
+
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+            expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons.length).toEqual(2)
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: newUserUuid,
-                        properties: { foo: 'bar' },
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: true,
-                    })
-                )
-
-                expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
-
-            it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                    newUserDistinctId,
-                    oldUserDistinctId,
+                        id: expect.any(String),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(String),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
                 ])
+            )
+            expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
 
-                const personS = personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`merge into distinct_id person and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
+
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
                 })
-                const person = await personS.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
+            )
 
-                expect(person).toEqual(
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+            expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons.length).toEqual(2)
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: newUserUuid,
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-                expect(personS.updateIsIdentified).toBeTruthy()
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-            })
-
-            it(`add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
-
-                const personS = personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                })
-                const person = await personS.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                const persons = await fetchPostgresPersonsH()
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: newUserUuid,
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-                expect(personS.updateIsIdentified).toBeTruthy()
-
-                // verify Postgres persons
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
-
-            it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
-
-                const personS = personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                })
-                const person = await personS.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                const persons = await fetchPostgresPersonsH()
-
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: oldUserUuid,
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-                expect(personS.updateIsIdentified).toBeTruthy()
-
-                // verify Postgres persons
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
-
-            it(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
-
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: expect.any(String),
-                        properties: {},
-                        created_at: timestamp,
+                        id: expect.any(String),
+                        properties: '{}',
+                        created_at: timestampch,
                         version: 1,
-                        is_identified: true,
-                    })
-                )
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-                expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-
-                // verify ClickHouse persons
-                await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-                const clickhousePersons = await fetchPersonsRows() // but verify full state
-                expect(clickhousePersons.length).toEqual(2)
-                expect(clickhousePersons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            properties: '{}',
-                            created_at: timestampch,
-                            version: 1,
-                            is_identified: 1,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            is_deleted: 1,
-                            version: 100,
-                        }),
-                    ])
-                )
-                expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
-
-                // verify ClickHouse distinct_ids
-                await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-                const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
-                expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
-
-            it(`merge into distinct_id person and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
-
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
+                        is_identified: 1,
+                    }),
                     expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: expect.any(String),
-                        properties: {},
-                        created_at: timestamp,
-                        version: 1,
-                        is_identified: true,
-                    })
-                )
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-                expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-
-                // verify ClickHouse persons
-                await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-                const clickhousePersons = await fetchPersonsRows() // but verify full state
-                expect(clickhousePersons.length).toEqual(2)
-                expect(clickhousePersons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            properties: '{}',
-                            created_at: timestampch,
-                            version: 1,
-                            is_identified: 1,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            is_deleted: 1,
-                            version: 100,
-                        }),
-                    ])
-                )
-                expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
-
-                // verify ClickHouse distinct_ids
-                await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-                const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
-                expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-            })
-
-            it(`does not merge people when distinct_id user is not identified and $anon_distinct_id user is`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
-
-                const personS = personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                })
-                const person = await personS.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(personS.updateIsIdentified).toBeTruthy()
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: newUserUuid,
-                        properties: {},
-                        created_at: timestamp2,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-
-                // verify Postgres persons
-                const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
-                expect(persons.length).toEqual(2)
-                expect(persons[0]).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: oldUserUuid,
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: true,
-                    })
-                )
-                expect(persons[1]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
-                const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
-                expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
-            })
-
-            it(`does not merge people when both users are identified`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
-                await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
-
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: newUserUuid,
-                        properties: {},
-                        created_at: timestamp2,
-                        version: 0,
-                        is_identified: true,
-                    })
-                )
-
-                // verify Postgres persons
-                const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
-                expect(persons.length).toEqual(2)
-                expect(persons[0]).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: oldUserUuid,
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: true,
-                    })
-                )
-                expect(persons[1]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
-                const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
-                expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
-            })
-
-            it(`merge into distinct_id person and updates properties with $set/$set_once`, async () => {
-                await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, [
-                    oldUserDistinctId,
+                        id: expect.any(String),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
                 ])
-                await hub.db.createPerson(timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, [
-                    newUserDistinctId,
-                ])
+            )
+            expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
 
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $set: { d: 6, e: 7 },
-                        $set_once: { a: 8, f: 9 },
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
 
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: expect.any(String),
-                        properties: { a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 },
-                        created_at: timestamp,
-                        version: 1,
-                        is_identified: true,
-                    })
-                )
+        it(`does not merge people when distinct_id user is not identified and $anon_distinct_id user is`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [newUserDistinctId])
 
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-                expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-
-                // verify ClickHouse persons
-                await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-                const clickhousePersons = await fetchPersonsRows() // but verify full state
-                expect(clickhousePersons.length).toEqual(2)
-                expect(clickhousePersons).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
-                            created_at: timestampch,
-                            version: 1,
-                            is_identified: 1,
-                        }),
-                        expect.objectContaining({
-                            id: expect.any(String),
-                            is_deleted: 1,
-                            version: 100,
-                        }),
-                    ])
-                )
-                expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
-
-                // verify ClickHouse distinct_ids
-                await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-                const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
-                expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+            const personS = personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
             })
+            const person = await personS.handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
 
-            it(`handles race condition when other thread creates the user`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
-
-                // Fake the race by assuming createPerson was called before the addDistinctId creation above
-                jest.spyOn(hub.db, 'addDistinctId').mockImplementation(async (person, distinctId) => {
-                    await hub.db.createPerson(
-                        timestamp,
-                        {},
-                        {},
-                        {},
-                        teamId,
-                        null,
-                        false,
-                        uuidFromDistinctId(teamId, distinctId),
-                        [distinctId]
-                    )
-                    await hub.db.addDistinctId(person, distinctId, 0) // this throws
+            expect(personS.updateIsIdentified).toBeTruthy()
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: {},
+                    created_at: timestamp2,
+                    version: 0,
+                    is_identified: false,
                 })
+            )
 
-                const person = await personState({
-                    event: '$identify',
-                    distinct_id: oldUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: newUserDistinctId,
-                    },
-                }).handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-                jest.spyOn(hub.db, 'addDistinctId').mockRestore() // Necessary for other tests not to fail
+            // verify Postgres persons
+            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            expect(persons.length).toEqual(2)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: oldUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+            expect(persons[1]).toEqual(person)
 
-                // if creation fails we should return the person that another thread already created
-                expect(person).toEqual(
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
+            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
+        })
+
+        it(`does not merge people when both users are identified`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [oldUserDistinctId])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [newUserDistinctId])
+
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: newUserUuid,
+                    properties: {},
+                    created_at: timestamp2,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres persons
+            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            expect(persons.length).toEqual(2)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: oldUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+            expect(persons[1]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
+            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
+        })
+
+        it(`merge into distinct_id person and updates properties with $set/$set_once`, async () => {
+            await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, [
+                oldUserDistinctId,
+            ])
+            await hub.db.createPerson(timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, [
+                newUserDistinctId,
+            ])
+
+            const person = await personState({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { d: 6, e: 7 },
+                    $set_once: { a: 8, f: 9 },
+                    $anon_distinct_id: oldUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: { a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 },
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+            expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons.length).toEqual(2)
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: oldUserUuid,
-                        properties: {},
-                        created_at: timestamp,
+                        id: expect.any(String),
+                        properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
+                        created_at: timestampch,
                         version: 1,
-                        is_identified: true,
-                    })
-                )
-                // expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(String),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
+            )
+            expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
 
-                // verify Postgres distinct_ids
-                const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-                expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`handles race condition when other thread creates the user`, async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+
+            // Fake the race by assuming createPerson was called before the addDistinctId creation above
+            jest.spyOn(hub.db, 'addDistinctId').mockImplementation(async (person, distinctId) => {
+                await hub.db.createPerson(
+                    timestamp,
+                    {},
+                    {},
+                    {},
+                    teamId,
+                    null,
+                    false,
+                    uuidFromDistinctId(teamId, distinctId),
+                    [distinctId]
+                )
+                await hub.db.addDistinctId(person, distinctId, 0) // this throws
             })
+
+            const person = await personState({
+                event: '$identify',
+                distinct_id: oldUserDistinctId,
+                properties: {
+                    $anon_distinct_id: newUserDistinctId,
+                },
+            }).handleIdentifyOrAlias()
+            await hub.db.kafkaProducer.flush()
+            jest.spyOn(hub.db, 'addDistinctId').mockRestore() // Necessary for other tests not to fail
+
+            // if creation fails we should return the person that another thread already created
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: oldUserUuid,
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+            // expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
     })
 
