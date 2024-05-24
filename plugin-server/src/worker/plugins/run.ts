@@ -442,12 +442,6 @@ async function filterPluginMethodsForActionMatches<T>(
 ): Promise<[PluginConfig, T][]> {
     const filteredList: [PluginConfig, T][] = []
 
-    // Optimization step - load all actions we might need ahead of time to avoid multiple parallel calls
-    await hub.actionMatcher.preloadActions(
-        pluginMethods.map((x) => x[0]),
-        event.teamId
-    )
-
     await Promise.all(
         pluginMethods.map(async ([pluginConfig, method]) => {
             if (pluginConfig.filters) {

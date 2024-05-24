@@ -13,7 +13,6 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
-    PluginConfig,
     PluginConfigFilters,
     PostIngestionEvent,
     PropertyFilter,
@@ -144,27 +143,6 @@ export class ActionMatcher {
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
-    }
-
-    public async preloadActions(configs: PluginConfig[], teamId: number): Promise<number> {
-        // Find all potential action IDs we would need to preload and preload them
-
-        const actionIds = new Set<number>()
-
-        for (const config of configs) {
-            if (config.filters) {
-                for (const filter of config.filters?.actions || []) {
-                    if (filter.type === 'actions') {
-                        actionIds.add(parseInt(filter.id))
-                    }
-                }
-            }
-        }
-
-        // TODO: Implement this - maybe we can do a special method that only loads the bare minimum it needs?
-        // await this.actionManager.loadActions(teamId, Array.from(actionIds))
-
-        return 0
     }
 
     /** Get all actions matched to the event. */
