@@ -1840,16 +1840,28 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
     config: Record<string, any>
     match_action?: ActionType['id']
-    filters?: PluginConfigFilter[]
+    filters?: PluginConfigFilters | null
 }
 
 // subset of EntityFilter
-export interface PluginConfigFilter {
-    type: 'events' | 'actions'
+export interface PluginConfigFilterBase {
     id: string
     name: string | null
     order: number
     properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
+    type: 'events'
+}
+
+export interface PluginConfigFilterActions extends PluginConfigFilterBase {
+    type: 'actions'
+}
+
+export interface PluginConfigFilters {
+    events?: PluginConfigFilterEvents[]
+    actions?: PluginConfigFilterActions[]
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend

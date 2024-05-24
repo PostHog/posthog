@@ -427,7 +427,7 @@ export interface PluginConfig {
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
     match_action_id?: number
-    filters?: PluginConfigFilter[]
+    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -947,13 +947,25 @@ export interface ActionStep {
     properties: PropertyFilter[] | null
 }
 
-// Mostly the same as the "filter" type
-export interface PluginConfigFilter {
-    type: 'events' | 'actions'
+// subset of EntityFilter
+export interface PluginConfigFilterBase {
     id: string
     name: string | null
     order: number
     properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
+    type: 'events'
+}
+
+export interface PluginConfigFilterActions extends PluginConfigFilterBase {
+    type: 'actions'
+}
+
+export interface PluginConfigFilters {
+    events?: PluginConfigFilterEvents[]
+    actions?: PluginConfigFilterActions[]
 }
 
 /** Raw Action row from database. */

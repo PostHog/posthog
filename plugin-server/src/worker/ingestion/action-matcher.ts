@@ -14,7 +14,7 @@ import {
     EventPropertyFilter,
     PersonPropertyFilter,
     PluginConfig,
-    PluginConfigFilter,
+    PluginConfigFilters,
     PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
@@ -153,7 +153,7 @@ export class ActionMatcher {
 
         for (const config of configs) {
             if (config.filters) {
-                for (const filter of config.filters) {
+                for (const filter of config.filters?.actions || []) {
                     if (filter.type === 'actions') {
                         actionIds.add(parseInt(filter.id))
                     }
@@ -184,10 +184,12 @@ export class ActionMatcher {
         return matches
     }
 
-    public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilter[]): Promise<boolean> {
+    public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): Promise<boolean> {
         // NOTE: We should likely convert this to use HogVM or some other generic matching action
 
-        for (const filter of filters) {
+        const allFilters = [...(filters.events || []), ...(filters.actions || [])]
+
+        for (const filter of allFilters) {
             switch (filter.type) {
                 case 'events':
                     if (filter.name && filter.name !== event.event) {

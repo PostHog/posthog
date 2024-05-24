@@ -13,6 +13,7 @@ import {
     FilterType,
     PipelineNodeTab,
     PipelineStage,
+    PluginConfigFilters,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -60,10 +61,24 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
 }
 
 function sanitizeFilters(filters: FilterType): PluginConfigTypeNew['filters'] {
-    const eventFilters = filters.events?.length ? filters.events : undefined
-    const actionFilters = filters.actions?.length ? filters.actions : undefined
+    const sanitized: PluginConfigFilters = {
+        events: filters.events?.map((f) => ({
+            id: f.id,
+            type: 'events',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        })),
+        actions: filters.actions?.map((f) => ({
+            id: f.id,
+            type: 'actions',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        })),
+    }
 
-    return eventFilters && actionFilters ? [...eventFilters, ...actionFilters] : undefined
+    return sanitized.events?.length || sanitized.actions?.length ? sanitized : null
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
@@ -131,7 +146,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
-                    formData.append('filters', JSON.stringify(sanitizeFilters(filters)) ?? null)
+
+                    const sanitizedFilters = sanitizeFilters(filters)
+                    formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
 
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
