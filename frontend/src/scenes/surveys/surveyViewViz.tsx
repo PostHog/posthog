@@ -254,11 +254,13 @@ export function NPSSurveyResultsBarChart({
     surveyRecurringNPSResults,
     surveyRecurringNPSResultsReady,
     iterationStartDates,
+    currentIteration,
 }: {
     questionIndex: number
     surveyRecurringNPSResults: SurveyRecurringNPSResults
     surveyRecurringNPSResultsReady: QuestionResultsReady
     iterationStartDates: string[]
+    currentIteration: number
 }): JSX.Element {
     const { loadSurveyRecurringNPSResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
@@ -314,7 +316,7 @@ export function NPSSurveyResultsBarChart({
                                         },
                                     ]}
                                     labels={iterationStartDates
-                                        .slice(0, survey.current_iteration + 1)
+                                        .slice(0, currentIteration)
                                         .map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
                                 />
                             </BindLogic>

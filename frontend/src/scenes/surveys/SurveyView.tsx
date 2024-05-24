@@ -337,6 +337,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
                                 {survey.iteration_count &&
                                     survey.iteration_count > 0 &&
+                                    survey.current_iteration &&
+                                    survey.current_iteration > 0 &&
                                     survey.iteration_start_dates &&
                                     survey.iteration_start_dates.length > 0 && (
                                         <NPSSurveyResultsBarChart
@@ -344,6 +346,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                             surveyRecurringNPSResults={surveyRecurringNPSResults}
                                             surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
                                             iterationStartDates={survey.iteration_start_dates}
+                                            currentIteration={survey.current_iteration}
                                             questionIndex={i}
                                         />
                                     )}
