@@ -506,7 +506,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                 placeholder="ex: .className or #id"
                                                             />
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="Survey wait period">
+                                                        <LemonField.Pure
+                                                            label="Survey wait period"
+                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                        >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
@@ -527,11 +530,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Do not display this survey to users who have already
-                                                                seen a survey in the last
+                                                                Don't show to users who saw a survey within the last
                                                                 <LemonInput
                                                                     type="number"
-                                                                    size="small"
+                                                                    size="xsmall"
                                                                     min={0}
                                                                     value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
@@ -547,7 +549,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                             })
                                                                         }
                                                                     }}
-                                                                    className="w-16"
+                                                                    className="w-12"
                                                                 />{' '}
                                                                 days.
                                                             </div>

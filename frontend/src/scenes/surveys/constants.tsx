@@ -67,6 +67,7 @@ export const defaultSurveyFieldValues = {
                 scale: 10,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                buttonText: 'Submit',
             },
         ],
         appearance: {

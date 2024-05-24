@@ -19,7 +19,7 @@ import { NodeKind } from '~/queries/schema'
 import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME } from './constants'
-import { SurveyReleaseSummary } from './Survey'
+import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { surveyLogic } from './surveyLogic'
@@ -242,7 +242,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </>
                                             )}
                                             <LemonDivider />
-                                            <SurveyReleaseSummary
+                                            <SurveyDisplaySummary
                                                 id={id}
                                                 survey={survey}
                                                 targetingFlagFilters={targetingFlagFilters}
