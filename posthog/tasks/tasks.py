@@ -174,35 +174,6 @@ CLICKHOUSE_TABLES = [
 ]
 
 
-@shared_task(ignore_result=True)
-def clickhouse_lag() -> None:
-    from statshog.defaults.django import statsd
-
-    from posthog.client import sync_execute
-
-    with pushed_metrics_registry("celery_clickhouse_lag") as registry:
-        lag_gauge = Gauge(
-            "posthog_celery_clickhouse_lag_seconds",
-            "Age of the latest ingested record per ClickHouse table.",
-            labelnames=["table_name"],
-            registry=registry,
-        )
-        for table in CLICKHOUSE_TABLES:
-            try:
-                QUERY = """SELECT max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag
-                    FROM {table}"""
-                query = QUERY.format(table=table)
-                lag = sync_execute(query)[0][2]
-                statsd.gauge(
-                    "posthog_celery_clickhouse__table_lag_seconds",
-                    lag,
-                    tags={"table": table},
-                )
-                lag_gauge.labels(table_name=table).set(lag)
-            except:
-                pass
-
-
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
     "heartbeat": "ingestion",
     "heartbeat_buffer": "ingestion_buffer",
