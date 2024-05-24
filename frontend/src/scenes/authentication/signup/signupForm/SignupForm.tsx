@@ -24,6 +24,7 @@ export function SignupForm(): JSX.Element | null {
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
+    // TODO: Why do we do this? At least we should add a comment...
     useEffect(() => {
         setShowSpinner(true)
         const t = setTimeout(() => {

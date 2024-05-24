@@ -70,7 +70,6 @@ export enum Scene {
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
-    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',

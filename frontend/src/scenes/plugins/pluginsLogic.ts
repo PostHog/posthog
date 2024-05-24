@@ -770,6 +770,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
     }),
 
     afterMount(({ actions }) => {
+        if (!userLogic.findMounted()?.values.user?.organization) {
+            return
+        }
         actions.loadPlugins()
         actions.loadPluginConfigs()
         if (canGloballyManagePlugins(userLogic.values.user?.organization)) {

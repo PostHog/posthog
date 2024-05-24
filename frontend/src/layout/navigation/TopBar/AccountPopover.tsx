@@ -200,21 +200,24 @@ export function AccountPopoverOverlay(): JSX.Element {
             <AccountPopoverSection title="Signed in as">
                 <AccountInfo />
             </AccountPopoverSection>
-            <AccountPopoverSection title="Current organization">
-                {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {isCloudOrDev ? (
-                    <LemonButton
-                        onClick={closeAccountPopover}
-                        to={urls.organizationBilling()}
-                        icon={<IconReceipt />}
-                        fullWidth
-                        data-attr="top-menu-item-billing"
-                    >
-                        Billing
-                    </LemonButton>
-                ) : null}
-                <InviteMembersButton />
-            </AccountPopoverSection>
+
+            {currentOrganization && (
+                <AccountPopoverSection title="Current organization">
+                    <CurrentOrganization organization={currentOrganization} />
+                    {isCloudOrDev ? (
+                        <LemonButton
+                            onClick={closeAccountPopover}
+                            to={urls.organizationBilling()}
+                            icon={<IconReceipt />}
+                            fullWidth
+                            data-attr="top-menu-item-billing"
+                        >
+                            Billing
+                        </LemonButton>
+                    ) : null}
+                    <InviteMembersButton />
+                </AccountPopoverSection>
+            )}
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <AccountPopoverSection title="Other organizations">
                     {otherOrganizations.map((otherOrganization, i) => (

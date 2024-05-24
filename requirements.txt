@@ -160,6 +160,7 @@ django==4.2.11
     #   djangorestframework-dataclasses
     #   drf-spectacular
     #   sentry-sdk
+    #   social-auth-app-django
 django-axes==5.9.0
     # via -r requirements.in
 django-cors-headers==3.5.0
@@ -570,12 +571,10 @@ sniffio==1.2.0
     #   trio
 snowflake-connector-python==3.6.0
     # via -r requirements.in
-social-auth-app-django==5.0.0
+social-auth-app-django==5.4.1
     # via -r requirements.in
-social-auth-core==4.3.0
-    # via
-    #   -r requirements.in
-    #   social-auth-app-django
+social-auth-core==4.4.2
+    # via social-auth-app-django
 sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
