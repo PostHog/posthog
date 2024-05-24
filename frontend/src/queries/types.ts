@@ -18,6 +18,8 @@ export interface QueryContext {
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** chart-specific rendering context **/
     chartRenderingMetadata?: ChartRenderingMetadata
+    /** Wether queries should always be refreshed. */
+    alwaysRefresh?: boolean
 }
 
 /** Pass custom rendering metadata to specific kinds of charts **/

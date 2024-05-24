@@ -9,7 +9,7 @@ export function Persons(): JSX.Element {
 
     return (
         <>
-            <Query query={query} setQuery={setQuery} />
+            <Query query={query} setQuery={setQuery} context={{ alwaysRefresh: true }} />
         </>
     )
 }

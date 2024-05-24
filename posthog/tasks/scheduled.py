@@ -18,7 +18,6 @@ from posthog.tasks.tasks import (
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_lag,
     clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
@@ -154,13 +153,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
-
-    add_periodic_task_with_expiry(
-        sender,
-        120,
-        clickhouse_lag.s(),
-        name="clickhouse table lag",
-    )
 
     add_periodic_task_with_expiry(
         sender,

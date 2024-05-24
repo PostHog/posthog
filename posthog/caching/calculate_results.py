@@ -31,7 +31,7 @@ from posthog.models import (
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import generate_insight_cache_key
+from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -69,7 +69,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                 return query_runner.get_cache_key()
 
             if insight.filters:
-                return generate_insight_cache_key(insight, dashboard)
+                return generate_insight_filters_hash(insight, dashboard)
 
     return None
 
@@ -125,6 +125,7 @@ def calculate_for_query_based_insight(
 ) -> "InsightResult":
     from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
+    from posthog.caching.insight_cache import update_cached_state
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
     if dashboard:
@@ -145,13 +146,23 @@ def calculate_for_query_based_insight(
     if isinstance(response, BaseModel):
         response = response.model_dump(by_alias=True)
 
+    cache_key = response.get("cache_key")
+    last_refresh = response.get("last_refresh")
+    if isinstance(cache_key, str) and isinstance(last_refresh, str):
+        update_cached_state(  # Updating the relevant InsightCachingState
+            insight.team_id,
+            cache_key,
+            last_refresh,
+            result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+        )
+
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
         columns=response.get("columns"),
-        last_refresh=response.get("last_refresh"),
-        cache_key=response.get("cache_key"),
+        last_refresh=last_refresh,
+        cache_key=cache_key,
         is_cached=response.get("is_cached", False),
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
@@ -163,7 +174,7 @@ def calculate_for_filter_based_insight(
     insight: Insight, dashboard: Optional[Dashboard]
 ) -> tuple[str, str, list | dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
-    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_key = generate_insight_filters_hash(insight, dashboard)
     cache_type = get_cache_type(filter)
 
     tag_queries(
