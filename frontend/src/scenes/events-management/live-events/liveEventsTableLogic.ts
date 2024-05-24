@@ -49,7 +49,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         eventsSource: [
-            null,
+            null as EventSource | null,
             {
                 updateEventsSource: (_, { source }) => source,
             },
@@ -94,7 +94,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         },
         updateEventsConnection: async () => {
             if (values.eventsSource) {
-                // @ts-expect-error
                 values.eventsSource.close()
             }
 
@@ -113,7 +112,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 url.searchParams.append('eventType', eventType)
             }
 
-            // @ts-expect-error
             const source = new window.EventSourcePolyfill(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
@@ -139,7 +137,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         },
         pauseStream: () => {
             if (values.eventsSource) {
-                // @ts-expect-error
                 values.eventsSource.close()
             }
         },
@@ -172,7 +169,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }, 1500)
             return () => {
                 if (values.eventsSource) {
-                    // @ts-expect-error
                     values.eventsSource.close()
                 }
                 clearInterval(interval)
