@@ -336,6 +336,10 @@ async def test_run_stripe_job_t(activity_environment, team, minio_client, **kwar
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
+        mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={"clickhouse": {"id": "string", "name": "string"}},
+        ),
     ):
         mock_customer_list.return_value = {
             "data": [
