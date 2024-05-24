@@ -126,7 +126,7 @@ describe('isURL()', () => {
         expect(isURL('http://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
         expect(isURL('http://localhost:8000/login?next=/insights')).toEqual(true)
-        expect(isURL('http://localhost:8000/events?properties=%5B%5D')).toEqual(true)
+        expect(isURL('http://localhost:8000/activity/explore?properties=%5B%5D')).toEqual(true)
         expect(isURL('https://apple.com/')).toEqual(true)
         expect(isURL('https://stripe.com')).toEqual(true)
         expect(isURL('https://spotify.com')).toEqual(true)
