@@ -84,6 +84,7 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # the paginator doesn't handle limits
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
