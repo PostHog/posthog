@@ -44,7 +44,7 @@ export function ConfirmUpgradeModal(): JSX.Element {
                 </>
             }
         >
-            <div className="max-w-120">
+            <div className="max-w-140">
                 <p>
                     Woo! You're gonna love the {upgradePlan?.name}. We're just confirming that this is a $
                     {Number(upgradePlan?.unit_amount_usd)} / {upgradePlan?.unit} subscription.{' '}
@@ -55,18 +55,19 @@ export function ConfirmUpgradeModal(): JSX.Element {
                 {upgradePlan && upgradePlan?.features?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Here are the features included:</p>
-                        {upgradePlan?.features.map((feature, i) => {
-                            return (
-                                i < 6 && (
-                                    <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + i}>
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name} </b>
-                                        </Tooltip>
-                                    </div>
-                                )
-                            )
-                        })}
+                        <div className="grid grid-cols-2 gap-x-4">
+                            {upgradePlan?.features.map((feature, index) => (
+                                <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + index}>
+                                    <IconCheckCircle className="text-success" />
+                                    <Tooltip key={feature.key} title={feature.description}>
+                                        <b>
+                                            {feature.name}
+                                            {feature.note ? ': ' + feature.note : ''}
+                                        </b>
+                                    </Tooltip>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

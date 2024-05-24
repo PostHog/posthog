@@ -33,7 +33,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     // Filter out the addon itself from the features list
-    const addonFeatures = addon.features?.filter((feature) => feature.name !== addon.name)
+    const addonFeatures =
+        currentAndUpgradePlans?.upgradePlan?.features ||
+        currentAndUpgradePlans?.currentPlan?.features ||
+        addon.features?.filter((feature) => feature.name !== addon.name)
 
     const is_enhanced_persons_og_customer =
         addon.type === 'enhanced_persons' &&
@@ -145,21 +148,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 {addonFeatures?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        {addonFeatures?.map((feature, i) => {
-                            return (
-                                i < 6 && (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + i}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name} </b>
-                                        </Tooltip>
-                                    </div>
-                                )
-                            )
-                        })}
+                        <div className="grid grid-cols-2 gap-x-4">
+                            {addonFeatures.map((feature, index) => (
+                                <div
+                                    className="flex gap-x-2 items-center mb-2"
+                                    key={'addon-features-' + addon.type + index}
+                                >
+                                    <IconCheckCircle className="text-success" />
+                                    <Tooltip key={feature.key} title={feature.description}>
+                                        <b>
+                                            {feature.name}
+                                            {feature.note ? ': ' + feature.note : ''}
+                                        </b>
+                                    </Tooltip>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
