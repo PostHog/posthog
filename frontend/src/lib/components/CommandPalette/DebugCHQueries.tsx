@@ -8,6 +8,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ export interface Query {
     /** @example '2023-07-27T10:06:11' */
     timestamp: string
     query: string
+    query_id: string
     queryJson: string
     exception: string
     /**
@@ -145,7 +147,7 @@ function DebugCHQueries(): JSX.Element {
                                     <CodeSnippet
                                         language={Language.SQL}
                                         thing="query"
-                                        maxLinesWithoutExpansion={5}
+                                        maxLinesWithoutExpansion={10}
                                         style={{ fontSize: 12, maxWidth: '60vw' }}
                                     >
                                         {item.query}
@@ -183,6 +185,76 @@ function DebugCHQueries(): JSX.Element {
                             return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
                         align: 'right',
+                    },
+                    {
+                        title: 'query_id',
+                        render: function exec(_, item) {
+                            return (
+                                <div className="max-w-28">
+                                    <CodeSnippet>{item.query_id}</CodeSnippet>
+                                </div>
+                            )
+                        },
+                    },
+                    {
+                        title: 'stats',
+                        render: function exec(_, item) {
+                            const event = item['profile_events']
+                            if (!event) {
+                                return
+                            }
+                            return (
+                                <>
+                                    <table className="w-80">
+                                        <tr>
+                                            <td>Bytes read from disk (all nodes)</td>
+                                            <td>{humanizeBytes(event['SelectedBytes'])}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Bytes read from disk</td>
+                                            <td>{humanizeBytes(event['OSReadBytes'])}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Bytes read from disk (inc page cache)</td>
+                                            <td>{humanizeBytes(event['OSReadChars'])}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Page cache hit rate</td>
+                                            <td>
+                                                {((event['OSReadChars'] - event['OSReadBytes']) /
+                                                    event['OSReadChars']) *
+                                                    100}
+                                                %
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>Bytes received over network</td>
+                                            <td>{humanizeBytes(event['NetworkReceiveBytes'])}</td>
+                                        </tr>
+                                    </table>
+                                </>
+                            )
+                        },
+                    },
+                    {
+                        title: 'profile events',
+                        render: function exec(_, item) {
+                            const event = item['profile_events']
+                            if (!event) {
+                                return
+                            }
+                            return (
+                                <>
+                                    <CodeSnippet
+                                        language={Language.JSON}
+                                        maxLinesWithoutExpansion={3}
+                                        key={item.query_id}
+                                    >
+                                        {JSON.stringify(event, null, 2)}
+                                    </CodeSnippet>
+                                </>
+                            )
+                        },
                     },
                 ]}
                 dataSource={filteredQueries}

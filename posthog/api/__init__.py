@@ -44,6 +44,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    debug_ch_queries,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -313,6 +314,8 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
+
+(router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries"),)
 
 
 from posthog.api.action import ActionViewSet  # noqa: E402
