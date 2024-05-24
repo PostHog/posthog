@@ -176,7 +176,7 @@ export class ActionMatcher {
                     // TODO: Better parsing / checking
                     const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
 
-                    if (await this.checkAction(event, action)) {
+                    if (!(await this.checkAction(event, action))) {
                         continue
                     }
                     break
@@ -211,6 +211,7 @@ export class ActionMatcher {
                     return true
                 }
             } catch (error) {
+                console.error('Error while matching action step:', error)
                 captureException(error, {
                     tags: { team_id: action.team_id },
                     extra: { event, action, step },

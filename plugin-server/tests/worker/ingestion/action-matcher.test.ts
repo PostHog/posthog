@@ -8,7 +8,8 @@ import {
     Hub,
     ISOTimestamp,
     Person,
-    PluginConfigFilter,
+    PluginConfigFilterActions,
+    PluginConfigFilterEvents,
     PluginConfigFilters,
     PostIngestionEvent,
     PropertyOperator,
@@ -1335,26 +1336,64 @@ describe('ActionMatcher', () => {
     })
 })
 
-describe('ActionMatcher.checkFilters', () => {
-    const actionMatcher = new ActionMatcher({} as any, {} as any)
+describe.only('ActionMatcher.checkFilters', () => {
+    const mockActionManager = {
+        getTeamActions: jest.fn(
+            (): Record<number, Partial<Action>> => ({
+                1: {
+                    id: 1,
+                    name: 'my-action',
+                    deleted: false,
+                    steps: [
+                        {
+                            event: '$pageview',
+                            tag_name: null,
+                            text: null,
+                            text_matching: null,
+                            href: null,
+                            href_matching: null,
+                            selector: null,
+                            url: null,
+                            url_matching: null,
+                            properties: null,
+                        },
+                    ],
+                },
+            })
+        ),
+    }
+    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any)
 
     const createFilters = (
-        partials: { name: PluginConfigFilter['name']; properties?: PluginConfigFilter['properties'] }[]
+        partials: Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[]
     ): PluginConfigFilters => {
+        const events = partials
+            .filter((x) => !x.type || x.type === 'events')
+            .map((x) => x as Partial<PluginConfigFilterEvents>)
+        const actions = partials.filter((x) => x.type === 'actions').map((x) => x as Partial<PluginConfigFilterActions>)
         return {
-            events: partials.map((x) => ({
+            events: events.map((x) => ({
                 id: '0',
                 type: 'events',
-                name: x.name,
+                name: '$pageview',
                 order: 0,
-                properties: x.properties ?? [],
+                properties: [],
+                ...x,
+            })),
+            actions: actions.map((x) => ({
+                id: '0',
+                type: 'actions',
+                name: 'my-action',
+                order: 0,
+                properties: [],
+                ...x,
             })),
         }
     }
 
     const testCases: [
         Partial<PostIngestionEvent>,
-        { name: PluginConfigFilter['name']; properties?: PluginConfigFilter['properties'] }[],
+        Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[],
         boolean
     ][] = [
         [{ event: '$pageview' }, [{ name: null }], true],
@@ -1429,13 +1468,34 @@ describe('ActionMatcher.checkFilters', () => {
             ],
             true,
         ],
+
+        [{ event: '$pageview' }, [{ type: 'actions', id: '1' }], true],
+        [{ event: '$not-pageview' }, [{ type: 'actions', id: '1' }], false],
+        [
+            { event: '$pageview' },
+            [
+                {
+                    type: 'actions',
+                    id: '1',
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: 'event',
+                            value: ['not-correct'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+            false,
+        ],
     ]
 
-    it.each(testCases)('should correctly match filters %o %o', (partialEvent, partialFilters, expectation) => {
+    it.each(testCases)('should correctly match filters %o %o', async (partialEvent, partialFilters, expectation) => {
         const event = createTestEvent(partialEvent)
         const filters = createFilters(partialFilters)
 
-        expect(actionMatcher.checkFilters(event, filters)).toEqual(expectation)
+        expect(await actionMatcher.checkFilters(event, filters)).toEqual(expectation)
     })
 })
 

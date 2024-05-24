@@ -1,4 +1,4 @@
-import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
+import { ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { WebhookFormatter, WebhookFormatterOptions } from '../../../src/worker/ingestion/webhook-formatter'
 
 type TestWebhookFormatterOptions = Partial<WebhookFormatterOptions> & {

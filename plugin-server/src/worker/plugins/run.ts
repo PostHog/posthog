@@ -1,6 +1,6 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Action, Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
+import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToPostHogEvent,
