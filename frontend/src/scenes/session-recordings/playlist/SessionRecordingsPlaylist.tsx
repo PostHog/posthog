@@ -390,7 +390,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                             onDoubleClick={() => toggleRecordingsListCollapsed()}
                         />
                     </div>
-                    <div className="SessionRecordingsPlaylist__player bg-white">
+                    <div className="SessionRecordingsPlaylist__player">
                         {!activeSessionRecordingId ? (
                             <div className="mt-20">
                                 <EmptyMessage
