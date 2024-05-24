@@ -538,11 +538,56 @@ def calculate_cohort() -> None:
     calculate_cohorts()
 
 
-@shared_task(ignore_result=True, max_retries=1)
-def poll_query_performance() -> None:
-    from posthog.tasks.poll_query_performance import poll_query_performance
+POLL_SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
 
-    poll_query_performance()
+
+@shared_task(ignore_result=True, max_retries=1, soft_time_limit=10, time_limit=12)
+def poll_query_performance(last_update: bytes) -> None:
+    start_time = time.time_ns()
+    # redis uses byte strings so convert this time to a byte string
+    start_time_str = start_time.to_bytes(8, "big")
+    from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
+
+    try:
+        redis_client = get_client()
+        # Last update being None represents an initial run
+        if redis_client.get(POLL_SINGLETON_REDIS_KEY) != last_update:
+            logger.error("Poll query performance task terminating: another poller is running")
+            return
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, start_time_str)
+        poll_query_performance_nontask()
+    except Exception as e:
+        logger.error("Poll query performance failed", error=e)
+
+    elapsed = time.time_ns() - start_time
+    if elapsed > 2e9:
+        poll_query_performance.delay(start_time_str)
+    else:
+        poll_query_performance.apply_async(args=[start_time_str], countdown=((2e9 - elapsed) / 1e9))
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def start_poll_query_performance() -> None:
+    redis_client = get_client()
+    start_time = redis_client.get(POLL_SINGLETON_REDIS_KEY)
+    now = time.time_ns()
+    try:
+        if start_time is None:
+            poll_query_performance.delay(start_time)
+        else:
+            key = int.from_bytes(start_time, "big")
+            # The key should never be in the future
+            # If the key is in the future or more than 15 seconds in the past, start a worker
+            if key > now + 2e9:
+                logger.error("Restarting poll query performance because key is in future")
+                poll_query_performance.delay(start_time)
+            elif now - key > 15e9:
+                logger.error("Restarting poll query performance because of a long delay")
+                poll_query_performance.delay(start_time)
+
+    except Exception as e:
+        logger.error("Restarting poll query performance because of an error", error=e)
+        poll_query_performance.delay(start_time)
 
 
 @shared_task(ignore_result=True)

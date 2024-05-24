@@ -1,8 +1,11 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.test import SimpleTestCase
 
+import posthog.tasks.tasks
+from posthog.redis import get_client
 from posthog.tasks.poll_query_performance import query_manager_from_initial_query_id, poll_query_performance
+from posthog.tasks.tasks import POLL_SINGLETON_REDIS_KEY
 
 
 class TestPollQueryPerformance(SimpleTestCase):
@@ -50,3 +53,75 @@ class TestPollQueryPerformance(SimpleTestCase):
                 "active_cpu_time": millisecond_cpu_time,
             },
         )
+
+
+class TestPollQueryPerformanceTask(SimpleTestCase):
+    @patch("posthog.tasks.tasks.logger.error")
+    def test_poll_query_performance_does_not_run_if_last_update_does_not_match(self, mock_logger_error):
+        redis_client = get_client()
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, "NOT RIGHT")
+        posthog.tasks.tasks.poll_query_performance("DIFFERENT TIME")
+        mock_logger_error.assert_called_once_with("Poll query performance task terminating: another poller is running")
+
+    @patch("posthog.tasks.tasks.logger.error")
+    @patch("posthog.tasks.tasks.poll_query_performance.apply_async")
+    def test_poll_query_performance_runs_and_restarts_itself_with_delay(self, mock_apply_async, mock_logger_error):
+        redis_client = get_client()
+        key = b"1234"
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
+        posthog.tasks.tasks.poll_query_performance(key)
+
+        mock_logger_error.assert_not_called()
+        mock_apply_async.assert_called_once()
+        self.assertTrue(0 < mock_apply_async.call_args.kwargs["countdown"] < 2)
+        self.assertEqual(redis_client.get(POLL_SINGLETON_REDIS_KEY), mock_apply_async.call_args.kwargs["args"][0])
+
+    @patch("posthog.tasks.tasks.logger.error")
+    @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    @patch("time.time_ns", MagicMock(side_effect=[int(1e9), int(4e9)]))
+    def test_poll_query_performance_runs_and_restarts_itself_with_no_delay_if_it_takes_too_long(
+        self, mock_delay, mock_logger_error
+    ):
+        redis_client = get_client()
+        key = b"1234"
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
+        posthog.tasks.tasks.poll_query_performance(key)
+
+        mock_logger_error.assert_not_called()
+        key = int(1e9).to_bytes(8, "big")
+        mock_delay.assert_called_once_with(key)
+        self.assertEqual(redis_client.get(POLL_SINGLETON_REDIS_KEY), key)
+
+    @patch("posthog.tasks.tasks.logger.error")
+    @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    @patch("time.time_ns", MagicMock(side_effect=[0, int(1e9), int(16e9)]))
+    def test_start_poll_query_performance_does_nothing_for_15_seconds(self, mock_delay, mock_logger_error):
+        redis_client = get_client()
+        key = int(1e9).to_bytes(8, "big")
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
+        for _ in range(3):
+            posthog.tasks.tasks.start_poll_query_performance()
+            mock_delay.assert_not_called()
+            mock_logger_error.assert_not_called()
+
+    @patch("posthog.tasks.tasks.logger.error")
+    @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    @patch("time.time_ns", MagicMock(side_effect=[int(17e9)]))
+    def test_start_poll_query_performance_starts_after_15(self, mock_delay, mock_logger_error):
+        redis_client = get_client()
+        key = int(1e9).to_bytes(8, "big")
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
+        posthog.tasks.tasks.start_poll_query_performance()
+        mock_delay.assert_called_once_with(key)
+        mock_logger_error.assert_called_once_with("Restarting poll query performance because of a long delay")
+
+    @patch("posthog.tasks.tasks.logger.error")
+    @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    @patch("time.time_ns", MagicMock(side_effect=[int(17e9)]))
+    def test_start_poll_query_performance_errors_if_key_is_in_future_starts_anyway(self, mock_delay, mock_logger_error):
+        redis_client = get_client()
+        key = b"A VERY LONG AND BIG NUMBER"
+        redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
+        posthog.tasks.tasks.start_poll_query_performance()
+        mock_delay.assert_called_once_with(key)
+        mock_logger_error.assert_called_once_with("Restarting poll query performance because key is in future")
