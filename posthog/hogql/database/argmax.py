@@ -1,6 +1,8 @@
 from typing import Optional
 from collections.abc import Callable
 
+from posthog.hogql.parser import parse_expr
+
 
 def argmax_select(
     table_name: str,
@@ -8,6 +10,7 @@ def argmax_select(
     group_fields: list[str],
     argmax_field: str,
     deleted_field: Optional[str] = None,
+    no_future_field: Optional[str] = None,
 ):
     from posthog.hogql import ast
 
@@ -40,5 +43,12 @@ def argmax_select(
             left=argmax_version(ast.Field(chain=[table_name, deleted_field])),
             right=ast.Constant(value=0),
         )
+    if no_future_field:
+        clause = ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=argmax_version(ast.Field(chain=[table_name, no_future_field])),
+            right=parse_expr("now() + interval 1 day"),
+        )
+        select_query.having = clause if select_query.having is None else ast.And(exprs=[select_query.having, clause])
 
     return select_query
