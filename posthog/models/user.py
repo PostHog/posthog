@@ -178,10 +178,10 @@ class User(AbstractUser, UUIDClassicModel):
         All teams the user has access to on any organization, taking into account project based permissioning
         """
         teams = Team.objects.filter(organization__members=self)
-        org_available_product_features = Organization.objects.filter(members=self).values_list(
-            "available_product_features", flat=True
+        org_available_product_features = (
+            Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
         )
-        if org_available_product_features[0]:
+        if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features[0]]
             if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
                 try:
