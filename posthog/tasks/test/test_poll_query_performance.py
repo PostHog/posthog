@@ -9,18 +9,18 @@ from posthog.tasks.tasks import POLL_SINGLETON_REDIS_KEY
 
 
 class TestPollQueryPerformance(SimpleTestCase):
-    def test_query_manager_from_initial_query_id_succeeds(self):
+    def test_query_manager_from_initial_query_id_succeeds(self) -> None:
         self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))
         self.assertIsNotNone(query_manager_from_initial_query_id("123123_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
 
-    def test_query_manager_from_initial_query_id_fails(self):
+    def test_query_manager_from_initial_query_id_fails(self) -> None:
         self.assertIsNone(query_manager_from_initial_query_id("550e8400-e29b-41d4-a716-446655440000"))
         self.assertIsNone(query_manager_from_initial_query_id("fewf_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
         self.assertIsNone(query_manager_from_initial_query_id("1a_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
 
     @patch("posthog.tasks.poll_query_performance.QueryStatusManager")
     @patch("posthog.tasks.poll_query_performance.sync_execute")
-    def test_writes_to_redis_correctly(self, mock_sync_execute, mock_QueryStatusManager):
+    def test_writes_to_redis_correctly(self, mock_sync_execute: MagicMock, mock_QueryStatusManager: MagicMock) -> None:
         bytes_read = 111
         rows_read = 222
         total_rows_approx = 333
@@ -57,7 +57,9 @@ class TestPollQueryPerformance(SimpleTestCase):
 
 class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
-    def test_poll_query_performance_does_not_run_if_last_update_does_not_match(self, mock_logger_error):
+    def test_poll_query_performance_does_not_run_if_last_update_does_not_match(
+        self, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         redis_client.set(POLL_SINGLETON_REDIS_KEY, "NOT RIGHT")
         posthog.tasks.tasks.poll_query_performance("DIFFERENT TIME")
@@ -65,7 +67,9 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.apply_async")
-    def test_poll_query_performance_runs_and_restarts_itself_with_delay(self, mock_apply_async, mock_logger_error):
+    def test_poll_query_performance_runs_and_restarts_itself_with_delay(
+        self, mock_apply_async: MagicMock, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         key = b"1234"
         redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
@@ -80,8 +84,8 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
     @patch("time.time_ns", MagicMock(side_effect=[int(1e9), int(4e9)]))
     def test_poll_query_performance_runs_and_restarts_itself_with_no_delay_if_it_takes_too_long(
-        self, mock_delay, mock_logger_error
-    ):
+        self, mock_delay: MagicMock, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         key = b"1234"
         redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
@@ -95,7 +99,9 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
     @patch("time.time_ns", MagicMock(side_effect=[0, int(1e9), int(16e9)]))
-    def test_start_poll_query_performance_does_nothing_for_15_seconds(self, mock_delay, mock_logger_error):
+    def test_start_poll_query_performance_does_nothing_for_15_seconds(
+        self, mock_delay: MagicMock, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         key = int(1e9).to_bytes(8, "big")
         redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
@@ -107,7 +113,9 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
     @patch("time.time_ns", MagicMock(side_effect=[int(17e9)]))
-    def test_start_poll_query_performance_starts_after_15(self, mock_delay, mock_logger_error):
+    def test_start_poll_query_performance_starts_after_15(
+        self, mock_delay: MagicMock, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         key = int(1e9).to_bytes(8, "big")
         redis_client.set(POLL_SINGLETON_REDIS_KEY, key)
@@ -118,7 +126,9 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
     @patch("time.time_ns", MagicMock(side_effect=[int(17e9)]))
-    def test_start_poll_query_performance_errors_if_key_is_in_future_starts_anyway(self, mock_delay, mock_logger_error):
+    def test_start_poll_query_performance_errors_if_key_is_in_future_starts_anyway(
+        self, mock_delay: MagicMock, mock_logger_error: MagicMock
+    ) -> None:
         redis_client = get_client()
         key = b"A VERY LONG AND BIG NUMBER"
         redis_client.set(POLL_SINGLETON_REDIS_KEY, key)

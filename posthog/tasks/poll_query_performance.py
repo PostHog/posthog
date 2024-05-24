@@ -11,12 +11,12 @@ import math
 logger = get_logger(__name__)
 
 
-def query_manager_from_initial_query_id(initial_query_id) -> Optional[QueryStatusManager]:
+def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[QueryStatusManager]:
     # extract team_id and uuid from initial_query_id
     m = re.match(rf"(\d+)_({UUID_REGEX})", initial_query_id, re.I)
     if m is None:
         return None
-    team_id = m.group(1)
+    team_id = int(m.group(1))
     query_id = m.group(2)
     return QueryStatusManager(query_id, team_id)
 
