@@ -1336,7 +1336,7 @@ describe('ActionMatcher', () => {
     })
 })
 
-describe.only('ActionMatcher.checkFilters', () => {
+describe('ActionMatcher.checkFilters', () => {
     const mockActionManager = {
         getTeamActions: jest.fn(
             (): Record<number, Partial<Action>> => ({
