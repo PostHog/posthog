@@ -225,7 +225,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        results: [
+                            // if url is present we are paginating and merge results, otherwise we only use the new results
+                            ...(url ? values.elementStats?.results || [] : []),
+                            ...(paginatedResults.results || []),
+                        ],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
@@ -592,8 +596,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.loadAllEnabled(1000)
         },
         setCommonFilters: () => {
-            // the filters have changed, so we need to load new data not page on top of it
-            actions.resetElementStats()
             actions.loadAllEnabled(200)
         },
 
