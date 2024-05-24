@@ -136,7 +136,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloud } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const region = preflight?.region
     const { status } = useValues(sidePanelStatusLogic)
@@ -204,7 +204,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             ) : null}
 
                             {/* only allow opening tickets on our Cloud instances */}
-                            {region ? (
+                            {isCloud ? (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton
