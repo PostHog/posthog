@@ -63,7 +63,7 @@ function sanitizeFilters(filters: FilterType): PluginConfigTypeNew['filters'] {
     const eventFilters = filters.events?.length ? filters.events : undefined
     const actionFilters = filters.actions?.length ? filters.actions : undefined
 
-    return eventFilters && actionFilters ? { events: eventFilters, actions: actionFilters } : undefined
+    return eventFilters && actionFilters ? [...eventFilters, ...actionFilters] : undefined
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic

@@ -1840,7 +1840,16 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
     config: Record<string, any>
     match_action?: ActionType['id']
-    filters?: Pick<FilterType, 'events' | 'actions'>
+    filters?: PluginConfigFilter[]
+}
+
+// subset of EntityFilter
+export interface PluginConfigFilter {
+    type: 'events' | 'actions'
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend

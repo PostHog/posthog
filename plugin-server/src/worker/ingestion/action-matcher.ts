@@ -13,7 +13,8 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
-    PluginConfigFilters,
+    PluginConfig,
+    PluginConfigFilter,
     PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
@@ -145,6 +146,27 @@ export class ActionMatcher {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
     }
 
+    public async preloadActions(configs: PluginConfig[], teamId: number): Promise<number> {
+        // Find all potential action IDs we would need to preload and preload them
+
+        const actionIds = new Set<number>()
+
+        for (const config of configs) {
+            if (config.filters) {
+                for (const filter of config.filters) {
+                    if (filter.type === 'actions') {
+                        actionIds.add(parseInt(filter.id))
+                    }
+                }
+            }
+        }
+
+        // TODO: Implement this
+        await this.actionManager.loadActions(teamId, Array.from(actionIds))
+
+        return 0
+    }
+
     /** Get all actions matched to the event. */
     public async match(event: PostIngestionEvent): Promise<Action[]> {
         const matchingStart = new Date()
@@ -162,19 +184,33 @@ export class ActionMatcher {
         return matches
     }
 
-    public checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): boolean {
+    public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilter[]): Promise<boolean> {
         // NOTE: We should likely convert this to use HogVM or some other generic matching action
 
-        for (const filter of filters.events) {
-            if (!filter.name || filter.name === event.event) {
-                // Matches the event name or null (all events)
+        for (const filter of filters) {
+            switch (filter.type) {
+                case 'events':
+                    if (filter.name && filter.name !== event.event) {
+                        continue
+                    }
+                    break
+                case 'actions':
+                    // TODO: Better parsing / checking
+                    const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
 
-                if (!filter.properties.length) {
-                    return true
-                }
-
-                return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
+                    if (await this.checkAction(event, action)) {
+                        continue
+                    }
+                    break
+                default:
+                    return false
             }
+
+            if (!filter.properties.length) {
+                return true
+            }
+
+            return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
         }
 
         return false
