@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.test import override_settings
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -21,6 +22,9 @@ from posthog.test.base import (
 from posthog.utils import get_safe_cache
 
 
+@override_settings(
+    HOGQL_INSIGHTS_OVERRIDE=False  # fetch_cached_insight_result and synchronously_update_cache are legacy-only code paths
+)
 @freeze_time("2012-01-14T03:21:34.000Z")
 class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
     def setUp(self):
@@ -90,7 +94,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
             "next_allowed_client_refresh": None,
         }
 
-    def test_fetch_cached_insight_result_from_cache(self):
+    def test_fetch_cached_insight_result_from_cache_legacy(self):
         cached_result = synchronously_update_cache(self.insight, self.dashboard, timedelta(minutes=3))
         from_cache_result = fetch_cached_insight_result(self.dashboard_tile, timedelta(minutes=3))
 
