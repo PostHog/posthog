@@ -42,7 +42,6 @@ const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-acti
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
-        match_action: pluginConfig.match_action,
         filters: pluginConfig.filters,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
@@ -122,7 +121,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, match_action, filters, ...config } = formdata
+                    const { enabled, order, name, description, filters, ...config } = formdata
 
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
@@ -133,9 +132,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('name', name)
                     formData.append('description', description)
                     formData.append('filters', JSON.stringify(sanitizeFilters(filters)) ?? null)
-                    if (match_action) {
-                        formData.append('match_action', match_action ?? null)
-                    }
 
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
