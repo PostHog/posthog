@@ -18,7 +18,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import CacheMissResponse, QueryStatus, ClickhouseQueryStatus
+from posthog.schema import CacheMissResponse, QueryStatus, ClickhouseQueryProgress
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
@@ -60,8 +60,8 @@ class QueryStatusManager:
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
 
-    def store_clickhouse_query_status(self, query_statuses):
-        value = json.dumps(query_statuses)
+    def _store_clickhouse_query_progress_dict(self, query_progress_dict):
+        value = json.dumps(query_progress_dict)
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
@@ -72,7 +72,7 @@ class QueryStatusManager:
 
         return byte_results
 
-    def _get_clickhouse_query_status(self):
+    def _get_clickhouse_query_progress_dict(self):
         try:
             byte_results = self.redis_client.get(self.clickhouse_query_status_key)
         except Exception:
@@ -80,6 +80,11 @@ class QueryStatusManager:
             return {}
 
         return json.loads(byte_results) if byte_results is not None else {}
+
+    def update_clickhouse_query_progress(self, initial_query_id, clickhouse_query_progress):
+        clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
+        clickhouse_query_progress_dict[initial_query_id] = clickhouse_query_progress
+        self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
     def has_results(self):
         return self._get_results() is not None
@@ -94,7 +99,7 @@ class QueryStatusManager:
 
         if show_progress and not query_status.complete:
             try:
-                clickhouse_query_progress_dict = self._get_clickhouse_query_status()
+                clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
                 query_progress = {
                     "bytes_read": 0,
                     "rows_read": 0,
@@ -108,9 +113,9 @@ class QueryStatusManager:
                     query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
                     query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
                     query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
-                query_status.query_progress = ClickhouseQueryStatus(**query_progress)
+                query_status.query_progress = ClickhouseQueryProgress(**query_progress)
             except Exception as e:
-                logger.error("Clickhouse Status Check Failed", e)
+                logger.error("Clickhouse Status Check Failed", error=e)
                 pass
 
         return query_status

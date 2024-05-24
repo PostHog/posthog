@@ -34,7 +34,7 @@ def poll_query_performance() -> None:
     WHERE is_initial_query
     """
     try:
-        results, types = sync_execute(CLICKHOUSE_SQL, with_column_types=True)
+        results = sync_execute(CLICKHOUSE_SQL)
 
         noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 
@@ -53,9 +53,7 @@ def poll_query_performance() -> None:
             if manager is None:
                 continue
 
-            clickhouse_query_progress_dict = manager._get_clickhouse_query_status()
-            clickhouse_query_progress_dict[initial_query_id] = new_clickhouse_query_progress
-            manager.store_clickhouse_query_status(clickhouse_query_progress_dict)
+            manager.update_clickhouse_query_progress(initial_query_id, new_clickhouse_query_progress)
 
     except Exception as e:
         logger.error("Clickhouse Status Check Failed", e)
