@@ -14,7 +14,7 @@ interface PluginContent {
 }
 
 type PluginContentMapping = Record<string, PluginContent>
-const pluginContentMapping: PluginContentMapping = {
+export const pluginContentMapping: PluginContentMapping = {
     GeoIP: {
         title: 'Capture location information',
         description:
@@ -26,6 +26,7 @@ const pluginContentMapping: PluginContentMapping = {
 export interface DefaultEnabledType {
     title: string
     description?: string
+    productOnboardingDenyList?: ProductKey[]
     id: number
     enabled: boolean
 }
@@ -52,6 +53,7 @@ export const pipelineDefaultEnabledLogic = kea<pipelineDefaultEnabledLogicType>(
                     return {
                         title: pluginContent?.title || plugin.name,
                         description: pluginContent?.description || plugin.description,
+                        productOnboardingDenyList: pluginContent?.productOnboardingDenyList,
                         id: pluginConfig.id,
                         enabled: pluginConfig.enabled,
                     }

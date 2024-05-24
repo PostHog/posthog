@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
+import { ProductKey } from '~/types'
+
 import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
@@ -71,8 +73,7 @@ export const OnboardingProductConfiguration = ({
             })),
         ...pipelineDefaultEnabled
             .filter((plugin) => {
-                const pluginContent = pluginContentMapping[plugin.name]
-                return !product || (pluginContent && !pluginContent?.productOnboardingDenyList.includes(product))
+                return !(product && plugin?.productOnboardingDenyList?.includes(product))
             })
             .map((item) => {
                 return {
