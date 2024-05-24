@@ -1,10 +1,10 @@
 import { IconArrowLeft, IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import React from 'react'
-import { liveEventsTableLogic } from 'scenes/activity/live-events/liveEventsTableLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
@@ -18,12 +18,14 @@ import { SDKSnippet } from './SDKSnippet'
 export function SDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
+    listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
     subtitle?: string
     stepKey?: OnboardingStepKey
+    listeningForName?: string
     teamPropertyToVerify?: string
 }): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
@@ -34,33 +36,19 @@ export function SDKs({
         useValues(sdksLogic)
     const { productKey, hasNextStep } = useValues(onboardingLogic)
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
-
-    const [eventsFound, setEventsFound] = useState(false)
-
-    const { filteredEvents } = useValues(liveEventsTableLogic)
-    const { pauseStream } = useActions(liveEventsTableLogic)
+    const [showListeningFor, setShowListeningFor] = React.useState(false)
+    const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
 
     const { width } = useWindowSize()
-    useEffect(() => {
-        if (filteredEvents.length > 0) {
-            setEventsFound(true)
-            pauseStream()
-        }
-    }, [filteredEvents])
 
     useEffect(() => {
-        const polling = setInterval(() => {
-            loadCurrentTeam()
-            if (currentTeam?.[teamPropertyToVerify]) {
-                setEventsFound(true)
-                clearInterval(polling)
-            }
-        }, 1500)
-
-        return () => {
-            clearInterval(polling)
+        if (showListeningFor && !currentTeam?.[teamPropertyToVerify]) {
+            setHasCheckedInstallation(true)
+            setTimeout(() => {
+                setShowListeningFor(false)
+            }, 5000)
         }
-    }, [])
+    }, [showListeningFor])
 
     const minimumSideBySideSize = 768
 
@@ -71,6 +59,12 @@ export function SDKs({
     useEffect(() => {
         width && setShowSideBySide(width > minimumSideBySideSize)
     }, [width])
+
+    useInterval(() => {
+        if (!currentTeam?.[teamPropertyToVerify]) {
+            loadCurrentTeam()
+        }
+    }, 2000)
 
     return (
         <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
@@ -137,22 +131,39 @@ export function SDKs({
                         <div className="flex justify-between">
                             <div>
                                 <h2 className="font-bold mb-4">Verify installation</h2>
-                                <p className="flex items-center italic text-muted">
-                                    {!eventsFound ? (
-                                        <>
-                                            <Spinner className="text-3xl mr-2" /> Verifying installation...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <IconCheck className="text-xl text-success mr-2" /> Installation complete
-                                        </>
-                                    )}
-                                </p>
+                                {!showListeningFor && !currentTeam?.[teamPropertyToVerify] ? (
+                                    <>
+                                        <div className="flex gap-x-4">
+                                            <LemonButton type="primary" onClick={() => setShowListeningFor(true)}>
+                                                Check installation
+                                            </LemonButton>
+                                        </div>
+                                        {hasCheckedInstallation && !showListeningFor && (
+                                            <p className="italic text-muted mt-2 text-xs">
+                                                No {listeningForName}s received. Please check your implementation and
+                                                try again.
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p className="flex items-center italic text-muted">
+                                        {!currentTeam?.[teamPropertyToVerify] ? (
+                                            <>
+                                                <Spinner className="text-3xl mr-2" /> Verifying installation...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <IconCheck className="text-xl text-success mr-2" /> Installation
+                                                complete
+                                            </>
+                                        )}
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 {!showSideBySide && panel === 'options' ? (
                                     <></>
-                                ) : !eventsFound ? (
+                                ) : !currentTeam?.[teamPropertyToVerify] ? (
                                     <LemonButton
                                         type="secondary"
                                         onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
