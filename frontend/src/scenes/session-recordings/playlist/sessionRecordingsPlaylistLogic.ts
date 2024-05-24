@@ -17,6 +17,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -117,6 +118,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+    currentTab?: ReplayTabs
 }
 
 export interface SessionSummaryResponse {
