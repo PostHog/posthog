@@ -2,22 +2,11 @@
 . "$(dirname "$0")/_/husky.sh"
 
 protected_branch='master'
-current_branch=$(git symbolic-ref HEAD | sed -e 's,.*/\(.*\),\1,')
+current_branch=$(git branch --show-current)
 
 if [ $protected_branch = $current_branch ]
 then
-    if sh -c ": >/dev/tty" >/dev/null 2>/dev/null; then
-        # /dev/tty is available and usable
-        read -p "You're about to push to $protected_branch! Is this what you intend? [yN] " -n 1 -r < /dev/tty
-        echo
-        if echo $REPLY | grep -E '^[Yy]$' > /dev/null
-        then
-            exit 0 # push will execute
-        fi
-    else
-        # /dev/tty is not available
-        echo "You're about to push to $protected_branch! To confirm, run ``git push`` from the command line."
-    fi
+    echo "Pushing to $protected_branch is a sin! Instead, create a pull request and repent."
     exit 1 # push will not execute
 else
     exit 0 # push will execute
