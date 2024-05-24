@@ -124,7 +124,10 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     actions({
         setSurveyMissing: true,
-        editingSurvey: (editing: boolean) => ({ editing }),
+        editingSurvey: (editing: boolean) => {
+            console.log('editingSurvey', editing)
+            return { editing }
+        },
         setDefaultForQuestionType: (
             idx: number,
             type: SurveyQuestionType,
@@ -772,6 +775,9 @@ export const surveyLogic = kea<surveyLogicType>([
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    if (props.id === 'new') {
+                        actions.editingSurvey(true)
+                    }
                     actions.loadSurvey()
                 } else {
                     actions.resetSurvey()
@@ -794,7 +800,6 @@ export const surveyLogic = kea<surveyLogicType>([
         message:
             'You have unsaved changes to your survey. If you leave this page, your changes will not be saved. Are you sure you want to proceed?',
         onConfirm: () => {
-            // Turn off editing mode once the user has decided to leave. Useful for when the user clicks the back button.
             actions.editingSurvey(false)
         },
     })),
@@ -832,3 +837,23 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
         },
     }
 }
+
+// function handleBeforeUnload(event: BeforeUnloadEvent): string {
+//     const message =
+//         'You have unsaved changes to your survey. If you leave this page, your changes will not be saved. Are you sure you want to proceed?'
+//     event.preventDefault()
+//     return message
+// }
+
+// function handleNavigation(event: BeforeUnloadEvent): void {
+//     const surveyLogicValues = surveyLogic.values
+//     if (surveyLogicValues.isEditingSurvey) {
+//         const message =
+//             'You have unsaved changes to your survey. If you leave this page, your changes will not be saved. Are you sure you want to proceed?'
+//         if (!window.confirm(message)) {
+//             event.preventDefault()
+//             return
+//         }
+//         surveyLogic.actions.editingSurvey(false) // Set isEditingSurvey to false
+//     }
+// }
