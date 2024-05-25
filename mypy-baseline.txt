@@ -2,10 +2,10 @@ posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" h
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/talk_api.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
+posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
 posthog/hogql/visitor.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Type | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Type | None"; expected "AST"  [arg-type]
@@ -64,6 +64,7 @@ posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/database/schema/person_distinct_ids.py:0: error: Argument 1 to "select_from_person_distinct_ids_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
 posthog/hogql/database/schema/person_distinct_id_overrides.py:0: error: Argument 1 to "select_from_person_distinct_id_overrides_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
+posthog/redis.py:0: error: Import cycle from Django settings module prevents type inference for 'REDIS_URL'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_REGION'  [misc]
@@ -75,7 +76,6 @@ posthog/storage/object_storage.py:0: error: Import cycle from Django settings mo
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_BUCKET'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_BUCKET'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_BUCKET'  [misc]
-posthog/redis.py:0: error: Import cycle from Django settings module prevents type inference for 'REDIS_URL'  [misc]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/clickhouse/kafka_engine.py:0: error: Import cycle from Django settings module prevents type inference for 'KAFKA_HOSTS_FOR_CLICKHOUSE'  [misc]
@@ -325,6 +325,9 @@ posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery
 posthog/queries/person_query.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/queries/event_query/event_query.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
+posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_histogram_bin_count"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
@@ -338,9 +341,6 @@ posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "Bre
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_field" to "get_properties_chain" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_group_type_index"  [union-attr]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
-posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hogql" has incompatible type "SelectQuery | SelectUnionQuery"; expected "SelectQuery | None"  [arg-type]
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/queries/breakdown_props.py:0: error: Incompatible type for lookup 'pk': (got "str | None", expected "str | int")  [misc]
@@ -363,23 +363,8 @@ posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | i
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | None, series_index: int, breakdown_value: str | int | None = ..., compare_value: Compare | None = ..., include_recordings: bool | None = ...) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Call")  [assignment]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Call", variable has type "Field")  [assignment]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument "select" to "SelectQuery" has incompatible type "list[Alias]"; expected "list[Expr]"  [arg-type]
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument "group_by" to "SelectQuery" has incompatible type "list[Field] | None"; expected "list[Expr] | None"  [arg-type]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument 2 to "parse_select" has incompatible type "dict[str, SelectQuery]"; expected "dict[str, Expr] | None"  [arg-type]
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -395,6 +380,14 @@ posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: "List" is inva
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select_from"  [union-attr]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "sample"  [union-attr]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | None, series_index: int, breakdown_value: str | int | None = ..., compare_value: Compare | None = ..., include_recordings: bool | None = ...) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/funnels/funnels_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/insight.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/hogql_queries/web_analytics/web_overview_legacy.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
@@ -468,6 +461,10 @@ posthog/hogql_queries/insights/trends/test/test_aggregation_operations.py:0: err
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
+posthog/hogql/ai.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
+posthog/hogql/ai.py:0: note: Possible overload variants:
+posthog/hogql/ai.py:0: note: def __getitem__(self, SupportsIndex, /) -> Any
+posthog/hogql/ai.py:0: note: def __getitem__(self, slice, /) -> tuple[Any, ...]
 posthog/hogql/test/test_timings.py:0: error: No overload variant of "__setitem__" of "list" matches argument types "int", "float"  [call-overload]
 posthog/hogql/test/test_timings.py:0: note: Possible overload variants:
 posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, SupportsIndex, int, /) -> None
@@ -564,16 +561,14 @@ posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attrib
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/ai.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
-posthog/hogql/ai.py:0: note: Possible overload variants:
-posthog/hogql/ai.py:0: note: def __getitem__(self, SupportsIndex, /) -> Any
-posthog/hogql/ai.py:0: note: def __getitem__(self, slice, /) -> tuple[Any, ...]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
+posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
+posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/test/test_utils.py:0: error: Incompatible types in assignment (expression has type "dict[str, str]", variable has type "QueryDict")  [assignment]
 posthog/api/test/test_signup.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/test/test_signup.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
@@ -585,8 +580,6 @@ posthog/api/test/test_person.py:0: error: Argument "data" to "get" of "APIClient
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "ExportedAsset")  [assignment]
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Dashboard")  [assignment]
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Insight")  [assignment]
-posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
-posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
@@ -658,15 +651,6 @@ posthog/hogql/test/test_parse_string_python.py:0: error: Unsupported dynamic bas
 posthog/hogql/test/test_parse_string_cpp.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
 posthog/hogql/database/test/test_view.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "soft_delete" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "update_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
 posthog/api/search.py:0: error: Argument "klass" to "class_queryset" has incompatible type "object"; expected "type[Model]"  [arg-type]
 posthog/api/search.py:0: error: Argument "search_fields" to "class_queryset" has incompatible type "object"; expected "dict[str, str]"  [arg-type]
 posthog/api/search.py:0: error: Argument "extra_fields" to "class_queryset" has incompatible type "object"; expected "dict[Any, Any] | None"  [arg-type]
@@ -690,6 +674,15 @@ posthog/api/property_definition.py:0: error: Incompatible types in assignment (e
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "soft_delete" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "update_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
+posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -699,10 +692,10 @@ posthog/session_recordings/session_recording_api.py:0: error: Argument "team_id"
 posthog/queries/app_metrics/test/test_app_metrics.py:0: error: Argument 3 to "AppMetricsErrorDetailsQuery" has incompatible type "AppMetricsRequestSerializer"; expected "AppMetricsErrorsRequestSerializer"  [arg-type]
 posthog/queries/app_metrics/test/test_app_metrics.py:0: error: Argument 3 to "AppMetricsErrorDetailsQuery" has incompatible type "AppMetricsRequestSerializer"; expected "AppMetricsErrorsRequestSerializer"  [arg-type]
 posthog/queries/app_metrics/test/test_app_metrics.py:0: error: Argument 3 to "AppMetricsErrorDetailsQuery" has incompatible type "AppMetricsRequestSerializer"; expected "AppMetricsErrorsRequestSerializer"  [arg-type]
+posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute "read"  [union-attr]
+posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute "read"  [union-attr]
 posthog/api/test/test_decide.py:0: error: Item "None" of "Any | None" has no attribute "toolbar_mode"  [union-attr]
 posthog/api/test/test_decide.py:0: error: Item "None" of "Any | None" has no attribute "save"  [union-attr]
-posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute "read"  [union-attr]
-posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute "read"  [union-attr]
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "int", target has type "str")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "int", target has type "str")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "dict[str, Collection[str]]", variable has type "StripeSourcePayload")  [assignment]
