@@ -66,10 +66,10 @@ class PersonStrategy(ActorStrategy):
             )
             distinct_ids = cursor.fetchall()
 
-        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, set()) for person in people}
+        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
 
         for pdid in distinct_ids:
-            person_id_to_raw_person_and_set[pdid[0]][1].add(pdid[1])
+            person_id_to_raw_person_and_set[pdid[0]][1].append(pdid[1])
         del distinct_ids
 
         person_uuid_to_person = {
