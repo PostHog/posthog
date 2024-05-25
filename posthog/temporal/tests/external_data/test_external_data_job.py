@@ -262,7 +262,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_run_stripe_job_t(activity_environment, team, minio_client, **kwargs):
+async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
     async def setup_job_1():
         new_source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
