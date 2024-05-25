@@ -197,7 +197,11 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={configOptions} />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={configOptions}
+                product={ProductKey.SESSION_REPLAY}
+            />
         </OnboardingWrapper>
     )
 }
