@@ -731,6 +731,87 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_all_events(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": None, "name": "All events", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": None,
+                },
+                {"event": "non_matching_event"},
+            ],
+        )
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
     def test_retention_people_basic(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -1308,7 +1389,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "$pageview",
                     "properties": [{"key": "email", "value": "person1@test.com", "type": "person"}],
-                }
+                },
+                {"event": "non_matching_event"},
             ],
         )
 
