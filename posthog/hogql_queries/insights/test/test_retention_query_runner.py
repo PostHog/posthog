@@ -755,7 +755,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
-                    "targetEntity": {"id": None, "name": "All events", "type": TREND_FILTER_TYPE_EVENTS},
+                    "targetEntity": {"id": None, "name": "All events"},
                     "returningEntity": {"id": "$pageview", "type": "events"},
                 },
             }
