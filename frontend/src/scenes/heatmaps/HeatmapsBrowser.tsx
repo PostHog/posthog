@@ -1,4 +1,11 @@
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -12,9 +19,16 @@ export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrlSearchOptions, browserUrl, loading, isBrowserUrlAuthorized, topUrls, topUrlsLoading } =
-        useValues(logic)
-    const { setBrowserSearch, setBrowserUrl, onIframeLoad } = useActions(logic)
+    const {
+        heatmapsFiltersType,
+        browserUrlSearchOptions,
+        browserUrl,
+        loading,
+        isBrowserUrlAuthorized,
+        topUrls,
+        topUrlsLoading,
+    } = useValues(logic)
+    const { setBrowserSearch, setBrowserUrl, onIframeLoad, setHeatmapsFiltersType } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -70,7 +84,35 @@ export function HeatmapsBrowser(): JSX.Element {
                                     <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                                 </div>
                             ) : (
-                                <>
+                                <div className="flex flex-col space-y-2 w-full">
+                                    <h2 className="m-0">Heatmap settings</h2>
+                                    <div className="flex flex-row space-x-2 py-2">
+                                        <LemonSegmentedButton
+                                            onChange={(e) => {
+                                                setHeatmapsFiltersType(e)
+                                            }}
+                                            value={heatmapsFiltersType ?? undefined}
+                                            options={[
+                                                {
+                                                    value: 'click',
+                                                    label: 'Clicks',
+                                                },
+                                                {
+                                                    value: 'rageclick',
+                                                    label: 'Rageclicks',
+                                                },
+                                                {
+                                                    value: 'mousemove',
+                                                    label: 'Mouse moves',
+                                                },
+                                                {
+                                                    value: 'scrolldepth',
+                                                    label: 'Scroll depth',
+                                                },
+                                            ]}
+                                            size="small"
+                                        />
+                                    </div>
                                     <iframe
                                         ref={iframeRef}
                                         className="flex-1"
@@ -85,7 +127,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                     />
 
                                     {loading && <SpinnerOverlay />}
-                                </>
+                                </div>
                             )}
                         </>
                     ) : (

@@ -39,6 +39,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
+        setHeatmapsFiltersType: (type: string) => ({ type }),
     }),
 
     loaders(({ values }) => ({
@@ -92,6 +93,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        heatmapsFiltersType: [
+            'click',
+            {
+                setHeatmapsFiltersType: (_, { type }) => type,
+            },
+        ],
         browserSearchTerm: [
             '',
             {
@@ -146,6 +153,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             await breakpoint(200)
             actions.loadBrowserSearchResults()
         },
+
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -154,6 +162,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 },
                 '*'
             )
+        },
+
+        setHeatmapsFiltersType: ({ type }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters: { type } })
         },
 
         onIframeLoad: () => {

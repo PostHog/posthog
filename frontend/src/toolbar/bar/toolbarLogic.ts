@@ -19,6 +19,7 @@ export enum PostHogAppToolbarEvent {
     PH_TOOLBAR_READY = 'ph-toolbar-ready',
     PH_APP_INIT = 'ph-app-init',
     PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
+    PH_PATCH_HEATMAP_FILTERS = 'ph-patch-heatmap-filters',
 }
 
 export const toolbarLogic = kea<toolbarLogicType>([
@@ -30,7 +31,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
-            ['enableHeatmap', 'disableHeatmap'],
+            ['enableHeatmap', 'disableHeatmap', 'patchHeatmapFilters'],
         ],
     })),
     actions(() => ({
@@ -304,6 +305,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
                     actions.enableHeatmap()
+                    return
+                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
+                    actions.patchHeatmapFilters(e.data.payload.filters)
                     return
 
                 default:
