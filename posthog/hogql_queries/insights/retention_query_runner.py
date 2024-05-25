@@ -85,11 +85,11 @@ class RetentionQueryRunner(QueryRunner):
             ]
         )
 
-    def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | float | None]:
-        if entity.type == EntityType.actions:
+    def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
+        if entity.type == EntityType.actions and entity.id:
             action = Action.objects.get(pk=int(entity.id))
             return action.get_step_events()
-        return [entity.id]
+        return [entity.id] if isinstance(entity.id, str) else [None]
 
     def events_where_clause(self, event_query_type: RetentionQueryType):
         events_where = []
@@ -124,7 +124,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return events_where
 
-    def actor_query(self, breakdown_values_filter: Optional[Any] = None) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[int] = None) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
@@ -170,10 +170,10 @@ class RetentionQueryRunner(QueryRunner):
                 {"target_timestamps": target_timestamps},
             )
             is_in_breakdown_value = parse_expr("target_timestamps[1] = breakdown_value_timestamp")
-            is_first_intervals_from_base = parse_expr("target_timestamps[1] = date_range[_breakdown_value + 1]")
+            is_first_intervals_from_base = parse_expr("target_timestamps[1] = date_range[breakdown_values + 1]")
         else:
             is_in_breakdown_value = parse_expr("has(target_timestamps, breakdown_value_timestamp)")
-            is_first_intervals_from_base = parse_expr("has(target_timestamps, date_range[_breakdown_value + 1])")
+            is_first_intervals_from_base = parse_expr("has(target_timestamps, date_range[breakdown_values + 1])")
 
         target_field = "person_id"
         if self.group_type_index is not None:
@@ -237,7 +237,6 @@ class RetentionQueryRunner(QueryRunner):
                     alias="breakdown_values",
                     expr=parse_expr(
                         """
-                    [
                         arrayJoin(
                             arrayFilter(
                                 x -> x > -1,
@@ -252,8 +251,7 @@ class RetentionQueryRunner(QueryRunner):
                                     date_range
                                 )
                             )
-                        ) as _breakdown_value
-                    ]
+                        )
                     """,
                         {"is_in_breakdown_value": is_in_breakdown_value},
                     ),
@@ -270,10 +268,10 @@ class RetentionQueryRunner(QueryRunner):
                                 []
                             ),
                             arrayFilter(
-                                x -> x > -1,
+                                x -> x > 0, -- first match always comes from target_timestamps, hence not -1 here
                                 arrayMap(
                                     _timestamp ->
-                                        indexOf(arraySlice(date_range, _breakdown_value + 1), _timestamp) - 1
+                                        indexOf(arraySlice(date_range, breakdown_values + 1), _timestamp) - 1
                                     , returning_timestamps
                                 )
                             )
@@ -287,29 +285,20 @@ class RetentionQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
+            having=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["breakdown_values"]),
+                right=ast.Constant(value=breakdown_values_filter),
+            )
+            if breakdown_values_filter is not None
+            else None,
         )
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
             inner_query.select_from.sample = ast.SampleExpr(
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
-        return parse_select(
-            """
-            SELECT DISTINCT breakdown_values,
-                            intervals_from_base,
-                            actor_id
-            FROM (
-                {inner_query}
-            )
-            WHERE ({breakdown_values_filter} is NULL OR breakdown_values = {breakdown_values_filter})
-              AND ({selected_interval} is NULL OR intervals_from_base = {selected_interval})
-            """,
-            {
-                "breakdown_values_filter": ast.Constant(value=breakdown_values_filter),
-                "selected_interval": ast.Constant(value=None),
-                "inner_query": inner_query,
-            },
-        )
+        return inner_query
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         placeholders = {
@@ -319,7 +308,7 @@ class RetentionQueryRunner(QueryRunner):
         with self.timings.measure("retention_query"):
             retention_query = parse_select(
                 """
-                    SELECT actor_activity.breakdown_values         AS breakdown_values,
+                    SELECT [actor_activity.breakdown_values]       AS breakdown_values,
                            actor_activity.intervals_from_base      AS intervals_from_base,
                            COUNT(DISTINCT actor_activity.actor_id) AS count
 
@@ -430,7 +419,7 @@ class RetentionQueryRunner(QueryRunner):
                     GROUP BY actor_id
                 """,
                 placeholders={
-                    "actor_query": self.actor_query(breakdown_values_filter=[interval]),
+                    "actor_query": self.actor_query(breakdown_values_filter=interval),
                 },
                 timings=self.timings,
             )
