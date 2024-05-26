@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { HeatmapsSettings } from '~/toolbar/stats/HeatmapToolbarMenu'
 
@@ -12,6 +13,9 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
     const logic = heatmapsBrowserLogic({ iframeRef })
 
     const {
@@ -24,6 +28,7 @@ export function HeatmapsBrowser(): JSX.Element {
         topUrlsLoading,
         heatmapColorPalette,
         heatmapFixedPositionMode,
+        viewportRange,
     } = useValues(logic)
     const {
         setBrowserSearch,
@@ -32,7 +37,12 @@ export function HeatmapsBrowser(): JSX.Element {
         patchHeatmapFilters,
         setHeatmapColorPalette,
         setHeatmapFixedPositionMode,
+        setIframeWidth,
     } = useActions(logic)
+
+    useEffect(() => {
+        setIframeWidth(iframeWidth ?? null)
+    }, [iframeWidth])
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -93,8 +103,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                         <HeatmapsSettings
                                             heatmapFilters={heatmapFilters}
                                             patchHeatmapFilters={patchHeatmapFilters}
-                                            // TODO: viewportRange is calculated based on the displayed page width
-                                            viewportRange={{ min: 0, max: 1900 }}
+                                            viewportRange={viewportRange}
                                             heatmapColorPalette={heatmapColorPalette}
                                             setHeatmapColorPalette={setHeatmapColorPalette}
                                             heatmapFixedPositionMode={heatmapFixedPositionMode}

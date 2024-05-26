@@ -7,7 +7,12 @@ import { RefObject } from 'react'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import { PostHogAppToolbarEvent } from '~/toolbar/bar/toolbarLogic'
-import { DEFAULT_HEATMAP_FILTERS, HeatmapFilters, HeatmapFixedPositionMode } from '~/toolbar/elements/heatmapLogic'
+import {
+    calculateViewportRange,
+    DEFAULT_HEATMAP_FILTERS,
+    HeatmapFilters,
+    HeatmapFixedPositionMode,
+} from '~/toolbar/elements/heatmapLogic'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
@@ -45,6 +50,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         // TODO duplication ends
+        setIframeWidth: (width: number | null) => ({ width }),
     }),
 
     loaders(({ values }) => ({
@@ -118,6 +124,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
         // TODO duplication ends
+        iframeWidth: [
+            null as number | null,
+            {
+                setIframeWidth: (_, { width }) => width,
+            },
+        ],
         browserSearchTerm: [
             '',
             {
@@ -163,6 +175,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     return false
                 }
                 return checkUrlIsAuthorized(browserUrl)
+            },
+        ],
+
+        viewportRange: [
+            (s) => [s.heatmapFilters, s.iframeWidth],
+            (heatmapFilters, iframeWidth) => {
+                return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
             },
         ],
     }),

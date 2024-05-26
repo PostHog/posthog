@@ -72,6 +72,22 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
+export const calculateViewportRange = (
+    heatmapFilters: HeatmapFilters,
+    windowWidth: number
+): { max: number; min: number } => {
+    const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
+    const extraPixels = windowWidth - windowWidth * viewportAccuracy
+
+    const minWidth = Math.max(0, windowWidth - extraPixels)
+    const maxWidth = windowWidth + extraPixels
+
+    return {
+        min: Math.round(minWidth),
+        max: Math.round(maxWidth),
+    }
+}
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
@@ -448,21 +464,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
 
-        viewportRange: [
-            (s) => [s.heatmapFilters, s.windowWidth],
-            (heatmapFilters, windowWidth): { max: number; min: number } => {
-                const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
-                const extraPixels = windowWidth - windowWidth * viewportAccuracy
-
-                const minWidth = Math.max(0, windowWidth - extraPixels)
-                const maxWidth = windowWidth + extraPixels
-
-                return {
-                    min: Math.round(minWidth),
-                    max: Math.round(maxWidth),
-                }
-            },
-        ],
+        viewportRange: [(s) => [s.heatmapFilters, s.windowWidth], calculateViewportRange],
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
