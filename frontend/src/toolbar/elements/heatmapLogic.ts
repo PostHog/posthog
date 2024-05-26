@@ -6,6 +6,15 @@ import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
+import {
+    CommonFilters,
+    HeatmapFilters,
+    HeatmapFixedPositionMode,
+    HeatmapJsData,
+    HeatmapJsDataPoint,
+    HeatmapRequestType,
+} from 'lib/components/heatmaps/types'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/heatmaps/utils'
 import { dateFilterToText } from 'lib/utils'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
@@ -13,13 +22,7 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import {
-    CountedHTMLElement,
-    ElementsEventType,
-    HeatmapElement,
-    HeatmapRequestType,
-    HeatmapResponseType,
-} from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -27,43 +30,11 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 export const SCROLL_DEPTH_JS_VERSION = [1, 99]
 
-export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
-    enabled: true,
-    type: 'click',
-    viewportAccuracy: 0.9,
-    aggregation: 'total_count',
-}
-
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
     results: [],
 }
-
-export type CommonFilters = {
-    date_from?: string
-    date_to?: string
-}
-
-export type HeatmapFilters = {
-    enabled: boolean
-    type?: string
-    viewportAccuracy?: number
-    aggregation?: HeatmapRequestType['aggregation']
-}
-
-export type HeatmapJsDataPoint = {
-    x: number
-    y: number
-    value: number
-}
-
-export type HeatmapJsData = {
-    data: HeatmapJsDataPoint[]
-    max: number
-    min: number
-}
-export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -71,22 +42,6 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'green', label: 'Green (monocolor)' },
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
-
-export const calculateViewportRange = (
-    heatmapFilters: HeatmapFilters,
-    windowWidth: number
-): { max: number; min: number } => {
-    const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
-    const extraPixels = windowWidth - windowWidth * viewportAccuracy
-
-    const minWidth = Math.max(0, windowWidth - extraPixels)
-    const maxWidth = windowWidth + extraPixels
-
-    return {
-        min: Math.round(minWidth),
-        max: Math.round(maxWidth),
-    }
-}
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
@@ -464,7 +419,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
 
-        viewportRange: [(s) => [s.heatmapFilters, s.windowWidth], calculateViewportRange],
+        viewportRange: [
+            (s) => [s.heatmapFilters, s.windowWidth],
+            (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
+        ],
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
@@ -562,10 +520,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             return await response.json()
         },
+
         enableHeatmap: () => {
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
+
         disableHeatmap: () => {
             actions.resetElementStats()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
@@ -577,6 +537,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.maybeLoadHeatmap()
             actions.maybeLoadClickmap()
         },
+
         maybeLoadClickmap: async ({ delayMs }, breakpoint) => {
             await breakpoint(delayMs)
             if (values.heatmapEnabled && values.clickmapsEnabled) {

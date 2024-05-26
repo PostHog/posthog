@@ -2,12 +2,11 @@ import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverl
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
-
-import { HeatmapsSettings } from '~/toolbar/stats/HeatmapToolbarMenu'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 

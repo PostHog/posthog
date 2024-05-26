@@ -2,17 +2,12 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { RefObject } from 'react'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { PostHogAppToolbarEvent } from '~/toolbar/bar/toolbarLogic'
-import {
-    calculateViewportRange,
-    DEFAULT_HEATMAP_FILTERS,
-    HeatmapFilters,
-    HeatmapFixedPositionMode,
-} from '~/toolbar/elements/heatmapLogic'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 

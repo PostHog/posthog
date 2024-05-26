@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
@@ -13,16 +14,6 @@ import type { toolbarLogicType } from './toolbarLogicType'
 const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
-
-export enum PostHogAppToolbarEvent {
-    PH_TOOLBAR_INIT = 'ph-toolbar-init',
-    PH_TOOLBAR_READY = 'ph-toolbar-ready',
-    PH_APP_INIT = 'ph-app-init',
-    PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
-    PH_PATCH_HEATMAP_FILTERS = 'ph-patch-heatmap-filters',
-    PH_HEATMAPS_FIXED_POSITION_MODE = 'ph-heatmaps-fixed-position-mode',
-    PH_HEATMAPS_COLOR_PALETTE = 'ph-heatmaps-color-palette',
-}
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
