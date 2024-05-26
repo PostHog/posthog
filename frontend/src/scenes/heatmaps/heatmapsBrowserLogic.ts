@@ -7,6 +7,7 @@ import { RefObject } from 'react'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import { PostHogAppToolbarEvent } from '~/toolbar/bar/toolbarLogic'
+import { DEFAULT_HEATMAP_FILTERS, HeatmapFilters, HeatmapFixedPositionMode } from '~/toolbar/elements/heatmapLogic'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
@@ -39,7 +40,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
-        setHeatmapsFiltersType: (type: string) => ({ type }),
+        // TODO duplicated with the heatmapLogic
+        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
+        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
+        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
+        // TODO duplication ends
     }),
 
     loaders(({ values }) => ({
@@ -93,12 +98,26 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
-        heatmapsFiltersType: [
-            'click',
+        // TODO duplicated with the heatmapLogic
+        heatmapColorPalette: [
+            'default' as string | null,
             {
-                setHeatmapsFiltersType: (_, { type }) => type,
+                setHeatmapColorPalette: (_, { Palette }) => Palette,
             },
         ],
+        heatmapFilters: [
+            DEFAULT_HEATMAP_FILTERS,
+            {
+                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        heatmapFixedPositionMode: [
+            'fixed' as HeatmapFixedPositionMode,
+            {
+                setHeatmapFixedPositionMode: (_, { mode }) => mode,
+            },
+        ],
+        // TODO duplication ends
         browserSearchTerm: [
             '',
             {
@@ -164,8 +183,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             )
         },
 
-        setHeatmapsFiltersType: ({ type }) => {
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters: { type } })
+        patchHeatmapFilters: ({ filters }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
+        },
+        setHeatmapFixedPositionMode: ({ mode }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE, {
+                fixedPositionMode: mode,
+            })
         },
 
         onIframeLoad: () => {

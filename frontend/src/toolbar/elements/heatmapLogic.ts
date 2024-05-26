@@ -27,6 +27,13 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 export const SCROLL_DEPTH_JS_VERSION = [1, 99]
 
+export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
+    enabled: true,
+    type: 'click',
+    viewportAccuracy: 0.9,
+    aggregation: 'total_count',
+}
+
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
@@ -130,12 +137,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         heatmapFilters: [
-            {
-                enabled: true,
-                type: 'click',
-                viewportAccuracy: 0.9,
-                aggregation: 'total_count',
-            } as HeatmapFilters,
+            DEFAULT_HEATMAP_FILTERS,
             { persist: true },
             {
                 setHeatmapFilters: (_, { filters }) => filters,
