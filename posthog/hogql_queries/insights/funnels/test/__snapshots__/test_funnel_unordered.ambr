@@ -18,12 +18,11 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -135,8 +134,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
@@ -169,12 +167,11 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -300,8 +297,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
@@ -334,12 +330,11 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -451,8 +446,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
@@ -490,14 +484,12 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time,
-               step_2_conversion_time AS step_2_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time,
+               min(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
-                  step_2_conversion_time AS step_2_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -698,9 +690,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time,
-                 step_2_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
@@ -738,14 +728,12 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time,
-               step_2_conversion_time AS step_2_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time,
+               min(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
-                  step_2_conversion_time AS step_2_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -946,9 +934,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time,
-                 step_2_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
@@ -986,14 +972,12 @@
                steps AS steps,
                prop AS prop,
                prop AS prop,
-               step_1_conversion_time AS step_1_conversion_time,
-               step_2_conversion_time AS step_2_conversion_time
+               min(step_1_conversion_time) AS step_1_conversion_time,
+               min(step_2_conversion_time) AS step_2_conversion_time
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
                   prop AS prop,
-                  step_1_conversion_time AS step_1_conversion_time,
-                  step_2_conversion_time AS step_2_conversion_time,
                   max(steps) OVER (PARTITION BY aggregation_target,
                                                 prop) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
@@ -1215,9 +1199,7 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
-                 prop,
-                 step_1_conversion_time,
-                 step_2_conversion_time
+                 prop
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      GROUP BY prop)
