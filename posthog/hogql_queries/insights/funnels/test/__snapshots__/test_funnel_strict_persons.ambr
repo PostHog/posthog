@@ -10,14 +10,14 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
-               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -156,14 +156,14 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
-               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
@@ -302,14 +302,14 @@
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
-               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
-               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
                groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
           (SELECT aggregation_target AS aggregation_target,
                   steps AS steps,
