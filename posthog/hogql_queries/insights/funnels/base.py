@@ -989,9 +989,10 @@ class FunnelBase(ABC):
             BreakdownType.event,
             BreakdownType.group,
         ]:
-            time_fields = [parse_expr(f"step_{i}_conversion_time") for i in range(1, max_steps)]
+            time_fields = [
+                parse_expr(f"min(step_{i}_conversion_time) as step_{i}_conversion_time") for i in range(1, max_steps)
+            ]
             outer_select.extend(time_fields)
-            group_by_columns.extend(time_fields)
         else:
             outer_select = [
                 *outer_select,
