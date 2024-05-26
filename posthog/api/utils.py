@@ -126,6 +126,13 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def get_include_inactive_surveys(data, request) -> bool:
+    if request.GET.get("include_inactive"):
+        return request.GET.get("include_inactive") == "1"
+
+    return false
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
     if request.method == "GET":

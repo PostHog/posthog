@@ -444,6 +444,7 @@ def surveys(request: Request):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
+        .exclude(end_date__gt=date.today())
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag"),
         many=True,
     ).data
