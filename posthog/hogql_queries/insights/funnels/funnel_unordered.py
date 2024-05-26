@@ -66,7 +66,7 @@ class FunnelUnordered(FunnelBase):
         )
 
     def get_step_counts_query(self):
-        return self._get_step_counts_query()
+        return self._get_step_counts_query(outer_select=[], inner_select=[])
 
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps

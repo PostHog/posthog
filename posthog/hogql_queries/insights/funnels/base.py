@@ -7,7 +7,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
@@ -28,7 +27,6 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
-    StepOrderValue,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 from rest_framework.exceptions import ValidationError
@@ -106,110 +104,6 @@ class FunnelBase(ABC):
             ids.append(ALL_USERS_COHORT_ID)
 
         return ids
-
-    @cached_property
-    def breakdown_values(self) -> list[int] | list[str] | list[list[str]]:
-        # """
-        # Returns the top N breakdown prop values for event/person breakdown
-
-        # e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
-        # """
-        team, query, funnelsFilter, breakdownType, breakdownFilter, breakdownAttributionType = (
-            self.context.team,
-            self.context.query,
-            self.context.funnelsFilter,
-            self.context.breakdownType,
-            self.context.breakdownFilter,
-            self.context.breakdownAttributionType,
-        )
-
-        use_all_funnel_entities = (
-            breakdownAttributionType
-            in [
-                BreakdownAttributionType.first_touch,
-                BreakdownAttributionType.last_touch,
-            ]
-            or funnelsFilter.funnelOrderType == StepOrderValue.unordered
-        )
-        first_entity = query.series[0]
-        target_entity = first_entity
-        if breakdownAttributionType == BreakdownAttributionType.step:
-            assert isinstance(funnelsFilter.breakdownAttributionValue, int)
-            target_entity = query.series[funnelsFilter.breakdownAttributionValue]
-
-        if breakdownType == "cohort":
-            return self.breakdown_cohorts_ids
-        else:
-            # get query params
-            breakdown_expr = self._get_breakdown_expr()
-            breakdown_limit_or_default = breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
-                self.context.limit_context
-            )
-            offset = 0
-
-            funnel_event_query = FunnelEventQuery(context=self.context)
-
-            if use_all_funnel_entities:
-                entity_expr = funnel_event_query._entity_expr(skip_entity_filter=False)
-                prop_exprs = funnel_event_query._properties_expr()
-            else:
-                entity_expr = None
-                # TODO implement for strict and ordered funnels
-                # entity_params, entity_format_params = get_entity_filtering_params(
-                #     allowed_entities=[target_entity],
-                #     team_id=team.pk,
-                #     table_name="e",
-                #     person_id_joined_alias=person_id_joined_alias,
-                #     person_properties_mode=person_properties_mode,
-                #     hogql_context=filter.hogql_context,
-                # )
-
-                if target_entity.properties:
-                    prop_exprs = [property_to_expr(target_entity.properties, team)]
-                else:
-                    prop_exprs = []
-
-            where_exprs: list[ast.Expr | None] = [
-                # entity filter
-                entity_expr,
-                # prop filter
-                *prop_exprs,
-                # date range filter
-                funnel_event_query._date_range_expr(),
-                # null persons filter
-                parse_expr("notEmpty(e.person_id)"),
-            ]
-
-            # build query
-            values_query = ast.SelectQuery(
-                select=[ast.Alias(alias="value", expr=breakdown_expr), parse_expr("count(*) as count")],
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=["events"]),
-                    alias="e",
-                ),
-                where=ast.And(exprs=[expr for expr in where_exprs if expr is not None]),
-                group_by=[ast.Field(chain=["value"])],
-                order_by=[
-                    ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC"),
-                    ast.OrderExpr(expr=ast.Field(chain=["value"]), order="DESC"),
-                ],
-                limit=ast.Constant(value=breakdown_limit_or_default + 1),
-                offset=ast.Constant(value=offset),
-            )
-
-            if query.samplingFactor is not None:
-                assert isinstance(values_query.select_from, ast.JoinExpr)
-                values_query.select_from.sample = ast.SampleExpr(
-                    sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor))
-                )
-
-            # execute query
-            results = execute_hogql_query(
-                values_query, self.context.team, limit_context=self.context.limit_context
-            ).results
-            if results is None:
-                raise ValidationError("Apologies, there has been an error computing breakdown values.")
-            return [row[0] for row in results[0:breakdown_limit_or_default]]
 
     def _get_breakdown_select_prop(self) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
@@ -566,6 +460,11 @@ class FunnelBase(ABC):
 
         return query
 
+    def get_breakdown_limit(self):
+        return self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
+            self.context.limit_context
+        )
+
     # Wrap funnel query in another query to determine the top X breakdowns, and bucket all others into "Other" bucket
     def _breakdown_other_subquery(self) -> ast.SelectQuery:
         max_steps = self.context.max_steps
@@ -591,14 +490,11 @@ class FunnelBase(ABC):
         )
         select_query.group_by = [ast.Field(chain=["prop"])]
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-        breakdown_limit_or_default = self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
-            self.context.limit_context
-        )
 
         final_prop = ast.Alias(
             alias="final_prop",
             expr=parse_expr(
-                f"if(row_number < {breakdown_limit_or_default + 1}, prop, {other_aggregation})",
+                f"if(row_number < {self.get_breakdown_limit() + 1}, prop, {other_aggregation})",
             ),
         )
         return ast.SelectQuery(
@@ -1068,9 +964,7 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_step_counts_query(
-        self, outer_select: list[ast.Expr] = list, inner_select: list[ast.Expr] = list
-    ) -> ast.SelectQuery:
+    def _get_step_counts_query(self, outer_select: list[ast.Expr], inner_select: list[ast.Expr]) -> ast.SelectQuery:
         max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
@@ -1083,7 +977,7 @@ class FunnelBase(ABC):
             *breakdown_exprs,
         ]
 
-        outer_select: list[ast.Expr] = [
+        outer_select = [
             *outer_select,
             *group_by_columns,
             *self._get_matching_event_arrays(max_steps),
@@ -1109,7 +1003,7 @@ class FunnelBase(ABC):
             f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
         )
 
-        inner_select: list[ast.Expr] = [
+        inner_select = [
             *inner_select,
             *group_by_columns,
             max_steps_expr,
