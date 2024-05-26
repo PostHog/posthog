@@ -191,6 +191,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 fixedPositionMode: mode,
             })
         },
+        setHeatmapColorPalette: ({ Palette }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE, {
+                colorPalette: Palette,
+            })
+        },
 
         onIframeLoad: () => {
             // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error

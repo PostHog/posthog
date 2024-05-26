@@ -21,6 +21,7 @@ export enum PostHogAppToolbarEvent {
     PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
     PH_PATCH_HEATMAP_FILTERS = 'ph-patch-heatmap-filters',
     PH_HEATMAPS_FIXED_POSITION_MODE = 'ph-heatmaps-fixed-position-mode',
+    PH_HEATMAPS_COLOR_PALETTE = 'ph-heatmaps-color-palette',
 }
 
 export const toolbarLogic = kea<toolbarLogicType>([
@@ -32,7 +33,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
-            ['enableHeatmap', 'disableHeatmap', 'patchHeatmapFilters', 'setHeatmapFixedPositionMode'],
+            [
+                'enableHeatmap',
+                'disableHeatmap',
+                'patchHeatmapFilters',
+                'setHeatmapFixedPositionMode',
+                'setHeatmapColorPalette',
+            ],
         ],
     })),
     actions(() => ({
@@ -312,6 +319,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     return
 
                 default:
