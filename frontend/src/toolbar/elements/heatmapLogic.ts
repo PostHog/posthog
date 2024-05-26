@@ -424,6 +424,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
         ],
 
+        heatmapTooltipLabel: [
+            (s) => [s.heatmapFilters],
+            (heatmapFilters) => {
+                if (heatmapFilters.aggregation === 'unique_visitors') {
+                    return 'visitors'
+                }
+                return heatmapFilters.type + 's'
+            },
+        ],
+
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
