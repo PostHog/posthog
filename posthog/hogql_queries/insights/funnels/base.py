@@ -980,7 +980,6 @@ class FunnelBase(ABC):
         outer_select = [
             *outer_select,
             *group_by_columns,
-            *self._get_matching_event_arrays(max_steps),
             *breakdown_exprs,
             *outer_timestamps,
             *person_and_group_properties,
@@ -1008,7 +1007,6 @@ class FunnelBase(ABC):
             *group_by_columns,
             max_steps_expr,
             *self._get_step_time_names(max_steps),
-            *self._get_matching_events(max_steps),
             *breakdown_exprs,
             *inner_timestamps,
             *person_and_group_properties,
