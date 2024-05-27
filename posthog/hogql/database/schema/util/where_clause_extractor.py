@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import random
+import string
 from typing import Optional, Literal, cast
 
 from posthog.hogql import ast
@@ -6,7 +7,7 @@ from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
 
-from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
+from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
 SESSION_BUFFER_DAYS = 3
 
@@ -48,6 +49,7 @@ class WhereClauseExtractor(CloningVisitor):
     clear_locations: bool = False
     capture_timestamp_comparisons: bool = False
     our_tables: list[ast.LazyTable | ast.LazyJoin]
+    tombstone_string: str
 
     limits: Literal["", "session_min"] = ""
 
@@ -55,6 +57,10 @@ class WhereClauseExtractor(CloningVisitor):
         super().__init__()
         self.context = context
         self.our_tables = []
+        # A constant with this string will be used to escape early if we can't handle the query
+        self.tombstone_string = (
+            "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
+        )
 
     def add_local_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
         """Add the tables whose filters to extract into a new where clause."""
@@ -88,8 +94,11 @@ class WhereClauseExtractor(CloningVisitor):
         return clone_expr(where, clear_types=True, clear_locations=True)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
-        is_left_constant = is_time_or_interval_constant(node.left)
-        is_right_constant = is_time_or_interval_constant(node.right)
+        if has_tombstone(node, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+
+        is_left_constant = is_time_or_interval_constant(node.left, self.tombstone_string)
+        is_right_constant = is_time_or_interval_constant(node.right, self.tombstone_string)
 
         # just ignore constant comparison
         if is_left_constant and is_right_constant:
@@ -97,8 +106,12 @@ class WhereClauseExtractor(CloningVisitor):
 
         # extract timestamps from the main query into e.g. the sessions subquery
         if self.capture_timestamp_comparisons:
-            is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context)
-            is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context)
+            is_left_timestamp_field = is_simple_timestamp_field_expression(
+                node.left, self.context, self.tombstone_string
+            )
+            is_right_timestamp_field = is_simple_timestamp_field_expression(
+                node.right, self.context, self.tombstone_string
+            )
             # handle the left side being a min_timestamp expression and the right being constant
             if is_left_timestamp_field and is_right_constant:
                 if node.op == CompareOperationOp.Eq:
@@ -177,9 +190,8 @@ class WhereClauseExtractor(CloningVisitor):
         if len(self.our_tables) > 0:
             left = self.visit(node.left)
             right = self.visit(node.right)
-            if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
-                return ast.Constant(value=True)
-
+            if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
+                return ast.Constant(value=self.tombstone_string)
             return ast.CompareOperation(op=node.op, left=left, right=right)
 
         return ast.Constant(value=True)
@@ -193,7 +205,10 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=True)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
-        return ast.Constant(value=True)
+        response = self.visit(node.expr)
+        if has_tombstone(response, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+        return ast.Not(expr=response)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         if node.name == "and":
@@ -236,8 +251,10 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_compare_operation(
                 ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
             )
-
-        return ast.Call(name=node.name, args=[self.visit(arg) for arg in node.args])
+        args = [self.visit(arg) for arg in node.args]
+        if any(has_tombstone(arg, self.tombstone_string) for arg in args):
+            return ast.Constant(value=self.tombstone_string)
+        return ast.Call(name=node.name, args=args)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         # if field in requested list
@@ -258,7 +275,7 @@ class WhereClauseExtractor(CloningVisitor):
                     chain_length = 1
                 new_field.chain = new_field.chain[-chain_length:]
                 return new_field
-        return ast.Constant(value=True)
+        return ast.Constant(value=self.tombstone_string)
 
     def visit_constant(self, node: ast.Constant) -> ast.Expr:
         return ast.Constant(value=node.value)
@@ -271,7 +288,7 @@ class WhereClauseExtractor(CloningVisitor):
         flattened = flatten_ands(exprs)
 
         if any(isinstance(expr, ast.Constant) and is_not_truthy(expr.value) for expr in flattened):
-            return ast.Constant(value=False)
+            return ast.Constant(value=self.tombstone_string)
 
         filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant) or is_not_truthy(expr.value)]
         if len(filtered) == 0:
@@ -290,7 +307,7 @@ class WhereClauseExtractor(CloningVisitor):
 
         filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant)]
         if len(filtered) == 0:
-            return ast.Constant(value=False)
+            return ast.Constant(value=self.tombstone_string)
         elif len(filtered) == 1:
             return filtered[0]
         else:
@@ -308,12 +325,35 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
         super().__init__(context)
 
 
-def is_time_or_interval_constant(expr: ast.Expr) -> bool:
-    return IsTimeOrIntervalConstantVisitor().visit(expr)
+def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
+    visitor = HasTombstoneVisitor(tombstone_string)
+    visitor.visit(expr)
+    return visitor.has_tombstone
+
+
+class HasTombstoneVisitor(TraversingVisitor):
+    has_tombstone = False
+    tombstone_string: str
+
+    def __init__(self, tombstone_string: str):
+        self.tombstone_string = tombstone_string
+
+    def visit_constant(self, node: ast.Constant):
+        if node.value == self.tombstone_string:
+            self.has_tombstone = True
+
+
+def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: str) -> bool:
+    return IsTimeOrIntervalConstantVisitor(tombstone_string).visit(expr)
 
 
 class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
+    def __init__(self, tombstone_string: str):
+        self.tombstone_string = tombstone_string
+
     def visit_constant(self, node: ast.Constant) -> bool:
+        if node.value == self.tombstone_string:
+            return False
         return True
 
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
@@ -375,13 +415,16 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return self.visit(node.expr)
 
 
-def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext) -> bool:
-    return IsSimpleTimestampFieldExpressionVisitor(context).visit(expr)
+def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: str) -> bool:
+    return IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
 
 
-@dataclass
 class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     context: HogQLContext
+
+    def __init__(self, context: HogQLContext, tombstone_string: str):
+        self.context = context
+        self.tombstone_string = tombstone_string
 
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
@@ -401,8 +444,8 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
         return (
             self.visit(node.left)
-            and is_time_or_interval_constant(node.right)
-            or (self.visit(node.right) and is_time_or_interval_constant(node.left))
+            and is_time_or_interval_constant(node.right, self.tombstone_string)
+            or (self.visit(node.right) and is_time_or_interval_constant(node.left, self.tombstone_string))
         )
 
     def visit_call(self, node: ast.Call) -> bool:
