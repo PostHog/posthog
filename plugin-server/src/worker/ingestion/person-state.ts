@@ -120,6 +120,19 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
+    async mergeBlocked(reason: string, details: Record<string, any>): Promise<void> {
+        // This class abuses it's access to event and adds $merge_blocked_reason to properties if the merge is blocked
+        this.event.properties = { ...(this.event.properties || {}), $merge_blocked_reason: reason }
+        status.warn('🤔', `refused to merge ${reason}`)
+        await captureIngestionWarning(
+            this.db.kafkaProducer,
+            this.event.team_id,
+            reason,
+            { ...details, eventUuid: this.event.uuid },
+            { alwaysSend: true }
+        )
+    }
+
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
             let existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
@@ -445,31 +458,17 @@ export class PersonState {
             return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await captureIngestionWarning(
-                this.db.kafkaProducer,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
-                    illegalDistinctId: mergeIntoDistinctId,
-                    otherDistinctId: otherPersonDistinctId,
-                    eventUuid: this.event.uuid,
-                },
-                { alwaysSend: true }
-            )
+            await this.mergeBlocked('cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: mergeIntoDistinctId,
+                otherDistinctId: otherPersonDistinctId,
+            })
             return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await captureIngestionWarning(
-                this.db.kafkaProducer,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
-                    illegalDistinctId: otherPersonDistinctId,
-                    otherDistinctId: mergeIntoDistinctId,
-                    eventUuid: this.event.uuid,
-                },
-                { alwaysSend: true }
-            )
+            await this.mergeBlocked('cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: otherPersonDistinctId,
+                otherDistinctId: mergeIntoDistinctId,
+            })
             return [undefined, Promise.resolve()]
         }
         return promiseRetry(
@@ -645,18 +644,10 @@ export class PersonState {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
-            await captureIngestionWarning(
-                this.db.kafkaProducer,
-                this.teamId,
-                'cannot_merge_already_identified',
-                {
-                    sourcePersonDistinctId: otherPersonDistinctId,
-                    targetPersonDistinctId: mergeIntoDistinctId,
-                    eventUuid: this.event.uuid,
-                },
-                { alwaysSend: true }
-            )
-            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            await this.mergeBlocked('cannot_merge_already_identified', {
+                sourcePersonDistinctId: otherPersonDistinctId,
+                targetPersonDistinctId: mergeIntoDistinctId,
+            })
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
