@@ -347,6 +347,14 @@ class TestBillingAPI(APILicensedTest):
 
         assert response.json() == {
             "customer_id": "cus_123",
+            "customer_id": "cus_123",
+            "customer_trust_scores": {
+                "data_warehouse": 15,
+                "feature_flags": 15,
+                "product_analytics": 15,
+                "session_replay": 15,
+                "surveys": 15,
+            },
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": True,
@@ -359,7 +367,7 @@ class TestBillingAPI(APILicensedTest):
                     "name": "Product OS",
                     "description": "Product Analytics, event pipelines, data warehousing",
                     "price_description": None,
-                    "type": "events",
+                    "type": "product_analytics",
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "free_allocation": 10000,
                     "tiers": [
@@ -427,7 +435,7 @@ class TestBillingAPI(APILicensedTest):
                                     "up_to": 2000000,
                                 },
                             ],
-                            "type": "events",
+                            "type": "addon",
                             "unit_amount_usd": "0.00",
                             "usage_key": "events",
                             "usage_limit": None,
