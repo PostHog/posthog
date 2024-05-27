@@ -14,6 +14,7 @@ from posthog.schema import (
     FunnelLayout,
     PersonPropertyFilter,
     PropertyOperator,
+    RetentionQuery,
     StepOrderValue,
     BreakdownAttributionType,
     TrendsQuery,
@@ -54,7 +55,7 @@ class TestSchemaHelpers(TestCase):
 
         self.assertEqual(to_json(q1), to_json(q2))
         self.assertEqual(to_json(q2), to_json(q3))
-        self.assertIn('"operator":"exact"', str(to_json(q1)))
+        self.assertNotIn("operator", str(to_json(q1)))
 
     @parameterized.expand(
         [
@@ -67,6 +68,19 @@ class TestSchemaHelpers(TestCase):
 
         self.assertEqual(to_json(q1), to_json(q2))
         self.assertEqual(num_keys, len(json.loads(to_json(q1))["dateRange"].keys()))
+
+    @parameterized.expand(
+        [
+            # general: missing filter
+            (None, {}, 7),
+        ]
+    )
+    def test_trends_filter(self, f1, f2, num_keys):
+        q1 = TrendsQuery(**base_funnel, trendsFilter=f1)
+        q2 = TrendsQuery(**base_funnel, trendsFilter=f2)
+
+        self.assertEqual(to_json(q1), to_json(q2))
+        self.assertEqual(num_keys, len(json.loads(to_json(q1))["trendsFilter"].keys()))
 
     @parameterized.expand(
         [
@@ -147,3 +161,16 @@ class TestSchemaHelpers(TestCase):
 
         self.assertEqual(to_json(q1), to_json(q2))
         self.assertEqual(num_keys, len(json.loads(to_json(q1))["funnelsFilter"].keys()))
+
+    @parameterized.expand(
+        [
+            # general: missing filter
+            (None, {}, 7),
+        ]
+    )
+    def test_retention_filter(self, f1, f2, num_keys):
+        q1 = RetentionQuery(**base_funnel, retentionFilter=f1)
+        q2 = RetentionQuery(**base_funnel, retentionFilter=f2)
+
+        self.assertEqual(to_json(q1), to_json(q2))
+        self.assertEqual(num_keys, len(json.loads(to_json(q1))["retentionFilter"].keys()))
