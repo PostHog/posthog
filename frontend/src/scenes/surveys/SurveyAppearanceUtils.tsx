@@ -53,19 +53,29 @@ export function HTMLEditor({
     writingHTMLDescription,
     setWritingHTMLDescription,
     textPlaceholder,
-}: {
+}: // onSurveyValueChange,
+// valueKey,
+// contentTypeKey,
+{
     value?: string
     onChange: (value: any) => void
     writingHTMLDescription: boolean
     setWritingHTMLDescription: (writingHTML: boolean) => void
     textPlaceholder?: string
+    // onSurveyValueChange: (key: string, value: any) => void
+    // valueKey: string
+    // contentTypeKey: string
 }): JSX.Element {
     const { surveysHTMLAvailable } = useValues(surveysLogic)
+
     return (
         <>
             <LemonTabs
                 activeKey={writingHTMLDescription ? 'html' : 'text'}
-                onChange={(key) => setWritingHTMLDescription(key === 'html')}
+                onChange={(key) => {
+                    setWritingHTMLDescription(key === 'html')
+                    // onSurveyValueChange(contentTypeKey, key === 'html' ? 'html' : 'text')
+                }}
                 tabs={[
                     {
                         key: 'text',

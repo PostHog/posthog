@@ -73,6 +73,14 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion(newIndex)
     }
 
+    const handleSurveyValueChange = (key: string, val: string): void => {
+        const updatedAppearance = {
+            ...survey.appearance,
+            [key]: val,
+        }
+        setSurveyValue('appearance', updatedAppearance)
+    }
+
     return (
         <div className="flex flex-row gap-4">
             <div className="flex flex-col gap-2 flex-1 SurveyForm">
@@ -266,9 +274,15 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   writingHTMLDescription={
                                                                                       writingHTMLDescription
                                                                                   }
-                                                                                  setWritingHTMLDescription={
-                                                                                      setWritingHTMLDescription
-                                                                                  }
+                                                                                  setWritingHTMLDescription={(
+                                                                                      isHTML
+                                                                                  ) => {
+                                                                                      setWritingHTMLDescription(isHTML)
+                                                                                      handleSurveyValueChange(
+                                                                                          'thankYouMessageDescriptionContentType',
+                                                                                          isHTML ? 'html' : 'text'
+                                                                                      )
+                                                                                  }}
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
                                                                           </LemonField.Pure>

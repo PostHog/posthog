@@ -2545,6 +2545,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
     // widget only
@@ -2555,9 +2556,12 @@ export interface SurveyAppearance {
     shuffleQuestions?: boolean
 }
 
+export type SurveyQuestionDescriptionContentType = 'html' | 'text'
+
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
+    descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
 }

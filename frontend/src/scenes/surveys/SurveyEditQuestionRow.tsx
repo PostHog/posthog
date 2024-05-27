@@ -85,6 +85,20 @@ export function SurveyEditQuestionHeader({
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
+
+    const handleQuestionValueChange = (key: string, val: string): void => {
+        const updatedQuestion = survey.questions.map((question, idx) => {
+            if (index === idx) {
+                return {
+                    ...question,
+                    [key]: val,
+                }
+            }
+            return question
+        })
+        setSurveyValue('questions', updatedQuestion)
+    }
+
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -143,7 +157,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             value={value}
                             onChange={onChange}
                             writingHTMLDescription={writingHTMLDescription}
-                            setWritingHTMLDescription={setWritingHTMLDescription}
+                            setWritingHTMLDescription={(isHTML) => {
+                                setWritingHTMLDescription(isHTML)
+                                handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
+                            }}
                         />
                     )}
                 </LemonField>
