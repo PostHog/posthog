@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
+from django.contrib.postgres.fields import ArrayField
 
 
 class Survey(UUIDModel):
@@ -66,6 +67,13 @@ class Survey(UUIDModel):
     archived: models.BooleanField = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
     responses_limit = models.PositiveIntegerField(null=True)
+    event_targets = ArrayField(
+        base_field=models.TextField(null=True),
+        blank=True,
+        default=None,
+        null=True,
+        size=None,
+    )
 
 
 @mutable_receiver([post_save, post_delete], sender=Survey)

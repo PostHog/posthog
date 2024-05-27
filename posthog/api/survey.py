@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import date
 
 from django.db.models import Min
 from django.http import JsonResponse
@@ -408,6 +409,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "appearance",
             "start_date",
             "end_date",
+            "event_targets",
         ]
         read_only_fields = fields
 
