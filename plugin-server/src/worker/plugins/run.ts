@@ -1,4 +1,4 @@
-import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -12,34 +12,27 @@ import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 import { pluginActionMsSummary } from '../metrics'
 
-async function runSingleTeamPluginOnEvent(
+async function runPluginOnEvent(
     hub: Hub,
-    event: PostIngestionEvent,
     pluginConfig: PluginConfig,
-    onEvent: VMMethodsConcrete['onEvent']
+    event: ProcessedPluginEvent | PostHogEvent,
+    call: () => Promise<void>
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
+        status.warn('⌛', `Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
-
-    if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
-        // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
-        mutatePostIngestionEventWithElementsList(event)
-    }
-
-    const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     try {
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(processedPluginEvent)
+            await call()
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
                 .observe(new Date().getTime() - timer.getTime())
             await hub.appMetrics.queueMetric({
-                teamId: event.teamId,
+                teamId: event.team_id,
                 pluginConfigId: pluginConfig.id,
                 category: 'onEvent',
                 successes: 1,
@@ -48,10 +41,10 @@ async function runSingleTeamPluginOnEvent(
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-            await processError(hub, pluginConfig, error, processedPluginEvent)
+            await processError(hub, pluginConfig, error, event)
             await hub.appMetrics.queueError(
                 {
-                    teamId: event.teamId,
+                    teamId: event.team_id,
                     pluginConfigId: pluginConfig.id,
                     category: 'onEvent',
                     failures: 1,
@@ -70,12 +63,23 @@ async function runSingleTeamPluginOnEvent(
 export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs onEvent for all plugins for this team in parallel
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'onEvent')
+    const pluginMethodsToRun2 = await getPluginMethodsForTeam(hub, event.teamId, 'onEventWithPostHogEvent')
 
-    await Promise.all(
-        pluginMethodsToRun.map(([pluginConfig, onEvent]) =>
-            runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent)
-        )
-    )
+    await Promise.all([
+        ...pluginMethodsToRun.map(async ([pluginConfig, onEvent]) => {
+            if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
+                // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
+                mutatePostIngestionEventWithElementsList(event)
+            }
+            const processedPluginEvent = convertToProcessedPluginEvent(event)
+
+            await runPluginOnEvent(hub, pluginConfig, processedPluginEvent, () => onEvent(processedPluginEvent))
+        }),
+        ...pluginMethodsToRun2.map(async ([pluginConfig, onEventWithPostHogEvent]) => {
+            const postHogEvent = convertToPostHogEvent(event)
+            await runPluginOnEvent(hub, pluginConfig, postHogEvent, () => onEventWithPostHogEvent(postHogEvent))
+        }),
+    ])
 }
 
 async function runSingleTeamPluginComposeWebhook(

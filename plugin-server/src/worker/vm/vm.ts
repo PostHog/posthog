@@ -181,6 +181,7 @@ export function createPluginConfigVM(
                 setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin'), 'setupPlugin'),
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
+                onEventWithPostHogEvent: __asyncFunctionGuard(__bindMeta('onEventWithPostHogEvent'), 'onEventWithPostHogEvent'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
                 composeWebhook: __bindMeta('composeWebhook'),
                 getSettings: __bindMeta('getSettings'),

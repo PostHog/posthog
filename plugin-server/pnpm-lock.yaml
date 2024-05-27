@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/plugin-scaffold':
-    specifier: 1.4.4
-    version: 1.4.4
+    specifier: 1.7.1
+    version: 1.7.1
   '@sentry/node':
     specifier: ^7.49.0
     version: 7.49.0
@@ -3104,8 +3104,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/plugin-scaffold@1.4.4:
-    resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
+  /@posthog/plugin-scaffold@1.7.1:
+    resolution: {integrity: sha512-XMOGwHNIQ4yQBRlFlYqx9IA2xmIp7hvFEQn42dHSbavWQHtHMSWJUHDHuWftVQmimVBlqKIeT1SBxkpoXl9JtA==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false

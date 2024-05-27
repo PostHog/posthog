@@ -401,11 +401,6 @@ export interface PluginCapabilities {
     methods?: string[]
 }
 
-export enum PluginMethod {
-    onEvent = 'onEvent',
-    composeWebhook = 'composeWebhook',
-}
-
 export interface PluginConfig {
     id: number
     team_id: TeamId
@@ -418,10 +413,6 @@ export interface PluginConfig {
     vm?: LazyPluginVM | null
     created_at: string
     updated_at?: string
-    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
-    // we'll need to know which method this plugin is using to call it the right way
-    // undefined for old plugins with multiple or deprecated methods
-    method?: PluginMethod
 }
 
 export interface PluginJsonConfig {
@@ -504,6 +495,7 @@ export type VMMethods = {
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
+    onEventWithPostHogEvent?: (event: PostHogEvent) => Promise<void>
     composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }

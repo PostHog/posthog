@@ -67,6 +67,12 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
         distinct_id: event.distinctId,
         properties: event.properties,
         timestamp: new Date(event.timestamp),
+        person: {
+            uuid: event.person_id,
+            properties: event.person_properties,
+            posthog_url: '', // TODO
+        },
+        // TODO: group
     }
 }
 
