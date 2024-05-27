@@ -13,13 +13,7 @@ SESSION_BUFFER_DAYS = 3
 
 
 class WhereClauseExtractor(CloningVisitor):
-    """This class extracts the Where clause from the lazy sessions table, to the clickhouse sessions table.
-
-    The sessions table in Clickhouse is an AggregatingMergeTree, and will have one row per session per day. This means that
-    when we want to query sessions, we need to pre-group these rows, so that we only have one row per session.
-
-    We hide this detail using a lazy table, but to make querying the underlying Clickhouse table faster, we can inline the
-    min_timestamp where conditions from the select on the outer lazy table to the select on the inner real table.
+    """This class extracts reductive filters from the Where clause into a lazily joined table.
 
     This class is called on the select query of the lazy table, and will return the where clause that should be applied to
     the inner table.
@@ -287,12 +281,17 @@ class WhereClauseExtractor(CloningVisitor):
         exprs = [self.visit(expr) for expr in node.exprs]
         flattened = flatten_ands(exprs)
 
-        if any(isinstance(expr, ast.Constant) and is_not_truthy(expr.value) for expr in flattened):
-            return ast.Constant(value=self.tombstone_string)
+        filtered = []
+        for expr in flattened:
+            if isinstance(expr, ast.Constant):
+                if is_not_truthy(expr.value):
+                    return ast.Constant(value=False)
+                # skip all tombstones
+            else:
+                filtered.append(expr)
 
-        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant) or is_not_truthy(expr.value)]
         if len(filtered) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=False)
         elif len(filtered) == 1:
             return filtered[0]
         else:
@@ -302,12 +301,18 @@ class WhereClauseExtractor(CloningVisitor):
         exprs = [self.visit(expr) for expr in node.exprs]
         flattened = flatten_ors(exprs)
 
-        if any(isinstance(expr, ast.Constant) and is_truthy(expr.value) for expr in flattened):
-            return ast.Constant(value=True)
+        filtered = []
+        for expr in flattened:
+            if has_tombstone(expr, self.tombstone_string):
+                return ast.Constant(value=self.tombstone_string)
+            if isinstance(expr, ast.Constant):
+                if is_truthy(expr.value):
+                    return ast.Constant(value=True)
+            else:
+                filtered.append(expr)
 
-        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant)]
         if len(filtered) == 0:
-            return ast.Constant(value=self.tombstone_string)
+            return ast.Constant(value=False)
         elif len(filtered) == 1:
             return filtered[0]
         else:
