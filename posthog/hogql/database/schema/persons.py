@@ -88,7 +88,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
 
     if context.modifiers.optimizeJoinedFilters == "true":
         extractor = WhereClauseExtractor(context)
-        extractor.import_tables(join_or_table)
+        extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
         if where and select.where:
             select.where = And(exprs=[select.where, where])

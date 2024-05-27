@@ -95,16 +95,16 @@ class Table(FieldOrTable):
     def get_asterisk(self):
         fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
         asterisk: dict[str, FieldOrTable] = {}
-        for key, fld in self.fields.items():
+        for key, field_ in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if isinstance(fld, Table) or isinstance(fld, LazyJoin) or isinstance(fld, FieldTraverser):
+            if isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
-            elif isinstance(fld, DatabaseField):
-                if not fld.hidden:  # Skip over hidden field
-                    asterisk[key] = fld
+            elif isinstance(field_, DatabaseField):
+                if not field_.hidden:  # Skip over hidden field
+                    asterisk[key] = field_
             else:
-                raise ResolutionError(f"Unknown field type {type(fld).__name__} for asterisk")
+                raise ResolutionError(f"Unknown field type {type(field_).__name__} for asterisk")
         return asterisk
 
 

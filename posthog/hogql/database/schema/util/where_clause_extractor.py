@@ -56,7 +56,8 @@ class WhereClauseExtractor(CloningVisitor):
         self.context = context
         self.our_tables = []
 
-    def import_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
+    def add_local_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
+        """Add the tables whose filters to extract into a new where clause."""
         if isinstance(join_or_table, LazyJoinToAdd):
             if join_or_table.lazy_join not in self.our_tables:
                 self.our_tables.append(join_or_table.lazy_join)
@@ -64,16 +65,17 @@ class WhereClauseExtractor(CloningVisitor):
             if join_or_table.lazy_table not in self.our_tables:
                 self.our_tables.append(join_or_table.lazy_table)
 
-    def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
-        if not parsed_query.where and not parsed_query.prewhere:
+    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+        """Return the where clause that should be applied to the inner table. If None is returned, no pre-filtering is possible."""
+        if not select_query.where and not select_query.prewhere:
             return None
 
         # visit the where clause
         wheres = []
-        if parsed_query.where:
-            wheres.append(parsed_query.where)
-        if parsed_query.prewhere:
-            wheres.append(parsed_query.prewhere)
+        if select_query.where:
+            wheres.append(select_query.where)
+        if select_query.prewhere:
+            wheres.append(select_query.prewhere)
 
         if len(wheres) == 1:
             where = self.visit(wheres[0])
@@ -88,86 +90,88 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         is_left_constant = is_time_or_interval_constant(node.left)
         is_right_constant = is_time_or_interval_constant(node.right)
-        is_left_timestamp_field = self.capture_timestamp_comparisons and is_simple_timestamp_field_expression(
-            node.left, self.context
-        )
-        is_right_timestamp_field = self.capture_timestamp_comparisons and is_simple_timestamp_field_expression(
-            node.right, self.context
-        )
 
+        # just ignore constant comparison
         if is_left_constant and is_right_constant:
-            # just ignore this comparison
             return ast.Constant(value=True)
 
-        # handle the left side being a min_timestamp expression and the right being constant
-        if is_left_timestamp_field and is_right_constant:
-            if node.op == CompareOperationOp.Eq:
-                return ast.And(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.LtEq,
-                            left=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Sub,
-                                left=rewrite_timestamp_field(node.left, self.context),
-                                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
+        # extract timestamps from the main query into e.g. the sessions subquery
+        if self.capture_timestamp_comparisons:
+            is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context)
+            is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context)
+            # handle the left side being a min_timestamp expression and the right being constant
+            if is_left_timestamp_field and is_right_constant:
+                if node.op == CompareOperationOp.Eq:
+                    return ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.ArithmeticOperation(
+                                    op=ast.ArithmeticOperationOp.Sub,
+                                    left=rewrite_timestamp_field(node.left, self.context),
+                                    right=ast.Call(
+                                        name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]
+                                    ),
+                                ),
+                                right=node.right,
                             ),
-                            right=node.right,
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
-                            left=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Add,
-                                left=rewrite_timestamp_field(node.left, self.context),
-                                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.ArithmeticOperation(
+                                    op=ast.ArithmeticOperationOp.Add,
+                                    left=rewrite_timestamp_field(node.left, self.context),
+                                    right=ast.Call(
+                                        name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]
+                                    ),
+                                ),
+                                right=node.right,
                             ),
-                            right=node.right,
-                        ),
-                    ]
-                )
-            elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Add,
-                        left=rewrite_timestamp_field(node.left, self.context),
-                        right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
-                    ),
-                    right=node.right,
-                )
-            elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Sub,
-                        left=rewrite_timestamp_field(node.left, self.context),
-                        right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
-                    ),
-                    right=node.right,
-                )
-        elif is_right_timestamp_field and is_left_constant:
-            # let's not duplicate the logic above, instead just flip and it and recurse
-            if node.op in [
-                CompareOperationOp.Eq,
-                CompareOperationOp.Lt,
-                CompareOperationOp.LtEq,
-                CompareOperationOp.Gt,
-                CompareOperationOp.GtEq,
-            ]:
-                return self.visit(
-                    ast.CompareOperation(
-                        op=CompareOperationOp.Eq
-                        if node.op == CompareOperationOp.Eq
-                        else CompareOperationOp.Lt
-                        if node.op == CompareOperationOp.Gt
-                        else CompareOperationOp.LtEq
-                        if node.op == CompareOperationOp.GtEq
-                        else CompareOperationOp.Gt
-                        if node.op == CompareOperationOp.Lt
-                        else CompareOperationOp.GtEq,
-                        left=node.right,
-                        right=node.left,
+                        ]
                     )
-                )
+                elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
+                    return ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Add,
+                            left=rewrite_timestamp_field(node.left, self.context),
+                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
+                        ),
+                        right=node.right,
+                    )
+                elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
+                    return ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Sub,
+                            left=rewrite_timestamp_field(node.left, self.context),
+                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
+                        ),
+                        right=node.right,
+                    )
+            elif is_right_timestamp_field and is_left_constant:
+                # let's not duplicate the logic above, instead just flip and it and recurse
+                if node.op in [
+                    CompareOperationOp.Eq,
+                    CompareOperationOp.Lt,
+                    CompareOperationOp.LtEq,
+                    CompareOperationOp.Gt,
+                    CompareOperationOp.GtEq,
+                ]:
+                    return self.visit(
+                        ast.CompareOperation(
+                            op=CompareOperationOp.Eq
+                            if node.op == CompareOperationOp.Eq
+                            else CompareOperationOp.Lt
+                            if node.op == CompareOperationOp.Gt
+                            else CompareOperationOp.LtEq
+                            if node.op == CompareOperationOp.GtEq
+                            else CompareOperationOp.Gt
+                            if node.op == CompareOperationOp.Lt
+                            else CompareOperationOp.GtEq,
+                            left=node.right,
+                            right=node.left,
+                        )
+                    )
 
         # Check if any of the fields are a field on our requested table
         if len(self.our_tables) > 0:
@@ -272,13 +276,7 @@ class WhereClauseExtractor(CloningVisitor):
 
     def visit_and(self, node: ast.And) -> ast.Expr:
         exprs = [self.visit(expr) for expr in node.exprs]
-
-        flattened = []
-        for expr in exprs:
-            if isinstance(expr, ast.And):
-                flattened.extend(expr.exprs)
-            else:
-                flattened.append(expr)
+        flattened = flatten_ands(exprs)
 
         if any(isinstance(expr, ast.Constant) and expr.value is False for expr in flattened):
             return ast.Constant(value=False)
@@ -293,13 +291,7 @@ class WhereClauseExtractor(CloningVisitor):
 
     def visit_or(self, node: ast.Or) -> ast.Expr:
         exprs = [self.visit(expr) for expr in node.exprs]
-
-        flattened = []
-        for expr in exprs:
-            if isinstance(expr, ast.Or):
-                flattened.extend(expr.exprs)
-            else:
-                flattened.append(expr)
+        flattened = flatten_ors(exprs)
 
         if any(isinstance(expr, ast.Constant) and expr.value is True for expr in flattened):
             return ast.Constant(value=True)
@@ -520,3 +512,23 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
         return self.visit(node.expr)
+
+
+def flatten_ands(exprs):
+    flattened = []
+    for expr in exprs:
+        if isinstance(expr, ast.And):
+            flattened.extend(flatten_ands(expr.exprs))
+        else:
+            flattened.append(expr)
+    return flattened
+
+
+def flatten_ors(exprs):
+    flattened = []
+    for expr in exprs:
+        if isinstance(expr, ast.Or):
+            flattened.extend(flatten_ors(expr.exprs))
+        else:
+            flattened.append(expr)
+    return flattened

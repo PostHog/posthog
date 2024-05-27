@@ -28,7 +28,7 @@ def parse(
     return parsed
 
 
-class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
+class TestSessionWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     @property
     def inliner(self):
         team = self.team
