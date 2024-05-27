@@ -383,8 +383,6 @@ export interface Plugin {
     source__frontend_tsx?: string
     /** Cached source for site.ts from a joined PluginSourceFile query */
     source__site_ts?: string
-    /** Cached bytecode for onevent.hog from a joined PluginSourceFile query */
-    bytecode__onevent?: any[]
     error?: PluginError
     from_json?: boolean
     from_web?: boolean

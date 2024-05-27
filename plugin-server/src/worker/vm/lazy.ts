@@ -45,7 +45,7 @@ const pluginDisabledBySystemCounter = new Counter({
 })
 
 export class LazyPluginVM {
-    initialize?: (indexJs: string, logInfo: string, bytecode?: any[]) => Promise<void>
+    initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
     usedImports: Set<string> | undefined
@@ -131,9 +131,9 @@ export class LazyPluginVM {
 
     private initVm() {
         this.resolveInternalVm = new Promise((resolve) => {
-            this.initialize = async (indexJs: string, logInfo = '', bytecode?: any[]) => {
+            this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
-                    const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs, bytecode)
+                    const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.usedImports = vm.usedImports
                     this.vmResponseVariable = vm.vmResponseVariable
 
@@ -234,9 +234,7 @@ export class LazyPluginVM {
                     throw Error('Only 1x replication is allowed')
                 }
             }
-            if (!this.pluginConfig.plugin?.bytecode__onevent) {
-                await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
-            }
+            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             pluginSetupMsSummary
                 .labels({ plugin_id: pluginId, status: 'success' })
                 .observe(new Date().getTime() - timer.getTime())
@@ -326,7 +324,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         status.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
         return
     }
-    if (!plugin.source__index_ts || !plugin.bytecode__onevent) {
+    if (!plugin.source__index_ts) {
         status.error('🔌', `Plugin with ID ${pluginId} has no index.ts/onEvent.hog file for populating capabilities.`)
         return
     }
@@ -343,8 +341,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
             created_at: '0',
             config: {},
         },
-        plugin.source__index_ts || '',
-        plugin.bytecode__onevent
+        plugin.source__index_ts || ''
     )
     const capabilities = getVMPluginCapabilities(methods, tasks)
 
