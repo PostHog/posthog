@@ -115,7 +115,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
         fileNames: [
             () => [],
             (): string[] => {
-                return Array.from(new Set(['plugin.json', 'onEvent.hog', 'index.ts', 'frontend.tsx', 'site.ts']))
+                return Array.from(new Set(['plugin.json', 'index.ts', 'frontend.tsx', 'site.ts']))
             },
         ],
     }),

@@ -56,6 +56,4 @@ export const scene = {
         4
     ),
     'site.ts': "export function inject({ config, posthog }) {\n    console.log('Hello from PostHog-JS')\n}\n",
-    'onEvent.hog':
-        "fn onEvent() {\n    print(event.properties.$browser);\n    httpGet('https://webhook.site/something' + event.properties.$browser);\n    sleep(10);\n    print('you\\'re in Greece mate, halara!');\n}\n\nonEvent();\n",
 })
