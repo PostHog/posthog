@@ -282,7 +282,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
 
-        self.assertEqual(action1.bytecode, action1.generate_bytecode())
+        self.assertEqual(action1.bytecode, action1.refresh_bytecode())
         self.assertEqual(
             action1.bytecode,
             [
