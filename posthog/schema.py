@@ -1010,7 +1010,7 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = "numeric"
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
@@ -1020,10 +1020,10 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[list[float]] = None
     showLabelsOnSeries: Optional[bool] = None
-    showLegend: Optional[bool] = None
-    showPercentStackView: Optional[bool] = None
-    showValuesOnSeries: Optional[bool] = None
-    smoothingIntervals: Optional[float] = None
+    showLegend: Optional[bool] = False
+    showPercentStackView: Optional[bool] = False
+    showValuesOnSeries: Optional[bool] = False
+    smoothingIntervals: Optional[float] = 1
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -2403,13 +2403,13 @@ class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    period: Optional[RetentionPeriod] = None
-    retentionReference: Optional[RetentionReference] = None
-    retentionType: Optional[RetentionType] = None
+    period: Optional[RetentionPeriod] = "Day"
+    retentionReference: Optional[RetentionReference] = "total"
+    retentionType: Optional[RetentionType] = "retention_first_time"
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[bool] = None
+    showMean: Optional[bool] = False
     targetEntity: Optional[RetentionEntity] = None
-    totalIntervals: Optional[int] = None
+    totalIntervals: Optional[float] = 11
 
 
 class RetentionFilterLegacy(BaseModel):
@@ -2417,7 +2417,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = None
+    retention_reference: Optional[RetentionReference] = "total"
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
@@ -3390,7 +3390,7 @@ class RetentionQuery(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3416,7 +3416,7 @@ class RetentionQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
@@ -3430,7 +3430,7 @@ class StickinessQuery(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -3459,7 +3459,7 @@ class StickinessQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[StickinessQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -3475,12 +3475,15 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(
+        default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
+        description="Breakdown of the events and actions",
+    )
     dateRange: Optional[DateRange] = Field(
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
         default="day", description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -3509,7 +3512,7 @@ class TrendsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -3579,12 +3582,15 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(
+        default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
+        description="Breakdown of the events and actions",
+    )
     dateRange: Optional[DateRange] = Field(
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
         default_factory=lambda: FunnelsFilter.model_validate({"exclusions": []}),
@@ -3617,7 +3623,7 @@ class FunnelsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -3634,7 +3640,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3660,7 +3666,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
@@ -3674,7 +3680,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3700,7 +3706,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
@@ -3714,7 +3720,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3740,7 +3746,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
@@ -3754,7 +3760,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3780,7 +3786,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
@@ -3794,7 +3800,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3820,7 +3826,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
@@ -3834,7 +3840,7 @@ class LifecycleQuery(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -3866,7 +3872,7 @@ class LifecycleQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -4005,7 +4011,7 @@ class PathsQuery(BaseModel):
         default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
     )
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=False, description="Exclude internal and test users by applying the respective filters"
     )
     funnelPathsFilter: Optional[FunnelPathsFilter] = Field(
         default=None, description="Used for displaying paths in relation to funnel steps."
@@ -4035,7 +4041,7 @@ class PathsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(default=None, description="Property filters for all series")
+    ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 

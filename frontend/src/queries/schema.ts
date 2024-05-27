@@ -624,15 +624,24 @@ interface InsightVizNodeViewProps {
 
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
-    /** Date range for the query @default {"date_from": "-7d"}*/
+    /**
+     * Date range for the query
+     * @default {"date_from": "-7d"}
+     */
     dateRange?: DateRange
-    /** Exclude internal and test users by applying the respective filters */
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @default false
+     */
     filterTestAccounts?: boolean
-    /** Property filters for all series */
+    /**
+     * Property filters for all series
+     * @default []
+     */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /**
      * Groups aggregation
-     **/
+     */
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
@@ -648,20 +657,25 @@ export type TrendsFilterLegacy = Omit<
 >
 
 export type TrendsFilter = {
+    /** @default 1 */
     smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
     /** @default false */
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
+    /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
@@ -683,7 +697,10 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * @default {"display": "ActionsLineGraph"}
      */
     trendsFilter?: TrendsFilter
-    /** Breakdown of the events and actions */
+    /**
+     * Breakdown of the events and actions
+     * @default {"breakdown_type": "event"}
+     */
     breakdownFilter?: BreakdownFilter
 }
 
@@ -750,7 +767,10 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
      * @default {"exclusions":[]}
      * */
     funnelsFilter?: FunnelsFilter
-    /** Breakdown of the events and actions */
+    /**
+     * Breakdown of the events and actions
+     * @default {"breakdown_type": "event"}
+     */
     breakdownFilter?: BreakdownFilter
 }
 
@@ -773,12 +793,17 @@ export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryRespo
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 
 export type RetentionFilter = {
+    /** @default retention_first_time */
     retentionType?: RetentionFilterLegacy['retention_type']
+    /** @default total */
     retentionReference?: RetentionFilterLegacy['retention_reference']
+    /** @default 11 */
     totalIntervals?: RetentionFilterLegacy['total_intervals']
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
+    /** @default Day */
     period?: RetentionFilterLegacy['period']
+    /** @default false */
     showMean?: RetentionFilterLegacy['show_mean']
 }
 

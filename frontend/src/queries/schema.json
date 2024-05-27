@@ -3740,6 +3740,9 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
+                    "default": {
+                        "breakdown_type": "event"
+                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
@@ -3750,6 +3753,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -3784,6 +3788,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4618,6 +4623,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4640,6 +4646,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4669,6 +4676,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4691,6 +4699,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4720,6 +4729,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4742,6 +4752,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4771,6 +4782,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4793,6 +4805,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4822,6 +4835,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4844,6 +4858,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4913,6 +4928,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4944,6 +4960,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -5228,6 +5245,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -5259,6 +5277,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -6851,26 +6870,31 @@
             "additionalProperties": false,
             "properties": {
                 "period": {
-                    "$ref": "#/definitions/RetentionPeriod"
+                    "$ref": "#/definitions/RetentionPeriod",
+                    "default": "Day"
                 },
                 "retentionReference": {
+                    "default": "total",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
                 "retentionType": {
-                    "$ref": "#/definitions/RetentionType"
+                    "$ref": "#/definitions/RetentionType",
+                    "default": "retention_first_time"
                 },
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "showMean": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "totalIntervals": {
-                    "type": "integer"
+                    "default": 11,
+                    "type": "number"
                 }
             },
             "type": "object"
@@ -6923,6 +6947,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -6946,6 +6971,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7322,6 +7348,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -7349,6 +7376,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7624,7 +7652,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregationAxisFormat": {
-                    "$ref": "#/definitions/AggregationAxisFormat"
+                    "$ref": "#/definitions/AggregationAxisFormat",
+                    "default": "numeric"
                 },
                 "aggregationAxisPostfix": {
                     "type": "string"
@@ -7659,15 +7688,19 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showPercentStackView": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
+                    "default": 1,
                     "type": "number"
                 }
             },
@@ -7734,6 +7767,9 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
+                    "default": {
+                        "breakdown_type": "event"
+                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
@@ -7744,6 +7780,7 @@
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -7772,6 +7809,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {

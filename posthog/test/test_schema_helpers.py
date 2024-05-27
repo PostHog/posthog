@@ -58,7 +58,7 @@ class TestSchemaHelpers(TestCase):
 
     @parameterized.expand(
         [
-            ({}, {"date_from": "-7d", "explicitDate": False}, 0),
+            ({}, {"date_from": "-7d", "explicitDate": False}, 2),
         ]
     )
     def test_date_range(self, f1, f2, num_keys):
@@ -66,10 +66,7 @@ class TestSchemaHelpers(TestCase):
         q2 = TrendsQuery(**base_funnel, dateRange=f2)
 
         self.assertEqual(to_json(q1), to_json(q2))
-        if num_keys == 0:
-            self.assertEqual("dateRange" in json.loads(to_json(q1)), False)
-        else:
-            self.assertEqual(num_keys, len(json.loads(to_json(q1))["dateRange"].keys()))
+        self.assertEqual(num_keys, len(json.loads(to_json(q1))["dateRange"].keys()))
 
     @parameterized.expand(
         [
