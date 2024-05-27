@@ -358,7 +358,9 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         if refresh_requested_by_client(self.context["request"]) is None:
             # If dashboard does not explicitly request a refresh, default to False
-            self.context["request"].data["refresh"] = False
+            request_data = self.context["request"].data.copy()
+            request_data["refresh"] = False
+            self.context["request"]._request.POST = request_data
 
         serialized_tiles = []
 
