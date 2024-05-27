@@ -314,7 +314,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         queryset = queryset.select_related("organization")
 
-        if self.action == "get" or self.action == "list":
+        if self.action == "retrieve" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
         else:
