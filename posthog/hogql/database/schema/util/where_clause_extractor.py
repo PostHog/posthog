@@ -236,7 +236,8 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_compare_operation(
                 ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
             )
-        return ast.Constant(value=True)
+
+        return ast.Call(name=node.name, args=[self.visit(arg) for arg in node.args])
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         # if field in requested list

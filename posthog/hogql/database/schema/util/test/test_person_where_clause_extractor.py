@@ -141,3 +141,23 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         expected = f("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
+
+    def test_person_properties_function_calls(self):
+        actual = self.get_clause(
+            "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
+        )
+        expected = f("toString(properties.email) = 'jimmy@posthog.com'")
+        assert actual == expected
+
+    def test_person_properties_function_call_args(self):
+        actual = self.get_clause(
+            "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, 10) = 'jimmy@posthog.com'"
+        )
+        expected = f("substring(properties.email, 10) = 'jimmy@posthog.com'")
+        assert actual == expected
+
+    def test_person_properties_function_call_args_complex(self):
+        actual = self.get_clause(
+            "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, event = 'bla') = 'jimmy@posthog.com'"
+        )
+        assert actual is None
