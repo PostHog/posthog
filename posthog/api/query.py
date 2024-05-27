@@ -1,8 +1,10 @@
 import re
+from typing import cast
 import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
 from posthog.hogql_queries.query_runner import ExecutionMode
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -66,8 +68,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         if data.async_:
             query_status = enqueue_process_query_task(
-                team_id=self.team.pk,
-                user_id=self.request.user.pk,
+                team=self.team,
+                user=cast(User, self.request.user),
                 query_json=request.data["query"],
                 query_id=client_query_id,
                 refresh_requested=data.refresh or False,
@@ -83,6 +85,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if data.refresh
                 else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
             )
+            if isinstance(result, BaseModel):
+                result = result.model_dump(by_alias=True)
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))

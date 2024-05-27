@@ -14,12 +14,14 @@ import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
-    const { currentTab, canGloballyManagePlugins } = useValues(pipelineLogic)
+    const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
+    const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
 
     let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {

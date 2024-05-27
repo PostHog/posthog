@@ -3849,6 +3849,15 @@
                             "limit": null,
                             "note": "12 hours",
                             "is_plan_default": true
+                        },
+                        {
+                            "key": "managed_reverse_proxy",
+                            "name": "Managed reverse proxy",
+                            "description": "Get help from our team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": null,
+                            "is_plan_default": true
                         }
                     ],
                     "tiers": [],
@@ -4308,6 +4317,15 @@
                                     "unit": null,
                                     "limit": null,
                                     "note": "12 hours",
+                                    "is_plan_default": true
+                                },
+                                {
+                                    "key": "managed_reverse_proxy",
+                                    "name": "Managed reverse proxy",
+                                    "description": "Send events through your own domain to capture more usage data without having to self-host PostHog.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null,
                                     "is_plan_default": true
                                 }
                             ],

@@ -8,16 +8,15 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useCallback } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
-import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
 
 interface DatabaseTableProps {
     table: string
-    tables: DatabaseTableListRow[]
+    tables: DatabaseSchemaTable[]
     inEditSchemaMode: boolean
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
 }
@@ -44,7 +43,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
     const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
-    const { loadDataWarehouse, loadDatabase } = useActions(dataWarehouseSceneLogic)
+    const { loadDatabase } = useActions(dataWarehouseSceneLogic)
 
     const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
 
@@ -68,7 +67,6 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                                     name: `${join.field_name} on ${join.source_table_name}`,
                                 },
                                 callback: () => {
-                                    loadDataWarehouse()
                                     loadDatabase()
                                     loadJoins()
                                 },
@@ -86,20 +84,19 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 }
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
-    const { externalTables, allTablesLoading } = useValues(dataWarehouseSceneLogic)
-
-    const dataSource = tables.find(({ name }) => name === table)?.columns ?? []
+    const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
+    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSceneLogic)
 
     return (
         <LemonTable
             dataSource={dataSource}
-            loading={allTablesLoading}
+            loading={databaseLoading}
             disableTableWhileLoading={false}
             columns={[
                 {
                     title: 'Column',
                     key: 'key',
-                    dataIndex: 'key',
+                    dataIndex: 'name',
                     render: function RenderColumn(column) {
                         return <code>{column}</code>
                     },
@@ -108,7 +105,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Type',
                     key: 'type',
                     dataIndex: 'type',
-                    render: function RenderType(_, { key, type, schema_valid }) {
+                    render: function RenderType(_, { name, type, schema_valid }) {
                         if (inEditSchemaMode && !isNonEditableSchemaType(type)) {
                             return (
                                 <LemonSelect
@@ -116,7 +113,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                                     value={type}
                                     onChange={(newValue) => {
                                         if (schemaOnChange) {
-                                            schemaOnChange(key, newValue as DatabaseSerializedFieldType)
+                                            schemaOnChange(name, newValue as DatabaseSerializedFieldType)
                                         }
                                     }}
                                 />
@@ -171,17 +168,17 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                             )
                         } else if (type === 'field_traverser' && Array.isArray((field as any).chain)) {
                             return <code>{(field as any).chain.join('.')}</code>
-                        } else if (table == 'events' && type == 'json' && field.key == 'properties') {
+                        } else if (table == 'events' && type == 'json' && field.name == 'properties') {
                             return <Link to={urls.propertyDefinitions('event')}>Manage event properties</Link>
-                        } else if (table == 'persons' && type == 'json' && field.key == 'properties') {
+                        } else if (table == 'persons' && type == 'json' && field.name == 'properties') {
                             return <Link to={urls.propertyDefinitions('person')}>Manage person properties</Link>
                         }
 
                         if (!field.schema_valid && !inEditSchemaMode) {
                             return (
                                 <>
-                                    <code>{field.key}</code> can't be parsed as a <code>{field.type}</code>. It will not
-                                    be queryable until this is fixed.
+                                    <code>{field.name}</code> can't be parsed as a <code>{field.type}</code>. It will
+                                    not be queryable until this is fixed.
                                 </>
                             )
                         }
@@ -194,15 +191,15 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     dataIndex: 'type',
                     render: function RenderActions(_, data) {
                         if (data.type === 'view') {
-                            return <JoinsMoreMenu tableName={table} fieldName={data.key} />
+                            return <JoinsMoreMenu tableName={table} fieldName={data.name} />
                         }
 
                         if (data.type === 'lazy_table' && data.table) {
-                            const isJoiningTableExternalTable = !!externalTables.find((n) => n.name === data.table)
-                            const isSourceExternalTable = !!externalTables.find((n) => n.name === table)
+                            const isJoiningTableExternalTable = !!dataWarehouseTables.find((n) => n.name === data.table)
+                            const isSourceExternalTable = !!dataWarehouseTables.find((n) => n.name === table)
 
                             if (isJoiningTableExternalTable || isSourceExternalTable) {
-                                return <JoinsMoreMenu tableName={table} fieldName={data.key} />
+                                return <JoinsMoreMenu tableName={table} fieldName={data.name} />
                             }
                         }
 

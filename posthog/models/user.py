@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Optional, TypedDict
-from collections.abc import Callable
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -148,7 +148,7 @@ class User(AbstractUser, UUIDClassicModel):
     strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
-    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
     partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
@@ -160,6 +160,8 @@ class User(AbstractUser, UUIDClassicModel):
 
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
+    # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # Remove unused attributes from `AbstractUser`
     username = None
@@ -241,6 +243,8 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
         if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
             self.update_billing_customer_email(organization)
+        if level >= OrganizationMembership.Level.ADMIN:
+            self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
         return membership
 
@@ -264,6 +268,7 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
 
     def update_billing_distinct_ids(self, organization: Organization) -> None:
@@ -277,6 +282,12 @@ class User(AbstractUser, UUIDClassicModel):
 
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
+
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_admin_emails(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
@@ -296,7 +307,6 @@ class User(AbstractUser, UUIDClassicModel):
 
         return {
             "realm": get_instance_realm(),
-            "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,

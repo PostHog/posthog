@@ -1,3 +1,4 @@
+import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
@@ -14,6 +15,7 @@ import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
+import { ManagedReverseProxy } from './project/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -26,7 +28,6 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
-import { Proxy } from './project/Proxy'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -151,6 +152,12 @@ export const SettingsMap: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'persons-join-mode',
+                title: 'Persons join mode',
+                component: <PersonsJoinMode />,
+                flag: 'SETTINGS_PERSONS_JOIN_MODE',
             },
         ],
     },
@@ -322,13 +329,12 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-proxy',
-        title: 'Proxy',
-        flag: 'PROXY_AS_A_SERVICE',
+        title: 'Managed reverse proxy',
         settings: [
             {
                 id: 'organization-proxy',
-                title: 'Proxy',
-                component: <Proxy />,
+                title: 'Managed reverse proxies',
+                component: <ManagedReverseProxy />,
             },
         ],
     },

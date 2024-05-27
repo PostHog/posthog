@@ -5,7 +5,7 @@ const createAction = (actionName: string): void => {
     cy.get('input[name="item-name-large"]').should('exist')
 
     cy.get('input[name="item-name-large"]').type(actionName)
-    cy.get('.LemonSegmentedButton > ul > :nth-child(2)').click() // Click "Pageview"
+    cy.get('[data-attr=action-type-pageview]').click() // Click "Pageview"
     cy.get('[data-attr=edit-action-url-input]').click().type(Cypress.config().baseUrl)
 
     cy.get('[data-attr=save-action-button]').first().click()

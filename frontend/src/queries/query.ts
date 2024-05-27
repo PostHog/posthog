@@ -119,8 +119,13 @@ async function executeQuery<N extends DataNode>(
 
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
-    if (!isAsyncQuery || !response.query_async) {
+    if (!response.query_async) {
+        // Executed query synchronously
         return response
+    }
+    if (response.complete || response.error) {
+        // Async query returned immediately
+        return response.results
     }
 
     const pollStart = performance.now()

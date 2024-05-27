@@ -314,10 +314,6 @@ const columns: LemonTableColumns<BatchExportLogEntry> = [
 export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
     const { activeTab, batchExportConfig, batchExportConfigLoading } = useValues(batchExportLogic)
 
-    if (!batchExportConfig || batchExportConfigLoading || !activeTab) {
-        return <LemonSkeleton />
-    }
-
     const logic = batchExportLogsLogic({ batchExportId })
     const {
         batchExportLogs,
@@ -327,6 +323,10 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
         batchExportLogsTypes,
     } = useValues(logic)
     const { revealBackground, loadBatchExportLogsMore, setBatchExportLogsTypes, setSearchTerm } = useActions(logic)
+
+    if (!batchExportConfig || batchExportConfigLoading || !activeTab) {
+        return <LemonSkeleton />
+    }
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">

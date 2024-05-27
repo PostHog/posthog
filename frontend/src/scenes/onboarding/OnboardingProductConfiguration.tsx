@@ -1,7 +1,9 @@
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
+
+import { ProductKey } from '~/types'
 
 import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
@@ -26,30 +28,20 @@ type ConfigOption =
           onChange: (newValue: boolean) => void
       }
 
-interface PluginContent {
-    title: string
-    description: string
-}
-type PluginContentMapping = Record<string, PluginContent>
-const pluginContentMapping: PluginContentMapping = {
-    GeoIP: {
-        title: 'Capture location information',
-        description:
-            'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
-    },
-}
-
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
+    product,
 }: {
     stepKey?: OnboardingStepKey
     options: (ProductConfigOption | undefined)[]
+    // which product is being configured
+    product?: ProductKey
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
-    const { defaultEnabledPlugins } = useValues(pluginsLogic)
+    const { pipelineDefaultEnabled } = useValues(pipelineDefaultEnabledLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
-    const { toggleEnabled } = useActions(pluginsLogic)
+    const { toggleEnabled } = useActions(pipelineDefaultEnabledLogic)
 
     const configOptionsRef = useRef(configOptions)
 
@@ -79,21 +71,24 @@ export const OnboardingProductConfiguration = ({
                     setConfigOptions(updatedConfigOptions)
                 },
             })),
-        ...defaultEnabledPlugins.map((plugin) => {
-            const pluginContent = pluginContentMapping[plugin.name]
-            return {
-                title: pluginContent?.title || plugin.name,
-                description: pluginContent?.description || plugin.description,
-                type: 'plugin' as PluginType,
-                value: plugin.pluginConfig?.enabled || false,
-                onChange: (newValue: boolean) => {
-                    toggleEnabled({
-                        id: plugin.pluginConfig?.id,
-                        enabled: newValue,
-                    })
-                },
-            }
-        }),
+        ...pipelineDefaultEnabled
+            .filter((plugin) => {
+                return !(product && plugin?.productOnboardingDenyList?.includes(product))
+            })
+            .map((item) => {
+                return {
+                    title: item.title,
+                    description: item.description,
+                    type: 'plugin' as PluginType,
+                    value: item.enabled,
+                    onChange: (enabled: boolean) => {
+                        toggleEnabled({
+                            id: item.id,
+                            enabled: enabled,
+                        })
+                    },
+                }
+            }),
     ]
 
     return combinedList.length > 0 ? (

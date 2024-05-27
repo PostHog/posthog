@@ -230,6 +230,7 @@ class PathsQueryRunner(QueryRunner):
                         left=ast.Field(chain=["events", "person_id"]),
                         right=ast.Field(chain=["funnel_actors", "actor_id"]),
                     ),
+                    constraint_type="ON",
                 ),
             ),
         )
