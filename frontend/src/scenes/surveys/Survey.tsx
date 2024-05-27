@@ -86,7 +86,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             <LemonDivider />
             <SurveyEdit />
             <LemonDivider />
-            <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
+            <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -112,7 +112,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function SurveyReleaseSummary({
+export function SurveyDisplaySummary({
     id,
     survey,
     targetingFlagFilters,
@@ -121,11 +121,17 @@ export function SurveyReleaseSummary({
     survey: Survey | NewSurvey
     targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
+    const hasConditions =
+        survey.conditions?.url || survey.conditions?.selector || survey.conditions?.seenSurveyWaitPeriodInDays
+    const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
+
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div className="font-semibold">Release conditions summary</div>
+            <div className="font-semibold">Display conditions summary</div>
             <span className="text-muted">
-                By default surveys will be released to everyone unless targeting options are set.
+                {hasConditions || hasFeatureFlags
+                    ? 'Surveys will be displayed to users that match the following conditions:'
+                    : 'Surveys will be displayed to everyone.'}
             </span>
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">

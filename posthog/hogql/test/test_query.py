@@ -19,6 +19,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -53,6 +54,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         return random_uuid
+
+    def test_extended_query_time(self):
+        self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):

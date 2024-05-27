@@ -1319,6 +1319,7 @@ export interface DatabaseSchemaSource {
 
 export interface DatabaseSchemaField {
     name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string
