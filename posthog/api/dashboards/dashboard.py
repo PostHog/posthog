@@ -29,6 +29,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
+from posthog.utils import refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -354,6 +355,10 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
+
+        if refresh_requested_by_client(self.context["request"]) is None:
+            # If dashboard does not explicitly request a refresh, default to False
+            self.context["request"].data["refresh"] = False
 
         serialized_tiles = []
 

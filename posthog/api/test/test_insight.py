@@ -1206,6 +1206,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={
                     "query": query_dict,
                     "dashboards": [dashboard_id],
+                    "refresh": False,
                 },
             ).json()
             self.assertNotIn("code", response)  # Watching out for an error code
@@ -1445,7 +1446,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights",
+                data={
+                    "query": query_dict,
+                    "refresh": False,
+                },
+            ).json()
             self.assertNotIn("code", response)  # Watching out for an error code
             self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
@@ -1527,6 +1534,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={
                     "query": query_dict,
                     "dashboards": [dashboard_id],
+                    "refresh": False,
                 },
             ).json()
             self.assertNotIn("code", response)  # Watching out for an error code
