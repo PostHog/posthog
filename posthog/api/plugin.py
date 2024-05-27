@@ -885,7 +885,11 @@ class PipelineDestinationsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(
             Q(capabilities__has_key="methods")
-            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+            & (
+                Q(capabilities__methods__contains=["onEvent"])
+                | Q(capabilities__methods__contains=["composeWebhook"])
+                | Q(capabilities__methods__contains=["onEventWithPostHogEvent"])
+            )
         )
 
 
@@ -896,6 +900,7 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
             & (
                 Q(plugin__capabilities__methods__contains=["onEvent"])
                 | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+                | Q(plugin__capabilities__methods__contains=["onEventWithPostHogEvent"])
             )
         )
 
@@ -920,6 +925,7 @@ class PipelineImportAppsViewSet(PluginViewSet):
             | Q(
                 Q(capabilities__has_key="methods")
                 & ~Q(capabilities__methods__contains="onEvent")
+                & ~Q(capabilities__methods__contains="onEventWithPostHogEvent")
                 & ~Q(capabilities__methods__contains="composeWebhook")
                 & ~Q(capabilities__methods__contains="processEvent")
             )
@@ -933,6 +939,7 @@ class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
             | Q(
                 Q(plugin__capabilities__has_key="methods")
                 & ~Q(plugin__capabilities__methods__contains="onEvent")
+                & ~Q(plugin__capabilities__methods__contains="onEventWithPostHogEvent")
                 & ~Q(plugin__capabilities__methods__contains="composeWebhook")
                 & ~Q(plugin__capabilities__methods__contains="processEvent")
             )

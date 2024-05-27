@@ -53,8 +53,8 @@ dependencies:
     specifier: 0.7.0
     version: 0.7.0(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
-    specifier: ^1.4.4
-    version: 1.4.4
+    specifier: ^1.7.1
+    version: 1.7.1
   '@react-hook/size':
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
@@ -353,7 +353,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -5205,8 +5205,8 @@ packages:
       react-dom: 18.2.0(react@18.2.0)
     dev: false
 
-  /@posthog/plugin-scaffold@1.4.4:
-    resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
+  /@posthog/plugin-scaffold@1.7.1:
+    resolution: {integrity: sha512-XMOGwHNIQ4yQBRlFlYqx9IA2xmIp7hvFEQn42dHSbavWQHtHMSWJUHDHuWftVQmimVBlqKIeT1SBxkpoXl9JtA==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false
@@ -12911,7 +12911,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:

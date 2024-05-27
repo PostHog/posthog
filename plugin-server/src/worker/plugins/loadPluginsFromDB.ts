@@ -1,7 +1,7 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 import { Summary } from 'prom-client'
 
-import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
+import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 
 const loadPluginsMsSummary = new Summary({
@@ -65,21 +65,11 @@ export async function loadPluginsFromDB(
         if (!plugin) {
             continue
         }
-        let method = undefined
-        if (plugin.capabilities?.methods) {
-            const methods = plugin.capabilities.methods
-            if (methods?.some((method) => [PluginMethod.onEvent.toString()].includes(method))) {
-                method = PluginMethod.onEvent
-            } else if (methods?.some((method) => [PluginMethod.composeWebhook.toString()].includes(method))) {
-                method = PluginMethod.composeWebhook
-            }
-        }
         const pluginConfig: PluginConfig = {
             ...row,
             plugin: plugin,
             attachments: attachmentsPerConfig.get(row.id) || {},
             vm: null,
-            method,
         }
         pluginConfigs.set(row.id, pluginConfig)
 

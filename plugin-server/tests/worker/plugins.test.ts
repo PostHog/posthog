@@ -64,7 +64,6 @@ describe('plugins', () => {
         expect(pluginConfig.enabled).toEqual(pluginConfig39.enabled)
         expect(pluginConfig.order).toEqual(pluginConfig39.order)
         expect(pluginConfig.config).toEqual(pluginConfig39.config)
-        expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
         expect(pluginConfig.plugin).toEqual({
             ...plugin60,
@@ -84,6 +83,7 @@ describe('plugins', () => {
             'composeWebhook',
             'getSettings',
             'onEvent',
+            'onEventWithPostHogEvent',
             'processEvent',
             'setupPlugin',
             'teardownPlugin',

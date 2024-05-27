@@ -61,6 +61,7 @@ describe('vm tests', () => {
             'composeWebhook',
             'getSettings',
             'onEvent',
+            'onEventWithPostHogEvent',
             'processEvent',
             'setupPlugin',
             'teardownPlugin',
