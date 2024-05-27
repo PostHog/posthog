@@ -1012,13 +1012,16 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
     return result
 
 
-def refresh_requested_by_client(request: Request) -> bool:
+def refresh_requested_by_client(request: Request) -> Optional[bool]:
     return _request_has_key_set("refresh", request)
 
 
-def _request_has_key_set(key: str, request: Request) -> bool:
+def _request_has_key_set(key: str, request: Request) -> Optional[bool]:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
+
+    if query_param is None and data_value is None:
+        return None
 
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 

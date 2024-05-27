@@ -121,7 +121,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: Optional[bool]
 ) -> "InsightResult":
     from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
@@ -131,13 +131,17 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
+    if refresh_requested is not None:
+        execution_mode = (
+            ExecutionMode.CALCULATION_ALWAYS if refresh_requested else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+        )
+
     response = process_query_dict(
         insight.team,
         insight.query,
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-        execution_mode=ExecutionMode.CALCULATION_ALWAYS
-        if refresh_requested
-        else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+        execution_mode=execution_mode,
     )
 
     if isinstance(response, CacheMissResponse):
