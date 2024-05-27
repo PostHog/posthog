@@ -107,12 +107,6 @@ class LazyTableResolver(TraversingVisitor):
                 raise ResolutionError("Can't access a lazy field when not in a SelectQuery context")
             self.field_collectors[-1].append(node)
 
-    # def _visit_select_query(self, node: ast.SelectQuery):
-    #     if node.prewhere:
-    #         self.visit(node.prewhere)
-    #     if node.where:
-    #         self.visit(node.where)
-
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type
         if not select_type:
