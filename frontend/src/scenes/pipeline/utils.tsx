@@ -25,7 +25,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
 import {
     Destination,
@@ -122,7 +122,7 @@ export function getBatchExportUrl(service: BatchExportService['type']): string {
     return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
 }
 
-export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
+export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
     }
@@ -154,7 +154,13 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
+export function RenderBatchExportIcon({
+    type,
+    size = 'small',
+}: {
+    type: BatchExportService['type']
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const icon = {
         BigQuery: BigQueryIcon,
         Postgres: PostgresIcon,
@@ -163,6 +169,8 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportService['type
         Snowflake: SnowflakeIcon,
         HTTP: HTTPIcon,
     }[type]
+
+    const sizePx = size === 'small' ? 30 : 60
 
     return (
         <div className="flex items-center gap-4">
@@ -176,7 +184,7 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportService['type
                 }
             >
                 <Link to={getBatchExportUrl(type)}>
-                    <img src={icon} alt={type} height={60} width={60} />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
                 </Link>
             </Tooltip>
         </div>
@@ -287,6 +295,7 @@ export function nameColumn<
 export function appColumn<T extends { plugin: Transformation['plugin'] }>(): LemonTableColumn<T, 'plugin'> {
     return {
         title: 'App',
+        width: 0,
         render: function RenderAppInfo(_, pipelineNode) {
             return <RenderApp plugin={pipelineNode.plugin} />
         },
@@ -307,7 +316,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -341,7 +350,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
         {
@@ -377,17 +386,8 @@ export function pipelinePluginBackedNodeMenuCommonItems(
 }
 
 export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
     if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
         lemonToast.error('Import apps are deprecated and cannot be enabled.')
-        return false
-    }
-    if (!canConfigurePlugins) {
-        lemonToast.error(`You don't have permission to enable or disable ${stage}s`)
-        return false
-    }
-    if (togglingToEnabledOrNew && stage === PipelineStage.Destination && !canEnableNewDestinations) {
-        lemonToast.error(`Data pipelines add-on is required for enabling new ${stage}s`)
         return false
     }
     return true

@@ -528,8 +528,8 @@ class CloningVisitor(Visitor[Any]):
             frame_value=node.frame_value,
         )
 
-    def visit_join_constraint(self, node: ast.JoinConstraint):
-        return ast.JoinConstraint(expr=self.visit(node.expr))
+    def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
+        return ast.JoinConstraint(expr=self.visit(node.expr), constraint_type=node.constraint_type)
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])

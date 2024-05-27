@@ -6,14 +6,13 @@ from math import ceil
 from operator import itemgetter
 import threading
 from typing import Optional, Any
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
 
@@ -30,6 +29,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -101,12 +101,14 @@ class TrendsQueryRunner(QueryRunner):
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
 
-        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "minute":
+            return REAL_TIME_INSIGHT_REFRESH_INTERVAL
+
         if interval == "hour" or (delta_days is not None and delta_days <= 7):
             # The interval is shorter for short-term insights
-            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+            return REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-        return refresh_frequency
+        return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     def to_query(self) -> ast.SelectUnionQuery:
         queries = []
@@ -150,38 +152,25 @@ class TrendsQueryRunner(QueryRunner):
         time_frame: Optional[str],
         series_index: int,
         breakdown_value: Optional[str | int] = None,
-        compare: Optional[Compare] = None,
+        compare_value: Optional[Compare] = None,
+        include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            series = self.query.series[series_index]
-
-            # TODO: Add support for DataWarehouseNode
-            if isinstance(series, DataWarehouseNode):
-                raise Exception("DataWarehouseNode is not supported for actors query")
-
-            if compare == Compare.previous:
-                query_date_range = self.query_previous_date_range
-
-                delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
-                if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-                    relative_delta = relativedelta(**delta_mappings)
-                    parsed_dt = parser.isoparse(time_frame)
-                    parse_dt_with_relative_delta = parsed_dt - relative_delta
-                    time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-            else:
-                query_date_range = self.query_date_range
-
-            query_builder = TrendsQueryBuilder(
+            query_builder = TrendsActorsQueryBuilder(
                 trends_query=self.query,
                 team=self.team,
-                query_date_range=query_date_range,
-                series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                # actors related args
+                time_frame=time_frame,
+                series_index=series_index,
+                breakdown_value=breakdown_value,
+                compare_value=compare_value,
+                include_recordings=include_recordings,
             )
 
-            query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))
+            query = query_builder.build_actors_query()
 
         return query
 
@@ -193,7 +182,7 @@ class TrendsQueryRunner(QueryRunner):
         # Days
         res_days: Optional[list[DayItem]] = (
             None
-            if self._trends_display.should_aggregate_values()
+            if self._trends_display.is_total_value()
             else [
                 DayItem(
                     label=format_label_date(value, self.query_date_range.interval_name),
@@ -419,7 +408,7 @@ class TrendsQueryRunner(QueryRunner):
                         [
                             item.strftime(
                                 "%Y-%m-%d{}".format(
-                                    " %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""
+                                    " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
                                 )
                             )
                             for item in get_value("date", val)
@@ -458,7 +447,9 @@ class TrendsQueryRunner(QueryRunner):
                     ],
                     "days": [
                         item.strftime(
-                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
+                            "%Y-%m-%d{}".format(
+                                " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
+                            )
                         )
                         for item in get_value("date", val)
                     ],
@@ -618,7 +609,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_order=index,
                 is_previous_period_series=None,
                 overriden_query=None,
-                aggregate_values=self._trends_display.should_aggregate_values(),
+                aggregate_values=self._trends_display.is_total_value(),
             )
             for index, series in enumerate(self.query.series)
         ]
@@ -648,7 +639,7 @@ class TrendsQueryRunner(QueryRunner):
                             series_order=series.series_order,
                             is_previous_period_series=series.is_previous_period_series,
                             overriden_query=copied_query,
-                            aggregate_values=self._trends_display.should_aggregate_values(),
+                            aggregate_values=self._trends_display.is_total_value(),
                         )
                     )
             series_with_extras = updated_series
@@ -662,7 +653,7 @@ class TrendsQueryRunner(QueryRunner):
                         series_order=series.series_order,
                         is_previous_period_series=False,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
             for series in series_with_extras:
@@ -672,7 +663,7 @@ class TrendsQueryRunner(QueryRunner):
                         series_order=series.series_order,
                         is_previous_period_series=True,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
             series_with_extras = updated_series
@@ -684,7 +675,7 @@ class TrendsQueryRunner(QueryRunner):
     ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
-        is_total_value = self._trends_display.should_aggregate_values()
+        is_total_value = self._trends_display.is_total_value()
 
         if len(results) == 0:
             return []

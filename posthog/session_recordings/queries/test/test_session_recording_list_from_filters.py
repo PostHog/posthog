@@ -1,6 +1,5 @@
 from datetime import datetime
 from uuid import uuid4
-from unittest import skip
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -37,10 +36,6 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
-    # this test does not create any session_recording_events, only writes to the session_replay summary table
-    # it is a pair with test_session_recording_list
-    # it should pass all the same tests but without needing the session_recording_events table at all
-
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -1956,7 +1951,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: throwing posthog.errors.CHQueryErrorIllegalPrewhere")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"

@@ -1,3 +1,5 @@
+const VALID_PASSWORD = 'hedgE-hog-123%'
+
 describe('Password Reset', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-me]').click()
@@ -23,7 +25,7 @@ describe('Password Reset', () => {
 
     it('Shows validation error if passwords do not match', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('[data-attr="password"]').type('12345678')
+        cy.get('[data-attr="password"]').type(VALID_PASSWORD)
         cy.get('.LemonProgress__track').should('be.visible')
         cy.get('[data-attr="password-confirm"]').type('1234567A')
         cy.get('button[type=submit]').click()
@@ -37,14 +39,14 @@ describe('Password Reset', () => {
         cy.get('[data-attr="password-confirm"]').type('123')
         cy.get('button[type=submit]').click()
         cy.get('.text-danger').should('be.visible')
-        cy.get('.text-danger').should('contain', 'must be at least 8 characters')
+        cy.get('.text-danger').should('contain', 'Add another word or two')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
     it('Can reset password with valid token', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('[data-attr="password"]').type('NEW123456789')
-        cy.get('[data-attr="password-confirm"]').type('NEW123456789')
+        cy.get('[data-attr="password"]').type(VALID_PASSWORD)
+        cy.get('[data-attr="password-confirm"]').type(VALID_PASSWORD)
         cy.get('button[type=submit]').click()
         cy.get('.Toastify__toast--success').should('be.visible')
 

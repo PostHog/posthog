@@ -134,6 +134,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {
                         "statusText": e.args[0],
                         "detail": detail_object.get("error_message", detail_object),
+                        "link": detail_object.get("link", None),
                         "code": detail_object.get("code"),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
@@ -160,6 +161,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise e
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -173,8 +176,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response(
             {
-                "link": res["portal_url"],
-                "count": res["count"],
+                "link": res.get("portal_url"),
+                "count": res.get("count"),
             },
             status=status.HTTP_200_OK,
         )

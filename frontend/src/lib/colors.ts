@@ -4,6 +4,7 @@ import { LemonTagType } from './lemon-ui/LemonTag'
 
 /** --brand-blue in HSL for saturation mixing */
 export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+export const PURPLE: [number, number, number] = [260, 88, 71]
 
 /* Insight series colors. */
 const dataColorVars = [

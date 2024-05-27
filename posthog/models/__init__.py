@@ -59,6 +59,7 @@ from .plugin import (
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
+from .proxy_record import ProxyRecord
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -126,6 +127,7 @@ __all__ = [
     "Project",
     "Property",
     "PropertyDefinition",
+    "ProxyRecord",
     "RetentionFilter",
     "SessionRecording",
     "SessionRecordingPlaylist",

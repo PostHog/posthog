@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -13,7 +13,7 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
@@ -55,6 +55,16 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                 loading={loading}
                 columns={[
                     {
+                        title: 'App',
+                        width: 0,
+                        render: function RenderAppInfo(_, destination) {
+                            if (destination.backend === 'plugin') {
+                                return <RenderApp plugin={destination.plugin} />
+                            }
+                            return <RenderBatchExportIcon type={destination.service.type} />
+                        },
+                    },
+                    {
                         title: 'Name',
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
@@ -78,15 +88,6 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                         },
                     },
                     {
-                        title: 'App',
-                        render: function RenderAppInfo(_, destination) {
-                            if (destination.backend === 'plugin') {
-                                return <RenderApp plugin={destination.plugin} />
-                            }
-                            return <RenderBatchExportIcon type={destination.service.type} />
-                        },
-                    },
-                    {
                         title: 'Frequency',
                         render: function RenderFrequency(_, destination) {
                             return destination.interval
@@ -95,7 +96,17 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     {
                         title: 'Weekly volume',
                         render: function RenderSuccessRate(_, destination) {
-                            return <AppMetricSparkLine pipelineNode={destination} />
+                            return (
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Metrics
+                                    )}
+                                >
+                                    <AppMetricSparkLine pipelineNode={destination} />
+                                </Link>
+                            )
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
@@ -142,7 +153,7 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
+    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineAccessLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (

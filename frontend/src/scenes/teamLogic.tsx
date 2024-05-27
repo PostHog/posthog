@@ -69,7 +69,7 @@ export const teamLogic = kea<teamLogicType>([
                     try {
                         return await api.get('api/projects/@current')
                     } catch {
-                        return null
+                        return values.currentTeam
                     }
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
@@ -206,9 +206,8 @@ export const teamLogic = kea<teamLogicType>([
                                 PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
                             ) || filter.key
                         )
-                    } else {
-                        return filter.key
                     }
+                    return filter.key
                 })
             },
         ],

@@ -1,3 +1,5 @@
+import './UnsubscribeSurveyModal.scss'
+
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
@@ -14,8 +16,8 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
-    const { deactivateProduct } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading } = useValues(billingLogic)
+    const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
+    const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
@@ -29,6 +31,7 @@ export const UnsubscribeSurveyModal = ({
         <LemonModal
             onClose={() => {
                 reportSurveyDismissed(surveyID)
+                resetUnsubscribeError()
             }}
             width="max(40vw)"
             title={`Why are you unsubscribing from ${product.name}?`}
@@ -56,10 +59,19 @@ export const UnsubscribeSurveyModal = ({
             }
         >
             <div className="flex flex-col gap-3.5">
-                {unsubscribeError && (
+                {unsubscribeError ? (
                     <LemonBanner type="error">
                         <p>
                             {unsubscribeError.detail} {unsubscribeError.link}
+                        </p>
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="info">
+                        <p>
+                            Your invoice will be billed immediately.{' '}
+                            <Link to={billing?.stripe_portal_url} target="_blank">
+                                View invoices
+                            </Link>
                         </p>
                     </LemonBanner>
                 )}

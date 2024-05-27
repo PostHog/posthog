@@ -1,9 +1,11 @@
-import { LemonButtonWithDropdown, LemonCheckbox, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -24,18 +26,10 @@ function DateAndDurationFilters({
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Time and duration</LemonLabel>
-            <LemonSwitch
-                label="Live mode"
-                checked={!!filters.live_mode}
-                onChange={(checked) => setFilters({ live_mode: checked })}
-                bordered={true}
-                tooltip="Live mode shows only the last hour of data... we exclude that last hour outside of live mode which lets us show you data much faster. You can switch to live mode to let us take a little longer to show you sessions as they arrive"
-                date-attr="replay-date-live-mode-switch"
-            />
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter
-                    dateFrom={filters.date_from ?? '-7d'}
-                    dateTo={filters.date_to ?? '-1h'}
+                    dateFrom={filters.date_from ?? '-3d'}
+                    dateTo={filters.date_to}
                     disabled={filters.live_mode}
                     onChange={(changedDateFrom, changedDateTo) => {
                         setFilters({
@@ -46,6 +40,7 @@ function DateAndDurationFilters({
                     dateOptions={[
                         { key: 'Custom', values: [] },
                         { key: 'Last 24 hours', values: ['-24h'] },
+                        { key: 'Last 3 days', values: ['-3d'] },
                         { key: 'Last 7 days', values: ['-7d'] },
                         { key: 'Last 30 days', values: ['-30d'] },
                         { key: 'All time', values: ['-90d'] },
@@ -79,6 +74,27 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const allowedPropertyTaxonomyTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
+        ...groupsTaxonomicTypes,
+    ]
+
+    const hasHogQLFiltering = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]
+
+    if (hasHogQLFiltering) {
+        allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
+    const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+    if (hasHogQLFiltering) {
+        addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
     return (
         <div className="space-y-2 bg-light p-3">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
@@ -99,13 +115,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 hideDuplicate
                 showNestedArrow={false}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    ...groupsTaxonomicTypes,
-                ]}
+                propertiesTaxonomicGroupTypes={allowedPropertyTaxonomyTypes}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{
                     id: '$pageview',
@@ -115,7 +125,15 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
+            {hasHogQLFiltering ? (
+                <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                    Properties
+                </LemonLabel>
+            ) : (
+                <LemonLabel info="Show recordings by persons who match the set criteria">
+                    Persons and cohorts
+                </LemonLabel>
+            )}
 
             <TestAccountFilter
                 filters={filters}
@@ -125,8 +143,8 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText="Person or cohort"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    buttonText={hasHogQLFiltering ? 'Add filter' : 'Person or cohort'}
+                    taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
                         setFilters({ properties })

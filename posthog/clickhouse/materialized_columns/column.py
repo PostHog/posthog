@@ -1,12 +1,12 @@
 from datetime import timedelta
-from typing import Literal, Union
+from typing import Union
 
 from posthog.cache_utils import cache_for
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 
 ColumnName = str
 
-TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
+TablesWithMaterializedColumns = Union[TableWithProperties]
 
 
 @cache_for(timedelta(minutes=15))

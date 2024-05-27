@@ -225,7 +225,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     def test_login_with_sso_resets_session(self):
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             first_key = self.client.session.session_key
-            self.client.post("/login/google-oauth2/", {"email_opt_in": False})
+            self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 

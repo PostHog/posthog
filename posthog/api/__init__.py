@@ -34,6 +34,7 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
+    proxy_record,
     query,
     search,
     scheduled_change,
@@ -249,6 +250,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"proxy_records",
+    proxy_record.ProxyRecordViewset,
+    "proxy_records",
     ["organization_id"],
 )
 organizations_router.register(

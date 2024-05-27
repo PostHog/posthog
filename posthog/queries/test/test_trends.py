@@ -6822,7 +6822,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "entity_type": "events",
                 "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
                 'up", "custom_name": null, "math": "dau", "math_property": null, "math_hogql": null, '
-                '"math_group_type_index": null, "properties": {}}]',
+                '"math_group_type_index": null, "properties": {}, "id_field": null, "timestamp_field": null, '
+                '"distinct_id_field": null, "table_name": null}]',
                 "insight": "TRENDS",
                 "interval": "hour",
                 "smoothing_intervals": "1",

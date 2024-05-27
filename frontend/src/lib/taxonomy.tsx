@@ -990,6 +990,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'ttclid',
             description: 'TikTok Click ID',
         },
+        $is_identified: {
+            label: 'Is Identified',
+            description: 'When the person was identified',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below

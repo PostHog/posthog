@@ -36,6 +36,8 @@ export interface BillingAlertConfig {
 
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
+    NO_ACTIVE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
+    COULD_NOT_PAY_INVOICES_ERROR = 'could_not_pay_invoices_error',
 }
 
 export interface UnsubscribeError {
@@ -151,6 +153,31 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
+        daysRemaining: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(dayjs(), 'days')
+                },
+            },
+        ],
+        daysTotal: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(
+                        billing.billing_period.current_period_start,
+                        'days'
+                    )
+                },
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
@@ -178,15 +205,30 @@ export const billingLogic = kea<billingLogicType>([
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        if (error.code && error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
-                            actions.setUnsubscribeError({
-                                detail: error.detail,
-                                link: (
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
-                                        View invoices
-                                    </Link>
-                                ),
-                            } as UnsubscribeError)
+                        if (error.code) {
+                            if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                            View invoices
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVE_PAYMENT_METHOD_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
+                                            {error.link ? 'View invoice' : 'View invoices'}
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            }
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
@@ -252,7 +294,7 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsd: [
+        projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
             (billing: BillingV2Type): number => {
                 if (!billing) {
@@ -260,13 +302,19 @@ export const billingLogic = kea<billingLogicType>([
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    projectedTotal += parseFloat(product.projected_amount_usd || '0')
+                    const billingLimit: string =
+                        billing?.custom_limits_usd?.[product.type] ||
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || '0' : '0')
+                    projectedTotal += Math.min(
+                        parseFloat(product.projected_amount_usd || '0'),
+                        parseFloat(billingLimit)
+                    )
                 }
                 return projectedTotal
             },
         ],
         over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
             (billing, preflight, projectedTotalAmountUsd) => {
                 if (!billing || !preflight?.cloud) {
                     return
@@ -279,7 +327,7 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return true
                 }
-                return
+                return false
             },
         ],
         isAnnualPlan: [

@@ -28,15 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import {
-    AvailableFeature,
-    ExporterFormat,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-    NotebookNodeType,
-} from '~/types'
+import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -290,7 +282,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywallFeature={AvailableFeature.TEAM_COLLABORATION}
                             />
                         )}
                         {canEditInsight ? (

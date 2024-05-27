@@ -42,7 +42,7 @@ export function PasswordResetComplete(): JSX.Element {
 }
 
 function NewPasswordForm(): JSX.Element {
-    const { passwordReset, isPasswordResetSubmitting, passwordResetManualErrors } = useValues(passwordResetLogic)
+    const { validatedPassword, isPasswordResetSubmitting, passwordResetManualErrors } = useValues(passwordResetLogic)
 
     return (
         <>
@@ -59,9 +59,7 @@ function NewPasswordForm(): JSX.Element {
                     label={
                         <div className="flex flex-1 items-center justify-between">
                             <span>Password</span>
-                            <span className="w-20">
-                                <PasswordStrength password={passwordReset.password} />
-                            </span>
+                            <PasswordStrength validatedPassword={validatedPassword} />
                         </div>
                     }
                 >

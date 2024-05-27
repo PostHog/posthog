@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -17,9 +18,9 @@ import {
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { checkPermissions } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -57,7 +58,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            ['nextAvailableOrder'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -85,12 +93,11 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         return null
                     }
                     if (
-                        !checkPermissions(
-                            props.stage,
-                            !props.pluginConfigId ||
-                                (values.pluginConfig && !values.pluginConfig.enabled && formdata.enabled)
-                        )
+                        (!values.pluginConfig || (!values.pluginConfig.enabled && formdata.enabled)) &&
+                        props.stage === PipelineStage.Destination &&
+                        !values.canEnableNewDestinations
                     ) {
+                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
@@ -99,9 +106,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         defaultConfigForPlugin(values.plugin),
                         config
                     )
-                    for (const key in formdata) {
-                        formData.append(key, formdata[key])
-                    }
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
