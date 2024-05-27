@@ -5,7 +5,6 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from hogvm.python.execute import execute_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.bytecode import create_bytecode
@@ -92,6 +91,8 @@ def process_query_model(
                     return {"results": "Hog queries not enabled for this organization."}
 
             try:
+                from hogvm.python.execute import execute_bytecode
+
                 program = parse_program(query.code or "")
                 bytecode = create_bytecode(program)
                 bytecode_result = execute_bytecode(bytecode, team=team)
