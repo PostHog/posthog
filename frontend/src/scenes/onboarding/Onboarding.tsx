@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,17 +32,25 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowReverseProxyStep, product, includeIntro } =
-        useValues(onboardingLogic)
+    const {
+        productKey,
+        currentOnboardingStep,
+        shouldShowBillingStep,
+        shouldShowReverseProxyStep,
+        product,
+        includeIntro,
+        waitForBilling,
+    } = useValues(onboardingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
         createAllSteps()
-    }, [children])
+    }, [children, billingLoading])
 
     useEffect(() => {
-        if (!allSteps.length) {
+        if (!allSteps.length || (billingLoading && waitForBilling)) {
             return
         }
         setAllOnboardingSteps(allSteps)
@@ -58,7 +67,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             steps = [children as JSX.Element]
         }
-        if (includeIntro) {
+        const billingProduct = billing?.products.find((p) => p.type === productKey)
+        if (includeIntro && billingProduct) {
             const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
             steps = [IntroStep, ...steps]
         }
@@ -66,8 +76,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
             steps = [...steps, ReverseProxyStep]
         }
-        if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
+        if (shouldShowBillingStep && billingProduct) {
+            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
@@ -232,19 +242,20 @@ const SurveysOnboarding = (): JSX.Element => {
     )
 }
 
-export function Onboarding(): JSX.Element | null {
-    const { product } = useValues(onboardingLogic)
+export const onboardingViews = {
+    [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+    [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+    [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    [ProductKey.SURVEYS]: SurveysOnboarding,
+}
 
-    if (!product) {
+export function Onboarding(): JSX.Element | null {
+    const { product, productKey } = useValues(onboardingLogic)
+
+    if (!product || !productKey) {
         return <></>
     }
-    const onboardingViews = {
-        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
-        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
-        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
-        [ProductKey.SURVEYS]: SurveysOnboarding,
-    }
-    const OnboardingView = onboardingViews[product.type]
+    const OnboardingView = onboardingViews[productKey]
 
     return <OnboardingView />
 }
