@@ -1,8 +1,8 @@
 import copy
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, TypedDict, cast
-from collections.abc import Mapping, Sequence
 
 import dateutil.parser
 import posthoganalytics
