@@ -624,7 +624,7 @@ interface InsightVizNodeViewProps {
 
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
-    /** Date range for the query */
+    /** Date range for the query @default {"date_from": "-7d"}*/
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
     filterTestAccounts?: boolean
@@ -649,8 +649,10 @@ export type TrendsFilterLegacy = Omit<
 
 export type TrendsFilter = {
     smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    /** @default false */
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
+    /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -669,11 +671,17 @@ export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryRespons
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the trends insight */
+    /**
+     * Properties specific to the trends insight
+     * @default {"display": "ActionsLineGraph"}
+     */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
@@ -1423,14 +1431,19 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
+    /** @default -7d */
     date_from?: string | null
     date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
     explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {
     // TODO: unclutter
+    /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType

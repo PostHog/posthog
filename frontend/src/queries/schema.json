@@ -448,7 +448,8 @@
                         {
                             "type": "null"
                         }
-                    ]
+                    ],
+                    "default": "event"
                 },
                 "breakdowns": {
                     "items": {
@@ -2536,12 +2537,14 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "default": "-7d",
                     "type": ["string", "null"]
                 },
                 "date_to": {
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
+                    "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
                     "type": ["boolean", "null"]
                 }
@@ -3741,6 +3744,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4606,6 +4612,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4654,6 +4663,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4702,6 +4714,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4750,6 +4765,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4798,6 +4816,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4886,6 +4907,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -5198,6 +5222,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -6890,6 +6917,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7286,6 +7316,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7603,13 +7636,15 @@
                     "type": "number"
                 },
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "default": "ActionsLineGraph"
                 },
                 "formula": {
                     "type": "string"
@@ -7703,6 +7738,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7711,6 +7749,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7751,6 +7790,9 @@
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
+                    "default": {
+                        "display": "ActionsLineGraph"
+                    },
                     "description": "Properties specific to the trends insight"
                 }
             },
