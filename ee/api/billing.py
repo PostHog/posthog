@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -41,21 +41,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # license = get_cached_instance_license()
-        # if license and not license.is_v2_license:
-        #     raise NotFound("Billing V2 is not supported for this license type")
-        #
-        # org = self._get_org()
-        #
-        # # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
-        # if hasattr(org, "billing"):
-        #     if org.billing.stripe_subscription_id:  # type: ignore
-        #         raise NotFound("Billing V1 is active for this organization")
-        #
-        # plan_keys = request.query_params.get("plan_keys", None)
-        # response = BillingManager(license).get_billing(org, plan_keys)
+        license = get_cached_instance_license()
+        if license and not license.is_v2_license:
+            raise NotFound("Billing V2 is not supported for this license type")
 
-        return Response(None)
+        org = self._get_org()
+
+        # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
+        if hasattr(org, "billing"):
+            if org.billing.stripe_subscription_id:  # type: ignore
+                raise NotFound("Billing V1 is active for this organization")
+
+        plan_keys = request.query_params.get("plan_keys", None)
+        response = BillingManager(license).get_billing(org, plan_keys)
+
+        return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:

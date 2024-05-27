@@ -64,7 +64,7 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
-BILLING_SERVICE_URL = "http://localhost"  # get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
