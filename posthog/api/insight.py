@@ -54,6 +54,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -89,6 +90,7 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
+    cache_requested_by_client,
 )
 from loginas.utils import is_impersonated_session
 
@@ -537,10 +539,19 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             if insight.query:
                 # Uses query
                 try:
+                    refresh_requested = refresh_requested_by_client(self.context["request"])
+                    execution_mode = (
+                        ExecutionMode.CALCULATION_ALWAYS
+                        if refresh_requested
+                        else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                    )
+                    if refresh_requested and cache_requested_by_client(self.context["request"]):
+                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
+
                     return calculate_for_query_based_insight(
                         insight,
                         dashboard=dashboard,
-                        refresh_requested=refresh_requested_by_client(self.context["request"]),
+                        execution_mode=execution_mode,
                     )
                 except ExposedHogQLError as e:
                     raise ValidationError(str(e))
