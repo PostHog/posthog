@@ -177,17 +177,8 @@ class WhereClauseExtractor(CloningVisitor):
         if len(self.our_tables) > 0:
             left = self.visit(node.left)
             right = self.visit(node.right)
-            if isinstance(left, ast.Constant) and left.value is False:
-                return left
-            if isinstance(right, ast.Constant) and right.value is False:
-                return right
-            if (
-                isinstance(left, ast.Constant)
-                and left.value is True
-                and isinstance(right, ast.Constant)
-                and right.value is True
-            ):
-                return left
+            if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+                return ast.Constant(value=True)
 
             return ast.CompareOperation(op=node.op, left=left, right=right)
 
@@ -278,10 +269,10 @@ class WhereClauseExtractor(CloningVisitor):
         exprs = [self.visit(expr) for expr in node.exprs]
         flattened = flatten_ands(exprs)
 
-        if any(isinstance(expr, ast.Constant) and expr.value is False for expr in flattened):
+        if any(isinstance(expr, ast.Constant) and is_not_truthy(expr.value) for expr in flattened):
             return ast.Constant(value=False)
 
-        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant) or expr.value is not True]
+        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant) or is_not_truthy(expr.value)]
         if len(filtered) == 0:
             return ast.Constant(value=True)
         elif len(filtered) == 1:
@@ -293,10 +284,10 @@ class WhereClauseExtractor(CloningVisitor):
         exprs = [self.visit(expr) for expr in node.exprs]
         flattened = flatten_ors(exprs)
 
-        if any(isinstance(expr, ast.Constant) and expr.value is True for expr in flattened):
+        if any(isinstance(expr, ast.Constant) and is_truthy(expr.value) for expr in flattened):
             return ast.Constant(value=True)
 
-        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant) or expr.value is not False]
+        filtered = [expr for expr in flattened if not isinstance(expr, ast.Constant)]
         if len(filtered) == 0:
             return ast.Constant(value=False)
         elif len(filtered) == 1:
@@ -532,3 +523,11 @@ def flatten_ors(exprs):
         else:
             flattened.append(expr)
     return flattened
+
+
+def is_not_truthy(value):
+    return value is False or value is None or value == 0
+
+
+def is_truthy(value):
+    return not is_not_truthy(value)
