@@ -229,74 +229,75 @@ class TestBytecodeExecute(BaseTest):
         )
 
     def test_bytecode_while(self):
-        # program = parse_program("while (true) 1 + 1;")
-        # bytecode = create_bytecode(program)
-        # self.assertEqual(
-        #     bytecode,
-        #     [_H, op.TRUE, op.JUMP_IF_FALSE, 8, op.INTEGER, 1, op.INTEGER, 1, op.PLUS, op.POP, op.JUMP, -11],
-        # )
-        #
-        # program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
-        # bytecode = create_bytecode(program)
-        # self.assertEqual(
-        #     bytecode,
-        #     [
-        #         _H,
-        #         op.STRING,
-        #         "a",
-        #         op.CALL,
-        #         "toString",
-        #         1,
-        #         op.JUMP_IF_FALSE,
-        #         8,
-        #         op.INTEGER,
-        #         1,
-        #         op.INTEGER,
-        #         1,
-        #         op.PLUS,
-        #         op.POP,
-        #         op.JUMP,
-        #         -15,
-        #         op.INTEGER,
-        #         3,
-        #         op.RETURN,
-        #     ],
-        # )
-        #
-        # self.assertEqual(
-        #     self._run_program(
-        #         """
-        #         var i := -1;
-        #         while (false) {
-        #             1 + 1;
-        #         }
-        #         return i;
-        #         """
-        #     ),
-        #     -1,
-        # )
-        #
-        # number_of_times = 0
-        #
-        # def call_three_times():
-        #     nonlocal number_of_times
-        #     number_of_times += 1
-        #     return number_of_times <= 3
-        #
-        # self.assertEqual(
-        #     self._run_program(
-        #         """
-        #         var i := 0;
-        #         while (call_three_times()) {
-        #             true;
-        #         }
-        #         return i;
-        #         """,
-        #         {"call_three_times": call_three_times, "print": print},
-        #     ),
-        #     0,
-        # )
+        program = parse_program("while (true) 1 + 1;")
+        bytecode = create_bytecode(program)
+        self.assertEqual(
+            bytecode,
+            [_H, op.TRUE, op.JUMP_IF_FALSE, 8, op.INTEGER, 1, op.INTEGER, 1, op.PLUS, op.POP, op.JUMP, -11],
+        )
 
+        program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
+        bytecode = create_bytecode(program)
+        self.assertEqual(
+            bytecode,
+            [
+                _H,
+                op.STRING,
+                "a",
+                op.CALL,
+                "toString",
+                1,
+                op.JUMP_IF_FALSE,
+                8,
+                op.INTEGER,
+                1,
+                op.INTEGER,
+                1,
+                op.PLUS,
+                op.POP,
+                op.JUMP,
+                -15,
+                op.INTEGER,
+                3,
+                op.RETURN,
+            ],
+        )
+
+        self.assertEqual(
+            self._run_program(
+                """
+                var i := -1;
+                while (false) {
+                    1 + 1;
+                }
+                return i;
+                """
+            ),
+            -1,
+        )
+
+        number_of_times = 0
+
+        def call_three_times():
+            nonlocal number_of_times
+            number_of_times += 1
+            return number_of_times <= 3
+
+        self.assertEqual(
+            self._run_program(
+                """
+                var i := 0;
+                while (call_three_times()) {
+                    true;
+                }
+                return i;
+                """,
+                {"call_three_times": call_three_times, "print": print},
+            ),
+            0,
+        )
+
+    def test_bytecode_while_var(self):
         self.assertEqual(
             self._run_program(
                 """

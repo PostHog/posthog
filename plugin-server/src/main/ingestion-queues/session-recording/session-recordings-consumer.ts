@@ -329,11 +329,11 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        // status.info('🔁', `blob_ingester_consumer - handling batch`, {
-        //     size: messages.length,
-        //     partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
-        //     assignedPartitions: this.assignedPartitions,
-        // })
+        status.info('🔁', `blob_ingester_consumer - handling batch`, {
+            size: messages.length,
+            partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+            assignedPartitions: this.assignedPartitions,
+        })
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
             sendTimeoutGuardToSentry: false,

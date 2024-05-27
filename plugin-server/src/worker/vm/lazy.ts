@@ -325,7 +325,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         return
     }
     if (!plugin.source__index_ts) {
-        status.error('🔌', `Plugin with ID ${pluginId} has no index.ts/onEvent.hog file for populating capabilities.`)
+        status.error('🔌', `Plugin with ID ${pluginId} has no index.ts file for populating capabilities.`)
         return
     }
 

@@ -21,8 +21,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -404,7 +402,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sources[plugin_source_file.filename] = plugin_source_file
         for key, source in request.data.items():
             transpiled = None
-            bytecode = None
             error = None
             status = None
             try:
@@ -413,10 +410,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status = PluginSourceFile.Status.TRANSPILED
                 elif key == "frontend.tsx":
                     transpiled = transpile(source, type="frontend")
-                    status = PluginSourceFile.Status.TRANSPILED
-                elif key == "onEvent.hog":
-                    transpiled = None
-                    bytecode = create_bytecode(parse_program(source))
                     status = PluginSourceFile.Status.TRANSPILED
             except Exception as e:
                 error = str(e)
@@ -430,17 +423,11 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     defaults={
                         "source": source,
                         "transpiled": transpiled,
-                        "bytecode": bytecode,
                         "status": status,
                         "error": error,
                     },
                 )
-            elif (
-                sources[key].source != source
-                or sources[key].transpiled != transpiled
-                or sources[key].error != error
-                or sources[key].bytecode != bytecode
-            ):
+            elif sources[key].source != source or sources[key].transpiled != transpiled or sources[key].error != error:
                 performed_changes = True
                 if source is None:
                     sources[key].delete()
@@ -448,7 +435,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else:
                     sources[key].source = source
                     sources[key].transpiled = transpiled
-                    sources[key].bytecode = bytecode
                     sources[key].status = status
                     sources[key].error = error
                     sources[key].save()

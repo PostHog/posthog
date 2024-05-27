@@ -40,14 +40,13 @@ export function createPluginConfigVM(
     const timer = new Date()
 
     const usedImports: Set<string> = new Set()
+    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
     // Create virtual machine
     const vm = new VM({
         timeout: hub.TASK_TIMEOUT * 1000 + 1,
         sandbox: {},
     })
-
-    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
     // Add PostHog utilities to virtual machine
     vm.freeze(createConsole(hub, pluginConfig), 'console')

@@ -185,7 +185,7 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
-        if node.name not in STL and node.name not in self.functions:
+        if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
             raise NotImplementedError(f"HogQL function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
             raise NotImplementedError(
