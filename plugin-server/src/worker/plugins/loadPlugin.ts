@@ -45,8 +45,8 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 : readFileIfExists(hub.BASE_DIR, plugin, 'index.js') ||
                   readFileIfExists(hub.BASE_DIR, plugin, 'index.ts')
             : plugin.source__index_ts
-        if (pluginSource || plugin.bytecode__onevent) {
-            void pluginConfig.vm?.initialize!(pluginSource ?? '', pluginDigest(plugin), plugin.bytecode__onevent)
+        if (pluginSource) {
+            void pluginConfig.vm?.initialize!(pluginSource ?? '', pluginDigest(plugin))
             return true
         } else {
             // always call this if no backend app present, will signal that the VM is done
