@@ -105,7 +105,7 @@ export async function exec(
 
     for (; ip < bytecode.length; ip++) {
         ops += 1
-        if (ops % 100 === 0) {
+        if ((ops & 127) === 0) {
             checkTimeout()
         }
         switch (bytecode[ip]) {

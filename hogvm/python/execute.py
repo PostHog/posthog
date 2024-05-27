@@ -65,7 +65,7 @@ def execute_bytecode(
 
         while True:
             ops += 1
-            if ops % 100 == 0:
+            if (ops & 127) == 0:  # every 128th operation
                 check_timeout()
             symbol = next_token()
             match symbol:
