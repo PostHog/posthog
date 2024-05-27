@@ -405,7 +405,6 @@ class PluginSourceFile(UUIDModel):
     source: models.TextField = models.TextField(blank=True, null=True)
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
-    bytecode: models.JSONField = models.JSONField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
