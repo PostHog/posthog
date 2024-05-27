@@ -48,24 +48,30 @@ where
             .register("rdkafka".to_string(), Duration::seconds(30))
             .await;
 
-        let partition = OverflowLimiter::new(
-            config.overflow_per_second_limit,
-            config.overflow_burst_limit,
-            config.overflow_forced_keys,
-        );
-        if config.export_prometheus {
-            let partition = partition.clone();
-            tokio::spawn(async move {
-                partition.report_metrics().await;
-            });
-        }
-        {
-            // Ensure that the rate limiter state does not grow unbounded
-            let partition = partition.clone();
-            tokio::spawn(async move {
-                partition.clean_state().await;
-            });
-        }
+        let partition = match config.overflow_enabled {
+            false => None,
+            true => {
+                let partition = OverflowLimiter::new(
+                    config.overflow_per_second_limit,
+                    config.overflow_burst_limit,
+                    config.overflow_forced_keys,
+                );
+                if config.export_prometheus {
+                    let partition = partition.clone();
+                    tokio::spawn(async move {
+                        partition.report_metrics().await;
+                    });
+                }
+                {
+                    // Ensure that the rate limiter state does not grow unbounded
+                    let partition = partition.clone();
+                    tokio::spawn(async move {
+                        partition.clean_state().await;
+                    });
+                }
+                Some(partition)
+            }
+        };
         let sink = KafkaSink::new(config.kafka, sink_liveness, partition)
             .expect("failed to start Kafka sink");
 

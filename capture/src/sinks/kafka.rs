@@ -80,7 +80,7 @@ impl rdkafka::ClientContext for KafkaContext {
 #[derive(Clone)]
 pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
-    partition: OverflowLimiter,
+    partition: Option<OverflowLimiter>,
     main_topic: String,
     historical_topic: String,
 }
@@ -89,7 +89,7 @@ impl KafkaSink {
     pub fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
-        partition: OverflowLimiter,
+        partition: Option<OverflowLimiter>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -150,7 +150,11 @@ impl KafkaSink {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
-                if self.partition.is_limited(&event_key) {
+                let is_limited = match &self.partition {
+                    None => false,
+                    Some(partition) => partition.is_limited(&event_key),
+                };
+                if is_limited {
                     (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
                 } else {
                     (&self.main_topic, Some(event_key.as_str()))
@@ -280,11 +284,11 @@ mod tests {
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
             .await;
-        let limiter = OverflowLimiter::new(
+        let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
-        );
+        ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,

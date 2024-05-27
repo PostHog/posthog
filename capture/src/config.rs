@@ -13,6 +13,9 @@ pub struct Config {
     pub redis_url: String,
     pub otel_url: Option<String>,
 
+    #[envconfig(default = "false")]
+    pub overflow_enabled: bool,
+
     #[envconfig(default = "100")]
     pub overflow_per_second_limit: NonZeroU32,
 
