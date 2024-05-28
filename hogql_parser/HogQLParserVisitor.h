@@ -19,6 +19,38 @@ public:
   /**
    * Visit parse trees produced by HogQLParser.
    */
+    virtual std::any visitProgram(HogQLParser::ProgramContext *context) = 0;
+
+    virtual std::any visitDeclaration(HogQLParser::DeclarationContext *context) = 0;
+
+    virtual std::any visitExpression(HogQLParser::ExpressionContext *context) = 0;
+
+    virtual std::any visitVarDecl(HogQLParser::VarDeclContext *context) = 0;
+
+    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
+
+    virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *context) = 0;
+
+    virtual std::any visitStatement(HogQLParser::StatementContext *context) = 0;
+
+    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
+
+    virtual std::any visitIfStmt(HogQLParser::IfStmtContext *context) = 0;
+
+    virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *context) = 0;
+
+    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
+
+    virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
+
+    virtual std::any visitBlock(HogQLParser::BlockContext *context) = 0;
+
+    virtual std::any visitDict(HogQLParser::DictContext *context) = 0;
+
+    virtual std::any visitKvPair(HogQLParser::KvPairContext *context) = 0;
+
+    virtual std::any visitKvPairList(HogQLParser::KvPairListContext *context) = 0;
+
     virtual std::any visitSelect(HogQLParser::SelectContext *context) = 0;
 
     virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *context) = 0;
