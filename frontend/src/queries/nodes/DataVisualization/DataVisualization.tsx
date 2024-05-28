@@ -97,6 +97,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     ...props.context,
                     showQueryEditor: false,
                     showOpenEditorButton: false,
+                    alwaysRefresh: true,
                 }}
             />
         )
