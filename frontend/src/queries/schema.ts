@@ -888,7 +888,14 @@ export type FunnelPathsFilter = {
 
 export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     kind: NodeKind.PathsQuery
-    /** Properties specific to the paths insight */
+    /** Properties specific to the paths insight
+     *
+     * :TRICKY: The default is not an empty dict as datamodel-code-generator
+     * does not generate a model with factory then & thus empty filters do not
+     * get ignored during serialization.
+     *
+     * @default {"edgeLimit":50}
+     */
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
     funnelPathsFilter?: FunnelPathsFilter
@@ -923,7 +930,14 @@ export interface StickinessQuery
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the stickiness insight */
+    /** Properties specific to the stickiness insight
+     *
+     * :TRICKY: The default is not an empty dict as datamodel-code-generator
+     * does not generate a model with factory then & thus empty filters do not
+     * get ignored during serialization.
+     *
+     * @default {"compare":false}
+     */
     stickinessFilter?: StickinessFilter
 }
 
