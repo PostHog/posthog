@@ -19,7 +19,7 @@ export function DashboardEditBar(): JSX.Element {
     return (
         <Popover
             visible={isEditInProgress}
-            className="z-0" // So that Cancel/Apply isn't above filter popovers
+            className="z-1" // So that Cancel/Apply isn't above filter popovers
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton onClick={cancelTemporary} type="secondary" size="small">
