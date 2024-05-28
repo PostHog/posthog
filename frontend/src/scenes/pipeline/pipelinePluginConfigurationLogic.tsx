@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -252,6 +252,13 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             submit: async (formdata) => {
                 await asyncActions.updatePluginConfig(formdata)
             },
+        },
+    })),
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.configurationChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
         },
     })),
     afterMount(({ props, actions }) => {

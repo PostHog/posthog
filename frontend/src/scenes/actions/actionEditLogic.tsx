@@ -70,7 +70,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 props.action ??
                 ({
                     name: '',
-                    steps: [{ event: '$pageview' }],
+                    steps: [DEFAULT_ACTION_STEP],
                 } as ActionType),
 
             submit: async (updatedAction, breakpoint) => {
