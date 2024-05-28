@@ -182,7 +182,7 @@ export function PipelinePluginConfiguration({
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
-                                                value={value.filter_test_accounts}
+                                                value={value?.filter_test_accounts ?? false}
                                                 onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
                                             />
                                             <ActionFilter
@@ -191,7 +191,7 @@ export function PipelinePluginConfiguration({
                                                 setFilters={(payload) => {
                                                     onChange({
                                                         ...payload,
-                                                        filter_test_accounts: value.filter_test_accounts,
+                                                        filter_test_accounts: value?.filter_test_accounts,
                                                     })
                                                 }}
                                                 typeKey="plugin-filters"

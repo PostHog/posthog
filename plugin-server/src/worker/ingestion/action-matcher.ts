@@ -25,6 +25,7 @@ import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
+import { TeamManager } from './team-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
 const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
@@ -133,13 +134,11 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    private postgres: PostgresRouter
-    private actionManager: ActionManager
-
-    constructor(postgres: PostgresRouter, actionManager: ActionManager) {
-        this.postgres = postgres
-        this.actionManager = actionManager
-    }
+    constructor(
+        private postgres: PostgresRouter,
+        private actionManager: ActionManager,
+        private teamManager: TeamManager
+    ) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
@@ -164,6 +163,14 @@ export class ActionMatcher {
 
     public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): Promise<boolean> {
         const allFilters = [...(filters.events || []), ...(filters.actions || [])]
+
+        if (filters.filter_test_accounts) {
+            const internalFilters = (await this.teamManager.fetchTeam(event.teamId))?.test_account_filters
+
+            if (internalFilters) {
+                allFilters.push(...internalFilters)
+            }
+        }
 
         for (const filter of allFilters) {
             switch (filter.type) {

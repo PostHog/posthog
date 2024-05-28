@@ -57,7 +57,7 @@ describe('ActionMatcher', () => {
         ;[hub, closeServer] = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         actionCounter = 0
     })
 
@@ -1337,6 +1337,13 @@ describe('ActionMatcher', () => {
 })
 
 describe('ActionMatcher.checkFilters', () => {
+    const mockTeamManager = {
+        fetchTeam: jest.fn(() =>
+            Promise.resolve({
+                test_account_filters: [],
+            })
+        ),
+    }
     const mockActionManager = {
         getTeamActions: jest.fn(
             (): Record<number, Partial<Action>> => ({
@@ -1362,7 +1369,7 @@ describe('ActionMatcher.checkFilters', () => {
             })
         ),
     }
-    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any)
+    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any, mockTeamManager as any)
 
     const createFilters = (
         partials: Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[]

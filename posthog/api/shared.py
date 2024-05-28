@@ -106,3 +106,4 @@ class FilterBaseSerializer(serializers.Serializer):
 class FiltersSerializer(serializers.Serializer):
     events = FilterBaseSerializer(many=True, required=False)
     actions = FilterBaseSerializer(many=True, required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)

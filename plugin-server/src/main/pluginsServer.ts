@@ -387,7 +387,7 @@ export async function startPluginsServer(
                 )
 
             const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =

@@ -580,6 +580,7 @@ export interface Team {
     session_recording_opt_in: boolean
     ingested_event: boolean
     person_display_name_properties: string[] | null
+    test_account_filters: PluginConfigFilter[] | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -971,6 +972,8 @@ export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
 export interface PluginConfigFilterActions extends PluginConfigFilterBase {
     type: 'actions'
 }
+
+export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
 
 export interface PluginConfigFilters {
     events?: PluginConfigFilterEvents[]

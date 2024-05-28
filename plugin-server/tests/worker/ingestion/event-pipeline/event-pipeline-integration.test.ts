@@ -47,7 +47,7 @@ describe('Event Pipeline integration test', () => {
 
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
