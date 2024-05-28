@@ -7,6 +7,7 @@ import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -49,6 +50,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig,
     rustyHook,
     appMetrics,
+    groupTypeManager,
 }: {
     kafka: Kafka
     postgres: PostgresRouter
@@ -57,6 +59,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig: PluginsServerConfig
     rustyHook: RustyHook
     appMetrics: AppMetrics
+    groupTypeManager: GroupTypeManager
     actionMatcher: ActionMatcher
     actionManager: ActionManager
 }) => {
@@ -91,7 +94,15 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     await actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
+        eachBatch: (payload) =>
+            eachBatchWebhooksHandlers(
+                payload,
+                actionMatcher,
+                hookCannon,
+                concurrency,
+                groupTypeManager,
+                organizationManager
+            ),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)

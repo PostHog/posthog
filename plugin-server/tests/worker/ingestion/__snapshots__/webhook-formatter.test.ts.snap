@@ -51,6 +51,16 @@ exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]' 
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"[text\\\\]\\\\(yes\\\\!\\\\), \\\\[new link](http://localhost:8000/project/123/events/\\\\*\\\\*\\\\)/2021-10-31T00%253A44%253A00.000Z)"`;
 
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.missing]' } 1`] = `"(event without 'missing')"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.organization.properties.plan]' } 1`] = `"paid"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.organization]' } 1`] = `"[PostHog](http://localhost:8000/project/123/groups/1/123)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.project]' } 1`] = `"[234](http://localhost:8000/project/123/groups/2/234)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups]' } 1`] = `"NOT SUPPORTED"`;
+
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[person.link]' } 1`] = `"http://localhost:8000/project/123/person/WALL-E"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[person]' } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;

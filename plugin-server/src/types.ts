@@ -691,6 +691,16 @@ export interface PostIngestionEvent extends PreIngestionEvent {
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
+
+    groups?: Record<
+        string,
+        {
+            key: string
+            type: string
+            index: number
+            properties: Properties
+        }
+    >
 }
 
 export interface DeadLetterQueueEvent {
@@ -1157,4 +1167,24 @@ export type RawClickhouseHeatmapEvent = {
     timestamp: string
     type: string
     team_id: number
+}
+
+export interface HookPayload {
+    hook: Pick<Hook, 'id' | 'event' | 'target'>
+
+    data: {
+        eventUuid: string
+        event: string
+        teamId: TeamId
+        distinctId: string
+        properties: Properties
+        timestamp: ISOTimestamp
+        elementsList?: Element[]
+
+        person: {
+            uuid: string
+            properties: Properties
+            created_at: ISOTimestamp | null
+        }
+    }
 }
