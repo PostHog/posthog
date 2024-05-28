@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, EventFilter, EventPropertyFilter, FilterLogicalOperator, ResourceFilterType } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
@@ -68,7 +68,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
@@ -108,26 +108,39 @@ export function PropertyFilters({
                                     label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
-                                    filterComponent={(onComplete) => (
-                                        <TaxonomicPropertyFilter
-                                            key={index}
-                                            pageKey={pageKey}
-                                            index={index}
-                                            onComplete={onComplete}
-                                            orFiltering={orFiltering}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            metadataSource={metadataSource}
-                                            eventNames={eventNames}
-                                            schemaColumns={schemaColumns}
-                                            propertyGroupType={propertyGroupType}
-                                            disablePopover={disablePopover || orFiltering}
-                                            addText={addText}
-                                            hasRowOperator={hasRowOperator}
-                                            propertyAllowList={propertyAllowList}
-                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
-                                            allowRelativeDateOptions={allowRelativeDateOptions}
-                                        />
-                                    )}
+                                    filterComponent={(onComplete) =>
+                                        item.type === ResourceFilterType.Events ? (
+                                            <EventFilterSubProperties
+                                                item={item}
+                                                index={index}
+                                                onComplete={onComplete}
+                                                onChange={(properties) => {
+                                                    setFilter(index, { ...item, properties })
+                                                }}
+                                            />
+                                        ) : (
+                                            <TaxonomicPropertyFilter
+                                                key={index}
+                                                pageKey={pageKey}
+                                                index={index}
+                                                onComplete={onComplete}
+                                                setFilter={setFilter}
+                                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                                filters={filters}
+                                                disablePopover={disablePopover || orFiltering}
+                                                orFiltering={orFiltering}
+                                                hasRowOperator={hasRowOperator}
+                                                metadataSource={metadataSource}
+                                                eventNames={eventNames}
+                                                schemaColumns={schemaColumns}
+                                                propertyGroupType={propertyGroupType}
+                                                addText={addText}
+                                                propertyAllowList={propertyAllowList}
+                                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                                allowRelativeDateOptions={allowRelativeDateOptions}
+                                            />
+                                        )
+                                    }
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabled={disabled}
@@ -138,5 +151,27 @@ export function PropertyFilters({
                 </BindLogic>
             </div>
         </div>
+    )
+}
+
+const EventFilterSubProperties = ({
+    item,
+    onChange,
+}: {
+    item: EventFilter
+    index: number
+    onChange: (filters: EventPropertyFilter[]) => void
+    onComplete: () => void
+}): JSX.Element => {
+    return (
+        <PropertyFilters
+            propertyFilters={item.properties}
+            pageKey="thisisarandomstring"
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+            disablePopover
+            onChange={(properties: AnyPropertyFilter[]) => {
+                onChange(properties as EventPropertyFilter[])
+            }}
+        />
     )
 }

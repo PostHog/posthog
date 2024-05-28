@@ -2,9 +2,9 @@ import { IconPerson } from '@posthog/icons'
 import { IconCohort, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, ResourceFilterType } from '~/types'
 
-export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element {
+export function PropertyFilterIcon({ type }: { type?: PropertyFilterType | ResourceFilterType }): JSX.Element {
     let iconElement = <></>
     switch (type) {
         case 'event':

@@ -6,7 +6,7 @@ import {
     propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
-    taxonomicFilterTypeToPropertyFilterType,
+    taxonomicFilterTypeToFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -21,11 +21,13 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
     CohortPropertyFilter,
+    EventFilter,
     HogQLPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
+    ResourceFilterType,
 } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
@@ -36,8 +38,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key]),
     connect((props: TaxonomicPropertyFilterLogicProps) => ({
         values: [
-            props.propertyFilterLogic,
-            ['filters'],
             taxonomicFilterLogic({
                 taxonomicFilterLogicKey: props.pageKey,
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
@@ -74,7 +74,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
     selectors({
         filter: [
-            (s, p) => [s.filters, p.filterIndex],
+            (_, p) => [p.filters, p.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null =>
                 filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
@@ -94,7 +94,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
-            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
                     const cohortProperty: CohortPropertyFilter = {
@@ -102,14 +102,22 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         value: parseInt(String(propertyKey)),
                         type: propertyType,
                     }
-                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, cohortProperty)
+                    props.setFilter(props.filterIndex, cohortProperty)
                 } else if (propertyType === PropertyFilterType.HogQL) {
                     const hogQLProperty: HogQLPropertyFilter = {
                         type: propertyType,
                         key: String(propertyKey),
                         value: null, // must specify something to be compatible with existing types
                     }
-                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
+                    props.setFilter(props.filterIndex, hogQLProperty)
+                } else if (propertyType === ResourceFilterType.Events) {
+                    const eventFilter: EventFilter = {
+                        key: 'id',
+                        value: String(propertyKey),
+                        type: ResourceFilterType.Events,
+                        properties: [],
+                    }
+                    props.setFilter(props.filterIndex, eventFilter)
                 } else {
                     const apiType =
                         propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
@@ -143,7 +151,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,
                     }
-                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
+                    props.setFilter(props.filterIndex, property)
                 }
                 actions.closeDropdown()
             }

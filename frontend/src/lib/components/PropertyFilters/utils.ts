@@ -26,6 +26,7 @@ import {
     PropertyGroupFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
+    ResourceFilterType,
     SessionPropertyFilter,
 } from '~/types'
 
@@ -115,6 +116,10 @@ export function formatPropertyLabel(
     const { value, key, operator, type } = item
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+
+    if (item.type === ResourceFilterType.Events) {
+        return `"${item.value}" occured`
+    }
 
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
@@ -317,9 +322,9 @@ export function propertyFilterTypeToPropertyDefinitionType(
         : PropertyDefinitionType.Event
 }
 
-export function taxonomicFilterTypeToPropertyFilterType(
+export function taxonomicFilterTypeToFilterType(
     filterType?: TaxonomicFilterGroupType
-): PropertyFilterType | undefined {
+): PropertyFilterType | ResourceFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
     }
@@ -333,6 +338,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.Events) {
+        return ResourceFilterType.Events
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {

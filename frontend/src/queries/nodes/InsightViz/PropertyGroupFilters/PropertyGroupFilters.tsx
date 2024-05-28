@@ -22,6 +22,7 @@ type PropertyGroupFiltersProps = {
     setQuery: (node: TrendsQuery | StickinessQuery) => void
     pageKey: string
     eventNames?: string[]
+    orFiltering?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     isDataWarehouseSeries?: boolean
 }
@@ -32,6 +33,7 @@ export function PropertyGroupFilters({
     setQuery,
     pageKey,
     eventNames = [],
+    orFiltering = true,
     taxonomicGroupTypes,
     isDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
@@ -118,7 +120,7 @@ export function PropertyGroupFilters({
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}
-                                                    orFiltering
+                                                    orFiltering={orFiltering}
                                                 />
                                             </div>
                                             {propertyGroupIndex !== propertyGroupFilter.values.length - 1 && (

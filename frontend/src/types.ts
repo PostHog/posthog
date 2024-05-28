@@ -668,6 +668,10 @@ export enum ProgressStatus {
     Complete = 'complete',
 }
 
+export enum ResourceFilterType {
+    Events = 'events',
+}
+
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
@@ -700,6 +704,7 @@ export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
     /** @default 'exact' */
     operator: PropertyOperator
+    eventKey?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -761,7 +766,15 @@ export interface EmptyPropertyFilter {
     key?: never
 }
 
+export type EventFilter = {
+    type: ResourceFilterType.Events
+    key: 'id'
+    value: string
+    properties: EventPropertyFilter[]
+}
+
 export type AnyPropertyFilter =
+    | EventFilter
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter

@@ -11,12 +11,19 @@ import {
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import {
+    PropertyDefinition,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+    ResourceFilterType,
+} from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
 export interface OperatorValueSelectProps {
-    type?: PropertyFilterType
+    type?: PropertyFilterType | ResourceFilterType
     propkey?: string
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null
@@ -110,9 +117,9 @@ export function OperatorValueSelect({
                         if (tentativeValidationError) {
                             setValidationError(tentativeValidationError)
                             return
-                        } else {
-                            setValidationError(null)
                         }
+                        setValidationError(null)
+
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -151,9 +158,9 @@ export function OperatorValueSelect({
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
-                            } else {
-                                setValidationError(null)
                             }
+                            setValidationError(null)
+
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter

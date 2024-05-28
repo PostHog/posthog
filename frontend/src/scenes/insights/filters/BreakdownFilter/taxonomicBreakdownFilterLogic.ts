@@ -2,7 +2,7 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import {
     breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
-    taxonomicFilterTypeToPropertyFilterType,
+    taxonomicFilterTypeToFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import {
     TaxonomicFilterGroup,
@@ -113,7 +113,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
-            const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
+            const breakdownType = taxonomicFilterTypeToFilterType(taxonomicGroup.type) as BreakdownType
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
             const isHistogramable =
                 !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends

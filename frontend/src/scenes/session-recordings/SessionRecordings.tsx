@@ -21,6 +21,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
 import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
+import { HogQLFilters } from './filters/HogQLFilters'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -181,6 +182,8 @@ function MainPanel(): JSX.Element {
     return (
         <div className="space-y-2">
             <Warnings />
+
+            <HogQLFilters />
 
             {!tab ? (
                 <Spinner />

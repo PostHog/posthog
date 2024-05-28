@@ -3,9 +3,8 @@ import './TaxonomicPropertyFilter.scss'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     isGroupPropertyFilter,
@@ -42,6 +41,8 @@ export function TaxonomicPropertyFilter({
     schemaColumns,
     propertyGroupType,
     orFiltering,
+    filters,
+    setFilter,
     addText = 'Add filter',
     hasRowOperator,
     metadataSource,
@@ -71,12 +72,13 @@ export function TaxonomicPropertyFilter({
             onComplete?.()
         }
     }
-    const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
-    const { setFilter } = useActions(propertyFilterLogic)
+    // const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
+    // const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
-        propertyFilterLogic: builtPropertyFilterLogic,
+        filters,
+        setFilter,
         filterIndex: index,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
