@@ -1489,6 +1489,7 @@ describe('ActionMatcher.checkFilters', () => {
             ],
             false,
         ],
+        [{ event: '$not-pageview' }, [{ type: 'actions', id: '1' }, { name: '$not-pageview' }], true],
     ]
 
     it.each(testCases)('should correctly match filters %o %o', async (partialEvent, partialFilters, expectation) => {

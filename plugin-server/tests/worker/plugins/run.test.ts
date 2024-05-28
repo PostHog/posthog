@@ -297,15 +297,18 @@ describe('runComposeWebhook', () => {
         `)
     })
 
-    it('filters out if has matching action that cannot be found', async () => {
-        mockPluginConfig.match_action_id = 1
-        await runComposeWebhook(mockHub as Hub, createEvent())
-
-        expect(composeWebhook).toHaveBeenCalledTimes(0)
-    })
-
-    it('filters out if has matching action that does not match event', async () => {
-        mockPluginConfig.match_action_id = 1
+    it('filters in if has matching action', async () => {
+        mockPluginConfig.filters = {
+            actions: [
+                {
+                    id: '1',
+                    type: 'actions',
+                    properties: [],
+                    name: '',
+                    order: 0,
+                },
+            ],
+        }
 
         mockActionManager.getTeamActions.mockImplementation(() => ({
             1: {
@@ -321,10 +324,11 @@ describe('runComposeWebhook', () => {
         expect(composeWebhook).toHaveBeenCalledTimes(1)
     })
 
-    it('filters out if has filters that does not match event', async () => {
+    it('filters in if has matching event filter', async () => {
         mockPluginConfig.filters = {
             events: [
                 {
+                    id: '0',
                     type: 'events',
                     name: '$autocapture',
                     order: 0,
@@ -338,7 +342,7 @@ describe('runComposeWebhook', () => {
         expect(composeWebhook).toHaveBeenCalledTimes(1)
     })
 
-    it('filters in if match action _or_ filters match', async () => {
+    it('filters in if has matching match action _or_ event filter', async () => {
         mockPluginConfig.filters = {
             events: [
                 {
@@ -346,11 +350,19 @@ describe('runComposeWebhook', () => {
                     name: '$not-autcapture',
                     order: 0,
                     properties: [],
+                    id: '0',
+                },
+            ],
+            actions: [
+                {
+                    id: '1',
+                    type: 'actions',
+                    properties: [],
+                    name: '',
+                    order: 0,
                 },
             ],
         }
-
-        mockPluginConfig.match_action_id = 1
 
         mockActionManager.getTeamActions.mockImplementation(() => ({
             1: {
@@ -367,7 +379,24 @@ describe('runComposeWebhook', () => {
         expect(composeWebhook).toHaveBeenCalledTimes(1)
     })
 
-    it('filters out if neither action _or_ filters match', async () => {
+    it('filters out if has matching action that cannot be found', async () => {
+        mockPluginConfig.filters = {
+            actions: [
+                {
+                    id: '1',
+                    type: 'actions',
+                    properties: [],
+                    name: '',
+                    order: 0,
+                },
+            ],
+        }
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(0)
+    })
+
+    it('filters out if has non-matching action and event filter', async () => {
         mockPluginConfig.filters = {
             events: [
                 {
@@ -375,23 +404,25 @@ describe('runComposeWebhook', () => {
                     name: '$not-autcapture',
                     order: 0,
                     properties: [],
+                    id: '0',
                 },
+            ],
+            actions: [
                 {
-                    type: 'events',
-                    name: '$also-not-autcapture',
-                    order: 0,
+                    id: '1',
+                    type: 'actions',
                     properties: [],
+                    name: '',
+                    order: 0,
                 },
             ],
         }
-
-        mockPluginConfig.match_action_id = 1
 
         mockActionManager.getTeamActions.mockImplementation(() => ({
             1: {
                 steps: [
                     {
-                        event: '$still-not-autocapture',
+                        event: '$also-not-autocapture',
                     },
                 ],
             },
@@ -404,7 +435,7 @@ describe('runComposeWebhook', () => {
 
     it('handles malformed filters and does logs an error', async () => {
         mockPluginConfig.filters = {
-            wat: 'is up',
+            events: {},
         } as any
 
         await runComposeWebhook(mockHub as Hub, createEvent())
@@ -419,7 +450,7 @@ describe('runComposeWebhook', () => {
                 teamId: 2,
             },
             {
-                error: 'Error occurred when processing filters: TypeError: filters.events is not iterable',
+                error: 'Error occurred when processing filters: TypeError: (filters.events || []) is not iterable',
                 event: expect.objectContaining({
                     event: '$autocapture',
                 }),
