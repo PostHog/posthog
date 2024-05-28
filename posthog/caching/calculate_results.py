@@ -40,6 +40,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.types import FilterType
+from posthog.api.services.query import process_query_dict, ExecutionMode
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -121,9 +122,8 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode
 ) -> "InsightResult":
-    from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
 
@@ -135,9 +135,7 @@ def calculate_for_query_based_insight(
         insight.team,
         insight.query,
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-        execution_mode=(
-            ExecutionMode.CALCULATION_ALWAYS if refresh_requested else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-        ),
+        execution_mode=execution_mode,
     )
 
     if isinstance(response, CacheMissResponse):
