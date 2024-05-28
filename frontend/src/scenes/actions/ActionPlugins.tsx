@@ -33,7 +33,7 @@ export function ActionPlugins(): JSX.Element | null {
                             <div className="flex items-center gap-2">
                                 <PluginImage plugin={config.plugin_info} size="small" />
                                 <LemonTableLink
-                                    title={config.plugin_info.name}
+                                    title={config.name ?? config.plugin_info.name}
                                     to={urls.pipelineNode(
                                         PipelineStage.Destination,
                                         config.id,
