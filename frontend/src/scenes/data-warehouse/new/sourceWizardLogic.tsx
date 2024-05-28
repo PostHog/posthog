@@ -11,6 +11,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    PipelineTab,
     SourceConfig,
     SourceFieldConfig,
 } from '~/types'
@@ -454,7 +455,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.clearSource()
             actions.loadSources(null)
             actions.resetSourceConnectionDetails()
-            router.actions.push(urls.dataWarehouseSettings())
+
+            if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
+                router.actions.push(urls.dataWarehouseSettings())
+            } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
+                router.actions.push(urls.pipeline(PipelineTab.DataImport))
+            }
         },
         cancelWizard: () => {
             actions.onClear()

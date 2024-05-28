@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DataWarehouseSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,12 +26,20 @@ export function Pipeline(): JSX.Element {
     const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
     const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
         [PipelineTab.Overview]: <Overview />,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
         [PipelineTab.SiteApps]: <FrontendApps />,
+    }
+
+    if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
+        tabToContent = {
+            ...tabToContent,
+            [PipelineTab.DataImport]: <DataWarehouseSourcesTable />,
+        }
     }
     // Import apps are deprecated, we only show the tab if there are some still enabled
     if (hasEnabledImportApps) {
