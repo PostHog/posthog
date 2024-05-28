@@ -1,15 +1,21 @@
 import dataclasses
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, TYPE_CHECKING
+from collections.abc import Callable
 
+from hogvm.python.execute import execute_bytecode
 from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,
@@ -272,3 +278,15 @@ class BytecodeBuilder(Visitor):
         bytecode = create_bytecode(node.body, all_known_functions, node.params)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
+
+
+def execute_hog(
+    source_code: str,
+    team: "Team",
+    fields: Optional[dict[str, Any]] = None,
+    functions: Optional[dict[str, Callable[..., Any]]] = None,
+    timeout=10,
+):
+    program = parse_program(source_code + ";")
+    bytecode = create_bytecode(program)
+    return execute_bytecode(bytecode, fields=fields, functions=functions, timeout=timeout, team=team)

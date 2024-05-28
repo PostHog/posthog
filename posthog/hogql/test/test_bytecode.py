@@ -1,4 +1,4 @@
-from posthog.hogql.bytecode import to_bytecode
+from posthog.hogql.bytecode import to_bytecode, execute_hog
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.errors import NotImplementedError
 from posthog.test.base import BaseTest
@@ -135,3 +135,7 @@ class TestBytecode(BaseTest):
         with self.assertRaises(NotImplementedError) as e:
             to_bytecode("1 in cohort 2")
         self.assertEqual(str(e.exception), "Cohort operations are not supported")
+
+    def test_bytecode_execute(self):
+        # Test a simple operation. The Hog execution itself is tested under hogvm/python/
+        self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)

@@ -46,26 +46,26 @@ public:
     RuleProgram = 0, RuleDeclaration = 1, RuleExpression = 2, RuleVarDecl = 3, 
     RuleVarAssignment = 4, RuleIdentifierList = 5, RuleStatement = 6, RuleExprStmt = 7, 
     RuleIfStmt = 8, RuleWhileStmt = 9, RuleReturnStmt = 10, RuleFuncStmt = 11, 
-    RuleBlock = 12, RuleDict = 13, RuleKvPair = 14, RuleKvPairList = 15, 
-    RuleSelect = 16, RuleSelectUnionStmt = 17, RuleSelectStmtWithParens = 18, 
-    RuleSelectStmt = 19, RuleWithClause = 20, RuleTopClause = 21, RuleFromClause = 22, 
-    RuleArrayJoinClause = 23, RuleWindowClause = 24, RulePrewhereClause = 25, 
-    RuleWhereClause = 26, RuleGroupByClause = 27, RuleHavingClause = 28, 
-    RuleOrderByClause = 29, RuleProjectionOrderByClause = 30, RuleLimitAndOffsetClause = 31, 
-    RuleOffsetOnlyClause = 32, RuleSettingsClause = 33, RuleJoinExpr = 34, 
-    RuleJoinOp = 35, RuleJoinOpCross = 36, RuleJoinConstraintClause = 37, 
-    RuleSampleClause = 38, RuleOrderExprList = 39, RuleOrderExpr = 40, RuleRatioExpr = 41, 
-    RuleSettingExprList = 42, RuleSettingExpr = 43, RuleWindowExpr = 44, 
-    RuleWinPartitionByClause = 45, RuleWinOrderByClause = 46, RuleWinFrameClause = 47, 
-    RuleWinFrameExtend = 48, RuleWinFrameBound = 49, RuleExpr = 50, RuleColumnTypeExpr = 51, 
-    RuleColumnExprList = 52, RuleColumnExpr = 53, RuleColumnArgList = 54, 
-    RuleColumnArgExpr = 55, RuleColumnLambdaExpr = 56, RuleHogqlxTagElement = 57, 
-    RuleHogqlxTagAttribute = 58, RuleWithExprList = 59, RuleWithExpr = 60, 
-    RuleColumnIdentifier = 61, RuleNestedIdentifier = 62, RuleTableExpr = 63, 
-    RuleTableFunctionExpr = 64, RuleTableIdentifier = 65, RuleTableArgList = 66, 
-    RuleDatabaseIdentifier = 67, RuleFloatingLiteral = 68, RuleNumberLiteral = 69, 
-    RuleLiteral = 70, RuleInterval = 71, RuleKeyword = 72, RuleKeywordForAlias = 73, 
-    RuleAlias = 74, RuleIdentifier = 75, RuleEnumValue = 76, RulePlaceholder = 77
+    RuleEmptyStmt = 12, RuleBlock = 13, RuleDict = 14, RuleKvPair = 15, 
+    RuleKvPairList = 16, RuleSelect = 17, RuleSelectUnionStmt = 18, RuleSelectStmtWithParens = 19, 
+    RuleSelectStmt = 20, RuleWithClause = 21, RuleTopClause = 22, RuleFromClause = 23, 
+    RuleArrayJoinClause = 24, RuleWindowClause = 25, RulePrewhereClause = 26, 
+    RuleWhereClause = 27, RuleGroupByClause = 28, RuleHavingClause = 29, 
+    RuleOrderByClause = 30, RuleProjectionOrderByClause = 31, RuleLimitAndOffsetClause = 32, 
+    RuleOffsetOnlyClause = 33, RuleSettingsClause = 34, RuleJoinExpr = 35, 
+    RuleJoinOp = 36, RuleJoinOpCross = 37, RuleJoinConstraintClause = 38, 
+    RuleSampleClause = 39, RuleOrderExprList = 40, RuleOrderExpr = 41, RuleRatioExpr = 42, 
+    RuleSettingExprList = 43, RuleSettingExpr = 44, RuleWindowExpr = 45, 
+    RuleWinPartitionByClause = 46, RuleWinOrderByClause = 47, RuleWinFrameClause = 48, 
+    RuleWinFrameExtend = 49, RuleWinFrameBound = 50, RuleExpr = 51, RuleColumnTypeExpr = 52, 
+    RuleColumnExprList = 53, RuleColumnExpr = 54, RuleColumnArgList = 55, 
+    RuleColumnArgExpr = 56, RuleColumnLambdaExpr = 57, RuleHogqlxTagElement = 58, 
+    RuleHogqlxTagAttribute = 59, RuleWithExprList = 60, RuleWithExpr = 61, 
+    RuleColumnIdentifier = 62, RuleNestedIdentifier = 63, RuleTableExpr = 64, 
+    RuleTableFunctionExpr = 65, RuleTableIdentifier = 66, RuleTableArgList = 67, 
+    RuleDatabaseIdentifier = 68, RuleFloatingLiteral = 69, RuleNumberLiteral = 70, 
+    RuleLiteral = 71, RuleInterval = 72, RuleKeyword = 73, RuleKeywordForAlias = 74, 
+    RuleAlias = 75, RuleIdentifier = 76, RuleEnumValue = 77, RulePlaceholder = 78
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -97,6 +97,7 @@ public:
   class WhileStmtContext;
   class ReturnStmtContext;
   class FuncStmtContext;
+  class EmptyStmtContext;
   class BlockContext;
   class DictContext;
   class KvPairContext;
@@ -263,6 +264,7 @@ public:
     StatementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     ReturnStmtContext *returnStmt();
+    EmptyStmtContext *emptyStmt();
     ExprStmtContext *exprStmt();
     IfStmtContext *ifStmt();
     WhileStmtContext *whileStmt();
@@ -359,6 +361,19 @@ public:
   };
 
   FuncStmtContext* funcStmt();
+
+  class  EmptyStmtContext : public antlr4::ParserRuleContext {
+  public:
+    EmptyStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  EmptyStmtContext* emptyStmt();
 
   class  BlockContext : public antlr4::ParserRuleContext {
   public:

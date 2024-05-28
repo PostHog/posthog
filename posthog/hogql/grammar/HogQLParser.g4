@@ -17,6 +17,7 @@ varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
+               | emptyStmt
                | exprStmt
                | ifStmt
                | whileStmt
@@ -31,6 +32,7 @@ ifStmt         : IF LPAREN expression RPAREN statement
 whileStmt      : WHILE LPAREN expression RPAREN statement;
 returnStmt     : RETURN expression SEMICOLON ;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
 

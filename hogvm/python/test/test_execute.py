@@ -20,7 +20,7 @@ class TestBytecodeExecute(BaseTest):
             "properties": {"foo": "bar", "nullValue": None},
         }
         program = parse_program(code)
-        bytecode = create_bytecode(program, set(functions.keys()) if functions else None)
+        bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
         return execute_bytecode(bytecode, fields, functions).result
 
     def test_bytecode_create(self):
@@ -442,3 +442,14 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run_program("if (empty('') and notEmpty('234')) return length('123');"), 3)
         self.assertEqual(self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');"), "TEST")
         self.assertEqual(self._run_program("return reverse('spinner');"), "rennips")
+
+    def test_bytecode_empty_statements(self):
+        self.assertEqual(self._run_program(";"), None)
+        self.assertEqual(self._run_program(";;"), None)
+        self.assertEqual(self._run_program(";;return 1;;"), 1)
+        self.assertEqual(self._run_program("return 1;;"), 1)
+        self.assertEqual(self._run_program("return 1;"), 1)
+        self.assertEqual(self._run_program("return 1;return 2;"), 1)
+        self.assertEqual(self._run_program("return 1;return 2;;"), 1)
+        self.assertEqual(self._run_program("return 1;return 2;return 3;"), 1)
+        self.assertEqual(self._run_program("return 1;return 2;return 3;;"), 1)

@@ -43,6 +43,8 @@ public:
 
     virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
 
+    virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *context) = 0;
+
     virtual std::any visitBlock(HogQLParser::BlockContext *context) = 0;
 
     virtual std::any visitDict(HogQLParser::DictContext *context) = 0;

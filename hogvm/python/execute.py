@@ -30,6 +30,7 @@ def get_nested_value(obj, chain) -> Any:
 @dataclass
 class BytecodeResult:
     result: Any
+    bytecode: list[Any]
     stdout: list[str]
 
 
@@ -147,7 +148,7 @@ def execute_bytecode(
                         stack = stack[0:stack_start]
                         stack.append(response)
                     else:
-                        return BytecodeResult(result=stack.pop(), stdout=stdout)
+                        return BytecodeResult(result=stack.pop(), stdout=stdout, bytecode=bytecode)
                 case Operation.GET_LOCAL:
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     stack.append(stack[next_token() + stack_start])
@@ -190,7 +191,9 @@ def execute_bytecode(
 
         if len(stack) > 1:
             raise HogVMException("Invalid bytecode. More than one value left on stack")
-
-        return BytecodeResult(result=stack.pop(), stdout=stdout)
+        result = None
+        if len(stack) == 1:
+            result = stack.pop()
+        return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)
     except IndexError:
         raise HogVMException("Unexpected end of bytecode")

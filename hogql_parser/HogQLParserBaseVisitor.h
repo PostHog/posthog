@@ -63,6 +63,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitBlock(HogQLParser::BlockContext *ctx) override {
     return visitChildren(ctx);
   }
