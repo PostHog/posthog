@@ -1,10 +1,12 @@
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonSwitchProps, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -109,5 +111,44 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
             </div>
             <TestAccountFiltersConfig />
         </>
+    )
+}
+
+type TestAccountFilterProps = Partial<LemonSwitchProps> & {
+    value: boolean
+    onChange: (value: boolean) => void
+    disabledReason?: string
+}
+
+export function TestAccountFilterSwitch({
+    value,
+    onChange,
+    disabledReason,
+}: TestAccountFilterProps): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    return (
+        <LemonSwitch
+            checked={value}
+            onChange={onChange}
+            id="test-account-filter"
+            bordered
+            label={
+                <div className="flex items-center">
+                    <span>Filter out internal and test users</span>
+                    <LemonButton
+                        icon={<IconGear />}
+                        to={urls.settings('project', 'internal-user-filtering')}
+                        size="small"
+                        noPadding
+                        className="ml-1"
+                    />
+                </div>
+            }
+            fullWidth
+            disabled={!hasFilters}
+            disabledReason={disabledReason}
+        />
     )
 }

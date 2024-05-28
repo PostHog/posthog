@@ -975,6 +975,7 @@ export interface PluginConfigFilterActions extends PluginConfigFilterBase {
 export interface PluginConfigFilters {
     events?: PluginConfigFilterEvents[]
     actions?: PluginConfigFilterActions[]
+    filter_test_accounts?: boolean
 }
 
 /** Raw Action row from database. */

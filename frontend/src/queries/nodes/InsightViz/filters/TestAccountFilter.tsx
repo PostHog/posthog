@@ -38,7 +38,6 @@ export function TestAccountFilter({ query, setQuery, disabledReason }: TestAccou
                     />
                 </div>
             }
-            fullWidth
             disabled={!hasFilters}
             disabledReason={disabledReason}
         />

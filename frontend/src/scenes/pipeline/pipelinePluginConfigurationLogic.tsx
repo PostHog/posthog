@@ -61,24 +61,33 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
 }
 
 function sanitizeFilters(filters: FilterType): PluginConfigTypeNew['filters'] {
-    const sanitized: PluginConfigFilters = {
-        events: filters.events?.map((f) => ({
+    const sanitized: PluginConfigFilters = {}
+
+    if (filters.events) {
+        sanitized.events = filters.events.map((f) => ({
             id: f.id,
             type: 'events',
             name: f.name,
             order: f.order,
             properties: f.properties,
-        })),
-        actions: filters.actions?.map((f) => ({
+        }))
+    }
+
+    if (filters.actions) {
+        sanitized.actions = filters.actions.map((f) => ({
             id: f.id,
             type: 'actions',
             name: f.name,
             order: f.order,
             properties: f.properties,
-        })),
+        }))
     }
 
-    return sanitized.events?.length || sanitized.actions?.length ? sanitized : null
+    if (filters.filter_test_accounts) {
+        sanitized.filter_test_accounts = filters.filter_test_accounts
+    }
+
+    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic

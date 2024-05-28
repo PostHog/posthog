@@ -1879,6 +1879,7 @@ export interface PluginConfigFilterActions extends PluginConfigFilterBase {
 export interface PluginConfigFilters {
     events?: PluginConfigFilterEvents[]
     actions?: PluginConfigFilterActions[]
+    filter_test_accounts?: boolean
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
