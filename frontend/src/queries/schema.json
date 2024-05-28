@@ -6894,7 +6894,7 @@
                 },
                 "totalIntervals": {
                     "default": 11,
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"

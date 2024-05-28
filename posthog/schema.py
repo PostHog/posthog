@@ -2409,7 +2409,7 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = False
     targetEntity: Optional[RetentionEntity] = None
-    totalIntervals: Optional[float] = 11
+    totalIntervals: Optional[int] = 11
 
 
 class RetentionFilterLegacy(BaseModel):

@@ -798,7 +798,7 @@ export type RetentionFilter = {
     /** @default total */
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 11 */
-    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */

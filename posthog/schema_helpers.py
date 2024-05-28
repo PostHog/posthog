@@ -1,11 +1,11 @@
-import typing
 import orjson
+from typing import Any, Literal, get_origin
 from pydantic import BaseModel, model_serializer
 from rest_framework.utils.encoders import JSONEncoder
 
 
 def to_json(query: BaseModel) -> bytes:
-    klass = type(query)
+    klass: Any = type(query)
 
     class ExtendedQuery(klass):
         @model_serializer(mode="wrap")
@@ -17,7 +17,7 @@ def to_json(query: BaseModel) -> bytes:
             """
             dumped = next_serializer(self)
             for name, field_info in self.model_fields.items():
-                if typing.get_origin(field_info.annotation) == typing.Literal:
+                if get_origin(field_info.annotation) == Literal:
                     dumped[name] = getattr(self, name)
             return dumped
 
