@@ -140,7 +140,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             date_from,
             date_to,
         }),
-        setEditMode: (editMode: boolean) => ({ editMode }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setFilters: (filters: DashboardFilter) => ({ filters }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -560,12 +559,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setTextTileId: (_, { textTileId }) => textTileId,
             },
         ],
-        editMode: [
-            false,
-            {
-                setEditMode: (_, { editMode }) => editMode,
-            },
-        ],
     })),
     selectors(() => ({
         asDashboardTemplate: [
@@ -773,13 +766,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         stale: [
-            (s) => [s.editMode, s.temporaryFilters, s.dashboard],
-            (editMode, temporaryFilters, dashboard) => {
+            (s) => [s.temporaryFilters, s.dashboard],
+            (temporaryFilters, dashboard) => {
                 return (
-                    editMode &&
-                    (temporaryFilters.date_from !== dashboard?.filters.date_from ||
-                        temporaryFilters.date_to !== dashboard?.filters.date_to ||
-                        JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties))
+                    temporaryFilters.date_from !== dashboard?.filters.date_from ||
+                    temporaryFilters.date_to !== dashboard?.filters.date_to ||
+                    JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties)
                 )
             },
         ],
@@ -1206,12 +1198,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         applyTemporary: () => {
             actions.setFilters(values.temporaryFilters)
-            actions.setEditMode(false)
         },
         cancelTemporary: () => {
             actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
             actions.setProperties(values.dashboard?.filters.properties ?? null)
-            actions.setEditMode(false)
         },
     })),
 
