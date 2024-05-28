@@ -43,6 +43,9 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         // eslint-disable-next-line no-console
         console.log(...args)
     },
+}
+
+export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {
     sleep: async (args) => {
         await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
     },
