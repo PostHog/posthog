@@ -9,6 +9,7 @@ export function delay(ms: number): Promise<void> {
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
         const fields = { properties: { foo: 'bar', nullValue: null } }
+        expect(await exec(['_h'], fields)).toBe(null)
         expect(await exec(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], fields)).toBe(3)
         expect(await exec(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], fields)).toBe(-1)
         expect(await exec(['_h', op.INTEGER, 2, op.INTEGER, 3, op.MULTIPLY], fields)).toBe(6)
@@ -93,7 +94,6 @@ describe('HogQL Bytecode', () => {
     test('error handling', async () => {
         const fields = { properties: { foo: 'bar' } }
         await expect(exec([], fields)).rejects.toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        await expect(exec(['_h'], fields)).rejects.toThrowError('Invalid HogQL bytecode, stack is empty')
         await expect(exec(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], fields)).rejects.toThrowError(
             'Unexpected node while running bytecode: InvalidOp'
         )
