@@ -532,6 +532,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    plugin_configs?: PluginConfigWithPluginInfoNew[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1837,6 +1838,7 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+    match_action?: ActionType['id']
 }
 
 /** @deprecated in favor of PluginConfigWithPluginInfoNew */
@@ -1857,6 +1859,7 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
+    match_action?: ActionType['id']
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
