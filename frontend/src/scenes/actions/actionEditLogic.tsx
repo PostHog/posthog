@@ -17,17 +17,13 @@ import { ActionStepType, ActionType } from '~/types'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
 
-export type NewActionType = Partial<ActionType> &
-    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
-export type ActionEditType = ActionType | NewActionType
-
 export interface SetActionProps {
     merge?: boolean
 }
 
 export interface ActionEditLogicProps {
     id?: number
-    action?: ActionEditType
+    action?: ActionType | null
 }
 
 export const DEFAULT_ACTION_STEP: ActionStepType = {
@@ -36,7 +32,7 @@ export const DEFAULT_ACTION_STEP: ActionStepType = {
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
-    path(['scenes', 'actions', 'actionEditLogic']),
+    path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
     connect({
@@ -51,7 +47,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         values: [sceneLogic, ['activeScene']],
     }),
     actions({
-        setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
+        setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
         }),
@@ -70,10 +66,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     forms(({ actions, props }) => ({
         action: {
-            defaults: props.action ?? {
-                name: '',
-                steps: [{ event: '$pageview' }],
-            },
+            defaults:
+                props.action ??
+                ({
+                    name: '',
+                    steps: [DEFAULT_ACTION_STEP],
+                } as ActionType),
 
             submit: async (updatedAction, breakpoint) => {
                 let action: ActionType
@@ -122,10 +120,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     loaders(({ props, values }) => ({
         action: [
-            { ...props.action } as ActionEditType,
+            { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
-                    (merge ? { ...values.action, ...action } : action) as ActionEditType,
+                    (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
     })),
@@ -136,19 +134,23 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (!actionId) {
                 return
             }
-            await deleteWithUndo({
-                endpoint: api.actions.determineDeleteEndpoint(),
-                object: values.action,
-                callback: (undo: boolean) => {
-                    if (undo) {
-                        router.actions.push(urls.action(actionId))
-                    } else {
-                        actions.resetAction()
-                        router.actions.push(urls.actions())
-                        actions.loadActions()
-                    }
-                },
-            })
+            try {
+                await deleteWithUndo({
+                    endpoint: api.actions.determineDeleteEndpoint(),
+                    object: values.action,
+                    callback: (undo: boolean) => {
+                        if (undo) {
+                            router.actions.push(urls.action(actionId))
+                        } else {
+                            actions.resetAction()
+                            router.actions.push(urls.actions())
+                            actions.loadActions()
+                        }
+                    },
+                })
+            } catch (e: any) {
+                lemonToast.error(`Error deleting action: ${e.detail}`)
+            }
         },
     })),
 

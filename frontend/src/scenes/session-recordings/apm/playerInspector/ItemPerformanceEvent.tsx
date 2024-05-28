@@ -411,7 +411,7 @@ export function HeadersDisplay({
     )
 }
 
-export function StatusTag({ item, label }: { item: PerformanceEvent; label?: boolean }): JSX.Element | null {
+export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed: boolean }): JSX.Element | null {
     if (item.response_status === undefined) {
         return null
     }
@@ -432,10 +432,10 @@ export function StatusTag({ item, label }: { item: PerformanceEvent; label?: boo
 
     return (
         <div className="flex gap-4 items-center justify-between overflow-hidden">
-            {label ? <div className="font-semibold">Status code</div> : null}
+            {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                {fromDiskCache && <span className="text-muted"> (from cache)</span>}
+                {detailed && fromDiskCache ? <span className="text-muted"> (from cache)</span> : null}
             </div>
         </div>
     )
@@ -458,11 +458,11 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let methodRow = null
 
     if (item.response_status) {
-        statusRow = <StatusTag item={item} />
+        statusRow = <StatusTag item={item} detailed={true} />
     }
 
     if (item.method) {
-        methodRow = <MethodTag item={item} />
+        methodRow = <MethodTag item={item} label={true} />
     }
 
     return methodRow || statusRow ? (
