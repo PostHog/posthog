@@ -21,6 +21,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import FiltersSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import (
@@ -649,6 +650,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # metrics (for fatal errors) or plugin log entries (for all errors) for
         # error details instead.
         return None
+
+    def validate_filters(self, value: dict) -> dict:
+        serializer = FiltersSerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):

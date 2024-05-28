@@ -426,7 +426,6 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    match_action_id?: number
     filters?: PluginConfigFilters
 }
 
