@@ -582,6 +582,35 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
+    def test_billing_v2_org_membership_restrictions(self, mock_request):
+        self.organization.billing_access_level = OrganizationMembershipLevel.ADMIN
+        self.organization.save()
+
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(customer=create_billing_customer())
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        TEST_clear_instance_license_cache()
+        response = self.client.get("/api/billing-v2")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["stripe_portal_url"]
+
+        assert self.client.patch("/api/billing-v2").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get("/api/billing-v2/get_invoices").status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
         self.license.delete()
 

@@ -169,6 +169,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
+        if not self._can_manage_billing(request, organization):
+            raise PermissionDenied("Your organization restricts access to billing information to admins only.")
+
         invoice_status = request.GET.get("status")
 
         try:
