@@ -2541,6 +2541,11 @@
                 },
                 "date_to": {
                     "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "default": false,
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "type": ["boolean", "null"]
                 }
             },
             "type": "object"

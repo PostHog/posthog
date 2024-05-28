@@ -24,7 +24,7 @@ from posthog.schema import (
     ChartDisplayType,
     CompareItem,
     CountPerActorMathType,
-    DateRange,
+    InsightDateRange,
     DayItem,
     EventsNode,
     HogQLQueryModifiers,
@@ -184,7 +184,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,

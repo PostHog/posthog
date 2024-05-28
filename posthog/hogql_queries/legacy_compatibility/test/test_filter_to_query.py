@@ -11,7 +11,6 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseNode,
-    DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -974,7 +973,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, DateRange)
+        assert isinstance(query.dateRange, InsightDateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
         self.assertEqual(query.dateRange.explicitDate, True)

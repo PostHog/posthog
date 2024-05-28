@@ -15,7 +15,7 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
-    DateRange,
+    InsightDateRange,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventPropertyFilter,
@@ -209,7 +209,7 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
+            dateRange=InsightDateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
             properties=properties,
             stickinessFilter=filters,

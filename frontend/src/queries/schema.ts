@@ -1458,11 +1458,17 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
+    explicitDate?: boolean | null
 }
 
-export interface InsightDateRange extends DateRange {
+export interface InsightDateRange {
     /** @default -7d */
     date_from?: string | null
+    date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
      * @default false
