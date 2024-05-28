@@ -23,7 +23,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import FiltersSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,

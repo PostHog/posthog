@@ -1,7 +1,6 @@
 from typing import Any, cast
 
 from rest_framework import serializers, viewsets
-from django.core.paginator import Paginator
 from django.db.models import Count
 from rest_framework.decorators import action
 from rest_framework.request import Request
