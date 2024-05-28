@@ -182,9 +182,3 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-
-.experiment-view {
-    .InsightViz .LemonTable__cell--sticky::before {
-        background: var(--bg-table);
-    }
-}

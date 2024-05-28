@@ -44,7 +44,6 @@ export function Destinations(): JSX.Element {
 
 export function DestinationsTable({ inOverview = false }: { inOverview?: boolean }): JSX.Element {
     const { loading, destinations } = useValues(pipelineDestinationsLogic)
-
     const data = inOverview ? destinations.filter((destination) => destination.enabled) : destinations
 
     return (
