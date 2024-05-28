@@ -88,7 +88,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     {browserUrl ? (
                         <>
                             {!isBrowserUrlAuthorized ? (
-                                <div className="flex-1 p-4 space-y-4">
+                                <div className="flex-1 p-4 gap-y-4">
                                     <LemonBanner type="error">
                                         {browserUrl} is not an authorized URL. Please add it to the list of authorized
                                         URLs to view heatmaps on this page.
@@ -98,8 +98,8 @@ export function HeatmapsBrowser(): JSX.Element {
                                     <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                                 </div>
                             ) : (
-                                <div className="flex flex-row space-x-2 w-full">
-                                    <div className="flex flex-col space-y-2 px-2">
+                                <div className="flex flex-row gap-x-2 w-full">
+                                    <div className="flex flex-col gap-y-2 px-2">
                                         <HeatmapsSettings
                                             heatmapFilters={heatmapFilters}
                                             patchHeatmapFilters={patchHeatmapFilters}
@@ -149,7 +149,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                     </div>
                                 </div>
 
-                                <div className="space-y-px p-2 border bg-bg-light rounded">
+                                <div className="gap-y-px p-2 border bg-bg-light rounded">
                                     {topUrlsLoading ? (
                                         <LemonSkeleton className="h-10" repeat={10} />
                                     ) : noPageviews ? (
