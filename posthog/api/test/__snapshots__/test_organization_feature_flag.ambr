@@ -1037,7 +1037,12 @@
          "posthog_survey"."end_date",
          "posthog_survey"."updated_at",
          "posthog_survey"."archived",
-         "posthog_survey"."responses_limit"
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 2
   '''
