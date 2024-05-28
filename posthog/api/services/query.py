@@ -63,7 +63,13 @@ def process_query_model(
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(team, query.source, execution_mode=execution_mode)
+            result = process_query_model(
+                team,
+                query.source,
+                dashboard_filters=dashboard_filters,
+                limit_context=limit_context,
+                execution_mode=execution_mode,
+            )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
