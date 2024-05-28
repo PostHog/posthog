@@ -102,7 +102,7 @@ export function PipelinePluginConfiguration({
                 htmlType="reset"
                 onClick={() => resetConfiguration(savedConfiguration || {})}
                 disabledReason={
-                    isConfigurationSubmitting ? 'Saving in progress…' : !configurationChanged ? 'No changes' : undefined
+                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }
             >
                 Clear changes
