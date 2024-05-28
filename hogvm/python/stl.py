@@ -2,7 +2,6 @@ import time
 from typing import Any, Optional
 from collections.abc import Callable
 import re
-import requests
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -74,11 +73,6 @@ def reverse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[l
     return args[0][::-1]
 
 
-def httpGet(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
-    response = requests.get(args[0], timeout=timeout)
-    return response.text
-
-
 def sleep(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     time.sleep(args[0])
     return None
@@ -111,7 +105,6 @@ STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], An
     "lower": lower,
     "upper": upper,
     "reverse": reverse,
-    "httpGet": httpGet,
     "sleep": sleep,
     "print": print,
     "run": run,

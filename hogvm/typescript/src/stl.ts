@@ -39,27 +39,6 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     reverse: (args) => {
         return args[0].split('').reverse().join('')
     },
-    httpGet: (args, _, timeout) => {
-        async function httpGet(url: string, timeout: number = 5): Promise<string | null> {
-            const timeoutPromise = new Promise<null>((_, reject) => {
-                setTimeout(() => {
-                    reject(new Error(`Request timed out after ${timeout} seconds`))
-                }, timeout * 1000)
-            })
-
-            try {
-                const response = await Promise.race([fetch(url), timeoutPromise])
-                if (!response || !response.ok) {
-                    throw new Error('Network response was not ok.')
-                }
-                return await response.text()
-            } catch (error) {
-                throw new Error(`Failed to fetch: ${error.message}`)
-            }
-        }
-
-        return httpGet(args[0], timeout)
-    },
     print: (args) => {
         // eslint-disable-next-line no-console
         console.log(...args)
