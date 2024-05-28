@@ -8,7 +8,10 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import {
+    InspectorListItemPerformance,
+    performanceEventDataLogic,
+} from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -47,7 +50,7 @@ export const IMAGE_WEB_EXTENSIONS = [
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
-type InspectorListItemBase = {
+export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
@@ -63,11 +66,6 @@ export type InspectorListItemEvent = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogV2
-}
-
-export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.NETWORK
-    data: PerformanceEvent
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -182,6 +180,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
+            performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
+            ['allPerformanceEvents'],
         ],
     })),
     actions(() => ({
@@ -390,6 +390,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return items
             },
         ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -434,21 +435,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 })
 
                 return logs
-            },
-        ],
-
-        allPerformanceEvents: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): PerformanceEvent[] => {
-                // performanceEvents used to come from the API,
-                // but we decided to instead store them in the recording data
-                // we gather more info than rrweb, so we mix the two back together here
-
-                return matchPaintEvents(
-                    deduplicatePerformanceEvents(
-                        filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
-                    ).sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
-                )
             },
         ],
 
@@ -497,6 +483,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
+                    // TODO should we be defaulting to 200 here :shrug:
                     const responseStatus = event.response_status || 200
 
                     if (event.entry_type === 'paint') {
@@ -896,7 +883,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items],
             (playerTime, items): number => {
-                // Returnts the index of the event that the playback is closest to
+                // Returns the index of the event that the playback is closest to
                 if (!playerTime) {
                     return 0
                 }
@@ -958,55 +945,3 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         }
     }),
 ])
-
-function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
-    // the browser can provide network events that we're not interested in,
-    // like a navigation to "about:blank"
-    return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
-    })
-}
-
-function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEvent[] {
-    // we capture performance entries in the `isInitial` requests
-    // which are those captured before we've wrapped fetch
-    // since we're trying hard to avoid missing requests we sometimes capture the same request twice
-    // once isInitial and once is the actual fetch
-    // the actual fetch will have more data, so we can discard the isInitial
-    const seen = new Set<string>()
-    return events
-        .reverse()
-        .filter((event) => {
-            const key = `${event.entry_type}-${event.name}-${event.timestamp}-${event.window_id}`
-            // we only want to drop is_initial events
-            if (seen.has(key) && event.is_initial) {
-                return false
-            }
-            seen.add(key)
-            return true
-        })
-        .reverse()
-}
-
-/**
- * If we have paint events we should add them to the appropriate navigation event
- * this makes it easier to draw performance cards for navigation events
- */
-function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEvent[] {
-    // KLUDGE: this relies on the identity of the events to mutate them, because that's cheaper than copying the potentially large list
-    let lastNavigationEvent: PerformanceEvent | null = null
-    for (const event of performanceEvents.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))) {
-        if (event.entry_type === 'navigation') {
-            lastNavigationEvent = event
-        } else if (
-            event.entry_type === 'paint' &&
-            event.name === 'first-contentful-paint' &&
-            lastNavigationEvent &&
-            lastNavigationEvent.first_contentful_paint === undefined
-        ) {
-            lastNavigationEvent.first_contentful_paint = event.start_time
-        }
-    }
-
-    return performanceEvents
-}

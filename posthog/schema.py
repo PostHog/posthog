@@ -512,6 +512,11 @@ class PersonsArgMaxVersion(str, Enum):
     v2 = "v2"
 
 
+class PersonsJoinMode(str, Enum):
+    inner = "inner"
+    left = "left"
+
+
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
@@ -528,6 +533,7 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
 
@@ -1720,6 +1726,7 @@ class DatabaseSchemaField(BaseModel):
     )
     chain: Optional[list[Union[str, int]]] = None
     fields: Optional[list[str]] = None
+    hogql_value: str
     name: str
     schema_valid: bool
     table: Optional[str] = None

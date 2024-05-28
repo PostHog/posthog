@@ -211,6 +211,8 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     ENABLE_SESSION_REPLAY_PA_ONBOARDING: 'enable-session-replay-pa-onboarding', // owner: #team-growth
+    SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
+    SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

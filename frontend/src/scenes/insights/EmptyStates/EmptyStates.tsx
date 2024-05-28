@@ -177,11 +177,12 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
         return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
     }
 
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     return (
         <div className="insight-empty-state warning">
             <Animation type={AnimationType.LaptopHog} />

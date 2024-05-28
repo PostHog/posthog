@@ -1,4 +1,4 @@
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import { matchNetworkEvents } from 'scenes/session-recordings/apm/performance-event-utils'
 
 const aSingleSnapshotWithNetworkPayloads = {
     windowId: '018d5247-079c-7126-8e43-464605576a62',

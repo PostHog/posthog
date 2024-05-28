@@ -93,6 +93,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "hedgehog_config": None,
                 },
                 "is_expired": False,
+                "level": 1,
                 "emailing_attempt_made": True,
                 "message": None,
             },
@@ -145,6 +146,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             self.assertEqual(obj.created_by, self.user)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 2)
+
+    def test_can_specify_membership_level_in_invite(self):
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/", {"target_email": email, "level": OrganizationMembership.Level.OWNER}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        obj = OrganizationInvite.objects.get(id=response.json()["id"])
+        self.assertEqual(obj.level, OrganizationMembership.Level.OWNER)
+
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_cannot_create_invite_for_another_org(self):
         another_org = Organization.objects.create(name="Another Org")

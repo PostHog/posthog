@@ -2,6 +2,7 @@ import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonMenu,
     LemonTable,
@@ -76,7 +77,22 @@ export function ManagedReverseProxy(): JSX.Element {
                                 {
                                     label: 'Delete',
                                     status: 'danger',
-                                    onClick: () => deleteRecord(id),
+                                    onClick: () => {
+                                        LemonDialog.open({
+                                            title: 'Delete managed proxy',
+                                            width: '20rem',
+                                            content:
+                                                'Are you sure you want to delete this managed proxy? This cannot be undone and if it is in use then events sent to the domain will not be processed.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                onClick: () => deleteRecord(id),
+                                                children: 'Delete',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    },
                                 },
                             ]}
                         >
@@ -106,7 +122,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                            Add domain
+                            New managed proxy
                         </LemonButton>
                     )
                 ) : (
