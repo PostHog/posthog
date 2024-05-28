@@ -21,6 +21,8 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             rollout_percentage=100,
         )
 
+        self.iteration_frequency_days = 60
+
         self.recurring_survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -29,7 +31,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             questions=[{"type": "open", "question": "What's a survey?"}],
             start_date=datetime.now() - timedelta(days=61),
             iteration_count=3,
-            iteration_frequency_days=60,
+            iteration_frequency_days=self.iteration_frequency_days,
         )
         self.recurring_survey.internal_targeting_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -38,17 +40,17 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             key="internal-targeting-flag",
         )
 
-    def test_can_update_survey_iteration(self):
-        self.recurring_survey.start_date = now() - timedelta(self.recurring_survey.iteration_frequency_days * 3)
+    def test_can_update_survey_iteration(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
-    def test_can_update_internal_targeting_flag(self):
+    def test_can_update_internal_targeting_flag(self) -> None:
         # expected_targeting_filters =
-        self.recurring_survey.start_date = now() - timedelta(self.recurring_survey.iteration_frequency_days * 3)
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         update_survey_iteration()
@@ -81,8 +83,8 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             self.recurring_survey.internal_targeting_flag.filters,
         )
 
-    def test_can_create_internal_targeting_flag(self):
-        self.recurring_survey.start_date = now() - timedelta(self.recurring_survey.iteration_frequency_days * 3)
+    def test_can_create_internal_targeting_flag(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         self.recurring_survey.internal_targeting_flag = None
@@ -91,28 +93,31 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
-        self.assertDictContainsSubset(
-            {
-                "groups": [
-                    {
-                        "variant": "",
-                        "properties": [
-                            {
-                                "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                            {
-                                "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-            self.recurring_survey.internal_targeting_flag.filters,
-        )
+        internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
+        assert internal_flag is not None
+        if internal_flag is not None:
+            self.assertDictContainsSubset(
+                {
+                    "groups": [
+                        {
+                            "variant": "",
+                            "properties": [
+                                {
+                                    "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
+                                    "type": "person",
+                                    "value": "is_not_set",
+                                    "operator": "is_not_set",
+                                },
+                                {
+                                    "key": f"$survey_responded/{self.recurring_survey.id}/3",
+                                    "type": "person",
+                                    "value": "is_not_set",
+                                    "operator": "is_not_set",
+                                },
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                internal_flag.filters,
+            )
