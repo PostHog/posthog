@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -58,6 +58,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+    def _create_plugin(
+        self, additional_params: Optional[dict] = None, expected_status: int = status.HTTP_201_CREATED
+    ) -> dict:
+        params = {"url": "https://github.com/PostHog/helloworldplugin"}
+
+        if additional_params:
+            params.update(additional_params)
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        return response.json()
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_create_plugin_auth(self, mock_get, mock_reload):
@@ -997,6 +1013,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1026,6 +1043,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1064,6 +1082,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1381,6 +1400,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1410,6 +1430,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1441,6 +1462,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1489,6 +1511,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
+                    "match_action": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1505,6 +1528,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
+                    "match_action": None,
                 },
             ],
         )
@@ -1628,6 +1652,46 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
             ]
         )
+
+    def test_update_plugin_match_action(self, mock_get, mock_reload):
+        action_res = self.client.post(f"/api/projects/{self.team.id}/actions/", {"name": "test action"})
+        assert action_res.status_code == 201, action_res.json()
+        action = action_res.json()
+
+        plugin = self._create_plugin()
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": action["id"]},
+            format="multipart",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["match_action"] == action["id"]
+
+    def test_update_plugin_match_action_fails_for_missing_action(self, mock_get, mock_reload):
+        plugin = self._create_plugin()
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": 99999},
+            format="multipart",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["code"] == "does_not_exist"
+
+    def test_update_plugin_match_action_fails_for_wrong_team(self, mock_get, mock_reload):
+        other_team = Team.objects.create(organization=self.organization, name="Another Team")
+        action_res = self.client.post(f"/api/projects/{other_team.id}/actions/", {"name": "test action"})
+
+        plugin = self._create_plugin()
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": action_res.json()["id"]},
+            format="multipart",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "Action must belong to the same project as the plugin config."
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

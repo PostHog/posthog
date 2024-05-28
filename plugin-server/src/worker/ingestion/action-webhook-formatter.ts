@@ -1,3 +1,4 @@
+import { Webhook } from '@posthog/plugin-scaffold'
 import { format } from 'util'
 
 import { Action, PostIngestionEvent, Team } from '../../types'
@@ -45,6 +46,17 @@ export class ActionWebhookFormatter {
         this.eventLink = `${this.projectUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
             event.timestamp
         )}`
+    }
+
+    composeWebhook(): Webhook {
+        return {
+            url: this.webhookUrl,
+            body: JSON.stringify(this.generateWebhookPayload()),
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            method: 'POST',
+        }
     }
 
     generateWebhookPayload(): Record<string, any> {
@@ -153,6 +165,10 @@ export class ActionWebhookFormatter {
         return this.toWebhookLink(this.event.event, this.eventLink)
     }
 
+    private getGroupLink(groupIndex: number, groupKey: string): string {
+        return `${this.projectUrl}/groups/${groupIndex}/${encodeURIComponent(groupKey)}`
+    }
+
     private getTokens(): [string[], string] {
         // This finds property value tokens, basically any string contained in square brackets
         // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
@@ -217,6 +233,35 @@ export class ActionWebhookFormatter {
                     ? getPropertyValueByPath(this.event.properties, tokenParts.slice(2))
                     : undefined
                 markdown = text = this.webhookEscape(property)
+            }
+        } else if (tokenParts[0] === 'groups') {
+            if (tokenParts.length === 1) {
+                // Summarise groups as a list
+                markdown = text = 'NOT SUPPORTED'
+            } else if (tokenParts.length > 1) {
+                const relatedGroup = this.event.groups?.[tokenParts[1]]
+
+                if (!relatedGroup) {
+                    // What to return if no matching group?
+                    const message = `(event without '${tokenParts[1]}')`
+                    return [message, message]
+                }
+
+                if (tokenParts.length === 2) {
+                    // Return the group name
+                    // NOTE: group type is not correct...
+                    ;[text, markdown] = this.toWebhookLink(
+                        relatedGroup.properties.name || relatedGroup.key,
+                        this.getGroupLink(relatedGroup.index, relatedGroup.key)
+                    )
+                } else if (tokenParts[2] === 'link') {
+                    markdown = text = this.webhookEscape(this.getGroupLink(relatedGroup.index, relatedGroup.key))
+                } else if (tokenParts[2] === 'properties' && tokenParts.length > 3) {
+                    const property = relatedGroup.properties
+                        ? getPropertyValueByPath(relatedGroup.properties, tokenParts.slice(3))
+                        : undefined
+                    markdown = text = this.webhookEscape(property)
+                }
             }
         } else {
             throw new Error()
