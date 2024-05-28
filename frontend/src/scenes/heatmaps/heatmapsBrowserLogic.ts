@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
@@ -60,12 +61,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT distinct properties.$current_url AS urls
-                                FROM events
-                                WHERE timestamp >= now() - INTERVAL 7 DAY
-                                AND timestamp <= now()
-                                AND properties.$current_url like '%${hogql.identifier(values.browserSearchTerm)}%'
-                                ORDER BY timestamp DESC
-                                limit 100`,
+                                     FROM events
+                                     WHERE timestamp >= now() - INTERVAL 7 DAY
+                                       AND timestamp <= now()
+                                       AND properties.$current_url like '%${hogql.identifier(
+                                           values.browserSearchTerm
+                                       )}%'
+                                     ORDER BY timestamp DESC
+                                         limit 100`,
                     }
 
                     const res = await api.query(query)
@@ -81,13 +84,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 loadTopUrls: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$current_url AS url, count() as count FROM events
-                                WHERE timestamp >= now() - INTERVAL 7 DAY
-                                AND event in ('$pageview', '$autocapture')
-                                AND timestamp <= now()
-                                GROUP BY properties.$current_url
-                                ORDER BY count DESC
-                                LIMIT 10`,
+                        query: hogql`SELECT properties.$current_url AS url, count() as count
+                                     FROM events
+                                     WHERE timestamp >= now() - INTERVAL 7 DAY
+                                       AND event in ('$pageview'
+                                         , '$autocapture')
+                                       AND timestamp <= now()
+                                     GROUP BY properties.$current_url
+                                     ORDER BY count DESC
+                                         LIMIT 10`,
                     }
 
                     const res = await api.query(query)
@@ -266,4 +271,25 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.maybeLoadTopUrls()
         }
     }),
+
+    urlToAction(({ actions }) => ({
+        '/heatmaps': (_, searchParams) => {
+            if (searchParams.pageURL) {
+                actions.setBrowserUrl(searchParams.pageURL)
+                // otherwise we could have a race
+                // between the aftermount setting the loading state and the toolbar load cancelling it
+                actions.setLoading(false)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setBrowserUrl: ({ url }) => {
+            const searchParams = { ...router.values.searchParams, pageURL: url }
+            if (!url || url.trim() === '') {
+                delete searchParams.pageURL
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
 ])
