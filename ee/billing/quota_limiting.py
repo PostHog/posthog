@@ -1,8 +1,8 @@
 import copy
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, TypedDict, cast
-from collections.abc import Mapping, Sequence
 
 import dateutil.parser
 import posthoganalytics
@@ -152,7 +152,7 @@ def org_quota_limited_until(
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
-            organization.save(update_fields=["usage"])
+            organization.save(update_fields=["customer_trust_scores", "usage"])
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
