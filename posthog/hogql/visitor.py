@@ -268,7 +268,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
 
     def visit_statement(self, node: ast.Statement):
-        raise NotImplementedError("visit_statement not implemented")
+        raise NotImplementedError("Abstract 'visit_statement' not implemented")
 
     def visit_block(self, node: ast.Block):
         for expr in node.declarations:
@@ -292,7 +292,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(node.expr)
 
     def visit_declaration(self, node: ast.Declaration):
-        raise NotImplementedError("visit_declaration not implemented")
+        raise NotImplementedError("Abstract 'visit_declaration' not implemented")
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         if node.expr:
@@ -580,7 +580,7 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_statement(self, node: ast.Statement):
-        raise NotImplementedError("visit_statement not implemented")
+        raise NotImplementedError("Abstract 'visit_statement' not implemented")
 
     def visit_block(self, node: ast.Block):
         return ast.Block(
@@ -621,7 +621,7 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_declaration(self, node: ast.Declaration):
-        raise NotImplementedError("visit_declaration not implemented")
+        raise NotImplementedError("Abstract 'visit_declaration' not implemented")
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         return ast.VariableAssignment(

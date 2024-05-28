@@ -159,23 +159,6 @@ class TestParserPython(parser_test_factory("python")):
         )
         self.assertEqual(program, expected)
 
-    # def test_program_fetch(self):
-    #     code = """
-    #         var events := fetch("https://hogql.io/events.json");
-    #         var queries := map(events, (event) -> (
-    #             select id, properties.email
-    #             from events
-    #             where timestamp > now() - interval 1 day and event={event}
-    #         ));
-    #         var results := map(queries, (query) -> run(query));
-    #         var combined_rows := reduce(results, (acc, result) -> acc + result.rows, []);
-    #     """
-
-    #     program = self._program(code)
-    #     expected = []
-
-    #     self.assertEqual(program, expected)
-
     def test_program_if(self):
         code = """
             if (a) {
