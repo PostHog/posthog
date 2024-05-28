@@ -120,7 +120,7 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
-        '/api/billing-v2/': {
+        '/api/billing/': {
             ...billingJson,
         },
     },

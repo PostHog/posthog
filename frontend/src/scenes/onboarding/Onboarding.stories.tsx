@@ -36,7 +36,7 @@ export default meta
 export const _OnboardingSDKs = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },
@@ -55,7 +55,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
 export const _OnboardingBilling = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingUnsubscribedJson,
             },
         },

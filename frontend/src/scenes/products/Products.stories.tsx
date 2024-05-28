@@ -31,7 +31,7 @@ export default meta
 export const _Products = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },
