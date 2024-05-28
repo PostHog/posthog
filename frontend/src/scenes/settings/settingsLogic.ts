@@ -53,6 +53,12 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     selectors({
+        settingId: [
+            () => [(_, props) => props],
+            (props): SettingId | null => {
+                return props.settingId || null
+            },
+        ],
         sections: [
             (s) => [s.featureFlags],
             (featureFlags): SettingSection[] => {
@@ -66,11 +72,11 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s, p) => [
+            (s) => [
                 s.selectedLevel,
                 s.selectedSectionId,
                 s.sections,
-                p.settingId,
+                s.settingId,
                 s.featureFlags,
                 s.hasAvailableFeature,
             ],

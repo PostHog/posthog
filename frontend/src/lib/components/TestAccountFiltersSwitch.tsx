@@ -1,8 +1,9 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButtonWithDropdown, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { Settings } from 'scenes/settings/Settings'
+import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     checked: boolean
@@ -12,7 +13,7 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
 export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     return (
         <LemonSwitch
             id="test-account-filter"
@@ -24,26 +25,12 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
-                    <LemonButtonWithDropdown
+                    <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
-                        dropdown={{
-                            showArrow: true,
-                            placement: 'top',
-                            fallbackPlacements: ['bottom'],
-                            closeOnClickInside: false,
-                            overlay: (
-                                <div className="p-2 max-w-120">
-                                    <Settings
-                                        hideSections
-                                        logicKey="test-account-filter"
-                                        settingId="internal-user-filtering"
-                                    />
-                                </div>
-                            ),
-                        }}
+                        onClick={() => openSettingsPanel({ settingId: 'internal-user-filtering' })}
                     />
                 </div>
             }
