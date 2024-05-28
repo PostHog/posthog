@@ -1023,6 +1023,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # synchronously_update_cache is a legacy-only code path
     @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
     def test_insight_refreshing_legacy(self, spy_update_insight_cache) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -1555,6 +1556,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(results["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(results["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
             self.assertTrue(results["is_cached"])
+
+        with freeze_time("2012-01-15T05:17:39.000Z"):
+            # Now with refresh requested - cache should be ignored
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "async": True, "refresh": True}
+            ).json()
+            self.assertNotIn("code", response)
+            self.assertTrue(response.get("query_async"))
+            self.assertFalse(response.get("complete"))  # Just checking that recalculation was initiated
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(

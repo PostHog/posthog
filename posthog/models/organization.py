@@ -278,11 +278,6 @@ class OrganizationMembership(UUIDModel):
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
             ),
-            models.UniqueConstraint(
-                fields=["organization_id"],
-                condition=models.Q(level=15),
-                name="only_one_owner_per_organization",
-            ),
         ]
 
     def __str__(self):
@@ -299,9 +294,8 @@ class OrganizationMembership(UUIDModel):
             if new_level == OrganizationMembershipLevel.OWNER:
                 if self.level != OrganizationMembershipLevel.OWNER:
                     raise exceptions.PermissionDenied(
-                        "You can only pass on organization ownership if you're its owner."
+                        "You can only make another member owner if you're this organization's owner."
                     )
-                self.level = OrganizationMembershipLevel.ADMIN
                 self.save()
             elif new_level > self.level:
                 raise exceptions.PermissionDenied(
@@ -338,6 +332,9 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
+    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=OrganizationMembershipLevel.MEMBER, choices=OrganizationMembershipLevel.choices
+    )
 
     def validate(
         self,
@@ -383,7 +380,7 @@ class OrganizationInvite(UUIDModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization)
+        user.join(organization=self.organization, level=self.level)
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 

@@ -69,11 +69,13 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     }
                                     if (listLevel === OrganizationMembershipLevel.Owner) {
                                         LemonDialog.open({
-                                            title: `Transfer organization ownership to ${fullName(member.user)}?`,
-                                            description: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
+                                            title: `Add additional owner to ${user.organization?.name}?`,
+                                            description: `Please confirm that you would like to make ${fullName(
+                                                member.user
+                                            )} an owner of ${user.organization?.name}.`,
                                             primaryButton: {
                                                 status: 'danger',
-                                                children: 'Transfer Ownership',
+                                                children: `Make ${fullName(member.user)} an owner`,
                                                 onClick: () => changeMemberAccessLevel(member, listLevel),
                                             },
                                             secondaryButton: {
@@ -87,7 +89,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                 data-test-level={listLevel}
                             >
                                 {listLevel === OrganizationMembershipLevel.Owner ? (
-                                    <>Transfer organization ownership</>
+                                    <>Make owner</>
                                 ) : listLevel > member.level ? (
                                     <>Upgrade to {membershipLevelToName.get(listLevel)}</>
                                 ) : (

@@ -533,6 +533,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    plugin_configs?: PluginConfigWithPluginInfoNew[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1374,7 +1375,24 @@ export interface PerformanceEvent {
     decoded_body_size?: number
     encoded_body_size?: number
 
-    initiator_type?: string
+    initiator_type?:
+        | 'navigation'
+        | 'css'
+        | 'script'
+        | 'xmlhttprequest'
+        | 'fetch'
+        | 'beacon'
+        | 'video'
+        | 'audio'
+        | 'track'
+        | 'img'
+        | 'image'
+        | 'input'
+        | 'a'
+        | 'iframe'
+        | 'frame'
+        | 'link'
+        | 'other'
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
@@ -1420,6 +1438,8 @@ export interface PerformanceEvent {
     //server timings - reported as separate events but added back in here on the front end
     server_timings?: PerformanceEvent[]
 }
+
+export type AssetType = 'CSS' | 'JS' | 'Fetch' | 'Image' | 'Link' | 'XHR' | 'HTML'
 
 export interface CurrentBillCycleType {
     current_period_start: number
@@ -1736,6 +1756,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     first_name: string
+    level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserBasicType | null
@@ -1818,6 +1839,7 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+    match_action?: ActionType['id']
 }
 
 /** @deprecated in favor of PluginConfigWithPluginInfoNew */
@@ -1838,6 +1860,7 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
+    match_action?: ActionType['id']
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -3955,4 +3978,20 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string
     subrows: ProductPricingTierSubrows
+}
+
+export type AvailableOnboardingProducts = Pick<
+    {
+        [key in ProductKey]: OnboardingProduct
+    },
+    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+>
+
+export type OnboardingProduct = {
+    name: string
+    breadcrumbsName?: string
+    icon: string
+    iconColor: string
+    url: string
+    scene: Scene
 }

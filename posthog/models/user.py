@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Optional, TypedDict
-from collections.abc import Callable
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
