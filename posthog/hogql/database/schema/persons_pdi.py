@@ -42,12 +42,16 @@ def persons_pdi_join(
     if not requested_fields:
         raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(requested_fields))
-    organization: Organization = context.team.organization
+    organization: Organization = context.team.organization if context.team else None
     # TODO: Remove flag check and use left join for all once deletes are caught up
-    use_inner_join = posthoganalytics.feature_enabled(
-        "personless-events-not-supported",
-        str(context.team.uuid),
-        groups={"organization": str(organization.id)},
+    use_inner_join = (
+        posthoganalytics.feature_enabled(
+            "personless-events-not-supported",
+            str(context.team.uuid),
+            groups={"organization": str(organization.id)},
+        )
+        if organization
+        else False
     )
     if use_inner_join:
         join_expr.join_type = "INNER JOIN"
