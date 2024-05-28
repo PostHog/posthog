@@ -809,9 +809,7 @@ export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryRespo
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 
 export type RetentionFilter = {
-    /** @default retention_first_time */
     retentionType?: RetentionFilterLegacy['retention_type']
-    /** @default total */
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 11 */
     totalIntervals?: integer
@@ -819,7 +817,6 @@ export type RetentionFilter = {
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    /** @default false */
     showMean?: RetentionFilterLegacy['show_mean']
 }
 

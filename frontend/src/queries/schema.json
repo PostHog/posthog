@@ -6960,19 +6960,16 @@
                     "default": "Day"
                 },
                 "retentionReference": {
-                    "default": "total",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
                 "retentionType": {
-                    "$ref": "#/definitions/RetentionType",
-                    "default": "retention_first_time"
+                    "$ref": "#/definitions/RetentionType"
                 },
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "showMean": {
-                    "default": false,
                     "type": "boolean"
                 },
                 "targetEntity": {

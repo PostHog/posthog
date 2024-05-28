@@ -2455,10 +2455,10 @@ class RetentionFilter(BaseModel):
         extra="forbid",
     )
     period: Optional[RetentionPeriod] = RetentionPeriod.Day
-    retentionReference: Optional[RetentionReference] = RetentionReference.total
-    retentionType: Optional[RetentionType] = RetentionType.retention_first_time
+    retentionReference: Optional[RetentionReference] = None
+    retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[bool] = False
+    showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 11
 
@@ -2468,7 +2468,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = RetentionReference.total
+    retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
