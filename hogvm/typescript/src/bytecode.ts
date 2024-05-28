@@ -1,4 +1,6 @@
-import { STL } from './stl'
+import { ASYNC_STL, STL } from './stl'
+
+const MAX_ASYNC_STEPS = 100
 
 export const enum Operation {
     FIELD = 1,
@@ -66,24 +68,101 @@ function getNestedValue(obj: any, chain: any[]): any {
     return null
 }
 
-export async function exec(
+interface VMState {
+    /** Stack of the VM */
+    stack: any[]
+    /** Call stack of the VM */
+    callStack: [number, number, number][]
+    /** Declared functions of the VM */
+    declaredFunctions: Record<string, [number, number]>
+    /** Instruction pointer of the VM */
+    ip: number
+    /** How many sync ops have been performed */
+    ops: number
+    /** How many async steps have been taken */
+    asyncSteps: number
+    /** Combined duration of sync steps */
+    syncDuration: number
+}
+
+interface ExecResult {
+    result: any
+    finished: boolean
+    asyncFunctionName?: string
+    asyncFunctionArgs?: any[]
+    state?: VMState
+}
+
+export function execSync(
+    bytecode: any[],
+    fields: Record<string, any> = {},
+    functions: Record<string, (...args: any[]) => any> = {},
+    timeout: number = 5
+): any {
+    const response = exec(bytecode, fields, functions, {}, timeout)
+    if (response.finished) {
+        return response.result
+    }
+    throw new Error('Unexpected async function call: ' + response.asyncFunctionName)
+}
+
+export async function execAsync(
     bytecode: any[],
     fields: Record<string, any> = {},
     functions: Record<string, (...args: any[]) => any> = {},
     asyncFunctions: Record<string, (...args: any[]) => Promise<any>> = {},
     timeout: number = 5
 ): Promise<any> {
-    const startTime = Date.now()
-    let temp: any
-    const stack: any[] = []
-    const callStack: [number, number, number][] = []
-    const declaredFunctions: Record<string, [number, number]> = {}
-    let ip = 1
-    let ops = 0
+    let lastState: VMState | undefined = undefined
+    while (true) {
+        const response = exec(bytecode, fields, functions, asyncFunctions, timeout, lastState)
+        if (response.finished) {
+            return response.result
+        }
+        if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
+            lastState = response.state
+            if (response.asyncFunctionName in asyncFunctions) {
+                const result = await asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
+                lastState.stack.push(result)
+            } else if (response.asyncFunctionName in ASYNC_STL) {
+                const result = await ASYNC_STL[response.asyncFunctionName](
+                    response.asyncFunctionArgs,
+                    response.asyncFunctionName,
+                    timeout
+                )
+                lastState.stack.push(result)
+            } else {
+                throw new Error('Invalid async function call: ' + response.asyncFunctionName)
+            }
+        } else {
+            throw new Error('Invalid async function call')
+        }
+    }
+}
 
+export function exec(
+    bytecode: any[],
+    fields: Record<string, any> = {},
+    functions: Record<string, (...args: any[]) => any> = {},
+    asyncFunctions: Record<string, (...args: any[]) => Promise<any>> = {},
+    timeout: number = 5,
+    vmState: VMState | undefined = undefined
+): ExecResult {
     if (bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
+
+    const startTime = Date.now()
+    let temp: any
+
+    const asyncSteps = vmState ? vmState.asyncSteps : 0
+    const syncDuration = vmState ? vmState.syncDuration : 0
+    const stack: any[] = vmState ? vmState.stack : []
+    const callStack: [number, number, number][] = vmState ? vmState.callStack : []
+    const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
+    let ip = vmState ? vmState.ip : 1
+    let ops = vmState ? vmState.ops : 0
+
     function popStack(): any {
         if (stack.length === 0) {
             throw new Error('Invalid HogQL bytecode, stack is empty')
@@ -98,7 +177,7 @@ export async function exec(
         return bytecode[++ip]
     }
     function checkTimeout(): void {
-        if (Date.now() - startTime > timeout * 1000) {
+        if (syncDuration + Date.now() - startTime > timeout * 1000) {
             throw new Error(`Execution timed out after ${timeout} seconds`)
         }
     }
@@ -238,7 +317,10 @@ export async function exec(
                     ip = newIp
                     break
                 } else {
-                    return popStack()
+                    return {
+                        result: popStack(),
+                        finished: true,
+                    } satisfies ExecResult
                 }
             case Operation.GET_LOCAL:
                 temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
@@ -280,10 +362,28 @@ export async function exec(
                         .map(() => popStack())
                     if (functions && functions[name] && name !== 'toString') {
                         stack.push(functions[name](...args))
-                    } else if (asyncFunctions && asyncFunctions[name] && name !== 'toString') {
-                        stack.push(await asyncFunctions[name](...args))
+                    } else if (name !== 'toString' && ((asyncFunctions && asyncFunctions[name]) || name in ASYNC_STL)) {
+                        if (asyncSteps >= MAX_ASYNC_STEPS) {
+                            throw new Error(`Exceeded maximum number of async steps: ${MAX_ASYNC_STEPS}`)
+                        }
+
+                        return {
+                            result: undefined,
+                            finished: false,
+                            asyncFunctionName: name,
+                            asyncFunctionArgs: args,
+                            state: {
+                                stack,
+                                callStack,
+                                declaredFunctions,
+                                ip: ip + 1,
+                                ops,
+                                asyncSteps: asyncSteps + 1,
+                                syncDuration: syncDuration + (Date.now() - startTime),
+                            },
+                        } satisfies ExecResult
                     } else if (name in STL) {
-                        stack.push(await STL[name](args, name, timeout))
+                        stack.push(STL[name](args, name, timeout))
                     } else {
                         throw new Error(`Unsupported function call: ${name}`)
                     }
@@ -298,8 +398,8 @@ export async function exec(
     if (stack.length > 1) {
         throw new Error('Invalid bytecode. More than one value left on stack')
     } else if (stack.length === 0) {
-        return null
+        return { result: null, finished: true } satisfies ExecResult
     }
 
-    return popStack() ?? null
+    return { result: popStack() ?? null, finished: true } satisfies ExecResult
 }

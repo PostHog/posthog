@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "description": "PostHog HogQL Virtual Machine",
     "types": "dist/bytecode.d.ts",
     "main": "dist/bytecode.js",
@@ -20,12 +20,12 @@
     "license": "MIT",
     "dependencies": {},
     "devDependencies": {
-        "@swc-node/register": "^1.5.1",
-        "@swc/core": "^1.2.186",
-        "@swc/jest": "^0.2.21",
+        "@swc-node/register": "^1.9.1",
+        "@swc/core": "^1.5.7",
+        "@swc/jest": "^0.2.36",
         "jest": "^28.1.1",
-        "prettier": "^2.8.8",
-        "typescript": "^4.7.4"
+        "prettier": "^3.2.5",
+        "typescript": "^5.4.5"
     },
     "files": [
         "dist",
