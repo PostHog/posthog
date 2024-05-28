@@ -210,7 +210,6 @@ export class ActionMatcher {
                     return true
                 }
             } catch (error) {
-                console.error('Error while matching action step:', error)
                 captureException(error, {
                     tags: { team_id: action.team_id },
                     extra: { event, action, step },
