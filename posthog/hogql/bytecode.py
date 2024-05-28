@@ -2,7 +2,7 @@ import dataclasses
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
-from hogvm.python.execute import execute_bytecode
+from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -286,7 +286,13 @@ def execute_hog(
     fields: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
-):
-    program = parse_program(source_code + ";")
+) -> BytecodeResult:
+    source_code = source_code.strip()
+    if source_code.count("\n") == 0:
+        if not source_code.startswith("return"):
+            source_code = f"return {source_code}"
+        if not source_code.endswith(";"):
+            source_code = f"{source_code};"
+    program = parse_program(source_code)
     bytecode = create_bytecode(program)
     return execute_bytecode(bytecode, fields=fields, functions=functions, timeout=timeout, team=team)

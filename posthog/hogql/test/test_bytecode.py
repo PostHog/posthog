@@ -137,5 +137,21 @@ class TestBytecode(BaseTest):
         self.assertEqual(str(e.exception), "Cohort operations are not supported")
 
     def test_bytecode_execute(self):
-        # Test a simple operation. The Hog execution itself is tested under hogvm/python/
+        # Test a simple operations. The Hog execution itself is tested under hogvm/python/
         self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)
+        self.assertEqual(
+            execute_hog(
+                """
+            fn fibonacci(number) {
+                if (number < 2) {
+                    return number;
+                } else {
+                    return fibonacci(number - 1) + fibonacci(number - 2);
+                }
+            }
+            return fibonacci(6);
+        """,
+                team=self.team,
+            ).result,
+            8,
+        )
