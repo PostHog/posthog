@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { BIN_COUNT_AUTO, FEATURE_FLAGS } from 'lib/constants'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
@@ -23,6 +23,7 @@ import {
     FunnelVizType,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightType,
     StepOrderValue,
     TrendResult,
 } from '~/types'
@@ -59,6 +60,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
+                'isHogQLInsight',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -82,14 +84,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     }),
 
     selectors(() => ({
-        hogQLInsightsFunnelsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!(
-                    featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
-                )
-            },
-        ],
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -163,14 +157,28 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
-            (breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (
+                insightData,
+                querySource,
+                breakdownFilter,
+                results,
+                isTimeToConvertFunnel
+            ): FunnelStepWithNestedBreakdown[] => {
+                if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return []
+                }
+
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
-                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
+                            ? breakdownFilter?.breakdowns.map((b: { property: any }) => b.property).join('::')
                             : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
@@ -260,8 +268,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
-            (funnelsFilter, steps, histogramGraphData) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+                if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return false
+                }
+
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {

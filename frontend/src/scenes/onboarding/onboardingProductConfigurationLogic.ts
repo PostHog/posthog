@@ -10,6 +10,7 @@ export interface ProductConfigOptionBase {
     title: string
     description: string
     teamProperty: keyof TeamType
+    visible: boolean
 }
 
 export interface ProductConfigurationToggle extends ProductConfigOptionBase {

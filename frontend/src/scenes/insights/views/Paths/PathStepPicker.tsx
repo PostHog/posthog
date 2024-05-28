@@ -16,13 +16,12 @@ export function PathStepPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const { stepLimit } = pathsFilter || {}
 
-    const { user } = useValues(userLogic)
-
     const MIN = 2,
-        MAX = user?.organization?.available_features.includes(AvailableFeature.PATHS_ADVANCED) ? 20 : 5
+        MAX = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) ? 20 : 5
 
     const options: StepOption[] = Array.from(Array.from(Array.from(Array(MAX + 1).keys()).slice(MIN)), (v) => ({
         label: `${v} Steps`,

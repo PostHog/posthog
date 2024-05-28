@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.130.2
-    version: 1.130.2
+    specifier: 1.134.0
+    version: 1.134.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -277,9 +277,6 @@ dependencies:
   query-selector-shadow-dom:
     specifier: ^1.0.0
     version: 1.0.0
-  rc-picker:
-    specifier: ~2.5.17
-    version: 2.5.19(react-dom@18.2.0)(react@18.2.0)
   rc-trigger:
     specifier: ^5.2.5
     version: 5.3.3(react-dom@18.2.0)(react@18.2.0)
@@ -6708,8 +6705,8 @@ packages:
       type-fest: 2.19.0
     dev: true
 
-  /@storybook/csf@0.1.6:
-    resolution: {integrity: sha512-JjWnBptVhBYJ14yq+cHs66BXjykRUWQ5TlD1RhPxMOtavynYyV/Q+QR98/N+XB+mcPtFMm5I2DvNkpj0/Dk8Mw==}
+  /@storybook/csf@0.1.7:
+    resolution: {integrity: sha512-53JeLZBibjQxi0Ep+/AJTfxlofJlxy1jXcSKENlnKxHjWEYyHQCumMP5yTFjf7vhNnMjEpV3zx6t23ssFiGRyw==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6743,7 +6740,7 @@ packages:
       '@storybook/channels': 7.6.19
       '@storybook/client-logger': 7.6.19
       '@storybook/core-events': 7.6.19
-      '@storybook/csf': 0.1.6
+      '@storybook/csf': 0.1.7
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.19
       '@storybook/theming': 7.6.19(react-dom@18.2.0)(react@18.2.0)
@@ -6858,7 +6855,7 @@ packages:
       '@storybook/channels': 7.6.19
       '@storybook/client-logger': 7.6.19
       '@storybook/core-events': 7.6.19
-      '@storybook/csf': 0.1.6
+      '@storybook/csf': 0.1.7
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.19
       '@types/qs': 6.9.15
@@ -13734,7 +13731,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.21.0
+      preact: 10.22.0
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17567,19 +17564,19 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.130.2:
-    resolution: {integrity: sha512-QR/j9Xs/STK3+VJgqiByeXFKT17LGZZvJtrCdgFhwydp8WfisJw7zrSy7rVDjYS0UeKJJ/3cO/qtlXD3dR2+Eg==}
+  /posthog-js@1.134.0:
+    resolution: {integrity: sha512-AUUsnw0uZrMOI+MMO6vXcdOPZI3yRJw9xhB6FWImi9mXRIEOSVvBta6WHwE+AXuX6+3yTxYgEEaVdunKvNojDQ==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.21.0
+      preact: 10.22.0
     dev: false
 
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.21.0:
-    resolution: {integrity: sha512-aQAIxtzWEwH8ou+OovWVSVNlFImL7xUCwJX3YMqA3U8iKCNC34999fFOnWjYNsylgfPgMexpbk7WYOLtKr/mxg==}
+  /preact@10.22.0:
+    resolution: {integrity: sha512-RRurnSjJPj4rp5K6XoP45Ui33ncb7e4H7WiOHVpjbkvqvA3U+N8Z6Qbo0AE6leGYBV66n8EhEaFixvIu3SkxFw==}
     dev: false
 
   /prelude-ls@1.2.1:

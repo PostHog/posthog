@@ -11,6 +11,8 @@ from posthog.models.organization import OrganizationMembership
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
+    hedgehog_config = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -21,7 +23,17 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "is_email_verified",
+            "hedgehog_config",
         ]
+
+    def get_hedgehog_config(self, user: User) -> Optional[dict]:
+        if user.hedgehog_config:
+            return {
+                "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                "color": user.hedgehog_config.get("color"),
+                "accessories": user.hedgehog_config.get("accessories"),
+            }
+        return None
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):

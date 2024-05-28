@@ -44,7 +44,7 @@ export function ExperimentPreview({
     const {
         experimentInsightType,
         editingExistingExperiment,
-        minimumDetectableChange,
+        minimumDetectableEffect,
         expectedRunningTime,
         aggregationLabel,
         experiment,
@@ -162,7 +162,7 @@ export function ExperimentPreview({
                                         <div className="l4">
                                             {humanFriendlyNumber(
                                                 trendCount +
-                                                    Math.ceil(trendCount * ((minimumDetectableChange || 5) / 100)) || 0
+                                                    Math.ceil(trendCount * ((minimumDetectableEffect || 5) / 100)) || 0
                                             )}
                                         </div>
                                     </div>
@@ -186,7 +186,7 @@ export function ExperimentPreview({
                                     <div className="w-1/2">
                                         <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
                                         <div className="l4">
-                                            {(funnelConversionRate + (minimumDetectableChange || 5)).toFixed(1)}%
+                                            {(funnelConversionRate + (minimumDetectableEffect || 5)).toFixed(1)}%
                                         </div>
                                     </div>
                                 </>

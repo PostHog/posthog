@@ -1,51 +1,30 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSerializedFieldType } from '~/queries/schema'
-import { DataWarehouseTable } from '~/types'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
 
-import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import {
-    DatabaseTableListRow,
-    DataWarehouseExternalTableType,
-    DataWarehouseRowType,
-    DataWarehouseSceneTab,
-    DataWarehouseTableType,
-} from '../types'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { DataWarehouseSceneTab } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
         values: [
-            userLogic,
-            ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading', 'databaseLoading'],
-            dataWarehouseSavedQueriesLogic,
-            ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
+            ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views'],
         ],
         actions: [
-            dataWarehouseSavedQueriesLogic,
-            [
-                'loadDataWarehouseSavedQueries',
-                'deleteDataWarehouseSavedQuery',
-                'updateDataWarehouseSavedQuery',
-                'updateDataWarehouseSavedQuerySuccess',
-            ],
+            dataWarehouseViewsLogic,
+            ['deleteDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuerySuccess'],
             databaseTableListLogic,
-            ['loadDataWarehouse', 'deleteDataWarehouseTable', 'loadDataWarehouseSuccess', 'loadDataWarehouseFailure'],
+            ['loadDatabase', 'loadDatabaseSuccess', 'loadDatabaseFailure'],
         ],
     })),
     actions(({ values }) => ({
-        selectRow: (row: DataWarehouseTableType | null) => ({ row }),
+        selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
         setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
@@ -55,11 +34,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         }),
         saveSchema: true,
         setEditSchemaIsLoading: (isLoading: boolean) => ({ isLoading }),
-        cancelEditSchema: () => ({ dataWarehouse: values.dataWarehouse }),
+        cancelEditSchema: () => ({ database: values.database }),
+        deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
     })),
     reducers({
         selectedRow: [
-            null as DataWarehouseTableType | null,
+            null as DatabaseSchemaTable | null,
             {
                 selectRow: (_, { row }) => row,
                 updateSelectedSchema: (state, { columnKey, columnType }) => {
@@ -69,7 +49,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
 
                     const newState = { ...state }
 
-                    const column = newState?.columns.find((n) => n.key === columnKey)
+                    const column = newState?.fields[columnKey]
                     if (!column) {
                         return state
                     }
@@ -77,44 +57,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     column.type = columnType
                     return newState
                 },
-                loadDataWarehouseSuccess: (state, { dataWarehouse }) => {
-                    if (!state) {
+                loadDatabaseSuccess: (state, { database }) => {
+                    if (!state || !database) {
                         return state
                     }
 
-                    const table = dataWarehouse.results.find((n) => n.id === state.id)
+                    const table = Object.values(database.tables).find((n) => n.id === state.id)
                     if (!table) {
                         return state
                     }
 
-                    return {
-                        id: table.id,
-                        name: table.name,
-                        columns: table.columns,
-                        payload: table,
-                        type: DataWarehouseRowType.ExternalTable,
-                    } as DataWarehouseTableType
+                    return table
                 },
-                cancelEditSchema: (state, { dataWarehouse }) => {
-                    if (!state || !dataWarehouse) {
+                cancelEditSchema: (state, { database }) => {
+                    if (!state || !database) {
                         return state
                     }
 
-                    const table = dataWarehouse.results.find((n) => n.id === state.id)
+                    const table = Object.values(database.tables).find((n) => n.id === state.id)
 
                     if (!table) {
                         return state
                     }
 
-                    return JSON.parse(
-                        JSON.stringify({
-                            id: table.id,
-                            name: table.name,
-                            columns: table.columns,
-                            payload: table,
-                            type: DataWarehouseRowType.ExternalTable,
-                        })
-                    )
+                    return JSON.parse(JSON.stringify(table))
                 },
             },
         ],
@@ -128,12 +94,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     return newState
                 },
                 toggleEditSchemaMode: () => ({}),
-            },
-        ],
-        activeSceneTab: [
-            DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
-            {
-                setSceneTab: (_state, { tab }) => tab,
             },
         ],
         isEditingSavedQuery: [
@@ -158,100 +118,21 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             false as boolean,
             {
                 setEditSchemaIsLoading: (_, { isLoading }) => isLoading,
-                loadDataWarehouseSuccess: () => false,
-                loadDataWarehouseFailure: () => false,
+                loadDatabaseSuccess: () => false,
+                loadDatabaseFailure: () => false,
             },
         ],
     }),
     selectors({
-        externalTables: [
-            (s) => [s.dataWarehouse],
-            (warehouse): DataWarehouseTableType[] => {
-                if (!warehouse) {
-                    return []
-                }
-
-                const results = warehouse.results.map(
-                    (table: DataWarehouseTable) =>
-                        ({
-                            id: table.id,
-                            name: table.name,
-                            columns: table.columns,
-                            payload: table,
-                            type: DataWarehouseRowType.ExternalTable,
-                        } as DataWarehouseTableType)
-                )
-
-                // Deepcopy this so that edits dont modify the original objects
-                return JSON.parse(JSON.stringify(results))
-            },
-        ],
-        externalTablesMap: [
-            (s) => [s.externalTables],
-            (externalTables): Record<string, DataWarehouseTableType> => {
-                return externalTables.reduce(
-                    (acc: Record<string, DataWarehouseTableType>, table: DataWarehouseTableType) => {
-                        acc[table.name] = table
-                        return acc
-                    },
-                    {} as Record<string, DataWarehouseTableType>
-                )
-            },
-        ],
-        posthogTables: [
-            (s) => [s.filteredTables],
-            (tables): DataWarehouseTableType[] => {
-                if (!tables) {
-                    return []
-                }
-
-                return tables.map(
-                    (table: DatabaseTableListRow) =>
-                        ({
-                            id: table.name,
-                            name: table.name,
-                            columns: table.columns,
-                            payload: table,
-                            type: DataWarehouseRowType.PostHogTable,
-                        } as DataWarehouseTableType)
-                )
-            },
-        ],
-        savedQueriesFormatted: [
-            (s) => [s.savedQueries],
-            (savedQueries): DataWarehouseTableType[] => {
-                if (!savedQueries) {
-                    return []
-                }
-
-                return savedQueries.map(
-                    (query) =>
-                        ({
-                            id: query.id,
-                            name: query.name,
-                            columns: query.columns,
-                            type: DataWarehouseRowType.View,
-                            payload: query,
-                        } as DataWarehouseTableType)
-                )
-            },
-        ],
-        allTables: [
-            (s) => [s.externalTables, s.posthogTables, s.savedQueriesFormatted],
-            (externalTables, posthogTables, savedQueriesFormatted): DataWarehouseTableType[] => {
-                return [...externalTables, ...posthogTables, ...savedQueriesFormatted]
-            },
-        ],
-        externalTablesBySourceType: [
-            (s) => [s.externalTables],
-            (externalTables): Record<string, DataWarehouseTableType[]> => {
-                return externalTables.reduce((acc: Record<string, DataWarehouseTableType[]>, table) => {
-                    table = table as DataWarehouseExternalTableType
-                    if (table.payload.external_data_source) {
-                        if (!acc[table.payload.external_data_source.source_type]) {
-                            acc[table.payload.external_data_source.source_type] = []
+        dataWarehouseTablesBySourceType: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables): Record<string, DatabaseSchemaTable[]> => {
+                return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
+                    if (table.source) {
+                        if (!acc[table.source.source_type]) {
+                            acc[table.source.source_type] = []
                         }
-                        acc[table.payload.external_data_source.source_type].push(table)
+                        acc[table.source.source_type].push(table)
                     } else {
                         if (!acc['S3']) {
                             acc['S3'] = []
@@ -264,13 +145,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteDataWarehouseSavedQuery: async (view) => {
+        deleteDataWarehouseSavedQuery: async (tableId) => {
+            await api.dataWarehouseTables.delete(tableId)
             actions.selectRow(null)
-            lemonToast.success(`${view.name} successfully deleted`)
-        },
-        deleteDataWarehouseTable: async (table) => {
-            actions.selectRow(null)
-            lemonToast.success(`${table.name} successfully deleted`)
+            lemonToast.success('View successfully deleted')
         },
         selectRow: () => {
             actions.setIsEditingSavedQuery(false)
@@ -296,18 +174,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
 
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
-                actions.loadDataWarehouse()
+                actions.loadDatabase()
             } catch (e: any) {
                 lemonToast.error(e.message)
                 actions.setEditSchemaIsLoading(false)
             }
         },
-        loadDataWarehouseSuccess: () => {
+        loadDatabaseSuccess: () => {
             if (values.inEditSchemaMode) {
                 actions.toggleEditSchemaMode()
             }
         },
-        loadDataWarehouseFailure: () => {
+        loadDatabaseFailure: () => {
             if (values.inEditSchemaMode) {
                 actions.toggleEditSchemaMode()
             }
@@ -315,10 +193,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         cancelEditSchema: () => {
             actions.toggleEditSchemaMode(false)
         },
+        deleteDataWarehouseTable: async ({ tableId }) => {
+            await api.dataWarehouseTables.delete(tableId)
+            actions.selectRow(null)
+            lemonToast.success('Table successfully deleted')
+        },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            actions.loadDataWarehouse()
-        }
-    }),
 ])

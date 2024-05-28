@@ -254,9 +254,9 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
                 # Update ClickHouse via Kafka message
                 raw_create_group_ch(
                     team_id=team_id,
-                    group_type_index=pg_group["group_type_index"],  # type: ignore
+                    group_type_index=pg_group["group_type_index"],
                     group_key=pg_group["group_key"],
-                    properties=pg_group["group_properties"],  # type: ignore
+                    properties=pg_group["group_properties"],
                     created_at=pg_group["created_at"],
                     sync=sync,
                 )

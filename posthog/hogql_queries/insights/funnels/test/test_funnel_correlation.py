@@ -1,6 +1,7 @@
 from typing import Any, cast
 import unittest
 
+from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -494,8 +495,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             1,
         )
 
-    # :FIXME: This should also work with materialized columns
-    # @also_test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @also_test_with_materialized_columns(
+        event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
+    )
+    @freeze_time("2019-12-31")
     @snapshot_clickhouse_queries
     def test_basic_funnel_correlation_with_properties(self):
         filters = {

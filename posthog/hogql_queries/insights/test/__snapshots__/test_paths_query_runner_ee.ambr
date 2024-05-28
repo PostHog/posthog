@@ -2456,12 +2456,8 @@
 # name: TestClickhousePaths.test_recording.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s3', 's1', 's5']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s3', 's1', 's5']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2597,24 +2593,6 @@
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, []), 0)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
-  '''
-# ---
-# name: TestClickhousePaths.test_recording_for_dropoff.2
-  '''
   SELECT persons.id AS id,
          toTimeZone(persons.created_at, 'UTC') AS created_at,
          source.event_count AS event_count,
@@ -2737,15 +2715,11 @@
                     max_query_size=524288
   '''
 # ---
-# name: TestClickhousePaths.test_recording_for_dropoff.3
+# name: TestClickhousePaths.test_recording_for_dropoff.2
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2881,12 +2855,8 @@
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3031,12 +3001,8 @@
 # name: TestClickhousePaths.test_recording_with_start_and_end.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

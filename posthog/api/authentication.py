@@ -7,12 +7,14 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import (
     PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
 )
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_protect
@@ -38,6 +40,15 @@ from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+
+@receiver(user_logged_in)
+def post_login(sender, user, request: HttpRequest, **kwargs):
+    """
+    This is the most reliable way of setting this value as it will be called regardless of where the login occurs
+    including tests.
+    """
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
 
 @csrf_protect
@@ -152,6 +163,7 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
         report_user_logged_in(user, social_provider="")
         return user
 
@@ -326,11 +338,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
+        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_password_reset(user)
         return True
 

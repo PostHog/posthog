@@ -1,5 +1,7 @@
+import time
 from typing import cast
 
+from django.conf import settings
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
@@ -9,7 +11,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication, SessionAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
@@ -255,6 +257,36 @@ class SharingTokenPermission(BasePermission):
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class TimeSensitiveActionPermission(BasePermission):
+    """
+    Validates that the authenticated session is not older than the allowed time for the action.
+    """
+
+    message = "This action requires you to be recently authenticated."
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        if allow_safe_methods and request.method in SAFE_METHODS:
+            return True
+
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return False
+
+        session_age_seconds = time.time() - session_created_at
+
+        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+            return False
+
+        return True
 
 
 class APIScopePermission(BasePermission):

@@ -50,7 +50,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
 
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
-    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+    await sync_to_async(sync_old_schemas_with_new_schemas)(
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,

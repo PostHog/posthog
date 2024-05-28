@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconDocument, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -15,11 +15,11 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingError } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
-    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade } = useActions(
         billingProductLogic({ product: addon })
     )
 
@@ -33,7 +33,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     // Filter out the addon itself from the features list
-    const addonFeatures = addon.features?.filter((feature) => feature.name !== addon.name)
+    const addonFeatures =
+        currentAndUpgradePlans?.upgradePlan?.features ||
+        currentAndUpgradePlans?.currentPlan?.features ||
+        addon.features?.filter((feature) => feature.name !== addon.name)
+
+    const is_enhanced_persons_og_customer =
+        addon.type === 'enhanced_persons' &&
+        addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
 
     return (
         <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
@@ -60,25 +67,17 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
-                        {addon.features?.length > 1 && (
-                            <div className="mt-3">
-                                <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                                {addon.features?.map((feature, i) => {
-                                    return (
-                                        i < 6 && (
-                                            <div
-                                                className="flex gap-x-2 items-center mb-2"
-                                                key={'addon-features-' + addon.type + i}
-                                            >
-                                                <IconCheckCircle className="text-success" />
-                                                <Tooltip key={feature.key} title={feature.description}>
-                                                    <b>{feature.name} </b>
-                                                </Tooltip>
-                                            </div>
-                                        )
-                                    )
-                                })}
-                            </div>
+                        {is_enhanced_persons_og_customer && (
+                            <p className="mt-2 mb-0">
+                                <Link
+                                    to="https://posthog.com/changelog/2024#person-profiles-addon"
+                                    className="italic"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Why is this here?{' '}
+                                </Link>
+                            </p>
                         )}
                     </div>
                 </div>
@@ -131,14 +130,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     type="primary"
                                     icon={<IconPlus />}
                                     size="small"
-                                    to={`/api/billing-v2/activation?products=${addon.type}:${
-                                        currentAndUpgradePlans?.upgradePlan?.plan_key
-                                    }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                     disableClientSideRouting
+                                    disabledReason={billingError && billingError.message}
                                     loading={billingProductLoading === addon.type}
-                                    onClick={() => {
-                                        setBillingProductLoading(addon.type)
-                                    }}
+                                    onClick={() =>
+                                        initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
+                                    }
                                 >
                                     Add
                                 </LemonButton>
@@ -151,21 +148,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 {addonFeatures?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        {addonFeatures?.map((feature, i) => {
-                            return (
-                                i < 6 && (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + i}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name} </b>
-                                        </Tooltip>
-                                    </div>
-                                )
-                            )
-                        })}
+                        <div className="grid grid-cols-2 gap-x-4">
+                            {addonFeatures.map((feature, index) => (
+                                <div
+                                    className="flex gap-x-2 items-center mb-2"
+                                    key={'addon-features-' + addon.type + index}
+                                >
+                                    <IconCheckCircle className="text-success" />
+                                    <Tooltip key={feature.key} title={feature.description}>
+                                        <b>
+                                            {feature.name}
+                                            {feature.note ? ': ' + feature.note : ''}
+                                        </b>
+                                    </Tooltip>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

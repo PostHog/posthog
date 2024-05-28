@@ -45,7 +45,7 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     if not response:
         return None
 
-    return WebJsSource(*(list(response)))  # type: ignore
+    return WebJsSource(*(list(response)))
 
 
 def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[dict]:

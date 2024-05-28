@@ -122,7 +122,7 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
 export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
     const properties = event.properties ?? {}
 
-    if (!processPerson) {
+    if (!processPerson || event.event === '$groupidentify') {
         delete event.$set
         delete event.$set_once
         // In an abundance of caution and future proofing, we delete the $unset field from the
@@ -132,6 +132,9 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
         delete properties.$set
         delete properties.$set_once
         delete properties.$unset
+    }
+
+    if (!processPerson) {
         // Recorded for clarity and so that the property exists if it is ever sent elsewhere,
         // e.g. for migrations.
         properties.$process_person_profile = false

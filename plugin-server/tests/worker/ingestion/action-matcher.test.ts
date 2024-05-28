@@ -44,7 +44,7 @@ describe('ActionMatcher', () => {
     })
 
     /** Return a test action created on a common base using provided steps. */
-    async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
+    async function createTestAction(partialSteps: Partial<ActionStep>[] | null): Promise<Action> {
         const action: RawAction = {
             id: actionCounter++,
             team_id: 2,
@@ -58,33 +58,34 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            steps_json: null,
             bytecode: null,
             bytecode_error: null,
+            steps_json: partialSteps
+                ? partialSteps.map(
+                      (partialStep): ActionStep => ({
+                          tag_name: null,
+                          text: null,
+                          text_matching: null,
+                          href: null,
+                          href_matching: null,
+                          selector: null,
+                          url: null,
+                          url_matching: null,
+                          event: null,
+                          properties: null,
+                          ...partialStep,
+                      })
+                  )
+                : null,
         }
-        const steps: ActionStep[] = partialSteps.map(
-            (partialStep, index) =>
-                ({
-                    id: action.id * 100 + index,
-                    action_id: action.id,
-                    tag_name: null,
-                    text: null,
-                    text_matching: null,
-                    href: null,
-                    href_matching: null,
-                    selector: null,
-                    url: null,
-                    url_matching: null,
-                    name: null,
-                    event: null,
-                    properties: null,
-                    ...partialStep,
-                } as ActionStep)
-        )
         await insertRow(hub.db.postgres, 'posthog_action', action)
-        await Promise.all(steps.map((step) => insertRow(hub.db.postgres, 'posthog_actionstep', step)))
         await actionManager.reloadAction(action.team_id, action.id)
-        return { ...action, steps, hooks: [] }
+
+        return {
+            ...action,
+            steps: action.steps_json ?? [],
+            hooks: [],
+        }
     }
 
     /** Return a test event created on a common base using provided property overrides. */
@@ -108,7 +109,7 @@ describe('ActionMatcher', () => {
 
     describe('#match()', () => {
         it('returns no match if action has no steps', async () => {
-            await createTestAction([])
+            await createTestAction(null)
 
             const event = createTestEvent()
 

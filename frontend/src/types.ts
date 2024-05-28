@@ -34,7 +34,7 @@ import { QueryContext } from '~/queries/types'
 
 import type {
     DashboardFilter,
-    DatabaseSchemaQueryResponseField,
+    DatabaseSchemaField,
     HogQLQuery,
     HogQLQueryModifiers,
     InsightVizNode,
@@ -131,7 +131,6 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    TEAM_COLLABORATION = 'team_collaboration',
     ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
@@ -152,6 +151,7 @@ export enum AvailableFeature {
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
+    MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -179,6 +179,7 @@ export enum ProductKey {
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    TEAMS = 'teams',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -228,6 +229,7 @@ interface UserBaseType {
 export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
+    hedgehog_config?: MinimalHedgehogConfig
 }
 
 /**
@@ -244,7 +246,6 @@ export type UserTheme = 'light' | 'dark' | 'system'
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
-    email_opt_in: boolean
     notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -253,6 +254,7 @@ export interface UserType extends UserBaseType {
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
+    sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -264,6 +266,35 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
+    hedgehog_config?: Partial<HedgehogConfig>
+}
+
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export interface MinimalHedgehogConfig {
+    use_as_profile: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+}
+
+export interface HedgehogConfig extends MinimalHedgehogConfig {
+    enabled: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+    walking_enabled: boolean
+    interactions_enabled: boolean
+    controls_enabled: boolean
+    party_mode_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -280,6 +311,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    mask_value?: string | null
     created_at: string
     last_used_at: string
     team_id: number
@@ -305,7 +337,6 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -504,11 +535,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum StringMatching {
-    Contains = 'contains',
-    Regex = 'regex',
-    Exact = 'exact',
-}
+export type ActionStepStringMatching = 'contains' | 'exact' | 'regex'
 
 export interface ActionStepType {
     event?: string | null
@@ -518,14 +545,13 @@ export interface ActionStepType {
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
-    text_matching?: StringMatching | null
+    text_matching?: ActionStepStringMatching | null
     href?: string | null
-    /** @default StringMatching.Exact */
-    href_matching?: StringMatching | null
+    /** @default ActionStepStringMatching.Exact */
+    href_matching?: ActionStepStringMatching | null
     url?: string | null
     /** @default StringMatching.Contains */
-    url_matching?: StringMatching | null
-    isNew?: string
+    url_matching?: ActionStepStringMatching | null
 }
 
 export interface ElementType {
@@ -748,6 +774,13 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 
+/** Any filter type supported by `property_to_expr(scope="person", ...)`. */
+export type AnyPersonScopeFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | HogQLPropertyFilter
+    | EmptyPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
@@ -913,6 +946,10 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1336,7 +1373,24 @@ export interface PerformanceEvent {
     decoded_body_size?: number
     encoded_body_size?: number
 
-    initiator_type?: string
+    initiator_type?:
+        | 'navigation'
+        | 'css'
+        | 'script'
+        | 'xmlhttprequest'
+        | 'fetch'
+        | 'beacon'
+        | 'video'
+        | 'audio'
+        | 'track'
+        | 'img'
+        | 'image'
+        | 'input'
+        | 'a'
+        | 'iframe'
+        | 'frame'
+        | 'link'
+        | 'other'
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
@@ -1382,6 +1436,8 @@ export interface PerformanceEvent {
     //server timings - reported as separate events but added back in here on the front end
     server_timings?: PerformanceEvent[]
 }
+
+export type AssetType = 'CSS' | 'JS' | 'Fetch' | 'Image' | 'Link' | 'XHR' | 'HTML'
 
 export interface CurrentBillCycleType {
     current_period_start: number
@@ -1474,6 +1530,8 @@ export interface BillingProductV2AddonType {
     free_allocation?: number | null
     percentage_usage?: number
     features: BillingV2FeatureType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    usage_limit?: number | null
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1696,6 +1754,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     first_name: string
+    level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserBasicType | null
@@ -1890,7 +1949,7 @@ export enum ChartDisplayCategory {
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
-export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -2107,6 +2166,9 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+
+    //frontend only
+    show_mean?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2490,6 +2552,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2519,6 +2582,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    shuffleOptions?: boolean
     hasOpenChoice?: boolean
 }
 
@@ -3566,7 +3630,6 @@ export interface DataWarehouseTable {
     format: string
     url_pattern: string
     credential: DataWarehouseCredential
-    columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
     external_schema?: SimpleExternalDataSourceSchema
 }
@@ -3578,7 +3641,7 @@ export interface DataWarehouseSavedQuery {
     id: string
     name: string
     query: HogQLQuery
-    columns: DatabaseSchemaQueryResponseField[]
+    columns: DatabaseSchemaField[]
 }
 
 export interface DataWarehouseViewLink {
@@ -3630,7 +3693,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
-    columns: DatabaseSchemaQueryResponseField[]
+    columns: DatabaseSchemaField[]
     row_count: number
 }
 
@@ -3730,6 +3793,7 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
+export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -3910,4 +3974,20 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string
     subrows: ProductPricingTierSubrows
+}
+
+export type AvailableOnboardingProducts = Pick<
+    {
+        [key in ProductKey]: OnboardingProduct
+    },
+    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+>
+
+export type OnboardingProduct = {
+    name: string
+    breadcrumbsName?: string
+    icon: string
+    iconColor: string
+    url: string
+    scene: Scene
 }

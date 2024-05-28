@@ -22,7 +22,6 @@ describe('ActionManager', () => {
 
     const TEAM_ID = 2
     const ACTION_ID = 69
-    const ACTION_STEP_ID = 913
 
     it('returns the correct actions generally', async () => {
         const action = actionManager.getTeamActions(TEAM_ID)
@@ -37,15 +36,12 @@ describe('ActionManager', () => {
             is_calculating: false,
             steps: [
                 {
-                    id: ACTION_STEP_ID,
-                    action_id: ACTION_ID,
                     tag_name: null,
                     text: null,
                     href: null,
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },
@@ -54,8 +50,8 @@ describe('ActionManager', () => {
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_actionstep SET properties = jsonb_set(properties, '{0,key}', '"baz"') WHERE id = $1`,
-            [ACTION_STEP_ID],
+            `UPDATE posthog_action SET slack_message_format='test' WHERE id = $1`,
+            [ACTION_ID],
             'testKey'
         )
 
@@ -70,21 +66,18 @@ describe('ActionManager', () => {
             name: 'Test Action',
             deleted: false,
             post_to_slack: true,
-            slack_message_format: '',
+            slack_message_format: 'test',
             is_calculating: false,
             steps: [
                 {
-                    id: ACTION_STEP_ID,
-                    action_id: ACTION_ID,
                     tag_name: null,
                     text: null,
                     href: null,
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
-                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'baz', value: ['bar'] }],
+                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },
             ],
         })
@@ -110,15 +103,12 @@ describe('ActionManager', () => {
             is_calculating: false,
             steps: [
                 {
-                    id: ACTION_STEP_ID,
-                    action_id: ACTION_ID,
                     tag_name: null,
                     text: null,
                     href: null,
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },

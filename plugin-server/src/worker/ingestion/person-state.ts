@@ -74,7 +74,7 @@ const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
     )
 )
 
-const isDistinctIdIllegal = (id: string): boolean => {
+export const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()
     return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }

@@ -1,4 +1,4 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -25,8 +25,8 @@ import {
     PluginType,
 } from '~/types'
 
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
-import { pipelineTransformationsLogic } from './transformationsLogic'
 import {
     Destination,
     ImportApp,
@@ -122,7 +122,7 @@ export function getBatchExportUrl(service: BatchExportService['type']): string {
     return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
 }
 
-export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
+export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
     }
@@ -154,7 +154,13 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
+export function RenderBatchExportIcon({
+    type,
+    size = 'small',
+}: {
+    type: BatchExportService['type']
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const icon = {
         BigQuery: BigQueryIcon,
         Postgres: PostgresIcon,
@@ -164,11 +170,23 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportService['type
         HTTP: HTTPIcon,
     }[type]
 
+    const sizePx = size === 'small' ? 30 : 60
+
     return (
         <div className="flex items-center gap-4">
-            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
-                <img src={icon} alt={type} height={60} width={60} />
-            </Link>
+            <Tooltip
+                title={
+                    <>
+                        {type}
+                        <br />
+                        Click to view docs
+                    </>
+                }
+            >
+                <Link to={getBatchExportUrl(type)}>
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                </Link>
+            </Tooltip>
         </div>
     )
 }
@@ -277,6 +295,7 @@ export function nameColumn<
 export function appColumn<T extends { plugin: Transformation['plugin'] }>(): LemonTableColumn<T, 'plugin'> {
     return {
         title: 'App',
+        width: 0,
         render: function RenderAppInfo(_, pipelineNode) {
             return <RenderApp plugin={pipelineNode.plugin} />
         },
@@ -297,7 +316,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -320,13 +339,18 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
     return items
 }
 
+export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
+}
+
 export function pipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
         {
@@ -359,4 +383,12 @@ export function pipelinePluginBackedNodeMenuCommonItems(
               ]
             : []),
     ]
+}
+
+export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
+    if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
+        lemonToast.error('Import apps are deprecated and cannot be enabled.')
+        return false
+    }
+    return true
 }

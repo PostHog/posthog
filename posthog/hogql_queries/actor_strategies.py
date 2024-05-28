@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.recordings import RecordingsHelper
+from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team, Person, Group
 from posthog.schema import ActorsQuery
 
