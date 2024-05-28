@@ -164,40 +164,43 @@ export class ActionMatcher {
     public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): Promise<boolean> {
         const allFilters = [...(filters.events || []), ...(filters.actions || [])]
 
+        if (allFilters.length) {
+            for (const filter of allFilters) {
+                switch (filter.type) {
+                    case 'events':
+                        if (filter.name && filter.name !== event.event) {
+                            continue
+                        }
+                        break
+                    case 'actions':
+                        const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
+
+                        if (!(await this.checkAction(event, action))) {
+                            continue
+                        }
+                        break
+                    default:
+                        return false
+                }
+
+                if (!filter.properties.length) {
+                    return true
+                }
+
+                return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
+            }
+            return false
+        }
+
         if (filters.filter_test_accounts) {
             const internalFilters = (await this.teamManager.fetchTeam(event.teamId))?.test_account_filters
-
-            if (internalFilters) {
-                allFilters.push(...internalFilters)
+            if (internalFilters?.length) {
+                console.log('checkign internal filters', internalFilters, event)
+                return internalFilters.every((x) => this.checkEventAgainstFilterSync(event, x))
             }
         }
 
-        for (const filter of allFilters) {
-            switch (filter.type) {
-                case 'events':
-                    if (filter.name && filter.name !== event.event) {
-                        continue
-                    }
-                    break
-                case 'actions':
-                    const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
-
-                    if (!(await this.checkAction(event, action))) {
-                        continue
-                    }
-                    break
-                default:
-                    return false
-            }
-
-            if (!filter.properties.length) {
-                return true
-            }
-
-            return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
-        }
-
-        return false
+        return true
     }
 
     public getActionById(teamId: number, actionId: number): Action | undefined {

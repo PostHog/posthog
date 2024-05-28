@@ -580,7 +580,9 @@ export interface Team {
     session_recording_opt_in: boolean
     ingested_event: boolean
     person_display_name_properties: string[] | null
-    test_account_filters: PluginConfigFilter[] | null
+    test_account_filters:
+        | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
+        | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
