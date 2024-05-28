@@ -8,8 +8,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { TestAccountFilterSwitch } from 'scenes/settings/project/TestAccountFiltersConfig'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
@@ -135,9 +135,10 @@ export const AdvancedSessionRecordingsFilters = ({
                 </LemonLabel>
             )}
 
-            <TestAccountFilter
-                filters={filters}
-                onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+            <TestAccountFilterSwitch
+                checked={filters.filter_test_accounts ?? false}
+                onChange={(val) => setFilters({ filter_test_accounts: val })}
+                fullWidth
             />
 
             {showPropertyFilters && (
