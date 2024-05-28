@@ -2,7 +2,6 @@ from contextlib import contextmanager
 
 from django.db.models import Min
 from django.http import JsonResponse
-from dateutil.rrule import rrule, DAILY
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
@@ -265,34 +264,31 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        instance = super().update(instance, validated_data)
-        if "iteration_count" in validated_data and "iteration_frequency_days" in validated_data:
-            iteration_count = validated_data.get("iteration_count")
-
-            if instance.current_iteration is not None and instance.current_iteration > iteration_count:
-                raise serializers.ValidationError(
-                    f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
-                )
-
-            instance.iteration_start_dates = list(
-                rrule(
-                    DAILY,
-                    count=validated_data.get("iteration_count"),
-                    interval=validated_data.get("iteration_frequency_days"),
-                    dtstart=instance.start_date,
-                )
+        if instance.current_iteration is not None and instance.current_iteration > validated_data.get(
+            "iteration_count"
+        ):
+            raise serializers.ValidationError(
+                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
             )
 
-            if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
-                instance.current_iteration = 1
-                instance.current_iteration_start_date = instance.start_date
+        instance.iteration_count = validated_data.get("iteration_count")
+        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
-            instance.save()
-        else:
-            instance.iteration_start_dates = []
-            instance.current_iteration = None
-            instance.current_iteration_start_date = None
-            instance.save()
+        instance = super().update(instance, validated_data)
+        # if "iteration_count" in validated_data and "iteration_frequency_days" in validated_data:
+        #     iteration_count = validated_data.get("iteration_count")
+        #
+        #     if instance.current_iteration is not None and instance.current_iteration > iteration_count:
+        #         raise serializers.ValidationError(
+        #             f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
+        #         )
+        #
+        #     instance.update_survey_iteration_count(iteration_count, validated_data.get("iteration_frequency_days"))
+        # else:
+        #     instance.iteration_start_dates = []
+        #     instance.current_iteration = None
+        #     instance.current_iteration_start_date = None
+        #     instance.save()
 
         self._add_user_survey_interacted_filters(instance, end_date)
         return instance

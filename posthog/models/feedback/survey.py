@@ -3,6 +3,9 @@ from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 from django.contrib.postgres.fields import ArrayField
+from dateutil.rrule import rrule, DAILY
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 
 
 class Survey(UUIDModel):
@@ -79,6 +82,35 @@ class Survey(UUIDModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+
+
+@receiver(pre_save, sender=Survey)
+def update_survey_iterations(sender, instance, *args, **kwargs):
+    iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
+    iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
+
+    if instance.iteration_count == 0 or instance.iteration_frequency_days == 0:
+        instance.iteration_start_dates = []
+        instance.current_iteration = None
+        instance.current_iteration_start_date = None
+        return
+
+    if instance.start_date is None:
+        instance.iteration_start_dates = None
+        return
+
+    instance.iteration_start_dates = list(
+        rrule(
+            DAILY,
+            count=iteration_count,
+            interval=iteration_frequency_dates,
+            dtstart=instance.start_date,
+        )
+    )
+
+    if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
+        instance.current_iteration = 1
+        instance.current_iteration_start_date = instance.start_date
 
 
 @mutable_receiver([post_save, post_delete], sender=Survey)
