@@ -6,7 +6,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
@@ -120,17 +119,12 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, daysRemaining, daysTotal } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
-    const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
-    const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
-        billing.billing_period?.current_period_start,
-        'days'
-    )
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
@@ -223,10 +217,7 @@ export const PlanComparison = ({
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => {
                         const prorationAmount = plan.unit_amount_usd
-                            ? (
-                                  parseInt(plan.unit_amount_usd) *
-                                  ((billingDaysRemaining || 1) / (billingDaysTotal || 1))
-                              ).toFixed(2)
+                            ? (parseInt(plan.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(2)
                             : 0
                         const isProrated =
                             billing?.has_active_subscription && plan.unit_amount_usd
