@@ -1082,6 +1082,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
