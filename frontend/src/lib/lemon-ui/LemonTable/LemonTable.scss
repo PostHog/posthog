@@ -292,15 +292,15 @@
 }
 
 // NOTE: this is outside of the storybook check for 3000 selective styling
-.LemonTable__cell--sticky::before {
+.LemonTable__cell--sticky {
     background: var(--lemon-table-background-color);
 
-    .InsightViz & {
-        background: var(--bg-light);
+    .LemonTable__row--status-highlighted &::before {
+        background: var(--primary-bg-hover);
     }
 }
 
-.LemonTable__header--sticky::before {
+.LemonTable__header--sticky {
     background: var(--lemon-table-background-color);
 }
 
@@ -316,20 +316,13 @@ body:not(.storybook-test-runner) {
         // Replicate .scrollable style for sticky cells
         &::before {
             position: absolute;
-            top: 0;
-            bottom: 1px; // Leave room for box shadow border
-            left: 0;
+            inset: 0;
             z-index: -1; // Place below cell content
-            width: 100%;
             clip-path: inset(0 -16px 0 0);
             content: '';
             box-shadow: -16px 0 16px 16px transparent;
             transition: box-shadow 200ms ease;
         }
-    }
-
-    tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
-        background: var(--primary-bg-hover);
     }
 
     .ScrollableShadows--left {

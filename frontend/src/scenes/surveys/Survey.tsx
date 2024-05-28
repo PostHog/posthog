@@ -167,6 +167,17 @@ export function SurveyDisplaySummary({
                     )}
                 </div>
             )}
+            {survey.conditions?.seenSurveyWaitPeriodInDays && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>Wait period after seeing survey:</span>{' '}
+                        <span className="simple-tag tag-light-blue text-primary-alt">
+                            {survey.conditions.seenSurveyWaitPeriodInDays}{' '}
+                            {survey.conditions.seenSurveyWaitPeriodInDays === 1 ? 'day' : 'days'}
+                        </span>
+                    </div>
+                </div>
+            )}
             {targetingFlagFilters && (
                 <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
                     <span className="font-medium">User properties:</span>{' '}

@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 import json
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Literal, Optional, Union, get_args
 
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -82,15 +82,12 @@ class Action(models.Model):
     def get_step_events(self) -> list[Union[str, None]]:
         return [action_step.event for action_step in self.steps]
 
-    def generate_bytecode(self) -> list[Any]:
+    def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
         from posthog.hogql.bytecode import create_bytecode
 
-        return create_bytecode(action_to_expr(self))
-
-    def refresh_bytecode(self):
         try:
-            new_bytecode = self.generate_bytecode()
+            new_bytecode = create_bytecode(action_to_expr(self))
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None

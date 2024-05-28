@@ -24,6 +24,8 @@ import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
+import { ActionManager } from './worker/ingestion/action-manager'
+import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
@@ -279,6 +281,8 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     eventsProcessor: EventsProcessor
+    actionManager: ActionManager
+    actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
     // geoip database, setup in workers
@@ -422,6 +426,7 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
+    match_action_id?: number
 }
 
 export interface PluginJsonConfig {
@@ -686,6 +691,16 @@ export interface PostIngestionEvent extends PreIngestionEvent {
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
+
+    groups?: Record<
+        string,
+        {
+            key: string
+            type: string
+            index: number
+            properties: Properties
+        }
+    >
 }
 
 export interface DeadLetterQueueEvent {
@@ -1131,4 +1146,24 @@ export type RawClickhouseHeatmapEvent = {
     timestamp: string
     type: string
     team_id: number
+}
+
+export interface HookPayload {
+    hook: Pick<Hook, 'id' | 'event' | 'target'>
+
+    data: {
+        eventUuid: string
+        event: string
+        teamId: TeamId
+        distinctId: string
+        properties: Properties
+        timestamp: ISOTimestamp
+        elementsList?: Element[]
+
+        person: {
+            uuid: string
+            properties: Properties
+            created_at: ISOTimestamp | null
+        }
+    }
 }

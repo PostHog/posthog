@@ -1,3 +1,4 @@
+import posthoganalytics
 import structlog
 from typing import Optional
 
@@ -5,6 +6,8 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.hogql.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -17,6 +20,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
     DatabaseSchemaQueryResponse,
+    HogQuery,
     DashboardFilter,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -24,6 +28,7 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
+    HogQueryResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +72,30 @@ def process_query_model(
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
+        elif isinstance(query, HogQuery):
+            if is_cloud():
+                if not posthoganalytics.feature_enabled(
+                    "hog",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id)},
+                    group_properties={
+                        "organization": {
+                            "id": str(team.organization_id),
+                            "created_at": team.organization.created_at,
+                        }
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                ):
+                    return {"results": "Hog queries not enabled for this organization."}
+
+            try:
+                hog_result = execute_hog(query.code or "", team=team)
+                result = HogQueryResponse(
+                    results=hog_result.result, bytecode=hog_result.bytecode, stdout="".join(hog_result.stdout)
+                )
+            except Exception as e:
+                result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
