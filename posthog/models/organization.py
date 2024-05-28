@@ -243,7 +243,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 
 
 @receiver(models.signals.post_save, sender=Organization)
-def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
     updated_fields = kwargs.get("update_fields") or []
     if "available_product_features" in updated_fields:
         logger.info(

@@ -244,11 +244,11 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 valid_until=dt.datetime.now() + dt.timedelta(days=1),
             )
 
-            # Still only old, empty available_features field value known
+            # Still only old, empty available_product_features field value known
             self.assertFalse(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
-            # New available_features field value that was updated in DB on license creation is known after refresh
+            # New available_product_features field value that was updated in DB on license creation is known after refresh
             self.organization.refresh_from_db()
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
