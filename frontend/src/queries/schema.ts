@@ -843,7 +843,7 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
      * get ignored during serialization.
      *
      * @default {"totalIntervals":11}
-     * */
+     */
     retentionFilter: RetentionFilter
 }
 
@@ -936,6 +936,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
@@ -1039,11 +1040,21 @@ export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryR
 
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the lifecycle insight */
+    /** Properties specific to the lifecycle insight
+     *
+     * :TRICKY: The default is not an empty dict as datamodel-code-generator
+     * does not generate a model with factory then & thus empty filters do not
+     * get ignored during serialization.
+     *
+     * @default {"showLegend":false}
+     */
     lifecycleFilter?: LifecycleFilter
 }
 

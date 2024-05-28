@@ -2002,7 +2002,7 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    showLegend: Optional[bool] = None
+    showLegend: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
@@ -3916,11 +3916,13 @@ class LifecycleQuery(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=IntervalType.day,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["LifecycleQuery"] = "LifecycleQuery"
     lifecycleFilter: Optional[LifecycleFilter] = Field(
-        default=None, description="Properties specific to the lifecycle insight"
+        default_factory=lambda: LifecycleFilter.model_validate({"showLegend": False}),
+        description="Properties specific to the lifecycle insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
     )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
