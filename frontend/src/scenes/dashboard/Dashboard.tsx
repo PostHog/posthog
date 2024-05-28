@@ -102,11 +102,7 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) &&
-                            dashboard && (
-                                <div>
-                                    <DashboardEditBar />
-                                </div>
-                            )}
+                            dashboard && <DashboardEditBar />}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
                             <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
                                 Edit dashboard

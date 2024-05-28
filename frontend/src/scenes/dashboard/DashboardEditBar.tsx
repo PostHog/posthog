@@ -1,5 +1,6 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -13,9 +14,36 @@ export function DashboardEditBar(): JSX.Element {
     const { setDates, setProperties, cancelTemporary, applyTemporary } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const isEditInProgress: boolean = canEditDashboard && stale
+
     return (
-        <>
-            <div className="flex gap-2 items-start justify-between flex-wrap">
+        <Popover
+            visible={isEditInProgress}
+            className="z-0" // So that Cancel/Apply isn't above filter popovers
+            overlay={
+                <div className="flex items-center gap-2 m-1">
+                    <LemonButton onClick={cancelTemporary} type="secondary" size="small">
+                        Cancel changes
+                    </LemonButton>
+                    <LemonButton
+                        onClick={applyTemporary}
+                        type="primary"
+                        size="small"
+                        disabledReason={!stale ? 'No changes to apply' : undefined}
+                    >
+                        Apply and save dashboard
+                    </LemonButton>
+                </div>
+            }
+            placement="right"
+            showArrow
+        >
+            <div
+                className={clsx(
+                    'flex gap-2 items-center justify-between flex-wrap border',
+                    isEditInProgress ? '-m-1.5 p-1.5 border-border-bold border-dashed rounded-lg' : 'border-transparent'
+                )}
+            >
                 <DateFilter
                     showCustom
                     dateFrom={temporaryFilters.date_from}
@@ -44,28 +72,7 @@ export function DashboardEditBar(): JSX.Element {
                         TaxonomicFilterGroupType.HogQLExpression,
                     ]}
                 />
-                {canEditDashboard && stale ? (
-                    <>
-                        <LemonButton onClick={cancelTemporary} type="secondary" size="small" className="ml-4">
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            onClick={applyTemporary}
-                            type="primary"
-                            size="small"
-                            disabledReason={!stale ? 'No changes to apply' : undefined}
-                        >
-                            Apply and save dashboard
-                        </LemonButton>
-                    </>
-                ) : null}
             </div>
-            {canEditDashboard && stale && (
-                <LemonBanner type="info" className="mt-2">
-                    New: Since changes to dashboards are visible to your whole team, we now require you to save your
-                    changes before they are reflected.
-                </LemonBanner>
-            )}
-        </>
+        </Popover>
     )
 }
