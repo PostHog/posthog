@@ -33,8 +33,6 @@ exports[`WebhookFormatter webhook formatting options {
   event: [Object]
 } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/2) from Chrome on Pricing page with undefined, yes sir"`;
 
-exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.link] was done by [user.name]' } 1`] = `"http://localhost:8000/project/123/action/1 was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
-
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name\\\\] got done by \\\\[user.name\\\\]' } 1`] = `"[action.name] got done by [user.name]"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name] was done by [user.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1) was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
@@ -57,13 +55,9 @@ exports[`WebhookFormatter webhook formatting options { messageFormat: '[person.l
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[person]' } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
 
-exports[`WebhookFormatter webhook formatting options { messageFormat: '[source.link] was done by [user.name]' } 1`] = `"http://localhost:8000/project/123/action/1 was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
-
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[source.name] was done by [user.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1) was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[source.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1)"`;
-
-exports[`WebhookFormatter webhook formatting options { messageFormat: '[source] was done by [user.name]' } 1`] = `" was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.browser]' } 1`] = `"Chrome"`;
 
