@@ -384,7 +384,7 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = customer_trust_scores
+            organization.customer_trust_scores.update(org_customer_trust_scores)
             org_modified = True
 
         if org_modified:

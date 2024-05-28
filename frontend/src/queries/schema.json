@@ -55,16 +55,9 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
-                    "description": "Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -89,16 +82,9 @@
                     "type": "array"
                 },
                 "properties": {
-                    "description": "Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPersonScopeFilter"
                     },
                     "type": "array"
                 },
@@ -223,6 +209,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -254,6 +243,23 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
+        },
+        "AnyPersonScopeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
+                }
+            ],
+            "description": "Any filter type supported by `property_to_expr(scope=\"person\", ...)`."
         },
         "AnyPropertyFilter": {
             "anyOf": [
@@ -299,6 +305,9 @@
             "anyOf": [
                 {
                     "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -1395,8 +1404,6 @@
             },
             "required": [
                 "cache_key",
-                "dateFrom",
-                "dateTo",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -1918,7 +1925,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["dateFrom", "dateTo", "results"],
+                            "required": ["results"],
                             "type": "object"
                         },
                         {
@@ -2336,6 +2343,9 @@
                     },
                     "type": "array"
                 },
+                "hogql_value": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -2349,7 +2359,7 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["name", "type", "schema_valid"],
+            "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
         "DatabaseSchemaPostHogTable": {
@@ -4165,6 +4175,10 @@
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
+                "personsJoinMode": {
+                    "enum": ["inner", "left"],
+                    "type": "string"
+                },
                 "personsOnEventsMode": {
                     "enum": [
                         "disabled",
@@ -4243,6 +4257,42 @@
                     "description": "Types of returned columns",
                     "items": {},
                     "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "HogQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "results": {},
+                "stdout": {
+                    "type": "string"
                 }
             },
             "required": ["results"],
@@ -4569,7 +4619,7 @@
             "type": "string"
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -5070,6 +5120,7 @@
                 "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
+                "HogQuery",
                 "HogQLQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
@@ -5822,6 +5873,21 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "results": {},
+                        "stdout": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "clickhouse": {
                             "description": "Executed ClickHouse query",
                             "type": "string"
@@ -5986,7 +6052,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -6313,7 +6379,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -6704,6 +6770,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
@@ -8045,7 +8114,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateFrom", "dateTo", "results"],
+            "required": ["results"],
             "type": "object"
         },
         "WebStatsBreakdown": {

@@ -181,6 +181,7 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
+    level: OrganizationMembershipLevel.Member,
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [

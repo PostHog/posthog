@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.132.3
-    version: 1.132.3
+    specifier: 1.134.0
+    version: 1.134.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -277,9 +277,6 @@ dependencies:
   query-selector-shadow-dom:
     specifier: ^1.0.0
     version: 1.0.0
-  rc-picker:
-    specifier: ~2.5.17
-    version: 2.5.19(react-dom@18.2.0)(react@18.2.0)
   rc-trigger:
     specifier: ^5.2.5
     version: 5.3.3(react-dom@18.2.0)(react@18.2.0)
@@ -17567,8 +17564,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.132.3:
-    resolution: {integrity: sha512-E3qR9QyIdZaC5rhm2ksPwu7213hflL3IevV43xdnpw7gp0orntwj7TRZmfVNYHt+27NHTFE/Fd3uA8ONgAiANg==}
+  /posthog-js@1.134.0:
+    resolution: {integrity: sha512-AUUsnw0uZrMOI+MMO6vXcdOPZI3yRJw9xhB6FWImi9mXRIEOSVvBta6WHwE+AXuX6+3yTxYgEEaVdunKvNojDQ==}
     dependencies:
       fflate: 0.4.8
       preact: 10.22.0

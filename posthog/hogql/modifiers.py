@@ -6,6 +6,7 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PersonsJoinMode,
 )
 
 if TYPE_CHECKING:
@@ -42,6 +43,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null
+
+    if modifiers.personsJoinMode is None:
+        modifiers.personsJoinMode = PersonsJoinMode.inner
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

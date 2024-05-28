@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
+import sentry_sdk
 
 import structlog
 from django.conf import settings
@@ -87,7 +88,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         wait_for_css_selector: CSSSelector
 
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
+            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend&refresh=true&use_cache=true")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
@@ -128,6 +129,14 @@ def _screenshot_asset(
     try:
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
+
+        headers = {
+            "sentry-trace": sentry_sdk.get_traceparent(),
+            "baggage": sentry_sdk.get_baggage(),
+        }
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
+
         driver.get(url_to_render)
         WebDriverWait(driver, 20).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
         # Also wait until nothing is loading

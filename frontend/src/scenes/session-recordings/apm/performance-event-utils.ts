@@ -1,4 +1,6 @@
 import { eventWithTime } from '@rrweb/types'
+import { getSeriesColor } from 'lib/colors'
+import { humanizeBytes } from 'lib/utils'
 import { CapturedNetworkRequest } from 'posthog-js'
 
 import { PerformanceEvent } from '~/types'
@@ -124,6 +126,77 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     method: 'method',
 }
 
+export function initiatorTypeToColor(type: NonNullable<PerformanceEvent['initiator_type']>): string {
+    switch (type) {
+        case 'navigation':
+            return getSeriesColor(13)
+        case 'css':
+            return getSeriesColor(14)
+        case 'script':
+            return getSeriesColor(15)
+        case 'xmlhttprequest':
+            return getSeriesColor(16)
+        case 'fetch':
+            return getSeriesColor(17)
+        case 'beacon':
+            return getSeriesColor(18)
+        case 'video':
+            return getSeriesColor(19)
+        case 'audio':
+            return getSeriesColor(20)
+        case 'track':
+            return getSeriesColor(21)
+        case 'img':
+            return getSeriesColor(22)
+        case 'image':
+            return getSeriesColor(22)
+        case 'input':
+            return getSeriesColor(23)
+        case 'a':
+            return getSeriesColor(24)
+        case 'iframe':
+            return getSeriesColor(25)
+        case 'frame':
+            return getSeriesColor(26)
+        case 'link':
+            return getSeriesColor(27)
+        case 'other':
+            return getSeriesColor(28)
+    }
+}
+
+type AssetType = 'CSS' | 'JS' | 'Fetch' | 'Image' | 'Link' | 'XHR' | 'HTML'
+
+export const initiatorToAssetTypeMapping: Record<string, AssetType> = {
+    css: 'CSS',
+    script: 'JS',
+    fetch: 'Fetch',
+    img: 'Image',
+    link: 'Link',
+    xmlhttprequest: 'XHR',
+    navigation: 'HTML',
+}
+
+// these map to colors in initiatorTypeToColor but with opacity
+export function assetTypeToColor(type: AssetType): string {
+    switch (type) {
+        case 'CSS':
+            return getSeriesColor(14, null, true)
+        case 'JS':
+            return getSeriesColor(15, null, true)
+        case 'Fetch':
+            return getSeriesColor(17, null, true)
+        case 'Image':
+            return getSeriesColor(22, null, true)
+        case 'Link':
+            return getSeriesColor(27, null, true)
+        case 'XHR':
+            return getSeriesColor(16, null, true)
+        case 'HTML':
+            return getSeriesColor(13, null, true)
+    }
+}
+
 export function mapRRWebNetworkRequest(
     capturedRequest: CapturedNetworkRequest,
     windowId: string,
@@ -224,4 +297,40 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
     })
 
     return events.length ? events : rrwebEvents
+}
+
+export function itemSizeInfo(item: PerformanceEvent): {
+    formattedBytes: string
+    compressionPercentage: number | null
+    formattedDecodedBodySize: string | null
+    formattedEncodedBodySize: string | null
+    formattedCompressionPercentage: string | null
+    isFromLocalCache: boolean
+    bytes: number | null
+    decodedBodySize: number | null
+    encodedBodySize: number | null
+} {
+    const bytes = item.encoded_body_size || item.decoded_body_size || item.transfer_size || 0
+    const formattedBytes = humanizeBytes(bytes)
+    const decodedBodySize = item.decoded_body_size ?? null
+    const formattedDecodedBodySize = decodedBodySize ? humanizeBytes(decodedBodySize) : null
+    const encodedBodySize = item.encoded_body_size ?? null
+    const formattedEncodedBodySize = encodedBodySize ? humanizeBytes(encodedBodySize) : null
+    const compressionPercentage =
+        item.decoded_body_size && item.encoded_body_size
+            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
+            : null
+    const formattedCompressionPercentage = compressionPercentage ? `${compressionPercentage.toFixed(1)}%` : null
+    const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0
+    return {
+        bytes,
+        formattedBytes,
+        compressionPercentage,
+        decodedBodySize,
+        formattedDecodedBodySize,
+        encodedBodySize,
+        formattedEncodedBodySize,
+        formattedCompressionPercentage,
+        isFromLocalCache,
+    }
 }
