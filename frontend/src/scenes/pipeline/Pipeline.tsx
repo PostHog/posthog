@@ -1,3 +1,4 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -67,7 +68,12 @@ export function Pipeline(): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
                 tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: humanFriendlyTabName(tab as PipelineTab),
+                    label: (
+                        <span className="flex justify-center items-center justify-between gap-1">
+                            {humanFriendlyTabName(tab as PipelineTab)}{' '}
+                            {tab === PipelineTab.DataImport && <LemonTag type="warning">BETA</LemonTag>}
+                        </span>
+                    ),
                     key: tab,
                     content: content,
                 }))}

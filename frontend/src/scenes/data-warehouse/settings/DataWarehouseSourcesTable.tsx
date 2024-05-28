@@ -1,11 +1,13 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { ExternalDataSourceSchema, ExternalDataStripeSource, ProductKey } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -30,6 +32,20 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     </div>
                 </div>
             </div>
+        )
+    }
+
+    if (!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0) {
+        return (
+            <ProductIntroduction
+                productName="Data Warehouse Source"
+                productKey={ProductKey.DATA_WAREHOUSE}
+                thingName="data source"
+                description="Use data warehouse sources to import data from your external data into PostHog."
+                isEmpty={dataWarehouseSources?.results.length == 0}
+                docsURL="https://posthog.com/docs/data-warehouse"
+                action={() => router.actions.push(urls.pipelineNodeDataWarehouseNew())}
+            />
         )
     }
 
