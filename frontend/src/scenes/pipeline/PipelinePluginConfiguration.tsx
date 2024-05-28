@@ -39,7 +39,7 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
-        actionMatchingEnabled,
+        pluginFilteringEnabled,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
@@ -175,7 +175,7 @@ export function PipelinePluginConfiguration({
                             </LemonField>
                         </div>
 
-                        {actionMatchingEnabled ? (
+                        {pluginFilteringEnabled ? (
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <LemonField name="filters" label="Filter by events and actions">
                                     {({ value, onChange }) => (

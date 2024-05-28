@@ -257,15 +257,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
 
-        actionMatchingEnabled: [
+        pluginFilteringEnabled: [
             (s) => [s.featureFlags, s.pluginConfig, s.plugin],
             (featureFlags, pluginConfig, plugin) => {
-                const actionMatchingFlag = featureFlags[FEATURE_FLAGS.PLUGINS_ACTION_MATCHING]
-                const actionMatchingEnabled =
-                    (actionMatchingFlag || pluginConfig?.match_action) &&
+                const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
+                return (
+                    (pluginFilteringEnabled || pluginConfig?.filters) &&
                     plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK
-
-                return actionMatchingEnabled
+                )
             },
         ],
     })),
