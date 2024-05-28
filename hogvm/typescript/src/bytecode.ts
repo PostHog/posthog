@@ -1,6 +1,7 @@
 import { ASYNC_STL, STL } from './stl'
 
-const MAX_ASYNC_STEPS = 100
+const DEFAULT_MAX_ASYNC_STEPS = 100
+const DEFAULT_TIMEOUT = 5 // seconds
 
 export const enum Operation {
     FIELD = 1,
@@ -85,6 +86,14 @@ interface VMState {
     syncDuration: number
 }
 
+interface ExecOptions {
+    fields?: Record<string, any>
+    functions?: Record<string, (...args: any[]) => any>
+    asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+    timeout?: number
+    maxAsyncSteps?: number
+}
+
 interface ExecResult {
     result: any
     finished: boolean
@@ -93,42 +102,31 @@ interface ExecResult {
     state?: VMState
 }
 
-export function execSync(
-    bytecode: any[],
-    fields: Record<string, any> = {},
-    functions: Record<string, (...args: any[]) => any> = {},
-    timeout: number = 5
-): any {
-    const response = exec(bytecode, fields, functions, {}, timeout)
+export function execSync(bytecode: any[], options?: ExecOptions): any {
+    const response = exec(bytecode, options)
     if (response.finished) {
         return response.result
     }
     throw new Error('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(
-    bytecode: any[],
-    fields: Record<string, any> = {},
-    functions: Record<string, (...args: any[]) => any> = {},
-    asyncFunctions: Record<string, (...args: any[]) => Promise<any>> = {},
-    timeout: number = 5
-): Promise<any> {
+export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
     let lastState: VMState | undefined = undefined
     while (true) {
-        const response = exec(bytecode, fields, functions, asyncFunctions, timeout, lastState)
+        const response = exec(bytecode, options, lastState)
         if (response.finished) {
             return response.result
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             lastState = response.state
-            if (response.asyncFunctionName in asyncFunctions) {
-                const result = await asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
+            if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
+                const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
                 lastState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
-                    timeout
+                    options?.timeout ?? DEFAULT_TIMEOUT
                 )
                 lastState.stack.push(result)
             } else {
@@ -140,14 +138,7 @@ export async function execAsync(
     }
 }
 
-export function exec(
-    bytecode: any[],
-    fields: Record<string, any> = {},
-    functions: Record<string, (...args: any[]) => any> = {},
-    asyncFunctions: Record<string, (...args: any[]) => Promise<any>> = {},
-    timeout: number = 5,
-    vmState: VMState | undefined = undefined
-): ExecResult {
+export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState): ExecResult {
     if (bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
@@ -162,6 +153,8 @@ export function exec(
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUT
+    const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
 
     function popStack(): any {
         if (stack.length === 0) {
@@ -302,7 +295,7 @@ export function exec(
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                stack.push(getNestedValue(fields, chain))
+                stack.push(options?.fields ? getNestedValue(options.fields, chain) : null)
                 break
             }
             case Operation.POP:
@@ -360,11 +353,14 @@ export function exec(
                     const args = Array(next())
                         .fill(null)
                         .map(() => popStack())
-                    if (functions && functions[name] && name !== 'toString') {
-                        stack.push(functions[name](...args))
-                    } else if (name !== 'toString' && ((asyncFunctions && asyncFunctions[name]) || name in ASYNC_STL)) {
-                        if (asyncSteps >= MAX_ASYNC_STEPS) {
-                            throw new Error(`Exceeded maximum number of async steps: ${MAX_ASYNC_STEPS}`)
+                    if (options?.functions && options.functions[name] && name !== 'toString') {
+                        stack.push(options.functions[name](...args))
+                    } else if (
+                        name !== 'toString' &&
+                        ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)
+                    ) {
+                        if (asyncSteps >= maxAsyncSteps) {
+                            throw new Error(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                         }
 
                         return {
