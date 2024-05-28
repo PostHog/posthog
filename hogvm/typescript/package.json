@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "PostHog HogQL Virtual Machine",
     "types": "dist/bytecode.d.ts",
     "main": "dist/bytecode.js",
