@@ -181,6 +181,9 @@ def execute_bytecode(
                             stack.append(functions[name](*args))
                             continue
 
+                        if name not in STL:
+                            raise HogVMException(f"Unsupported function call: {name}")
+
                         stack.append(STL[name](name, args, team, stdout, timeout))
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
