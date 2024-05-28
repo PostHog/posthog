@@ -10,9 +10,11 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
+import { BatchExportRuns } from './BatchExportRuns'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
     [PipelineTab.Transformations]: PipelineStage.Transformation,
@@ -46,30 +48,33 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab } = useValues(pipelineNodeLogic)
+    const { currentTab, node } = useValues(pipelineNodeLogic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
     }
 
-    const tabToContent: Record<PipelineNodeTab, JSX.Element> = {
+    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> = {
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
         [PipelineNodeTab.Metrics]: <PipelineNodeMetrics id={id} />,
         [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
-        [PipelineNodeTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
+    if (node.backend === PipelineBackend.BatchExport) {
+        tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
+    }
+    tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
 
     return (
         <>
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
-                tabs={Object.values(PipelineNodeTab).map(
-                    (tab) =>
+                tabs={Object.entries(tabToContent).map(
+                    ([tab, content]) =>
                         ({
                             label: capitalizeFirstLetter(tab),
                             key: tab,
-                            content: tabToContent[tab],
+                            content: content,
                             link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
                         } as LemonTab<PipelineNodeTab>)
                 )}

@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -87,7 +87,6 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
 
 
 class RunsCursorPagination(CursorPagination):
-    ordering = "-created_at"
     page_size = 100
 
 
@@ -97,18 +96,31 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "data_interval_start"]
+    ordering = "-created_at"
 
     def safely_get_queryset(self, queryset):
-        after = self.request.GET.get("after", "-7d")
+        after = self.request.GET.get("after", None)
         before = self.request.GET.get("before", None)
-        after_datetime = relative_date_parse(after, self.team.timezone_info)
-        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
-        date_range = (after_datetime, before_datetime)
+        start = self.request.GET.get("start", None)
+        end = self.request.GET.get("end", None)
+        ordering = self.request.GET.get("ordering", None)
+
+        # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
+        if ordering == "data_interval_start" or ordering == "-data_interval_start":
+            start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
+            end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
+            queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
+            ordering = "-data_interval_start"
+        else:
+            after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
+            before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
+            date_range = (after_datetime, before_datetime)
+            queryset = queryset.filter(created_at__range=date_range)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-        queryset = queryset.filter(created_at__range=date_range)
-
-        return queryset.order_by("-created_at")
+        return queryset
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
