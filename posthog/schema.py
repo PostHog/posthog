@@ -274,12 +274,8 @@ class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[str] = "-7d"
+    date_from: Optional[str] = None
     date_to: Optional[str] = None
-    explicitDate: Optional[bool] = Field(
-        default=False,
-        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
-    )
 
 
 class DatetimeDay(RootModel[AwareDatetime]):
@@ -554,6 +550,18 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     interval: Optional[list[IntervalItem]] = None
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
+
+
+class InsightDateRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = "-7d"
+    date_to: Optional[str] = None
+    explicitDate: Optional[bool] = Field(
+        default=False,
+        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+    )
 
 
 class InsightFilterProperty(str, Enum):
@@ -1010,13 +1018,13 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregationAxisFormat: Optional[AggregationAxisFormat] = "numeric"
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = AggregationAxisFormat.numeric
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = False
     decimalPlaces: Optional[float] = None
-    display: Optional[ChartDisplayType] = "ActionsLineGraph"
+    display: Optional[ChartDisplayType] = ChartDisplayType.ActionsLineGraph
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[list[float]] = None
     showLabelsOnSeries: Optional[bool] = None
@@ -1243,7 +1251,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[int] = None
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = "event"
+    breakdown_type: Optional[BreakdownType] = BreakdownType.event
     breakdowns: Optional[list[Breakdown]] = None
 
 
@@ -1762,7 +1770,7 @@ class EventPropertyFilter(BaseModel):
     )
     key: str
     label: Optional[str] = None
-    operator: Optional[PropertyOperator] = PropertyOperator("exact")
+    operator: Optional[PropertyOperator] = PropertyOperator.exact
     type: Literal["event"] = Field(default="event", description="Event properties")
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
@@ -2403,9 +2411,9 @@ class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    period: Optional[RetentionPeriod] = "Day"
-    retentionReference: Optional[RetentionReference] = "total"
-    retentionType: Optional[RetentionType] = "retention_first_time"
+    period: Optional[RetentionPeriod] = RetentionPeriod.Day
+    retentionReference: Optional[RetentionReference] = RetentionReference.total
+    retentionType: Optional[RetentionType] = RetentionType.retention_first_time
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = False
     targetEntity: Optional[RetentionEntity] = None
@@ -2417,7 +2425,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = "total"
+    retention_reference: Optional[RetentionReference] = RetentionReference.total
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
@@ -3333,19 +3341,19 @@ class FunnelsFilter(BaseModel):
         extra="forbid",
     )
     binCount: Optional[int] = None
-    breakdownAttributionType: Optional[BreakdownAttributionType] = "first_touch"
+    breakdownAttributionType: Optional[BreakdownAttributionType] = BreakdownAttributionType.first_touch
     breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[list[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = []
     funnelAggregateByHogQL: Optional[str] = None
     funnelFromStep: Optional[int] = None
-    funnelOrderType: Optional[StepOrderValue] = "ordered"
-    funnelStepReference: Optional[FunnelStepReference] = "total"
+    funnelOrderType: Optional[StepOrderValue] = StepOrderValue.ordered
+    funnelStepReference: Optional[FunnelStepReference] = FunnelStepReference.total
     funnelToStep: Optional[int] = None
-    funnelVizType: Optional[FunnelVizType] = "steps"
+    funnelVizType: Optional[FunnelVizType] = FunnelVizType.steps
     funnelWindowInterval: Optional[int] = 14
-    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = "day"
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.day
     hidden_legend_breakdowns: Optional[list[str]] = None
-    layout: Optional[FunnelLayout] = "vertical"
+    layout: Optional[FunnelLayout] = FunnelLayout.vertical
 
 
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
@@ -3386,8 +3394,9 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3426,8 +3435,9 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3479,14 +3489,16 @@ class TrendsQuery(BaseModel):
         default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
         description="Breakdown of the events and actions",
     )
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        default="day", description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=IntervalType.day,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3586,8 +3598,9 @@ class FunnelsQuery(BaseModel):
         default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
         description="Breakdown of the events and actions",
     )
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3636,8 +3649,9 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3676,8 +3690,9 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3716,8 +3731,9 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3756,8 +3772,9 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3796,8 +3813,9 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3836,8 +3854,9 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -4007,8 +4026,9 @@ class PathsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(
-        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    dateRange: Optional[InsightDateRange] = Field(
+        default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
+        description="Date range for the query",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"

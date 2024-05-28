@@ -10,13 +10,13 @@ from posthog.schema import (
     BreakdownFilter,
     ChartDisplayType,
     DataWarehouseNode,
-    DateRange,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    InsightDateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
@@ -151,7 +151,7 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: dict):
-    date_range = DateRange(
+    date_range = InsightDateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,

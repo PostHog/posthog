@@ -15,13 +15,14 @@ from posthog.schema import (
     Compare,
     DateRange,
     EventsNode,
+    InsightDateRange,
     IntervalType,
     TrendsFilter,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest
 
-default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
+default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=InsightDateRange(date_from="-7d"))
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):

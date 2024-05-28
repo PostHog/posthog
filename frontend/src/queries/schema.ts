@@ -628,7 +628,7 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
      * Date range for the query
      * @default {"date_from": "-7d"}
      */
-    dateRange?: DateRange
+    dateRange?: InsightDateRange
     /**
      * Exclude internal and test users by applying the respective filters
      * @default false
@@ -1456,9 +1456,13 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
-    /** @default -7d */
     date_from?: string | null
     date_to?: string | null
+}
+
+export interface InsightDateRange extends DateRange {
+    /** @default -7d */
+    date_from?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
      * @default false

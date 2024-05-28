@@ -8,7 +8,8 @@ datamodel-codegen \
     --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum \
     --input frontend/src/queries/schema.json --input-file-type jsonschema \
     --output posthog/schema.py --output-model-type pydantic_v2.BaseModel \
-    --custom-file-header "# mypy: disable-error-code=\"assignment\""
+    --custom-file-header "# mypy: disable-error-code=\"assignment\"" \
+    --set-default-enum-member
 
 # Format schema.py
 ruff format posthog/schema.py
