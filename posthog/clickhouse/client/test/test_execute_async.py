@@ -1,4 +1,5 @@
 import json
+from posthog.clickhouse.client.connection import Workload
 import uuid
 
 from django.test import TestCase
@@ -164,6 +165,26 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_async_query_refreshes_if_requested(self, process_query_dict_mock, process_query_task_mock):
+        query = build_query("SELECT 8 + 8")
+        query_id = "query_id"
+
+        client.enqueue_process_query_task(
+            self.team,
+            self.user,
+            query,
+            query_id=query_id,
+            _test_only_bypass_celery=True,
+            refresh_requested=True,
+        )
+
+        self.assertEqual(process_query_dict_mock.call_count, 0)
+        self.assertEqual(process_query_task_mock.call_count, 1)
+        _, kwargs = process_query_task_mock.call_args
+        self.assertTrue(kwargs["refresh_requested"])
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.
@@ -195,3 +216,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
+
+    @patch("posthog.clickhouse.client.execute.get_pool")
+    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
+        from posthog.clickhouse.query_tagging import tag_queries
+
+        with self.capture_select_queries():
+            tag_queries(kind="request", id="1", access_method="personal_api_key")
+            sync_execute("select 1")
+
+            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)

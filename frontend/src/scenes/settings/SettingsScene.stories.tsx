@@ -78,7 +78,6 @@ SettingsOrganization.parameters = {
 }
 
 function TimeSensitiveSettings(props: {
-    has_social_auth?: boolean
     has_password?: boolean
     saml_available?: boolean
     sso_enforcement?: string
@@ -86,7 +85,6 @@ function TimeSensitiveSettings(props: {
     const timedOutSessionUser: UserType = {
         ...MOCK_DEFAULT_USER,
         sensitive_session_expires_at: '2023-05-25T00:00:00Z',
-        has_social_auth: props.has_social_auth ?? false,
         has_password: props.has_password ?? false,
     }
     useStorybookMocks({
@@ -115,7 +113,7 @@ function TimeSensitiveSettings(props: {
 }
 
 export const SettingsSessionTimeoutAllOptions: StoryFn = () => {
-    return <TimeSensitiveSettings has_password has_social_auth saml_available />
+    return <TimeSensitiveSettings has_password saml_available />
 }
 SettingsSessionTimeoutAllOptions.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },
@@ -129,28 +127,28 @@ SettingsSessionTimeoutPasswordOnly.parameters = {
 }
 
 export const SettingsSessionTimeoutSsoOnly: StoryFn = () => {
-    return <TimeSensitiveSettings has_social_auth />
+    return <TimeSensitiveSettings />
 }
 SettingsSessionTimeoutSsoOnly.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGithub: StoryFn = () => {
-    return <TimeSensitiveSettings has_social_auth sso_enforcement="github" />
+    return <TimeSensitiveSettings sso_enforcement="github" />
 }
 SettingsSessionTimeoutSsoEnforcedGithub.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGoogle: StoryFn = () => {
-    return <TimeSensitiveSettings has_social_auth sso_enforcement="google-oauth2" />
+    return <TimeSensitiveSettings sso_enforcement="google-oauth2" />
 }
 SettingsSessionTimeoutSsoEnforcedGoogle.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedSaml: StoryFn = () => {
-    return <TimeSensitiveSettings has_social_auth sso_enforcement="saml" />
+    return <TimeSensitiveSettings sso_enforcement="saml" />
 }
 SettingsSessionTimeoutSsoEnforcedSaml.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },

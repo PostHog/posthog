@@ -96,7 +96,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
-    table_row_counts: dict[str, int],
+    row_count: int,
 ) -> None:
     """
 
@@ -130,10 +130,10 @@ async def validate_schema_and_update_table(
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
 
-    row_count = table_row_counts.get(_schema_name.lower(), 0)
-
     # Check
     try:
+        logger.info(f"Row count for {_schema_name} ({_schema_id}) are {row_count}")
+
         data = await validate_schema(
             credential=credential,
             table_name=table_name,

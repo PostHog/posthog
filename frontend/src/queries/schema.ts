@@ -197,6 +197,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1317,6 +1318,7 @@ export interface DatabaseSchemaSource {
 
 export interface DatabaseSchemaField {
     name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string
