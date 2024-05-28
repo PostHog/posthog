@@ -836,7 +836,14 @@ export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryR
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
-    /** Properties specific to the retention insight */
+    /** Properties specific to the retention insight
+     *
+     * :TRICKY: The default is not an empty dict as datamodel-code-generator
+     * does not generate a model with factory then & thus empty filters do not
+     * get ignored during serialization.
+     *
+     * @default {"totalIntervals":11}
+     * */
     retentionFilter: RetentionFilter
 }
 
@@ -850,6 +857,7 @@ export type PathsFilterLegacy = Omit<
 >
 
 export type PathsFilter = {
+    /** @default 50 */
     edgeLimit?: PathsFilterLegacy['edge_limit']
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']
@@ -857,6 +865,7 @@ export type PathsFilter = {
     endPoint?: PathsFilterLegacy['end_point']
     pathGroupings?: PathsFilterLegacy['path_groupings']
     excludeEvents?: PathsFilterLegacy['exclude_events']
+    /** @default 5 */
     stepLimit?: PathsFilterLegacy['step_limit']
     pathReplacements?: PathsFilterLegacy['path_replacements']
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
@@ -893,6 +902,7 @@ export type StickinessFilterLegacy = Omit<
 >
 
 export type StickinessFilter = {
+    /** @default false */
     compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
@@ -906,7 +916,10 @@ export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQuer
 export interface StickinessQuery
     extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]

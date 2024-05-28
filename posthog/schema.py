@@ -684,7 +684,7 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edgeLimit: Optional[int] = None
+    edgeLimit: Optional[float] = 50
     endPoint: Optional[str] = None
     excludeEvents: Optional[list[str]] = None
     includeEventTypes: Optional[list[PathType]] = None
@@ -698,7 +698,7 @@ class PathsFilter(BaseModel):
     pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
-    stepLimit: Optional[int] = None
+    stepLimit: Optional[float] = 5
 
 
 class PathsFilterLegacy(BaseModel):
@@ -926,7 +926,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compare: Optional[bool] = None
+    compare: Optional[bool] = False
     display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[list[float]] = None
     showLegend: Optional[bool] = None
@@ -3477,7 +3477,10 @@ class RetentionQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
-    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
+    retentionFilter: Optional[RetentionFilter] = Field(
+        default_factory=lambda: RetentionFilter.model_validate({"totalIntervals": 11}),
+        description="Properties specific to the retention insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
+    )
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
@@ -3493,7 +3496,8 @@ class StickinessQuery(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=IntervalType.day,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

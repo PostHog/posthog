@@ -5172,7 +5172,8 @@
             "additionalProperties": false,
             "properties": {
                 "edgeLimit": {
-                    "type": "integer"
+                    "default": 50,
+                    "type": "number"
                 },
                 "endPoint": {
                     "type": "string"
@@ -5229,7 +5230,8 @@
                     "type": "string"
                 },
                 "stepLimit": {
-                    "type": "integer"
+                    "default": 5,
+                    "type": "number"
                 }
             },
             "type": "object"
@@ -7062,7 +7064,10 @@
                 },
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
-                    "description": "Properties specific to the retention insight"
+                    "default": {
+                        "totalIntervals": 11
+                    },
+                    "description": "Properties specific to the retention insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization."
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
@@ -7375,6 +7380,7 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "display": {
@@ -7437,6 +7443,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
