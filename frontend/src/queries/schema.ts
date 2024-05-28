@@ -836,14 +836,7 @@ export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryR
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
-    /** Properties specific to the retention insight
-     *
-     * :TRICKY: The default is not an empty dict as datamodel-code-generator
-     * does not generate a model with factory then & thus empty filters do not
-     * get ignored during serialization.
-     *
-     * @default {"totalIntervals":11}
-     */
+    /** Properties specific to the retention insight */
     retentionFilter: RetentionFilter
 }
 
@@ -888,14 +881,7 @@ export type FunnelPathsFilter = {
 
 export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     kind: NodeKind.PathsQuery
-    /** Properties specific to the paths insight
-     *
-     * :TRICKY: The default is not an empty dict as datamodel-code-generator
-     * does not generate a model with factory then & thus empty filters do not
-     * get ignored during serialization.
-     *
-     * @default {"edgeLimit":50}
-     */
+    /** Properties specific to the paths insight */
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
     funnelPathsFilter?: FunnelPathsFilter

@@ -3477,10 +3477,7 @@ class RetentionQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
-    retentionFilter: Optional[RetentionFilter] = Field(
-        default_factory=lambda: RetentionFilter.model_validate({"totalIntervals": 11}),
-        description="Properties specific to the retention insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
-    )
+    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
@@ -3530,7 +3527,8 @@ class StickinessQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     stickinessFilter: Optional[StickinessFilter] = Field(
-        default=None, description="Properties specific to the stickiness insight"
+        default_factory=lambda: StickinessFilter.model_validate({"compare": False}),
+        description="Properties specific to the stickiness insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
     )
 
 
