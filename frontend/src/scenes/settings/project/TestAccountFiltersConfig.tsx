@@ -117,23 +117,20 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
 type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     value: boolean
     onChange: (value: boolean) => void
-    disabledReason?: string
 }
 
-export function TestAccountFilterSwitch({
-    value,
-    onChange,
-    disabledReason,
-}: TestAccountFilterProps): JSX.Element | null {
+export function TestAccountFilterSwitch({ value, onChange, ...props }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     return (
         <LemonSwitch
-            checked={value}
-            onChange={onChange}
             id="test-account-filter"
             bordered
+            disabled={!hasFilters}
+            {...props}
+            checked={value}
+            onChange={onChange}
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
@@ -146,8 +143,6 @@ export function TestAccountFilterSwitch({
                     />
                 </div>
             }
-            disabled={!hasFilters}
-            disabledReason={disabledReason}
         />
     )
 }

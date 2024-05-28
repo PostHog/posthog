@@ -184,6 +184,7 @@ export function PipelinePluginConfiguration({
                                             <TestAccountFilterSwitch
                                                 value={value?.filter_test_accounts ?? false}
                                                 onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
+                                                fullWidth
                                             />
                                             <ActionFilter
                                                 bordered
