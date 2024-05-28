@@ -1,7 +1,7 @@
 import './PropertyFilterButton.scss'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -19,11 +19,10 @@ export interface PropertyFilterButtonProps {
     onClose?: () => void
     children?: string
     item: AnyPropertyFilter
-    disabled?: boolean
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, children, item, disabled }, ref): JSX.Element {
+    function PropertyFilterButton({ onClick, onClose, children, item }, ref): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -38,28 +37,30 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         return (
             <ButtonComponent
                 ref={ref as any}
-                onClick={disabled ? undefined : onClick}
+                onClick={onClick}
                 className={clsx('PropertyFilterButton', {
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
                     'ph-no-capture': true,
                 })}
-                aria-disabled={disabled}
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>
-                {closable && !disabled && (
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onClose()
-                        }}
-                        className="p-0.5"
-                    />
+                {closable && (
+                    // The context below prevents close button from going into active status when filter popover is open
+                    <PopoverReferenceContext.Provider value={null}>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onClose()
+                            }}
+                            className="p-0.5"
+                        />
+                    </PopoverReferenceContext.Provider>
                 )}
             </ButtonComponent>
         )

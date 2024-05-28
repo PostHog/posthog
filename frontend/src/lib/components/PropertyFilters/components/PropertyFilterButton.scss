@@ -14,12 +14,7 @@
     outline: 0;
     transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
 
-    &[aria-disabled='true']:not(.LemonButton--loading) {
-        cursor: not-allowed;
-        opacity: var(--opacity-disabled);
-    }
-
-    &:hover:not([aria-disabled='true']),
+    &:hover,
     &:focus {
         border-color: var(--border-bold);
     }
