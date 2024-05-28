@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import posthoganalytics
 import requests
@@ -19,7 +19,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.models import Organization
-from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
