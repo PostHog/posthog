@@ -462,7 +462,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     }
 
     if (item.method) {
-        methodRow = <MethodTag item={item} />
+        methodRow = <MethodTag item={item} label={false} />
     }
 
     return methodRow || statusRow ? (
