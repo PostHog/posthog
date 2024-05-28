@@ -1,4 +1,4 @@
-import { executeStlFunction } from './stl'
+import { STL } from './stl'
 
 export const enum Operation {
     FIELD = 1,
@@ -269,12 +269,8 @@ export async function exec(
             case Operation.CALL: {
                 checkTimeout()
                 const name = next()
-                if (name === 'toString') {
-                    const args = Array(next())
-                        .fill(null)
-                        .map(() => popStack())
-                    stack.push(await executeStlFunction(name, args, timeout))
-                } else if (name in declaredFunctions) {
+                // excluding "toString" only because of JavaScript --> no, it's not declared, it's omnipresent! o_O
+                if (name in declaredFunctions && name !== 'toString') {
                     const [funcIp, argLen] = declaredFunctions[name]
                     callStack.push([ip + 1, stack.length - argLen, argLen])
                     ip = funcIp
@@ -282,12 +278,14 @@ export async function exec(
                     const args = Array(next())
                         .fill(null)
                         .map(() => popStack())
-                    if (functions && functions[name]) {
+                    if (functions && functions[name] && name !== 'toString') {
                         stack.push(functions[name](...args))
-                    } else if (asyncFunctions && asyncFunctions[name]) {
+                    } else if (asyncFunctions && asyncFunctions[name] && name !== 'toString') {
                         stack.push(await asyncFunctions[name](...args))
+                    } else if (name in STL) {
+                        stack.push(await STL[name](args, name, timeout))
                     } else {
-                        stack.push(await executeStlFunction(name, args, timeout))
+                        throw new Error(`Unsupported function call: ${name}`)
                     }
                 }
                 break
