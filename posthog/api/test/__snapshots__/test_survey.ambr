@@ -224,6 +224,8 @@
          "posthog_survey"."iteration_count",
          "posthog_survey"."iteration_frequency_days",
          "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",

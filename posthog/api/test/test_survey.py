@@ -256,8 +256,6 @@ class TestSurvey(APIBaseTest):
         ]
 
     def test_used_in_survey_is_populated_correctly_for_feature_flag_list(self) -> None:
-        self.maxDiff = None
-
         ff_key = "notebooks"
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key=ff_key, created_by=self.user)
 
@@ -970,8 +968,8 @@ class TestSurvey(APIBaseTest):
                     "internal_targeting_flag": {
                         "id": ANY,
                         "team_id": self.team.id,
-                        "name": "Targeting flag for survey Notebooks power users survey",
                         "key": ANY,
+                        "name": "Targeting flag for survey Notebooks power users survey",
                         "filters": {
                             "groups": [
                                 {
@@ -1005,6 +1003,11 @@ class TestSurvey(APIBaseTest):
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
+                    "iteration_count": None,
+                    "iteration_frequency_days": None,
+                    "iteration_start_dates": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
                 }
             ],
         }
@@ -1793,7 +1796,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "appearance": None,
                         "start_date": None,
                         "end_date": None,
-                        "current_iteration": 0,
+                        "current_iteration": None,
                     },
                     {
                         "id": str(survey_with_flags.id),
@@ -1805,7 +1808,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "questions": [{"type": "open", "question": "What's a hedgehog?"}],
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
-                        "current_iteration": 0,
+                        "current_iteration": None,
                         "internal_targeting_flag_key": "custom-targeting-flag",
                         "start_date": None,
                         "end_date": None,
