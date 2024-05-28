@@ -992,6 +992,7 @@ describe('DB', () => {
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
+                test_account_filters: [],
             } as Team)
         })
 
@@ -1017,6 +1018,7 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
+                test_account_filters: [],
             })
         })
 
