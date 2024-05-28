@@ -10,7 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Element, Organization, Person, User
+from posthog.models import Action, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.base import (
@@ -394,8 +394,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             self.assertEqual(len(response["results"]), 1)
 
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action, event="sign up")
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk

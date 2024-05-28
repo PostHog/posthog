@@ -13,7 +13,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
 )
 from ..warehouse.models import DataWarehouseTable
 from .action import Action
-from .action_step import ActionStep
+from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
@@ -59,6 +59,7 @@ from .plugin import (
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
+from .proxy_record import ProxyRecord
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -126,6 +127,7 @@ __all__ = [
     "Project",
     "Property",
     "PropertyDefinition",
+    "ProxyRecord",
     "RetentionFilter",
     "SessionRecording",
     "SessionRecordingPlaylist",

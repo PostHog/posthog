@@ -55,10 +55,10 @@ services:
         depends_on:
             - zookeeper
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'
@@ -103,7 +103,7 @@ services:
             - clickhouse
             - kafka
         links:
-            - object_storage:objectstorage
+            - objectstorage:objectstorage
 
     capture:
         extends:
@@ -131,7 +131,7 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
 
     migrate:
         extends:
@@ -185,5 +185,5 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
             - temporal

@@ -6,10 +6,8 @@ from django.test import override_settings
 from freezegun import freeze_time
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.models.action.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
@@ -35,6 +33,7 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
 )
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
@@ -477,11 +476,15 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_actions(self):
         self._create_test_events()
 
-        action = Action.objects.create(name="My Action", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="$pageview",
-            properties=[{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+        action = Action.objects.create(
+            name="My Action",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+                }
+            ],
         )
 
         series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]
@@ -591,4 +594,4 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._run_query(limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

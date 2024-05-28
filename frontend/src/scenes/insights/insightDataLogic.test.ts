@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { DataVisualizationNode, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -15,6 +17,7 @@ const Insight123 = '123' as InsightShortId
 describe('insightDataLogic', () => {
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
     let theInsightLogic: ReturnType<typeof insightLogic.build>
+    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -23,18 +26,19 @@ describe('insightDataLogic', () => {
             },
         })
         initKeaTests()
+
+        const props = { dashboardItemId: Insight123 }
+        theFeatureFlagLogic = featureFlagLogic()
+        theFeatureFlagLogic.mount()
+
+        theInsightDataLogic = insightDataLogic(props)
+        theInsightDataLogic.mount()
+
+        theInsightLogic = insightLogic(props)
+        theInsightLogic.mount()
     })
 
     describe('reacts when the insight changes', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-
-            theInsightLogic = insightLogic(props)
-            theInsightLogic.mount()
-        })
-
         it('sets query when present', async () => {
             const q = {
                 kind: NodeKind.DataTableNode,
@@ -142,6 +146,40 @@ describe('insightDataLogic', () => {
             await expectLogic(theInsightDataLogic, () => {
                 theInsightLogic.actions.setInsight({ filters: {}, query: undefined }, {})
             }).toNotHaveDispatchedActions(['setQuery'])
+        })
+    })
+
+    describe('isHogQLInsight', () => {
+        it('returns false for non-insight query', () => {
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
+                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
+            })
+
+            expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: 'HogQLQuery',
+                        query: 'select 1',
+                    },
+                } as DataVisualizationNode)
+            }).toMatchValues({ isHogQLInsight: false })
+        })
+
+        it('returns true with generic flag enabled', () => {
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
+                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
+            })
+
+            expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
+        })
+
+        it('returns true with specific flag enabled', () => {
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS], {
+                [FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]: true,
+            })
+
+            expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
         })
     })
 })

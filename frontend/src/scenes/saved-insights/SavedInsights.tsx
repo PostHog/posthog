@@ -79,7 +79,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action.',
+        description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
     },
@@ -407,7 +407,7 @@ export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -465,13 +465,13 @@ export function SavedInsights(): JSX.Element {
                                     />
                                 </>
                             }
-                            description={hasDashboardCollaboration ? insight.description : undefined}
+                            description={insight.description}
                         />
                     </>
                 )
             },
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',

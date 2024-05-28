@@ -5,6 +5,7 @@ from dlt.common.data_types.typing import TDataType
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
+    DateDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -12,7 +13,6 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.warehouse.models import (
-    get_latest_run_if_exists,
     get_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
@@ -57,7 +57,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
     elif dlt_type == "wei":
         raise Exception("DLT type 'wei' is not a supported column type")
     elif dlt_type == "date":
-        hogql_type = DateTimeDatabaseField
+        hogql_type = DateDatabaseField
     elif dlt_type == "time":
         hogql_type = DateTimeDatabaseField
     else:
@@ -96,7 +96,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
-    table_row_counts: dict[str, int],
+    row_count: int,
 ) -> None:
     """
 
@@ -114,7 +114,6 @@ async def validate_schema_and_update_table(
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
-    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(team_id, job.pipeline_id)
 
     credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
         team_id=team_id,
@@ -131,10 +130,10 @@ async def validate_schema_and_update_table(
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
 
-    row_count = table_row_counts.get(_schema_name.lower(), 0)
-
     # Check
     try:
+        logger.info(f"Row count for {_schema_name} ({_schema_id}) are {row_count}")
+
         data = await validate_schema(
             credential=credential,
             table_name=table_name,
@@ -196,6 +195,11 @@ async def validate_schema_and_update_table(
                 f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                 exc_info=err,
             )
+        else:
+            logger.exception(
+                f"Data Warehouse: Unknown ServerException {job.pk}",
+                exc_info=err,
+            )
     except Exception as e:
         # TODO: handle other exceptions here
         logger.exception(
@@ -203,14 +207,15 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
 
-    if (
-        last_successful_job
-        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
-    ):
-        try:
-            last_successful_job.delete_data_in_bucket()
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
-                exc_info=e,
-            )
+    # TODO: figure out data deletes - currently borked right now
+    # if (
+    #     last_successful_job
+    #     and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    # ):
+    #     try:
+    #         last_successful_job.delete_data_in_bucket()
+    #     except Exception as e:
+    #         logger.exception(
+    #             f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
+    #             exc_info=e,
+    #         )

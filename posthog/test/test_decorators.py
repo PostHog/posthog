@@ -1,6 +1,5 @@
 from datetime import datetime
 from freezegun import freeze_time
-import pytest
 from posthog.decorators import cached_by_filters, is_stale_filter
 
 from django.core.cache import cache
@@ -26,12 +25,12 @@ class DummyViewSet(GenericViewSet):
         return {"result": "bla"}
 
 
-@pytest.mark.skip(reason="This test is failing on CI, not locally, and idk why")
+router.register(r"dummy", DummyViewSet, "dummy")
+
+
 class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
         cache.clear()
-
-        router.register(r"dummy", DummyViewSet, "dummy")
 
         super().setUp()
 

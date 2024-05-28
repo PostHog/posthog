@@ -1,8 +1,8 @@
+from asgiref.sync import sync_to_async
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.test.base import APIBaseTest
-from asgiref.sync import sync_to_async
 
 
 class TestOrganizationAPI(APIBaseTest):

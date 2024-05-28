@@ -1,8 +1,9 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 from unittest.mock import patch
+import dataclasses
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
@@ -22,10 +23,10 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
     clean_global_properties,
+    filter_to_query,
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,
@@ -88,8 +89,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -214,6 +214,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         trend_query = convert_filter_to_trends_query(filter)
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
+
+    def _get_actors(self, filters: dict[str, Any], **kwargs) -> list[list[Any]]:
+        trends_query = cast(TrendsQuery, filter_to_query(filters))
+        return get_actors(trends_query=trends_query, **kwargs)
 
     def _create_event(self, **kwargs):
         _create_event(**kwargs)
@@ -3613,11 +3617,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
             self._create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(team=self.team, name="$pageview from non-internal")
-        ActionStep.objects.create(
-            action=event_filtering_action,
-            event="$pageview",
-            properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+        event_filtering_action = Action.objects.create(
+            team=self.team,
+            name="$pageview from non-internal",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+                }
+            ],
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -4423,7 +4431,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            data = {
+            filters = {
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
                 "breakdown_type": "event",
@@ -4438,19 +4446,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     }
                 ],
             }
-            event_response = self._run(Filter(team=self.team, data=data), self.team)
+            event_response = self._run(Filter(team=self.team, data=filters), self.team)
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
-            people_value_1 = get_actors(data, self.team, series=0, breakdown="value_1", includeRecordings=True)
+            people_value_1 = self._get_actors(
+                filters=filters, team=self.team, series=0, breakdown="value_1", includeRecordings=True
+            )
             # Persons with higher value come first
-            self.assertEqual(people_value_1[0][1]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_1[0][3], 2)  # 2 events with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[1][3], 1)  # 1 event with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[2][3], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_1[0][2], 2)  # 2 events with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[1][2], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
 
-            people_value_2 = get_actors(data, self.team, series=0, breakdown="value_2", includeRecordings=True)
-            self.assertEqual(people_value_2[0][1]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_2[0][3], 1)  # 1 event with fake_prop="value_2" in the time range
+            people_value_2 = self._get_actors(
+                filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
+            )
+            self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
@@ -5407,16 +5419,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(team=self.team, name="sign up")
-        ActionStep.objects.create(
-            action=sign_up_action,
-            event="sign up",
-            properties=[
+        sign_up_action = Action.objects.create(
+            team=self.team,
+            name="sign up",
+            steps_json=[
                 {
-                    "key": "$current_url",
-                    "type": "event",
-                    "value": ["https://posthog.com/feedback/1234"],
-                    "operator": "exact",
+                    "event": "sign up",
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": ["https://posthog.com/feedback/1234"],
+                            "operator": "exact",
+                        }
+                    ],
                 }
             ],
         )
@@ -5478,10 +5494,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps.first()
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-            step.save()
+
+        step = sign_up_action.steps[0]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
 
         cohort.calculate_people_ch(pending_version=0)
 
@@ -6631,12 +6649,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(name="sign up", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="sign up",
-            url="/some/page",
-            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        action = Action.objects.create(
+            name="sign up",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "sign up",
+                    "url": "/some/page",
+                    "properties": [{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                }
+            ],
         )
 
         response = self._run(
@@ -8073,12 +8095,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        res = get_actors(
-            filter.to_dict(), self.team, series=0, breakdown="technology", day="2020-01-02", includeRecordings=True
+        res = self._get_actors(
+            filters=filter.to_dict(),
+            team=self.team,
+            series=0,
+            breakdown="technology",
+            day="2020-01-02",
+            includeRecordings=True,
         )
 
-        self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
+        self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
+    @freeze_time("2020-01-01")
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
     )
@@ -8133,11 +8161,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            res = get_actors(
-                filter.to_dict(), self.team, series=0, breakdown="technology", day="2020-01-02", includeRecordings=True
+            res = self._get_actors(
+                filters=filter.to_dict(),
+                team=self.team,
+                series=0,
+                breakdown="technology",
+                day="2020-01-02",
+                includeRecordings=True,
             )
 
-            self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props_with_person_filter(self):
@@ -8402,6 +8435,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = self._run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
+    @freeze_time("2020-01-01")
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry"), (2, "name")],
         materialize_only_with_person_on_events=True,
@@ -8496,9 +8530,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             )
 
-            res = get_actors(filter.to_dict(), self.team, series=0, day="2020-01-02", includeRecordings=True)
+            res = self._get_actors(
+                filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", includeRecordings=True
+            )
 
-            self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
     def test_yesterday_with_hourly_interval(self):
         journey = {

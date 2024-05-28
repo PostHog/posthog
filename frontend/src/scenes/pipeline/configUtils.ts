@@ -46,14 +46,11 @@ export function getPluginConfigFormData(
     existingConfig: Record<string, any> | undefined,
     updatedConfig: Record<string, any>
 ): FormData {
-    const { __enabled: enabled, ...config } = updatedConfig
-
     const configSchema = getConfigSchemaObject(rawConfigSchema)
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
-    formData.append('enabled', Boolean(enabled).toString())
-    for (const [key, value] of Object.entries(config)) {
+    for (const [key, value] of Object.entries(updatedConfig)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {
                 formData.append(`add_attachment[${key}]`, value)

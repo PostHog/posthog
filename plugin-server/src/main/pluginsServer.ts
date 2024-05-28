@@ -19,6 +19,8 @@ import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
+import { ActionManager } from '../worker/ingestion/action-manager'
+import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
@@ -384,17 +386,21 @@ export async function startPluginsServer(
                     serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
                 )
 
+            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    postgres: postgres,
-                    kafka: kafka,
-                    teamManager: teamManager,
-                    organizationManager: organizationManager,
-                    serverConfig: serverConfig,
-                    rustyHook: rustyHook,
-                    appMetrics: appMetrics,
+                    postgres,
+                    kafka,
+                    teamManager,
+                    organizationManager,
+                    serverConfig,
+                    rustyHook,
+                    appMetrics,
+                    actionMatcher,
+                    actionManager,
                     groupTypeManager,
                 })
 

@@ -21,7 +21,7 @@
     tr {
         border-left: 0.25rem solid transparent;
 
-        &:not(:first-of-type) {
+        &:not(:nth-of-type(-n + 2)) {
             cursor: pointer;
 
             &:hover {
@@ -42,10 +42,13 @@
         text-align: right;
         background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
         border-radius: var(--radius);
-        transition: transform 200ms ease-out;
 
-        &:hover {
-            transform: scale(1.05);
+        &.RetentionTable__Tab--clickable {
+            transition: transform 200ms ease-out;
+
+            &:hover {
+                transform: scale(1.05);
+            }
         }
 
         &.RetentionTable__Tab--period {

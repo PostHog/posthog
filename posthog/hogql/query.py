@@ -22,8 +22,7 @@ from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
-
-INCREASED_MAX_EXECUTION_TIME = 600
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
@@ -134,7 +133,7 @@ def execute_hogql_query(
 
     settings = settings or HogQLGlobalSettings()
     if limit_context in (LimitContext.EXPORT, LimitContext.COHORT_CALCULATION, LimitContext.QUERY_ASYNC):
-        settings.max_execution_time = INCREASED_MAX_EXECUTION_TIME
+        settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
@@ -188,6 +187,7 @@ def execute_hogql_query(
                 )
             except Exception as e:
                 if debug:
+                    results = []
                     if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                         error = str(e)
                     else:

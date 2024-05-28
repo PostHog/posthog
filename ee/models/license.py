@@ -56,7 +56,6 @@ class License(models.Model):
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
         AvailableFeature.SOCIAL_SSO,
-        AvailableFeature.TEAM_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,

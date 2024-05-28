@@ -15,7 +15,7 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
         <>
             {entity.steps &&
                 entity.steps.map((step, index) => (
-                    <DefinitionPopover.Section key={step.id}>
+                    <DefinitionPopover.Section key={index}>
                         <DefinitionPopover.Card
                             title={
                                 <>

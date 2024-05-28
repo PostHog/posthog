@@ -78,12 +78,12 @@ SundayFirst.args = {
     weekStartDay: 0,
 }
 
-export const ShowTime: Story = BasicTemplate.bind({})
-ShowTime.args = {
-    showTime: true,
+export const Hour: Story = BasicTemplate.bind({})
+Hour.args = {
+    granularity: 'hour',
 }
 
-export const OnlyAllowUpcoming: Story = BasicTemplate.bind({})
-OnlyAllowUpcoming.args = {
-    onlyAllowUpcoming: true,
+export const Minute: Story = BasicTemplate.bind({})
+Minute.args = {
+    granularity: 'minute',
 }

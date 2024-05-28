@@ -44,6 +44,7 @@ import {
     SessionRecordingType,
 } from '~/types'
 
+import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
@@ -160,25 +161,17 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => {
-                                if (Array.isArray(value)) {
-                                    return !!value.length
-                                }
-
-                                return !!value
-                            })
-                            .map(([key, options]) => (
-                                <div key={key}>
-                                    <LemonSelect
-                                        fullWidth
-                                        className="mb-2"
-                                        value={query?.[key] ?? null}
-                                        onChange={(v) => updateActorsQuery({ [key]: v })}
-                                        options={options}
-                                    />
-                                </div>
-                            ))}
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions).map(([key, options]) => (
+                            <div key={key}>
+                                <LemonSelect
+                                    fullWidth
+                                    className="mb-2"
+                                    value={query?.[key] ?? null}
+                                    onChange={(v) => updateActorsQuery({ [key]: v })}
+                                    options={options}
+                                />
+                            </div>
+                        ))}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (
@@ -251,7 +244,15 @@ export function PersonsModal({
                                     startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
-                                            ? { source: actorsQuery as Record<string, any> }
+                                            ? {
+                                                  source: {
+                                                      ...actorsQuery,
+                                                      select: actorsQuery!.select?.filter(
+                                                          (c) => c !== 'matched_recordings'
+                                                      ),
+                                                      source: { ...actorsQuery!.source, includeRecordings: false },
+                                                  },
+                                              }
                                             : { path: originalUrl },
                                     })
                                 }}

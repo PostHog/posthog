@@ -170,6 +170,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
+        SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
     }
 }
 

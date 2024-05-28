@@ -79,10 +79,10 @@ services:
         depends_on:
             - kafka
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'

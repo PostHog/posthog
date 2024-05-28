@@ -58,7 +58,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=1)
+        results = get_actors(filters, self.team, funnel_step=1)
 
         self.assertEqual(35, len(results))
 
@@ -78,7 +78,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=2)
+        results = get_actors(filters, self.team, funnel_step=2)
 
         self.assertEqual(10, len(results))
 
@@ -98,7 +98,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=-2)
+        results = get_actors(filters, self.team, funnel_step=-2)
 
         self.assertEqual(25, len(results))
 
@@ -119,7 +119,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=3)
+        results = get_actors(filters, self.team, funnel_step=3)
 
         self.assertEqual(0, len(results))
 
@@ -183,7 +183,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=1, includeRecordings=True)
+        results = get_actors(filters, self.team, funnel_step=1, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -208,7 +208,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=2, includeRecordings=True)
+        results = get_actors(filters, self.team, funnel_step=2, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -244,7 +244,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=-3, includeRecordings=True)
+        results = get_actors(filters, self.team, funnel_step=-3, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)

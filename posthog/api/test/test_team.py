@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch, ANY
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.http import HttpResponse
+from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
@@ -32,12 +33,12 @@ class TestTeamAPI(APIBaseTest):
             team_id = self.team.pk
 
         starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_organization_activity_log(self, expected: list[dict]) -> None:
         starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_activity_log_is_empty(self) -> None:
@@ -503,6 +504,7 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["primary_dashboard"], None)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_update_timezone_remove_cache(self):
         # Seed cache with some insights
         self.client.post(
@@ -527,6 +529,7 @@ class TestTeamAPI(APIBaseTest):
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_update_modifiers_remove_cache(self):
         self.client.patch(
             f"/api/projects/{self.team.id}/",

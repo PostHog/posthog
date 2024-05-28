@@ -138,8 +138,76 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "url_exact": "http://example.com/about", "type": "rageclick"}, 2
         )
 
+    @snapshot_clickhouse_queries
+    def test_can_filter_by_url_pattern_where_end_is_anchored(self) -> None:
+        # home page with no trailing slash
+        self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com")
+
+        # home page with trailing slash
+        self._create_heatmap_event(
+            "session_1",
+            "rageclick",
+            "2023-03-08T08:00:00",
+            current_url="http://example.com/",
+        )
+
+        # should match nothing, no trailing slash
         self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com*", "type": "rageclick"}, 3
+            {"date_from": "2023-03-08", "url_pattern": "http://example.com", "type": "rageclick"}, 1
+        )
+
+    @parameterized.expand(
+        [
+            ["http://example.com*", 6],
+            ["http://example.com/products*", 5],
+            ["http://example.com/products/1*", 2],
+            ["http://example.com/products/*/reviews/*", 2],
+            ["http://example.com/products/*/parts/*", 2],
+            ["http://example.com/products/1*/parts/*", 1],
+        ],
+        name_func=lambda f, n, p: f"{f.__name__}_{p.args[0]}",
+    )
+    @snapshot_clickhouse_queries
+    def test_can_filter_by_url_pattern(self, pattern: str, expected_matches: int) -> None:
+        # the home page
+        self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/")
+
+        # a product page with a review
+        self._create_heatmap_event(
+            "session_1",
+            "rageclick",
+            "2023-03-08T08:00:00",
+            current_url="http://example.com/products/12345/reviews/4567",
+        )
+
+        # a different product page with a review
+        self._create_heatmap_event(
+            "session_1", "rageclick", "2023-03-08T08:00:00", current_url="http://example.com/products/3456/reviews/defg"
+        )
+
+        # all reviews for one product
+        self._create_heatmap_event(
+            "session_1", "rageclick", "2023-03-08T08:00:00", current_url="http://example.com/products/3456/reviews/"
+        )
+
+        # the same product but a different sub-route
+        self._create_heatmap_event(
+            "session_3", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/products/12345/parts/abcd"
+        )
+
+        # a different product that shares a part
+        self._create_heatmap_event(
+            "session_3", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/products/3456/parts/abcd"
+        )
+
+        # should match nothing, no trailing slash
+        self._assert_heatmap_no_result_count(
+            {"date_from": "2023-03-08", "url_pattern": "http://example.com", "type": "rageclick"}
+        )
+
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_pattern": pattern, "type": "rageclick"},
+            expected_matches,
         )
 
     @snapshot_clickhouse_queries

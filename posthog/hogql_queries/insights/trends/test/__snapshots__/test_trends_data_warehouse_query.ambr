@@ -3,7 +3,7 @@
   '''
   SELECT toString(e.prop_1) AS value,
          count(e.id) AS count
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
   WHERE and(and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0)), and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0)))
   GROUP BY value
   ORDER BY count DESC, value DESC
@@ -42,7 +42,7 @@
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                          transform(ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$'), ['d', 'c', 'b', 'a'], ['d', 'c', 'b', 'a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), true)
         GROUP BY day_start,
                  breakdown_value)
@@ -65,7 +65,7 @@
   '''
   SELECT toString(e.prop_1) AS value,
          count(e.id) AS count
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
   WHERE and(and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0)), and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a')))
   GROUP BY value
   ORDER BY count DESC, value DESC
@@ -104,7 +104,7 @@
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                          transform(ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$'), ['a'], ['a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'), true)
         GROUP BY day_start,
                  breakdown_value)
@@ -138,7 +138,7 @@
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))) AS day_start
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -168,7 +168,7 @@
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))) AS day_start
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -198,7 +198,7 @@
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))) AS day_start
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'))
         GROUP BY day_start)
      GROUP BY day_start

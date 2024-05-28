@@ -131,12 +131,56 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 return Response(
-                    {"statusText": e.args[0], "detail": detail_object.get("error_message", detail_object)},
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "link": detail_object.get("link", None),
+                        "code": detail_object.get("code"),
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
                 raise e
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        invoice_status = request.GET.get("status")
+
+        try:
+            res = BillingManager(license).get_invoices(organization, status=invoice_status)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise e
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise e
+
+        return Response(
+            {
+                "link": res.get("portal_url"),
+                "count": res.get("count"),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

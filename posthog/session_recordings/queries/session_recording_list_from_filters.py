@@ -141,7 +141,7 @@ class SessionRecordingListFromFilters:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["s", "max_last_timestamp"]),
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=self._filter.date_to),
                 )
             )
@@ -259,7 +259,7 @@ class EventsSubQuery:
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                event_names.update([ae for ae in action.get_step_events() if ae not in event_names])
+                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
             else:
                 if entity.id and entity.id not in event_names:
                     event_names.add(entity.id)
@@ -268,7 +268,7 @@ class EventsSubQuery:
             entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
 
             if entity.property_groups:
-                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay"))
+                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay_entity"))
 
             event_exprs.append(ast.And(exprs=entity_exprs))
 
@@ -278,14 +278,17 @@ class EventsSubQuery:
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            prewhere=self._prewhere_predicates(),
             where=self._where_predicates(),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
-    def _prewhere_predicates(self) -> ast.Expr:
+    def _where_predicates(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
+            ast.Call(
+                name="notEmpty",
+                args=[ast.Field(chain=["$session_id"])],
+            ),
             # regardless of any other filters limit between TTL and current time
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -299,33 +302,26 @@ class EventsSubQuery:
             ),
         ]
 
+        # TRICKY: we're adding a buffer to the date range to ensure we get all the events
+        # you can start sending us events before the session starts
         if self._filter.date_from:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._filter.date_from - timedelta(hours=12)),
+                    right=ast.Constant(value=self._filter.date_from - timedelta(minutes=2)),
                 )
             )
 
-        if self._filter.date_from:
+        # but we don't want to include events after date_to if provided
+        if self._filter.date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._filter.date_to + timedelta(hours=12)),
+                    right=ast.Constant(value=self._filter.date_to),
                 )
             )
-
-        return ast.And(exprs=exprs)
-
-    def _where_predicates(self) -> ast.Expr:
-        exprs: list[ast.Expr] = [
-            ast.Call(
-                name="notEmpty",
-                args=[ast.Field(chain=["$session_id"])],
-            )
-        ]
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:

@@ -6,7 +6,6 @@ import structlog
 from django.db import models
 from django.utils import timezone
 
-from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
@@ -161,11 +160,6 @@ class OrganizationDomain(UUIDModel):
         """
         Performs a DNS verification for a specific domain.
         """
-
-        if not is_cloud():
-            # We only do DNS validation on PostHog Cloud
-            return self._complete_verification()
-
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")

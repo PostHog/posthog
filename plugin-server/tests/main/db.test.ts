@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { ClickHouseTimestamp, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
+import {
+    ClickHouseTimestamp,
+    Hub,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB, GroupId } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
@@ -48,7 +56,7 @@ describe('DB', () => {
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
-        beforeEach(async () => {
+        const insertAction = async (action: Partial<RawAction> = {}) => {
             await insertRow(hub.db.postgres, 'posthog_action', {
                 id: 69,
                 team_id: 2,
@@ -62,7 +70,12 @@ describe('DB', () => {
                 is_calculating: false,
                 updated_at: new Date().toISOString(),
                 last_calculated_at: new Date().toISOString(),
+                ...action,
             })
+        }
+
+        beforeEach(async () => {
+            await insertAction()
         })
 
         it('returns actions with `post_to_slack', async () => {
@@ -86,63 +99,54 @@ describe('DB', () => {
         })
 
         it('returns actions with steps', async () => {
-            await insertRow(hub.db.postgres, 'posthog_actionstep', {
-                id: 913,
-                action_id: 69,
-                tag_name: null,
-                text: null,
-                text_matching: null,
-                href: null,
-                href_matching: null,
-                selector: null,
-                url: null,
-                url_matching: null,
-                name: null,
-                event: null,
-                properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+            await insertAction({
+                id: 70,
+                steps_json: [
+                    {
+                        tag_name: null,
+                        text: null,
+                        text_matching: null,
+                        href: null,
+                        href_matching: null,
+                        selector: null,
+                        url: null,
+                        url_matching: null,
+                        event: null,
+                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                    },
+                ],
             })
 
             const result = await db.fetchAllActionsGroupedByTeam()
 
-            expect(result).toMatchObject({
-                2: {
-                    69: {
-                        id: 69,
-                        team_id: 2,
-                        name: 'Test Action',
-                        deleted: false,
-                        post_to_slack: true,
-                        slack_message_format: '',
-                        is_calculating: false,
-                        steps: [
-                            {
-                                id: 913,
-                                action_id: 69,
-                                tag_name: null,
-                                text: null,
-                                text_matching: null,
-                                href: null,
-                                href_matching: null,
-                                selector: null,
-                                url: null,
-                                url_matching: null,
-                                name: null,
-                                event: null,
-                                properties: [
-                                    { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
-                                ],
-                            },
-                        ],
-                        hooks: [],
+            expect(result[2][70]).toMatchObject({
+                id: 70,
+                team_id: 2,
+                name: 'Test Action',
+                deleted: false,
+                post_to_slack: true,
+                slack_message_format: '',
+                is_calculating: false,
+                steps: [
+                    {
+                        tag_name: null,
+                        text: null,
+                        text_matching: null,
+                        href: null,
+                        href_matching: null,
+                        selector: null,
+                        url: null,
+                        url_matching: null,
+                        event: null,
+                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                     },
-                },
+                ],
+                hooks: [],
             })
 
-            const action = await db.fetchAction(69)
+            const action = await db.fetchAction(70)
             expect(action!.steps).toEqual([
                 {
-                    id: 913,
-                    action_id: 69,
                     tag_name: null,
                     text: null,
                     text_matching: null,
@@ -151,7 +155,6 @@ describe('DB', () => {
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },
@@ -198,7 +201,10 @@ describe('DB', () => {
                 },
             })
 
-            expect(await db.fetchAction(69)).toEqual(result[2][69])
+            expect(await db.fetchAction(69)).toEqual({
+                ...result[2][69],
+                steps_json: null, // Temporary diff whilst we migrate to this new field
+            })
         })
 
         it('does not return actions that dont match conditions', async () => {

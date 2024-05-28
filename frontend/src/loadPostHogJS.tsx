@@ -27,6 +27,7 @@ export function loadPostHogJS(): void {
                 persistence: 'localStorage+cookie',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
+                api_transport: 'fetch',
                 loaded: (posthog) => {
                     if (posthog.sessionRecording) {
                         posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true

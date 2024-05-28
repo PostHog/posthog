@@ -1,15 +1,18 @@
 import './HedgehogBuddy.scss'
 
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { ForwardedRef, useEffect, useRef, useState } from 'react'
+import React from 'react'
 
-import { HedgehogAccessories } from './HedgehogAccessories'
-import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { HedgehogConfig, OrganizationMemberType } from '~/types'
+
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -32,6 +35,14 @@ const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: 
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
+export type HedgehogBuddyProps = {
+    onActorLoaded?: (actor: HedgehogActor) => void
+    onClose?: () => void
+    onClick?: () => void
+    onPositionChange?: (actor: HedgehogActor) => void
+    hedgehogConfig?: HedgehogConfig
+}
+
 export class HedgehogActor {
     animations = standardAnimations
     iterationCount = 0
@@ -51,11 +62,23 @@ export class HedgehogActor {
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
-    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
-    darkMode = false
+
+    // properties synced with the logic
+    hedgehogConfig: Partial<HedgehogConfig> = {}
 
     constructor() {
         this.setAnimation('fall')
+    }
+
+    private accessories(): AccessoryInfo[] {
+        return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]) ?? []
+    }
+
+    private getAnimationOptions(): string[] {
+        if (!this.hedgehogConfig.walking_enabled) {
+            return randomChoiceList.filter((x) => x !== 'walk')
+        }
+        return randomChoiceList
     }
 
     private log(message: string): void {
@@ -67,9 +90,10 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
             }
+
             const key = e.key.toLowerCase()
 
             if ([' ', 'w', 'arrowup'].includes(key)) {
@@ -103,7 +127,7 @@ export class HedgehogActor {
         }
 
         const keyUpListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
             }
 
@@ -161,7 +185,7 @@ export class HedgehogActor {
         if (this.animationName !== 'stop') {
             this.setAnimation('stop')
         } else {
-            this.setAnimation(sampleOne(randomChoiceList))
+            this.setAnimation(sampleOne(this.getAnimationOptions()))
         }
     }
 
@@ -258,7 +282,7 @@ export class HedgehogActor {
             this.y -= velocityToApplyInIteration * velocityDirection
             if (this.y <= 0) {
                 this.ground = document.body
-            } else {
+            } else if (this.hedgehogConfig.interactions_enabled) {
                 const hedgehogBoundingRect = {
                     left: this.x,
                     right: this.x + SPRITE_SIZE,
@@ -296,20 +320,22 @@ export class HedgehogActor {
         return groundBoundingRect
     }
 
-    render({ onClick }: { onClick: () => void }): JSX.Element {
+    render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
-        const imgExt = this.darkMode ? 'dark.png' : 'png'
         const preloadContent =
             Object.values(this.animations)
-                .map((x) => `url(${baseSpritePath()}/${x.img}.${imgExt})`)
+                .map((x) => `url(${baseSpritePath()}/${x.img}.png)`)
                 .join(' ') +
             ' ' +
-            this.accessories
-                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`)
+            this.accessories()
+                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`)
                 .join(' ')
+
+        const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
 
         return (
             <div
+                ref={ref}
                 className="HedgehogBuddy"
                 data-content={preloadContent}
                 onMouseDown={(e) => {
@@ -354,13 +380,14 @@ export class HedgehogActor {
                         imageRendering: 'pixelated',
                         width: SPRITE_SIZE,
                         height: SPRITE_SIZE,
-                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.${imgExt})`,
+                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
+                        filter: imageFilter as any,
                     }}
                 />
-                {this.accessories.map((accessory, index) => (
+                {this.accessories().map((accessory, index) => (
                     <div
                         key={index}
                         // eslint-disable-next-line react/forbid-dom-props
@@ -371,10 +398,11 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
+                            filter: imageFilter as any,
                         }}
                     />
                 ))}
@@ -383,57 +411,26 @@ export class HedgehogActor {
     }
 }
 
-export function HedgehogBuddy({
-    actorRef: _actorRef,
-    onClose,
-    onClick: _onClick,
-    onPositionChange,
-    popoverOverlay,
-    isDarkModeOn,
-}: {
-    actorRef?: MutableRefObject<HedgehogActor | undefined>
-    onClose: () => void
-    onClick?: () => void
-    onPositionChange?: (actor: HedgehogActor) => void
-    popoverOverlay?: React.ReactNode
-    // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
-    isDarkModeOn: boolean
-}): JSX.Element {
+export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig },
+    ref
+): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
-        if (_actorRef) {
-            _actorRef.current = actorRef.current
-        }
+        onActorLoaded?.(actorRef.current)
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogBuddyLogic)
-    const { addAccessory } = useActions(hedgehogBuddyLogic)
-
-    useEffect(() => {
-        return actor.setupKeyboardListeners()
-    }, [])
-
     const [_, setTimerLoop] = useState(0)
-    const [popoverVisible, setPopoverVisible] = useState(false)
 
     useEffect(() => {
-        actor.accessories = accessories
-    }, [accessories])
-
-    useEffect(() => {
-        actor.darkMode = isDarkModeOn
-    }, [isDarkModeOn])
-
-    // NOTE: Temporary - turns on christmas clothes for the holidays
-    useEffect(() => {
-        if (accessories.length === 0 && dayjs().month() === 11) {
-            addAccessory(standardAccessories['xmas_hat'])
-            addAccessory(standardAccessories['xmas_scarf'])
+        if (hedgehogConfig) {
+            actor.hedgehogConfig = hedgehogConfig
+            actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
-    }, [])
+    }, [hedgehogConfig])
 
     useEffect(() => {
         let timer: any = null
@@ -465,40 +462,122 @@ export function HedgehogBuddy({
     }, [actor.x, actor.y])
 
     const onClick = (): void => {
-        !actor.isDragging && (_onClick ? _onClick() : setPopoverVisible(!popoverVisible))
+        !actor.isDragging && _onClick?.()
+    }
+
+    return actor.render({ onClick, ref })
+})
+
+export function MyHedgehogBuddy({
+    onActorLoaded,
+    onClose,
+    onClick: _onClick,
+    onPositionChange,
+}: HedgehogBuddyProps): JSX.Element {
+    const [actor, setActor] = useState<HedgehogActor | null>(null)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+
+    useEffect(() => {
+        return actor?.setupKeyboardListeners()
+    }, [actor])
+
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+        _onClick?.()
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        actor.setAnimation('wave')
-        setTimeout(() => onClose(), (actor.animations.wave.frames * 1000) / FPS)
+        actor?.setAnimation('wave')
+        setTimeout(() => onClose?.(), (actor!.animations.wave.frames * 1000) / FPS)
     }
 
     return (
         <Popover
-            onClickOutside={() => {
-                setPopoverVisible(false)
-            }}
+            onClickOutside={() => setPopoverVisible(false)}
             visible={popoverVisible}
             placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
+            overflowHidden
             overlay={
-                popoverOverlay || (
-                    <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
-
-                        <LemonDivider />
-                        <div className="flex justify-end gap-2">
-                            <LemonButton type="secondary" status="danger" onClick={disappear}>
-                                Good bye!
-                            </LemonButton>
-                            <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
-                                Carry on!
-                            </LemonButton>
+                <div className="max-w-140 flex flex-col flex-1 overflow-hidden">
+                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
+                        <div className="p-2">
+                            <HedgehogOptions />
                         </div>
+                    </ScrollableShadows>
+                    <div className="flex shrink-0 justify-end gap-2 p-2 border-t">
+                        <LemonButton type="secondary" status="danger" onClick={disappear}>
+                            Good bye!
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
                     </div>
-                )
+                </div>
             }
         >
-            {actor.render({ onClick })}
+            <HedgehogBuddy
+                onActorLoaded={(actor) => {
+                    setActor(actor)
+                    onActorLoaded?.(actor)
+                }}
+                onClick={onClick}
+                onPositionChange={onPositionChange}
+                hedgehogConfig={hedgehogConfig}
+            />
+        </Popover>
+    )
+}
+
+export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const memberHedgehogConfig: HedgehogConfig = {
+        ...hedgehogConfig,
+        ...member.user.hedgehog_config,
+        controls_enabled: false,
+    }
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+    }
+    return (
+        <Popover
+            onClickOutside={() => setPopoverVisible(false)}
+            visible={popoverVisible}
+            placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
+            overflowHidden
+            overlay={
+                <div className="min-w-50 max-w-140">
+                    <div className="p-3">
+                        <ProfilePicture user={member.user} size="xl" showName />
+                    </div>
+
+                    <div className="flex items-end gap-2 border-t p-3">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() =>
+                                patchHedgehogConfig({
+                                    party_mode_enabled: false,
+                                })
+                            }
+                        >
+                            Turn off party mode
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <HedgehogBuddy onClick={onClick} hedgehogConfig={memberHedgehogConfig} />
         </Popover>
     )
 }

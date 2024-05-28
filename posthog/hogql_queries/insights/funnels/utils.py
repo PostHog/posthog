@@ -64,14 +64,21 @@ def get_breakdown_expr(
 ) -> ast.Expr:
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
-            name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdowns]), ast.Constant(value="")]
+            name="ifNull",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Constant(value=""),
+            ],
         )
     else:
         exprs = []
         for breakdown in breakdowns:
             expr: ast.Expr = ast.Call(
                 name="ifNull",
-                args=[ast.Field(chain=[*properties_column.split("."), breakdown]), ast.Constant(value="")],
+                args=[
+                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Constant(value=""),
+                ],
             )
             if normalize_url:
                 regex = "[\\\\/?#]*$"

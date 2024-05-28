@@ -2,7 +2,7 @@ from copy import copy, deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -247,7 +247,12 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
         keys.append(field_name)
         details.append(convert_field_or_table_to_type_string(field_or_table))
 
-    extend_responses(keys=keys, suggestions=suggestions, details=details)
+    extend_responses(
+        keys=keys,
+        suggestions=suggestions,
+        details=details,
+        insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
+    )
 
     available_functions = ALL_EXPOSED_FUNCTION_NAMES
     extend_responses(
@@ -361,7 +366,7 @@ def get_hogql_autocomplete(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
                                 kind=Kind.Folder,
-                                details=["Table"] * len(table_aliases),  # type: ignore
+                                details=["Table"] * len(table_aliases),
                             )
                             break
 
@@ -455,7 +460,7 @@ def get_hogql_autocomplete(
                             keys=table_names,
                             suggestions=response.suggestions,
                             kind=Kind.Folder,
-                            details=["Table"] * len(table_names),  # type: ignore
+                            details=["Table"] * len(table_names),
                         )
         except Exception:
             pass

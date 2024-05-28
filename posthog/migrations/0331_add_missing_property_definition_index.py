@@ -5,7 +5,7 @@ from django.db import migrations, models
 # mypy fails here because we're using such an old version
 # error: Module "django.contrib.postgres.operations" has no attribute "AddIndexConcurrently"
 # but that's not true
-from django.contrib.postgres.operations import AddIndexConcurrently  # type: ignore
+from django.contrib.postgres.operations import AddIndexConcurrently
 
 
 class Migration(migrations.Migration):

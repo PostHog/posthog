@@ -739,8 +739,8 @@ def list_recordings(
 
     timer = ServerTimingsGathered()
 
-    with timer("load_recordings_from_clickhouse"):
-        if all_session_ids:
+    if all_session_ids:
+        with timer("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
 
@@ -755,39 +755,43 @@ def list_recordings(
             remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
-        if (all_session_ids and filter.session_ids) or not all_session_ids:
-            has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+    if (all_session_ids and filter.session_ids) or not all_session_ids:
+        has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
 
-            if has_hog_ql_filtering:
+        if has_hog_ql_filtering:
+            with timer("load_recordings_from_hogql"):
                 (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
                     filter=filter, team=team
                 ).run()
-            else:
-                # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+        else:
+            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+            with timer("load_recordings_from_clickhouse"):
                 (
                     ch_session_recordings,
                     more_recordings_available,
                 ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
+        with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
-        recordings = [x for x in recordings if not x.deleted]
+            recordings = [x for x in recordings if not x.deleted]
 
-        # If we have specified session_ids we need to sort them by the order they were specified
-        if all_session_ids:
-            recordings = sorted(
-                recordings,
-                key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
-            )
+            # If we have specified session_ids we need to sort them by the order they were specified
+            if all_session_ids:
+                recordings = sorted(
+                    recordings,
+                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
+                )
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
 
     # Update the viewed status for all loaded recordings
-    viewed_session_recordings = set(
-        SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-    )
+    with timer("load_viewed_recordings"):
+        viewed_session_recordings = set(
+            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+        )
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -824,7 +828,7 @@ def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimi
     timings_dict = timer.get_all_timings()
     hogql_timings_dict = {}
     for key, value in hogql_timings or {}:
-        new_key = f"hogql_{key[1].lstrip('./')}"
+        new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
         # HogQL query timings are in seconds, convert to milliseconds
         hogql_timings_dict[new_key] = value[1] * 1000
     all_timings = {**timings_dict, **hogql_timings_dict}

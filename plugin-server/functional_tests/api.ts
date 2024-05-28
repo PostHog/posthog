@@ -7,7 +7,6 @@ import { PoolClient } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
-    ActionStep,
     Hook,
     Plugin,
     PluginConfig,
@@ -351,8 +350,9 @@ export const createOrganization = async (organizationProperties = {}) => {
         personalization: '{}', // DEPRECATED
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
-        available_features: [],
         domain_whitelist: [],
+        available_features: [],
+        available_product_features: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
         ...organizationProperties,
@@ -406,14 +406,8 @@ export const createTeam = async (
     return id
 }
 
-export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
+export const createAction = async (action: Omit<RawAction, 'id'>) => {
     const actionRow = await insertRow(postgres, 'posthog_action', action)
-    for (const step of steps) {
-        await insertRow(postgres, 'posthog_actionstep', {
-            ...step,
-            action_id: actionRow.id,
-        })
-    }
     return actionRow
 }
 

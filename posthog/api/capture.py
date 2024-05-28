@@ -61,6 +61,12 @@ LOG_RATE_LIMITER = Limiter(
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
+# TODO we should eventually be able to remove the code path this is counting
+LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER = Counter(
+    "capture_legacy_snapshot_events_received_total",
+    "Legacy snapshot events received by capture, we should receive zero of these.",
+)
+
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
     "Events received by capture, tagged by resource type.",
@@ -154,6 +160,7 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
 
     match event_name:
         case "$snapshot":
+            LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER.inc()
             return KAFKA_SESSION_RECORDING_EVENTS
         case "$snapshot_items":
             if overflowing:
@@ -402,6 +409,14 @@ def get_event(request):
             events = data
         else:
             events = [data]
+
+        if not all(data):  # Check that all items are truthy (not null, not empty dict)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
+                ),
+            )
 
         try:
             events = drop_performance_events(events)
