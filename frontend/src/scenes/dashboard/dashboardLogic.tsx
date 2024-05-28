@@ -311,7 +311,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...state,
                               date_from: dashboard?.filters.date_from || null,
                               date_to: dashboard?.filters.date_to || null,
-                              properties: dashboard?.filters.properties || [],
+                              properties: dashboard?.filters.properties || null,
                           }
                         : state,
             },
@@ -769,9 +769,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.temporaryFilters, s.dashboard],
             (temporaryFilters, dashboard) => {
                 return (
-                    temporaryFilters.date_from !== dashboard?.filters.date_from ||
-                    temporaryFilters.date_to !== dashboard?.filters.date_to ||
-                    JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties)
+                    (temporaryFilters.date_from && temporaryFilters.date_from !== dashboard?.filters.date_from) ||
+                    (temporaryFilters.date_to && temporaryFilters.date_to !== dashboard?.filters.date_to) ||
+                    (temporaryFilters.properties &&
+                        JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties))
                 )
             },
         ],
