@@ -1,22 +1,24 @@
-from posthog.hogql.ast import SelectQuery
+import posthoganalytics
 
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-    StringJSONDatabaseField,
     BooleanDatabaseField,
-    LazyTable,
-    LazyJoin,
+    DateTimeDatabaseField,
     FieldOrTable,
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyTable,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
 )
-from posthog.hogql.errors import ResolutionError
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsJoinMode
+from posthog.hogql.errors import ResolutionError
+from posthog.models.organization import Organization
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -43,8 +45,8 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
                 break
 
     if version == PersonsArgMaxVersion.v2:
-        from posthog.hogql.parser import parse_select
         from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
 
         query = parse_select(
             """
@@ -93,10 +95,19 @@ def join_with_persons_table(
     if not requested_fields:
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
-    if context.modifiers.personsJoinMode == PersonsJoinMode.left:
-        join_expr.join_type = "LEFT JOIN"
-    else:
+    organization: Organization = context.team.organization
+
+    # TODO: Remove flag check and use left join for all once deletes are caught up
+    use_inner_join = posthoganalytics.feature_enabled(
+        "personless-events-not-supported",
+        str(context.team.uuid),
+        groups={"organization": str(organization.id)},
+    )
+    if use_inner_join:
         join_expr.join_type = "INNER JOIN"
+    else:
+        join_expr.join_type = "LEFT JOIN"
+
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
