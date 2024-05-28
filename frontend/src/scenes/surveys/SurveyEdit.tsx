@@ -551,7 +551,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                     }}
                                                                     className="w-12"
                                                                 />{' '}
-                                                                days.
+                                                                {value?.seenSurveyWaitPeriodInDays === 1
+                                                                    ? 'day'
+                                                                    : 'days'}
+                                                                .
                                                             </div>
                                                         </LemonField.Pure>
                                                     </>
