@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -27,14 +26,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
-import {
-    AvailableFeature,
-    LinkSurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyQuestion,
-    SurveyType,
-    SurveyUrlMatchType,
-} from '~/types'
+import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, SurveyUrlMatchType } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
@@ -69,16 +61,18 @@ export default function SurveyEdit(): JSX.Element {
         setShowSurveyRepeatSchedule,
         setSchedule,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    setSchedule(survey.iteration_frequency_days === 0 ? 'once' : 'recurring')
-    setShowSurveyRepeatSchedule(
-        survey.iteration_frequency_days !== undefined &&
-            survey.iteration_frequency_days != null &&
-            survey.iteration_frequency_days > 0
-    )
+    const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
+        ? null
+        : 'Subscribe to surveys for multiple questions'
+    // setSchedule(survey.iteration_frequency_days === 0 ? 'once' : 'recurring')
+    // setShowSurveyRepeatSchedule(
+    //     survey.iteration_frequency_days !== undefined &&
+    //         survey.iteration_frequency_days != null &&
+    //         survey.iteration_frequency_days > 0
+    // )
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -681,10 +675,6 @@ export default function SurveyEdit(): JSX.Element {
                                                         if (newValue === 'once') {
                                                             setShowSurveyRepeatSchedule(false)
                                                         } else {
-                                                            guardAvailableFeature(
-                                                                AvailableFeature.SURVEYS_RECURRING,
-                                                                showSurveyRepeatSchedule
-                                                            )
                                                             setShowSurveyRepeatSchedule(true)
                                                         }
                                                         setSchedule(newValue)
@@ -699,6 +689,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             value: 'recurring',
                                                             label: 'Repeat on a Schedule',
                                                             'data-attr': 'survey-iteration-frequency-days',
+                                                            disabledReason: surveysRecurringScheduleDisabledReason,
                                                         },
                                                     ]}
                                                 />
