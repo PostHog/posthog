@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import posthoganalytics
 import requests
@@ -19,6 +19,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.models import Organization
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +41,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "INTERNAL"
 
+    def _can_manage_billing(self, request: Request, org: Organization) -> bool:
+        return (
+            not org.billing_access_level
+            or request.user.organization_memberships.get(organization=org).level >= org.billing_access_level  # type: ignore
+        )
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
@@ -55,6 +62,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         plan_keys = request.query_params.get("plan_keys", None)
         response = BillingManager(license).get_billing(org, plan_keys)
 
+        if org and not self._can_manage_billing(request, org):
+            # Don't show the portal URL if the user doesn't have access to billing
+            response["stripe_portal_url"] = None
+
         return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
@@ -65,6 +76,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
 
         org = self._get_org_required()
+        if not self._can_manage_billing(request, org):
+            # Don't show the portal URL if the user doesn't have access to billing
+            raise PermissionDenied("Your organization restricts access to billing information to admins only.")
+
         if license and org:  # for mypy
             custom_limits_usd = request.data.get("custom_limits_usd")
             if custom_limits_usd:
