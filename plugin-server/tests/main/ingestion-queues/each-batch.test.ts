@@ -171,7 +171,7 @@ describe('eachBatchX', () => {
             const actionMatcher = new ActionMatcher(
                 queue.pluginsServer.postgres,
                 actionManager,
-                queue.pluginServer.teamManager
+                queue.pluginsServer.teamManager
             )
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
