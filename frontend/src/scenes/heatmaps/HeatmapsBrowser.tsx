@@ -28,6 +28,7 @@ export function HeatmapsBrowser(): JSX.Element {
         heatmapColorPalette,
         heatmapFixedPositionMode,
         viewportRange,
+        noPageviews,
     } = useValues(logic)
     const {
         setBrowserSearch,
@@ -128,8 +129,8 @@ export function HeatmapsBrowser(): JSX.Element {
                         </>
                     ) : (
                         <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                            <div className="max-w-[50rem] m-6">
-                                <div className="flex items-center flex-wrap gap-6 my-10">
+                            <div className="max-w-[50rem] my-6 mx-3">
+                                <div className="flex items-center flex-wrap gap-6">
                                     <div className="w-50">
                                         <DetectiveHog className="w-full h-full" />
                                     </div>
@@ -151,6 +152,11 @@ export function HeatmapsBrowser(): JSX.Element {
                                 <div className="space-y-px p-2 border bg-bg-light rounded">
                                     {topUrlsLoading ? (
                                         <LemonSkeleton className="h-10" repeat={10} />
+                                    ) : noPageviews ? (
+                                        <LemonBanner type="info">
+                                            No pageview events have been receiveed yet. Once you have some data, you'll
+                                            see the most viewed pages here.
+                                        </LemonBanner>
                                     ) : (
                                         <>
                                             {topUrls?.map(({ url }) => (

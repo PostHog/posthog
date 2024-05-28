@@ -179,6 +179,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
             },
         ],
+
+        noPageviews: [
+            (s) => [s.topUrlsLoading, s.topUrls],
+            (topUrlsLoading, topUrls) => !topUrlsLoading && (!topUrls || topUrls.length === 0),
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({

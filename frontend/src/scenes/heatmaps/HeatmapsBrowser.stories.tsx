@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+let topUrls: [string, number][]
+
 const meta: Meta = {
     title: 'Scenes-App/Heatmaps',
     parameters: {
@@ -25,10 +27,7 @@ const meta: Meta = {
                     if (qry.startsWith('SELECT properties.$current_url AS url, count()')) {
                         return res(
                             ctx.json({
-                                results: [
-                                    ['https://example.io/most-views', 100],
-                                    ['https://example.com/fewest-views', 50],
-                                ],
+                                results: topUrls,
                             })
                         )
                     }
@@ -44,7 +43,19 @@ const meta: Meta = {
 }
 export default meta
 
+export function HeatmapsBrowserNoPagesAvailable(): JSX.Element {
+    topUrls = []
+    useEffect(() => {
+        router.actions.push(urls.heatmaps())
+    }, [])
+    return <App />
+}
+
 export function HeatmapsBrowserNoPageSelected(): JSX.Element {
+    topUrls = [
+        ['https://example.io/most-views', 100],
+        ['https://example.com/fewest-views', 50],
+    ]
     useEffect(() => {
         router.actions.push(urls.heatmaps())
     }, [])
