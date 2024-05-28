@@ -154,7 +154,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                         <LemonSkeleton className="h-10" repeat={10} />
                                     ) : noPageviews ? (
                                         <LemonBanner type="info">
-                                            No pageview events have been receiveed yet. Once you have some data, you'll
+                                            No pageview events have been received yet. Once you have some data, you'll
                                             see the most viewed pages here.
                                         </LemonBanner>
                                     ) : (
