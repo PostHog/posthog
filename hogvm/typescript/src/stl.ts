@@ -1,13 +1,6 @@
-function toConcatArg(arg: any): string {
-    if (arg === null) {
-        return ''
-    }
-    return String(arg)
-}
-
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
     concat: (args) => {
-        return args.map((arg) => toConcatArg(arg)).join('')
+        return args.map((arg: any) => (arg === null ? '' : String(arg))).join('')
     },
     match: (args) => {
         const regex = new RegExp(args[1])
