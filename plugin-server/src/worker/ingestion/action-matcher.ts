@@ -173,7 +173,6 @@ export class ActionMatcher {
                     }
                     break
                 case 'actions':
-                    // TODO: Better parsing / checking
                     const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
 
                     if (!(await this.checkAction(event, action))) {

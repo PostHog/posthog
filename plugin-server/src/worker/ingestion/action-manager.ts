@@ -210,7 +210,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     return action.post_to_slack || action.hooks.length > 0 ? action : null
 }
 
-export async function fetchPluginConfigsRelatedActionIds(postgres: PostgresRouter): Promise<number[]> {
+async function fetchPluginConfigsRelatedActionIds(postgres: PostgresRouter): Promise<number[]> {
     // TODO: Do we need to trigger a reload when the plugin config changes?
     const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'filters'>[] } = await postgres.query(
         PostgresUse.COMMON_READ,
