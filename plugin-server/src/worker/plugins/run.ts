@@ -4,8 +4,8 @@ import { captureException } from '@sentry/node'
 import { Action, Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
+    convertToOnEventPayload,
     convertToPostHogEvent,
-    convertToProcessedPluginEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
@@ -31,13 +31,13 @@ async function runSingleTeamPluginOnEvent(
         mutatePostIngestionEventWithElementsList(event)
     }
 
-    const processedPluginEvent = convertToProcessedPluginEvent(event)
+    const onEventPayload = convertToOnEventPayload(event)
 
     try {
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(processedPluginEvent)
+            await onEvent(onEventPayload)
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -52,7 +52,7 @@ async function runSingleTeamPluginOnEvent(
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-            await processError(hub, pluginConfig, error, processedPluginEvent)
+            await processError(hub, pluginConfig, error, onEventPayload)
             await hub.appMetrics.queueError(
                 {
                     teamId: event.teamId,

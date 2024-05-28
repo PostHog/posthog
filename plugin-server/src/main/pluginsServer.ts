@@ -22,6 +22,7 @@ import { createRedisClient, delay } from '../utils/utils'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
@@ -387,6 +388,7 @@ export async function startPluginsServer(
 
             const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
             const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
+            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
@@ -399,6 +401,7 @@ export async function startPluginsServer(
                     appMetrics,
                     actionMatcher,
                     actionManager,
+                    groupTypeManager,
                 })
 
             stopWebhooksHandlerConsumer = webhooksStopConsumer
