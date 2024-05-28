@@ -60,7 +60,7 @@ runs:
           shell: bash
           id: hogql-parser-diff
           run: |
-              git fetch --no-tags --prune --depth=1 origin
+              git fetch --no-tags --prune --depth=1 origin master
               changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
 
