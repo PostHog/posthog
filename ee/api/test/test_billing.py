@@ -244,7 +244,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_without_token(self, mock_request):
+    def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -273,7 +273,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
 
 
 class TestBillingAPI(APILicensedTest):
-    def test_billing_v2_fails_for_old_license_type(self):
+    def test_billing_fails_for_old_license_type(self):
         self.license.key = "test_key"
         self.license.save()
         TEST_clear_instance_license_cache()
@@ -284,7 +284,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
+    def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -325,7 +325,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_billing_exists(self, mock_request):
+    def test_billing_returns_if_billing_exists(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -456,7 +456,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_doesnt_exist(self, mock_request):
+    def test_billing_returns_if_doesnt_exist(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
