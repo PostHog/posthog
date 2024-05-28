@@ -1,3 +1,4 @@
+import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
@@ -151,6 +152,12 @@ export const SettingsMap: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'persons-join-mode',
+                title: 'Persons join mode',
+                component: <PersonsJoinMode />,
+                flag: 'SETTINGS_PERSONS_JOIN_MODE',
             },
         ],
     },
@@ -326,7 +333,7 @@ export const SettingsMap: SettingSection[] = [
         settings: [
             {
                 id: 'organization-proxy',
-                title: 'Proxy',
+                title: 'Managed reverse proxies',
                 component: <ManagedReverseProxy />,
             },
         ],

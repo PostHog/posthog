@@ -1,5 +1,5 @@
 import { IconInfo, IconMagicWand } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
@@ -54,8 +54,8 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
                 <>The version of posthog-js you are using does not support collecting heatmap data.</>
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
-                    Heatmap collection is disabled in your posthog-js configuration. If you do not see heatmap data then
-                    this is likely why.
+                    You can enable heatmap collection in your posthog-js configuration or{' '}
+                    <Link to="https://us.posthog.com/settings/project#heatmaps">in your project config</Link>.
                 </>
             ) : null}
         </p>

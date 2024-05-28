@@ -104,7 +104,7 @@ export function PipelinePluginConfiguration({
                 htmlType="reset"
                 onClick={() => resetConfiguration(savedConfiguration || {})}
                 disabledReason={
-                    isConfigurationSubmitting ? 'Saving in progress…' : !configurationChanged ? 'No changes' : undefined
+                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }
             >
                 Clear changes
@@ -233,6 +233,8 @@ export function PipelinePluginConfiguration({
                         <div className="flex gap-2 justify-end">{buttons}</div>
                     </div>
                 </div>
+
+                <div className="flex gap-2 justify-end">{buttons}</div>
             </Form>
         </div>
     )

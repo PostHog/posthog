@@ -621,6 +621,17 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limiting_suspended_until": None,
             }
 
+        self.organization.customer_trust_scores = {"events": 7, "rows_synced": 10}
+        self.organization.save()
+        assert org_quota_limited_until(
+            self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_rows_synced
+        ) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+        self.organization.refresh_from_db()
+        assert self.organization.customer_trust_scores == {"events": 7, "recordings": 0, "rows_synced": 10}
+
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
         previously_quota_limited_team_tokens_events = list_limited_team_attributes(
