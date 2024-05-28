@@ -768,7 +768,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         stale: [
             (s) => [s.temporaryFilters, s.dashboard],
             (temporaryFilters, dashboard) => {
-                return (
+                return !!(
                     (temporaryFilters.date_from && temporaryFilters.date_from !== dashboard?.filters.date_from) ||
                     (temporaryFilters.date_to && temporaryFilters.date_to !== dashboard?.filters.date_to) ||
                     (temporaryFilters.properties &&
