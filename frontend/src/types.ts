@@ -3915,7 +3915,7 @@ export enum SidePanelTab {
 }
 
 export interface SourceFieldInputConfig {
-    type: LemonInputProps['type']
+    type: LemonInputProps['type'] | 'textarea'
     name: string
     label: string
     required: boolean

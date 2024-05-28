@@ -477,11 +477,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Missing required parameters: host, port, database, user, password, schema"},
                 )
 
-            if using_ssh_tunnel and not ssh_tunnel.is_auth_valid():
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid SSH tunnel auth settings"},
-                )
+            if using_ssh_tunnel:
+                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
+                if not auth_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": auth_error_message
+                            if len(auth_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
+
+                port_valid, port_error_message = ssh_tunnel.has_valid_port()
+                if not port_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": port_error_message
+                            if len(port_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
 
             # Validate internal postgres
             if not self._validate_postgres_host(host, self.team_id):

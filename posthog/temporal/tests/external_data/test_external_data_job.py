@@ -601,6 +601,7 @@ async def test_run_postgres_job(
                 "user": postgres_config["user"],
                 "password": postgres_config["password"],
                 "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": False,
             },
         )
 

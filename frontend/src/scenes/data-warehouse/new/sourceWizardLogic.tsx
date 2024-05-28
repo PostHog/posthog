@@ -165,8 +165,8 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                                 fields: [
                                     {
                                         name: 'private_key',
-                                        label: 'Tunnel private_key',
-                                        type: 'text',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
                                         required: true,
                                         placeholder: '',
                                     },

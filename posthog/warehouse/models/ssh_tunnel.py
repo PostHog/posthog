@@ -27,33 +27,43 @@ class SSHTunnel:
 
         return RSAKey.from_private_key(StringIO(self.private_key), passphrase)
 
-    def is_auth_valid(self) -> bool:
+    def is_auth_valid(self) -> tuple[bool, str]:
         if self.auth_type != "password" and self.auth_type != "keypair":
-            return False  # type: ignore
+            return False, "Authentication type not recognised"  # type: ignore
 
         if self.auth_type == "password":
             valid_username = self.username is not None and len(self.username) > 0
             valid_password = self.password is not None and len(self.password) > 0
 
-            return valid_username and valid_password
+            return valid_username and valid_password, "Username and password required"
 
         if self.auth_type == "keypair":
             valid_private_key = self.private_key is not None and len(self.private_key) > 0
             if not valid_private_key:
-                return False
+                return False, "Private key is required"
 
             try:
                 self.parse_private_key()
             except:
-                return False
+                return False, "Private key could not be parsed"
 
-            return True
+            return True, ""
 
-        return False  # type: ignore
+        return False, ""  # type: ignore
+
+    def has_valid_port(self) -> tuple[bool, str]:
+        port = int(self.port)
+        if port == 80 or port == 443:
+            return False, f"Port {port} is not allowed"
+
+        return True, ""
 
     def get_tunnel(self, remote_host: str, remote_port: int) -> SSHTunnelForwarder:
-        if not self.is_auth_valid():
+        if not self.is_auth_valid()[0]:
             raise Exception("SSHTunnel auth is not valid")
+
+        if not self.has_valid_port()[0]:
+            raise Exception("SSHTunnel port is not valid")
 
         if self.auth_type == "password":
             return SSHTunnelForwarder(

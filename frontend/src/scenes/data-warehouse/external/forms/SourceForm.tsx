@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -43,6 +43,19 @@ const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
                         </Group>
                     </>
                 )}
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'textarea') {
+        return (
+            <LemonField key={field.name} name={field.name} label={field.label}>
+                <LemonTextArea
+                    className="ph-ignore-input"
+                    data-attr={field.name}
+                    placeholder={field.placeholder}
+                    minRows={4}
+                />
             </LemonField>
         )
     }

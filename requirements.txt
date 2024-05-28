@@ -510,7 +510,7 @@ referencing==0.31.1
     #   jsonschema-specifications
 regex==2023.12.25
     # via tiktoken
-requests==2.32.2
+requests==2.32.0
     # via
     #   -r requirements.in
     #   dlt

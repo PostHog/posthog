@@ -115,7 +115,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         database = model.pipeline.job_inputs.get("database")
         pg_schema = model.pipeline.job_inputs.get("schema")
 
-        using_ssh_tunnel = model.pipeline.job_inputs.get("ssh_tunnel_enabled")
+        using_ssh_tunnel = str(model.pipeline.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
         ssh_tunnel_host = model.pipeline.job_inputs.get("ssh_tunnel_host")
         ssh_tunnel_port = model.pipeline.job_inputs.get("ssh_tunnel_port")
         ssh_tunnel_auth_type = model.pipeline.job_inputs.get("ssh_tunnel_auth_type")
