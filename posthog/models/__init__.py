@@ -12,6 +12,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
     SessionRecordingPlaylistItem,
 )
 from ..warehouse.models import DataWarehouseTable
+from .alert import Alert
 from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -72,6 +73,7 @@ from .user_scene_personalisation import UserScenePersonalisation
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 
 __all__ = [
+    "Alert",
     "Action",
     "ActionStep",
     "ActivityLog",
