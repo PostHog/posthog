@@ -1,6 +1,6 @@
 import './Billing.scss'
 
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconLock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -38,6 +38,7 @@ export function Billing(): JSX.Element {
         over20kAnnual,
         isAnnualPlan,
         billingError,
+        canManageBilling,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -82,6 +83,21 @@ export function Billing(): JSX.Element {
                     )}
                     .
                 </LemonBanner>
+            </div>
+        )
+    }
+
+    if (!canManageBilling) {
+        return (
+            <div className="border rounded flex flex-col items-center justify-center p-10 text-center">
+                <h3>
+                    <IconLock /> Restricted area
+                </h3>
+                <p>
+                    An administrator has restricted access to billing information. Please contact an{' '}
+                    <Link to={urls.settings('organization-members')}>organization member</Link> with admin access for
+                    assistance.
+                </p>
             </div>
         )
     }

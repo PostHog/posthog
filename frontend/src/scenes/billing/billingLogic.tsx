@@ -12,6 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -93,7 +94,14 @@ export const billingLogic = kea<billingLogicType>([
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
     }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -359,6 +367,16 @@ export const billingLogic = kea<billingLogicType>([
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
+            },
+        ],
+
+        canManageBilling: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean => {
+                return (
+                    !currentOrganization?.billing_access_level ||
+                    (currentOrganization.membership_level || 0) >= currentOrganization.billing_access_level
+                )
             },
         ],
     }),
