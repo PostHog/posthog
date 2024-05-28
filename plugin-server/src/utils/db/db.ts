@@ -25,7 +25,6 @@ import {
     Group,
     GroupKey,
     GroupTypeIndex,
-    GroupTypeToColumnIndex,
     InternalPerson,
     OrganizationMembershipLevel,
     PersonDistinctId,
@@ -156,9 +155,6 @@ export class DB {
     kafkaProducer: KafkaProducerWrapper
     /** ClickHouse used for syncing Postgres and ClickHouse person data. */
     clickhouse: ClickHouse
-
-    /** How many unique group types to allow per team */
-    MAX_GROUP_TYPES_PER_TEAM = 5
 
     /** Default log level for plugins that don't specify it */
     pluginsDefaultLogLevel: PluginLogLevel
@@ -1257,58 +1253,6 @@ export class DB {
             [id, user_id, label, secure_value, created_at.toISOString()],
             'createPersonalApiKey'
         )
-    }
-
-    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
-            [teamId],
-            'fetchGroupTypes'
-        )
-
-        const result: GroupTypeToColumnIndex = {}
-
-        for (const row of rows) {
-            result[row.group_type] = row.group_type_index
-        }
-
-        return result
-    }
-
-    public async insertGroupType(
-        teamId: TeamId,
-        groupType: string,
-        index: number
-    ): Promise<[GroupTypeIndex | null, boolean]> {
-        if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
-            return [null, false]
-        }
-
-        const insertGroupTypeResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `
-            WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-                VALUES ($1, $2, $3)
-                ON CONFLICT DO NOTHING
-                RETURNING group_type_index
-            )
-            SELECT group_type_index, 1 AS is_insert  FROM insert_result
-            UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
-            `,
-            [teamId, groupType, index],
-            'insertGroupType'
-        )
-
-        if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, groupType, index + 1)
-        }
-
-        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
-
-        return [group_type_index, is_insert === 1]
     }
 
     public async fetchGroup(

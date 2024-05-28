@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
+import { ProductKey } from '~/types'
+
 import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
@@ -29,9 +31,12 @@ type ConfigOption =
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
+    product,
 }: {
     stepKey?: OnboardingStepKey
     options: (ProductConfigOption | undefined)[]
+    // which product is being configured
+    product?: ProductKey
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
     const { pipelineDefaultEnabled } = useValues(pipelineDefaultEnabledLogic)
@@ -66,20 +71,24 @@ export const OnboardingProductConfiguration = ({
                     setConfigOptions(updatedConfigOptions)
                 },
             })),
-        ...pipelineDefaultEnabled.map((item) => {
-            return {
-                title: item.title,
-                description: item.description,
-                type: 'plugin' as PluginType,
-                value: item.enabled,
-                onChange: (enabled: boolean) => {
-                    toggleEnabled({
-                        id: item.id,
-                        enabled: enabled,
-                    })
-                },
-            }
-        }),
+        ...pipelineDefaultEnabled
+            .filter((plugin) => {
+                return !(product && plugin?.productOnboardingDenyList?.includes(product))
+            })
+            .map((item) => {
+                return {
+                    title: item.title,
+                    description: item.description,
+                    type: 'plugin' as PluginType,
+                    value: item.enabled,
+                    onChange: (enabled: boolean) => {
+                        toggleEnabled({
+                            id: item.id,
+                            enabled: enabled,
+                        })
+                    },
+                }
+            }),
     ]
 
     return combinedList.length > 0 ? (
