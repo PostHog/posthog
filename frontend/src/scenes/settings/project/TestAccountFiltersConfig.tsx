@@ -146,7 +146,6 @@ export function TestAccountFilterSwitch({
                     />
                 </div>
             }
-            fullWidth
             disabled={!hasFilters}
             disabledReason={disabledReason}
         />

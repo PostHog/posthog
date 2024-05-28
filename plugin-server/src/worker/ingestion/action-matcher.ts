@@ -195,7 +195,6 @@ export class ActionMatcher {
         if (filters.filter_test_accounts) {
             const internalFilters = (await this.teamManager.fetchTeam(event.teamId))?.test_account_filters
             if (internalFilters?.length) {
-                console.log('checkign internal filters', internalFilters, event)
                 return internalFilters.every((x) => this.checkEventAgainstFilterSync(event, x))
             }
         }

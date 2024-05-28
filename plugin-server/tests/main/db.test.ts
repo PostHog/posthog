@@ -992,7 +992,7 @@ describe('DB', () => {
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
-                test_account_filters: [],
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             } as Team)
         })
 
@@ -1018,7 +1018,7 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
-                test_account_filters: [],
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             })
         })
 
