@@ -6,8 +6,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { OnboardingProduct, ProductKey } from '~/types'
 
