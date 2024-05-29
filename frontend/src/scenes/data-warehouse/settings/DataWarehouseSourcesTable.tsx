@@ -105,6 +105,14 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     },
                 },
                 {
+                    title: 'Total Rows Synced',
+                    key: 'rows_synced',
+                    tooltip: 'Total number of rows synced across all schemas in this source',
+                    render: function RenderRowsSynced(_, source) {
+                        return source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                    },
+                },
+                {
                     title: 'Status',
                     key: 'status',
                     render: function RenderStatus(_, source) {
@@ -297,17 +305,6 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     },
                 },
                 {
-                    title: 'Status',
-                    key: 'status',
-                    render: function RenderStatus(_, schema) {
-                        if (!schema.status) {
-                            return null
-                        }
-
-                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
-                    },
-                },
-                {
                     title: 'Last Synced At',
                     key: 'last_synced_at',
                     render: function Render(_, schema) {
@@ -323,6 +320,17 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     key: 'rows_synced',
                     render: function Render(_, schema) {
                         return schema.table?.row_count ?? ''
+                    },
+                },
+                {
+                    title: 'Status',
+                    key: 'status',
+                    render: function RenderStatus(_, schema) {
+                        if (!schema.status) {
+                            return null
+                        }
+
+                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                     },
                 },
                 {
