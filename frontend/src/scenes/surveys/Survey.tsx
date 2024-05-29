@@ -28,7 +28,6 @@ export const scene: SceneExport = {
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
-    const showSurveyForm = isEditingSurvey || id === 'new'
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -40,7 +39,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={surveyLogic} props={{ id }}>
-                    {showSurveyForm ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+                    {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
                 </BindLogic>
             )}
         </div>

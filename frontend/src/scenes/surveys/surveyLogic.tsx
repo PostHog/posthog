@@ -769,11 +769,11 @@ export const surveyLogic = kea<surveyLogicType>([
         [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
+            if (props.id === 'new') {
+                actions.editingSurvey(true)
+            }
             if (method === 'PUSH') {
                 if (props.id) {
-                    if (props.id === 'new') {
-                        actions.editingSurvey(true)
-                    }
                     actions.loadSurvey()
                 } else {
                     actions.resetSurvey()
