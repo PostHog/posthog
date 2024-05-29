@@ -534,6 +534,9 @@ export const surveyLogic = kea<surveyLogicType>([
                     const description = isEditingDescription
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
+                    const descriptionContentType = isEditingDescription
+                        ? state.questions[idx].descriptionContentType
+                        : defaultSurveyFieldValues[type].questions[0].descriptionContentType
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
@@ -543,6 +546,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
+                        descriptionContentType,
                     }
                     return {
                         ...state,
@@ -795,9 +799,6 @@ export const surveyLogic = kea<surveyLogicType>([
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
-                    if (props.id === 'new') {
-                        actions.editingSurvey(true)
-                    }
                     actions.loadSurvey()
                 } else {
                     actions.resetSurvey()

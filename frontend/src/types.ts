@@ -2536,6 +2536,8 @@ export enum SurveyType {
     API = 'api',
 }
 
+export type SurveyQuestionDescriptionContentType = 'html' | 'text'
+
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
@@ -2559,8 +2561,6 @@ export interface SurveyAppearance {
     widgetColor?: string
     shuffleQuestions?: boolean
 }
-
-export type SurveyQuestionDescriptionContentType = 'html' | 'text'
 
 export interface SurveyQuestionBase {
     question: string

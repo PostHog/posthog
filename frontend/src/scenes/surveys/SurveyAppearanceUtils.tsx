@@ -5,7 +5,6 @@ import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
-// import { useEffect } from 'react'
 import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
 
 import { surveysLogic } from './surveysLogic'
