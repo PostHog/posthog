@@ -1017,6 +1017,10 @@ def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
 
 
+def cache_requested_by_client(request: Request) -> bool:
+    return _request_has_key_set("use_cache", request)
+
+
 def _request_has_key_set(key: str, request: Request) -> bool:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)

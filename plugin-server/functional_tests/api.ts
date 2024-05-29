@@ -360,6 +360,54 @@ export const createOrganization = async (organizationProperties = {}) => {
     return organizationId
 }
 
+export const createOrganizationRaw = async (organizationProperties = {}) => {
+    const organizationId = new UUIDT().toString()
+
+    const properties = {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        domain_whitelist: '{}',
+        available_features: '{}',
+        available_product_features: '{}',
+        is_member_join_email_enabled: false,
+        slug: Math.round(Math.random() * 20000),
+        ...organizationProperties,
+    }
+
+    const keys = Object.keys(properties)
+        .map((key) => `"${key}"`)
+        .join(',')
+
+    const values = Object.values(properties)
+        .map((value) => {
+            if (Array.isArray(value) && value.length > 0) {
+                return JSON.stringify(value)
+            } else if (typeof value === 'string' && !value.includes('array')) {
+                return `'${value || null}'`
+            }
+
+            return value
+        })
+        .join(',')
+
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `INSERT into posthog_organization 
+        (${keys})
+        VALUES (${values})
+        `,
+        undefined,
+        ''
+    )
+    return organizationId
+}
+
 export const createTeam = async (
     organizationId: string,
     slack_incoming_webhook?: string,

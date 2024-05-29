@@ -391,7 +391,16 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
-                        {activeSessionRecordingId ? (
+                        {!activeSessionRecordingId ? (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        ) : (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeSessionRecordingId}
@@ -410,15 +419,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                                         : undefined
                                 }
                             />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
                         )}
                     </div>
                 </div>
