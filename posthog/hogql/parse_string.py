@@ -24,6 +24,10 @@ def parse_string(text: str) -> str:
     else:
         raise SyntaxError(f"Invalid string literal, must start and end with the same quote type: {text}")
 
+    return unescape_string(text)
+
+
+def unescape_string(text):
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")
     text = text.replace("\\f", "\f")
@@ -34,7 +38,6 @@ def parse_string(text: str) -> str:
     text = text.replace("\\a", "\a")
     text = text.replace("\\v", "\v")
     text = text.replace("\\\\", "\\")
-
     return text
 
 
@@ -42,3 +45,9 @@ def parse_string_literal(ctx: ParserRuleContext) -> str:
     """Converts a STRING_LITERAL received from antlr via ctx.getText() into a Python string"""
     text = ctx.getText()
     return parse_string(text)
+
+
+def parse_string_chunk(ctx: ParserRuleContext) -> str:
+    """Converts a STRING_LITERAL received from antlr via ctx.getText() into a Python string"""
+    text = ctx.getText()
+    return unescape_string(text)

@@ -23,8 +23,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
-        def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
-            return clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
+        def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+            return cast(
+                ast.SelectQuery, clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
+            )
 
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))

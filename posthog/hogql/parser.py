@@ -11,7 +11,7 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parse_string import parse_string, parse_string_literal
+from posthog.hogql.parse_string import parse_string, parse_string_literal, parse_string_chunk
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 from hogql_parser import (
@@ -50,6 +50,16 @@ def parse_program(
     node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
         return cast(ast.Program, replace_placeholders(node, placeholders))
+    return node
+
+
+def parse_template_string(
+    program: str, placeholders: Optional[dict[str, ast.Expr]] = None, start: Optional[int] = 0
+) -> ast.Call:
+    parse_tree = get_parser(program).templateString()
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    if placeholders:
+        return cast(ast.Call, replace_placeholders(node, placeholders))
     return node
 
 
@@ -1005,11 +1015,40 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
-        elif ctx.STRING_LITERAL():
-            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
+        elif ctx.string():
+            return ast.HogQLXAttribute(name=name, value=self.visit(ctx.string()))
         else:
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        name = self.visit(ctx.identifier())
-        return ast.Placeholder(field=name)
+        field = self.visit(ctx.columnExpr())
+        if not isinstance(field, ast.Field) or len(field.chain) != 1:
+            raise SyntaxError(f"Placeholder must be a field with one element, got {field}")
+        return ast.Placeholder(field=field.chain[0])
+
+    def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
+        return self.visit(ctx.templateString())
+
+    def visitString(self, ctx: HogQLParser.StringContext):
+        if ctx.STRING_LITERAL():
+            return ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL()))
+        return self.visit(ctx.templateString())
+
+    def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
+        pieces = []
+        for chunk in ctx.stringContents():
+            pieces.append(self.visit(chunk))
+
+        if len(pieces) == 0:
+            return ast.Constant(value="")
+        elif len(pieces) == 1:
+            return pieces[0]
+
+        return ast.Call(name="concat", args=pieces)
+
+    def visitStringContents(self, ctx: HogQLParser.StringContentsContext):
+        if ctx.STRING_TEXT():
+            return ast.Constant(value=parse_string_chunk(ctx.STRING_TEXT()))
+        elif ctx.columnExpr():
+            return self.visit(ctx.columnExpr())
+        return ast.Constant(value="")
