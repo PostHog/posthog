@@ -183,11 +183,15 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             },
         ],
     })),
-    listeners(({ props }) => ({
+    listeners(({ props, actions, values }) => ({
         updatePluginConfigSuccess: ({ pluginConfig }) => {
             if (!pluginConfig) {
                 return
             }
+
+            // Reset the form so that it doesn't think there are unsaved changes
+            actions.resetConfiguration(values.configuration)
+
             // Navigating back to the list views gets the updated plugin info without refreshing
             if (props.stage === PipelineStage.Transformation) {
                 pipelineTransformationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
