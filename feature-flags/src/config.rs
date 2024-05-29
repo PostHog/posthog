@@ -4,7 +4,7 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
-    #[envconfig(default = "127.0.0.1:0")]
+    #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]

@@ -4,8 +4,7 @@ use std::string::ToString;
 use std::sync::Arc;
 
 use once_cell::sync::Lazy;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
@@ -44,6 +43,21 @@ impl ServerHandle {
         client
             .post(format!("http://{:?}/flags", self.addr))
             .body(body)
+            .header(CONTENT_TYPE, "application/json")
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn send_invalid_header_for_flags_request<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+    ) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/flags", self.addr))
+            .body(body)
+            .header(CONTENT_TYPE, "xyz")
             .send()
             .await
             .expect("failed to send request")
@@ -54,13 +68,4 @@ impl Drop for ServerHandle {
     fn drop(&mut self) {
         self.shutdown.notify_one()
     }
-}
-
-pub fn random_string(prefix: &str, length: usize) -> String {
-    let suffix: String = rand::thread_rng()
-        .sample_iter(Alphanumeric)
-        .take(length)
-        .map(char::from)
-        .collect();
-    format!("{}_{}", prefix, suffix)
 }

@@ -24,6 +24,7 @@ redis = { version = "0.23.3", features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+serde-pickle = { version = "1.1.1"}
 
 [lints]
 workspace = true
