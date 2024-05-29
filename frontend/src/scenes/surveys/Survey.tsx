@@ -28,7 +28,6 @@ export const scene: SceneExport = {
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
-    const showSurveyForm = id === 'new' || isEditingSurvey
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -40,7 +39,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={surveyLogic} props={{ id }}>
-                    {showSurveyForm ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+                    {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
                 </BindLogic>
             )}
         </div>
@@ -51,6 +50,19 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
+    const handleCancelClick = (): void => {
+        if (isEditingSurvey) {
+            editingSurvey(false)
+            if (id === 'new') {
+                router.actions.push(urls.surveys())
+            } else {
+                loadSurvey()
+            }
+        } else {
+            router.actions.push(urls.surveys())
+        }
+    }
+
     return (
         <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
             <PageHeader
@@ -60,14 +72,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             data-attr="cancel-survey"
                             type="secondary"
                             loading={surveyLoading}
-                            onClick={() => {
-                                if (isEditingSurvey) {
-                                    editingSurvey(false)
-                                    loadSurvey()
-                                } else {
-                                    router.actions.push(urls.surveys())
-                                }
-                            }}
+                            onClick={handleCancelClick}
                         >
                             Cancel
                         </LemonButton>
@@ -88,26 +93,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />
-            <div className="flex items-center gap-2 justify-end">
-                <LemonButton
-                    data-attr="cancel-survey"
-                    type="secondary"
-                    loading={surveyLoading}
-                    onClick={() => {
-                        if (isEditingSurvey) {
-                            editingSurvey(false)
-                            loadSurvey()
-                        } else {
-                            router.actions.push(urls.surveys())
-                        }
-                    }}
-                >
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" data-attr="save-survey" htmlType="submit" loading={surveyLoading}>
-                    {id === 'new' ? 'Save as draft' : 'Save'}
-                </LemonButton>
-            </div>
         </Form>
     )
 }
