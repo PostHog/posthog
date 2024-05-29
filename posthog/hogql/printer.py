@@ -452,7 +452,7 @@ class _Printer(Visitor):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            join_strings.append(f"ON {self.visit(node.constraint)}")
+            join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 

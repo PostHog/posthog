@@ -88,6 +88,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
+    // Max width for the column headers
+    maxHeaderWidth?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -122,6 +124,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
+    maxHeaderWidth,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -308,7 +311,13 @@ export function LemonTable<T extends Record<string, any>>({
                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    <div className="flex items-center">
+                                                    <div
+                                                        className="flex items-center"
+                                                        /* eslint-disable-next-line react/forbid-dom-props */
+                                                        style={
+                                                            maxHeaderWidth ? { maxWidth: maxHeaderWidth } : undefined
+                                                        }
+                                                    >
                                                         {column.tooltip ? (
                                                             <Tooltip title={column.tooltip}>
                                                                 <div className="flex items-center">

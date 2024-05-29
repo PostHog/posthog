@@ -5,28 +5,22 @@ from typing import Any, Optional, cast
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from rest_framework import (
-    exceptions,
-    request,
-    response,
-    serializers,
-    viewsets,
-)
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission, IsAuthenticated
+
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.activity_logging.activity_log import (
-    log_activity,
-    Detail,
     Change,
-    load_activity,
+    Detail,
     dict_changes_between,
+    load_activity,
+    log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -34,9 +28,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import (
+    groups_on_events_querying_enabled,
+    set_team_in_cache,
+)
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import generate_random_token_project, UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
@@ -44,7 +41,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
     get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
@@ -338,8 +334,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _clear_team_insight_cache(self, team: Team) -> None:
-        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+    def _clear_team_insight_caching_states(self, team: Team) -> None:
+        # TODO: Remove this method:
+        # 1. It only clear the cache for saved insights, queries not linked to one are being ignored here
+        # 2. We should anyway 100% be relying on cache keys being different for materially different queries, instead of
+        #    on remembering to call this method when project settings change. We probably already are in the clear here!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
@@ -349,7 +348,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
             "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
         ):
-            self._clear_team_insight_cache(instance)
+            self._clear_team_insight_caching_states(instance)
 
         if (
             "session_replay_config" in validated_data
@@ -429,7 +428,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
-            TimeSensitiveActionPermission,
             *self.permission_classes,
         ]
 

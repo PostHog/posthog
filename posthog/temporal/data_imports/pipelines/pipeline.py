@@ -121,7 +121,7 @@ class DataImportPipeline:
                     team_id=self.inputs.team_id,
                     schema_id=self.inputs.schema_id,
                     table_schema=self.source.schema.tables,
-                    table_row_counts=filtered_rows,
+                    row_count=total_counts.total(),
                 )
         else:
             pipeline.run(self.source, loader_file_format=self.loader_file_format)
@@ -135,7 +135,7 @@ class DataImportPipeline:
                 team_id=self.inputs.team_id,
                 schema_id=self.inputs.schema_id,
                 table_schema=self.source.schema.tables,
-                table_row_counts=filtered_rows,
+                row_count=total_counts.total(),
             )
 
         return dict(total_counts)

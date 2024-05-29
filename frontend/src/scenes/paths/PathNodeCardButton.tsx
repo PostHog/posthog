@@ -30,8 +30,8 @@ export function PathNodeCardButton({
     filter,
     setFilter,
 }: PathNodeCardButton): JSX.Element {
-    const { user } = useValues(userLogic)
-    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     const nodeName = pageUrl(node)
     const isPath = nodeName.includes('/')

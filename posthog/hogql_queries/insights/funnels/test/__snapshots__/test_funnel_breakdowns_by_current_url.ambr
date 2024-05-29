@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_current_url
   '''
-  SELECT [if(empty(replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', ''))] AS value,
+  SELECT [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -85,7 +85,7 @@
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                            if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                           [if(empty(replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                           [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
                            prop_basic AS prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                     FROM events AS e
@@ -115,7 +115,7 @@
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname
   '''
-  SELECT [if(empty(replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', ''))] AS value,
+  SELECT [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -199,7 +199,7 @@
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                            if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                           [if(empty(replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                           [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
                            prop_basic AS prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                     FROM events AS e

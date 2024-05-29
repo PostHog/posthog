@@ -52,7 +52,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
-        available_features=[],
+        available_product_features=[],
     )
     data.update(kwargs)
     return data
@@ -70,7 +70,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 name="Product OS",
                 description="Product Analytics, event pipelines, data warehousing",
                 price_description=None,
-                type="events",
+                type="product_analytics",
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
@@ -100,7 +100,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                         name="Addon",
                         description="Test Addon",
                         price_description=None,
-                        type="events",
+                        type="addon",
                         image_url="https://posthog.com/static/images/product-os.png",
                         free_allocation=10000,
                         tiers=[
@@ -130,6 +130,13 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 ],
             )
         ],
+        customer_trust_scores={
+            "surveys": 15,
+            "feature_flags": 15,
+            "data_warehouse": 15,
+            "session_replay": 15,
+            "product_analytics": 15,
+        },
         billing_period=BillingPeriod(
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
@@ -260,7 +267,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
         assert res.json() == {
-            "available_features": [],
+            "available_product_features": [],
             "products": create_default_products_response()["products"],
         }
 
@@ -340,19 +347,27 @@ class TestBillingAPI(APILicensedTest):
 
         assert response.json() == {
             "customer_id": "cus_123",
+            "customer_id": "cus_123",
+            "customer_trust_scores": {
+                "data_warehouse": 15,
+                "feature_flags": 15,
+                "product_analytics": 15,
+                "session_replay": 15,
+                "surveys": 15,
+            },
             "license": {"plan": "cloud"},
+            "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
-            "available_features": [],
             "deactivated": False,
             "products": [
                 {
                     "name": "Product OS",
                     "description": "Product Analytics, event pipelines, data warehousing",
                     "price_description": None,
-                    "type": "events",
+                    "type": "product_analytics",
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "free_allocation": 10000,
                     "tiers": [
@@ -420,7 +435,7 @@ class TestBillingAPI(APILicensedTest):
                                     "up_to": 2000000,
                                 },
                             ],
-                            "type": "events",
+                            "type": "addon",
                             "unit_amount_usd": "0.00",
                             "usage_key": "events",
                             "usage_limit": None,
@@ -467,7 +482,7 @@ class TestBillingAPI(APILicensedTest):
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
-            "available_features": [],
+            "available_product_features": [],
             "products": [
                 {
                     "name": "Product OS",
@@ -648,7 +663,7 @@ class TestBillingAPI(APILicensedTest):
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_available_features_updated_if_different(self, mock_request):
+    def test_organization_available_product_features_updated_if_different(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -659,20 +674,31 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(available_features=["feature1", "feature2"])
+                    customer=create_billing_customer(
+                        available_product_features=[
+                            {"key": "feature1", "name": "feature1"},
+                            {"key": "feature2", "name": "feature2"},
+                        ]
+                    )
                 )
 
             return mock
 
         mock_request.side_effect = mock_implementation
 
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
-        assert self.organization.available_features == []
+        assert self.organization.available_product_features == []
         self.client.get("/api/billing-v2")
         self.organization.refresh_from_db()
-        assert self.organization.available_features == ["feature1", "feature2"]
+        assert self.organization.available_product_features == [
+            {
+                "key": "feature1",
+                "name": "feature1",
+            },
+            {"key": "feature2", "name": "feature2"},
+        ]
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_update(self, mock_request):
@@ -843,3 +869,33 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
+
+    @patch("ee.api.billing.requests.get")
+    def test_org_trust_score_updated(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    # Set usage to none so it is calculated from scratch
+                    customer=create_billing_customer(has_active_subscription=False, usage=None)
+                )
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        self.organization.customer_id = None
+        self.organization.customer_trust_scores = {"recordings": 0, "events": 0, "rows_synced": 0}
+        self.organization.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        self.organization.refresh_from_db()
+
+        assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}

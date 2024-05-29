@@ -1,7 +1,7 @@
 import json
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -994,8 +994,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(activity, expected)
 
 
-# TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-@patch("posthog.api.person.posthoganalytics.feature_enabled", Mock())
 class TestPersonFromClickhouse(TestPerson):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):

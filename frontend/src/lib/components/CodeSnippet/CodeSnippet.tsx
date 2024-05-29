@@ -101,7 +101,9 @@ export function CodeSnippet({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [expanded, setExpanded] = useState(false)
-    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(-1)
+    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(
+        maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
+    )
     const [lineCount, setLineCount] = useState(-1)
     const [displayedText, setDisplayedText] = useState('')
 

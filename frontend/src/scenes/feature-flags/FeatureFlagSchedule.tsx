@@ -164,7 +164,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         onChange={(value) => setScheduleDateMarker(value)}
                         placeholder="Select date"
                         selectionPeriod="upcoming"
-                        showTime
+                        granularity="minute"
                     />
                 </div>
             </div>

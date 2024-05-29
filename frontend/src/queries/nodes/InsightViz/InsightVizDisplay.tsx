@@ -85,7 +85,7 @@ export function InsightVizDisplay({
         if (insightDataLoading) {
             return (
                 <div className="flex flex-col flex-1 justify-center items-center">
-                    <InsightLoadingState queryId={queryId} insightProps={insightProps} />
+                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
                 </div>
             )
         }

@@ -79,7 +79,7 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
 }
 function humanFileSize(size: number): string {
     const i = size == 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024))
-    return +(size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
+    return (+(size / Math.pow(1024, i))).toFixed(2) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
 }
 
 export function InsightLoadingStateWithLoadingBar({
@@ -97,41 +97,46 @@ export function InsightLoadingStateWithLoadingBar({
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     useEffect(() => {
-        setRowsRead(insightPollResponse?.previousStatus?.query_progress?.rows_read || 0)
-        setBytesRead(insightPollResponse?.previousStatus?.query_progress?.bytes_read || 0)
+        const status = insightPollResponse?.status?.query_progress
+        const previousStatus = insightPollResponse?.previousStatus?.query_progress
+        setRowsRead(previousStatus?.rows_read || 0)
+        setBytesRead(previousStatus?.bytes_read || 0)
         const interval = setInterval(() => {
             setRowsRead((rowsRead) => {
-                const diff =
-                    (insightPollResponse?.status?.query_progress?.rows_read || 0) -
-                    (insightPollResponse?.previousStatus?.query_progress?.rows_read || 0)
-                return rowsRead + diff / 30
+                const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
+                return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
             })
             setBytesRead((bytesRead) => {
-                const diff =
-                    (insightPollResponse?.status?.query_progress?.bytes_read || 0) -
-                    (insightPollResponse?.previousStatus?.query_progress?.bytes_read || 0)
-                return bytesRead + diff / 30
+                const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
+                return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
             })
             setSecondsElapsed(() => {
-                return dayjs().diff(dayjs(insightPollResponse?.status?.start_time), 'second')
+                return dayjs().diff(dayjs(insightPollResponse?.status?.start_time), 'milliseconds')
             })
         }, 100)
 
         return () => clearInterval(interval)
     }, [insightPollResponse])
-    const bytesPerSecond = bytesRead / (secondsElapsed || 1)
+    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+
+    const cpuUtilization =
+        (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (insightPollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <LoadingBar key={queryId} />
+                <LoadingBar />
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
                         <>
-                            {humanFriendlyNumber(rowsRead || 0)} rows
+                            {humanFriendlyNumber(rowsRead || 0, 0)} rows
                             <br />
                             {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
+                            <br />
+                            CPU {humanFriendlyNumber(cpuUtilization, 0)}%
                         </>
                     )}
                 </p>
@@ -172,11 +177,12 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
         return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
     }
 
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     return (
         <div className="insight-empty-state warning">
             <Animation type={AnimationType.LaptopHog} />

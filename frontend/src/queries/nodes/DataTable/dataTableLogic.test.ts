@@ -68,7 +68,7 @@ describe('dataTableLogic', () => {
             undefined,
             expect.any(Function)
         )
-        expect(query).toHaveBeenCalledTimes(2) // TODO: Should be 1
+        expect(query).toHaveBeenCalledTimes(1)
     })
 
     it('rejects if passed anything other than a DataTableNode', async () => {

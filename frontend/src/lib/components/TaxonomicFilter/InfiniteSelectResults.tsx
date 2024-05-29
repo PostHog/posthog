@@ -39,6 +39,7 @@ function CategoryPill({
             data-attr={`taxonomic-tab-${groupType}`}
             onClick={canInteract ? onClick : undefined}
             weight="normal"
+            aria-disabled
         >
             {group?.render ? (
                 group?.name
