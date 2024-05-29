@@ -51,7 +51,6 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>
-
                 {isRecordingEventFilter(item) && (
                     <LemonButton
                         size="xsmall"

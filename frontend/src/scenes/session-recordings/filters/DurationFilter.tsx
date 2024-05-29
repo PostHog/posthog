@@ -5,12 +5,12 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useMemo, useState } from 'react'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
-import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { DurationType, PropertyOperator, RecordingDurationPropertyFilter } from '~/types'
 
 interface Props {
-    recordingDurationFilter: RecordingDurationFilter
+    recordingDurationFilter: RecordingDurationPropertyFilter
     durationTypeFilter: DurationType
-    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
+    onChange: (recordingDurationFilter: RecordingDurationPropertyFilter, durationType: DurationType) => void
     pageKey: string
 }
 
@@ -21,7 +21,7 @@ const durationTypeMapping: Record<DurationType, string> = {
 }
 
 export const humanFriendlyDurationFilter = (
-    recordingDurationFilter: RecordingDurationFilter,
+    recordingDurationFilter: RecordingDurationPropertyFilter,
     durationTypeFilter: DurationType
 ): string => {
     const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'

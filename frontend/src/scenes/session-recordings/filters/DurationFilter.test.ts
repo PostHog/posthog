@@ -1,4 +1,4 @@
-import { DurationType, PropertyFilterType, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { DurationType, PropertyFilterType, PropertyOperator, RecordingDurationPropertyFilter } from '~/types'
 
 import { humanFriendlyDurationFilter } from './DurationFilter'
 
@@ -35,7 +35,7 @@ describe('DurationFilter', () => {
             [PropertyOperator.GreaterThan, 3660, 'inactive_seconds', '> 61 inactive minutes'],
             [PropertyOperator.LessThan, 0, 'active_seconds', '< 0 active seconds'],
         ])('converts the value correctly for total duration', (operator, value, durationType, expectation) => {
-            const filter: RecordingDurationFilter = {
+            const filter: RecordingDurationPropertyFilter = {
                 type: PropertyFilterType.Recording,
                 key: 'duration',
                 value,

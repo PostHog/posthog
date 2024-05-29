@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
-import { AnyPropertyFilter, EventPropertyFilter, FilterLogicalOperator, RecordingEventFilter } from '~/types'
+import { AnyPropertyFilter, EventPropertyFilter, FilterLogicalOperator, RecordingEventPropertyFilter } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
@@ -162,7 +162,7 @@ const EventFilterSubProperties = ({
     item,
     onChange,
 }: {
-    item: RecordingEventFilter
+    item: RecordingEventPropertyFilter
     index: number
     onChange: (filters: EventPropertyFilter[]) => void
     onComplete: () => void

@@ -115,6 +115,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         const durationProperty: RecordingDurationPropertyFilter = {
                             type: PropertyFilterType.Recording,
                             key: propertyKey,
+                            value: 1,
                             operator: PropertyOperator.GreaterThan,
                             durationType: 'duration',
                         }
@@ -123,6 +124,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         const eventProperty: RecordingEventPropertyFilter = {
                             type: PropertyFilterType.Recording,
                             key: propertyKey,
+                            // value: ?,
                             properties: [],
                         }
                         props.setFilter(props.filterIndex, eventProperty)

@@ -248,7 +248,6 @@ export function isPropertyFilterWithOperator(
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingDurationPropertyFilter
-    | RecordingEventPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter {

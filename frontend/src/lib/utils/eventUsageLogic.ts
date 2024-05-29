@@ -40,7 +40,7 @@ import {
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
-    RecordingDurationFilter,
+    RecordingDurationPropertyFilter,
     RecordingFilters,
     RecordingReportLoadTimes,
     Resource,
@@ -369,7 +369,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListFetched: (
             loadTime: number,
             filters: RecordingFilters,
-            defaultDurationFilter: RecordingDurationFilter
+            defaultDurationFilter: RecordingDurationPropertyFilter
         ) => ({
             loadTime,
             filters,

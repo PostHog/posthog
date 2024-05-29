@@ -941,6 +941,7 @@ export type ActionStepProperties =
 export interface RecordingDurationPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
     key: 'duration'
+    value: number
     operator: PropertyOperator
     durationType: DurationType
 }

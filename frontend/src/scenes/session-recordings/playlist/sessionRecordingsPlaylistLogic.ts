@@ -15,7 +15,7 @@ import {
     DurationType,
     PropertyFilterType,
     PropertyOperator,
-    RecordingDurationFilter,
+    RecordingDurationPropertyFilter,
     RecordingFilters,
     ReplayTabs,
     SessionRecordingId,
@@ -62,11 +62,12 @@ export type SimpleFiltersType = Pick<RecordingFilters, 'events' | 'properties'>
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
-export const defaultRecordingDurationFilter: RecordingDurationFilter = {
+export const defaultRecordingDurationFilter: RecordingDurationPropertyFilter = {
     type: PropertyFilterType.Recording,
     key: 'duration',
     value: 1,
     operator: PropertyOperator.GreaterThan,
+    durationType: 'duration',
 }
 
 export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {

@@ -1,18 +1,24 @@
-import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { actionsModel } from '~/models/actionsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
 
-import { HogQLRecordingFilters } from './hogQLFilterLogic'
+interface HogQLRecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
+    date_from?: string | null
+    date_to?: string | null
+    filter_test_accounts?: boolean
+    filterGroups: PropertyGroupFilterValue
+}
 
 export const HogQLFilters = (): JSX.Element => {
-    const { actions: allActions } = useValues(actionsModel)
     const [filters, setFilters] = useState<HogQLRecordingFilters>({
         live_mode: false,
         filter_test_accounts: false,
