@@ -20,6 +20,7 @@ import {
     PropertyOperator,
     Survey,
     SurveyQuestionBase,
+    SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -145,7 +146,10 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
-        setDescriptionContentType: (index: number, contentType: string) => ({ index, contentType }),
+        setDescriptionContentType: (index: number, contentType: SurveyQuestionDescriptionContentType) => ({
+            index,
+            contentType,
+        }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -511,7 +515,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     newQuestions[index] = {
                         ...newQuestions[index],
-                        descriptionContentType: contentType as 'text' | 'html',
+                        descriptionContentType: contentType,
                     }
                     return {
                         ...state,

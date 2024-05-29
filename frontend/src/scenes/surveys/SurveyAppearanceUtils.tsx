@@ -6,7 +6,7 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 // import { useEffect } from 'react'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
 
 import { surveysLogic } from './surveysLogic'
 
@@ -63,7 +63,7 @@ export function HTMLEditor({
 }): JSX.Element {
     const { surveysHTMLAvailable } = useValues(surveysLogic)
 
-    const handleTabChange = (key: 'html' | 'text'): void => {
+    const handleTabChange = (key: SurveyQuestionDescriptionContentType): void => {
         setWritingHTMLDescription(key === 'html')
     }
 
