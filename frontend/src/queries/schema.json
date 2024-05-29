@@ -279,10 +279,10 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationPropertyFilter"
+                    "$ref": "#/definitions/RecordingDurationFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingEventPropertyFilter"
+                    "$ref": "#/definitions/RecordingEventFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -6836,7 +6836,7 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationPropertyFilter": {
+        "RecordingDurationFilter": {
             "additionalProperties": false,
             "properties": {
                 "durationType": {
@@ -6863,7 +6863,7 @@
             "required": ["durationType", "key", "operator", "type", "value"],
             "type": "object"
         },
-        "RecordingEventPropertyFilter": {
+        "RecordingEventFilter": {
             "additionalProperties": false,
             "properties": {
                 "key": {

@@ -26,8 +26,8 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
-    RecordingDurationPropertyFilter,
-    RecordingEventPropertyFilter,
+    RecordingDurationFilter,
+    RecordingEventFilter,
     SessionPropertyFilter,
 } from '~/types'
 
@@ -208,10 +208,10 @@ export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter i
 export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter is SessionPropertyFilter {
     return filter?.type === PropertyFilterType.Session
 }
-export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationPropertyFilter {
+export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationFilter {
     return filter?.type === PropertyFilterType.Recording && filter.key === 'duration'
 }
-export function isRecordingEventFilter(filter?: AnyFilterLike | null): filter is RecordingEventPropertyFilter {
+export function isRecordingEventFilter(filter?: AnyFilterLike | null): filter is RecordingEventFilter {
     return filter?.type === PropertyFilterType.Recording && filter.key === 'event'
 }
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
@@ -247,7 +247,7 @@ export function isPropertyFilterWithOperator(
     | PersonPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
-    | RecordingDurationPropertyFilter
+    | RecordingDurationFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter {

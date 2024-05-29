@@ -26,8 +26,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
-    RecordingDurationPropertyFilter,
-    RecordingEventPropertyFilter,
+    RecordingDurationFilter,
+    RecordingEventFilter,
 } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
@@ -112,7 +112,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     props.setFilter(props.filterIndex, hogQLProperty)
                 } else if (propertyType === PropertyFilterType.Recording) {
                     if (propertyKey === 'duration') {
-                        const durationProperty: RecordingDurationPropertyFilter = {
+                        const durationProperty: RecordingDurationFilter = {
                             type: PropertyFilterType.Recording,
                             key: propertyKey,
                             value: 1,
@@ -121,7 +121,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         }
                         props.setFilter(props.filterIndex, durationProperty)
                     } else if (propertyKey === 'event') {
-                        const eventProperty: RecordingEventPropertyFilter = {
+                        const eventProperty: RecordingEventFilter = {
                             type: PropertyFilterType.Recording,
                             key: propertyKey,
                             // value: ?,

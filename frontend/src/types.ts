@@ -768,8 +768,8 @@ export type AnyPropertyFilter =
     | ElementPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
-    | RecordingDurationPropertyFilter
-    | RecordingEventPropertyFilter
+    | RecordingDurationFilter
+    | RecordingEventFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -938,7 +938,7 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-export interface RecordingDurationPropertyFilter extends BasePropertyFilter {
+export interface RecordingDurationFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
     key: 'duration'
     value: number
@@ -946,7 +946,7 @@ export interface RecordingDurationPropertyFilter extends BasePropertyFilter {
     durationType: DurationType
 }
 
-export interface RecordingEventPropertyFilter extends BasePropertyFilter {
+export interface RecordingEventFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
     key: 'event'
     properties: EventPropertyFilter[]
@@ -965,7 +965,7 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    session_recording_duration?: RecordingDurationPropertyFilter
+    session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
