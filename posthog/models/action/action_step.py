@@ -9,7 +9,6 @@ class ActionStep(models.Model):
     STRING_MATCHING = [(CONTAINS, CONTAINS), (REGEX, REGEX), (EXACT, EXACT)]
 
     action: models.ForeignKey = models.ForeignKey("Action", related_name="action_steps", on_delete=models.CASCADE)
-    tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text_matching: models.CharField = models.CharField(
         # The implicit default is EXACT - no explicit default to avoid migration woes
@@ -40,3 +39,5 @@ class ActionStep(models.Model):
     properties: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     # DEPRECATED, DISUSED
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED, don't store new data here
+    tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

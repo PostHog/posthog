@@ -1,6 +1,7 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -25,6 +26,9 @@ export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit o
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Recent) => ({ tab }),
     }),
@@ -44,6 +48,13 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
 
     selectors(() => ({
+        tabs: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                const hasErrorClustering = !!featureFlags[FEATURE_FLAGS.REPLAY_ERROR_CLUSTERING]
+                return Object.values(ReplayTabs).filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+            },
+        ],
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => {

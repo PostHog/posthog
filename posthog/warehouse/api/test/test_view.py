@@ -19,7 +19,20 @@ class TestView(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         view = response.json()
         self.assertEqual(view["name"], "event_view")
-        self.assertEqual(view["columns"], [{"key": "event", "type": "string", "schema_valid": True}])
+        self.assertEqual(
+            view["columns"],
+            [
+                {
+                    "key": "event",
+                    "name": "event",
+                    "type": "string",
+                    "schema_valid": True,
+                    "fields": None,
+                    "table": None,
+                    "chain": None,
+                }
+            ],
+        )
 
     def test_view_doesnt_exist(self):
         view_1_response = self.client.post(
@@ -60,7 +73,20 @@ class TestView(APIBaseTest):
         self.assertEqual(view_1_response.status_code, 200, view_1_response.content)
         view_1 = view_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
-        self.assertEqual(view_1["columns"], [{"key": "distinct_id", "type": "string", "schema_valid": True}])
+        self.assertEqual(
+            view_1["columns"],
+            [
+                {
+                    "key": "distinct_id",
+                    "name": "distinct_id",
+                    "type": "string",
+                    "schema_valid": True,
+                    "fields": None,
+                    "table": None,
+                    "chain": None,
+                }
+            ],
+        )
 
     @patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns",

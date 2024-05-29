@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
@@ -39,6 +39,7 @@ class TrendsActorsQueryBuilder:
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int] = None
     compare_value: Optional[Compare] = None
+    include_recordings: Optional[bool] = None
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class TrendsActorsQueryBuilder:
         time_frame: Optional[str | datetime],
         breakdown_value: Optional[str | int] = None,
         compare_value: Optional[Compare] = None,
+        include_recordings: Optional[bool] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.trends_query = trends_query
@@ -78,6 +80,7 @@ class TrendsActorsQueryBuilder:
 
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
+        self.include_recordings = include_recordings
 
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
@@ -144,17 +147,14 @@ class TrendsActorsQueryBuilder:
         return self.trends_display.is_total_value()
 
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # TODO: add matching_events only when including recordings
-        return parse_select(
-            """
-                SELECT
-                    actor_id,
-                    count() as event_count,
-                    groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
-                FROM {events_query}
-                GROUP BY actor_id
-            """,
-            placeholders={"events_query": self._get_events_query()},
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["actor_id"]),
+                ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
+                *self._get_matching_recordings_expr(),
+            ],
+            select_from=ast.JoinExpr(table=self._get_events_query()),
+            group_by=[ast.Field(chain=["actor_id"])],
         )
 
     def _get_events_query(self) -> ast.SelectQuery:
@@ -163,8 +163,8 @@ class TrendsActorsQueryBuilder:
                 ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
                 ast.Field(chain=["e", "timestamp"]),
                 ast.Field(chain=["e", "uuid"]),
-                ast.Field(chain=["e", "$session_id"]),  # TODO: only when including recordings
-                ast.Field(chain=["e", "$window_id"]),  # TODO: only when including recordings
+                *([ast.Field(chain=["e", "$session_id"])] if self.include_recordings else []),
+                *([ast.Field(chain=["e", "$window_id"])] if self.include_recordings else []),
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
@@ -174,6 +174,14 @@ class TrendsActorsQueryBuilder:
             where=self._events_where_expr(),
         )
         return query
+
+    def _get_actor_value_expr(self) -> ast.Expr:
+        return parse_expr("count()")
+
+    def _get_matching_recordings_expr(self) -> list[ast.Expr]:
+        if not self.include_recordings:
+            return []
+        return [parse_expr("groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events")]
 
     def _actor_id_expr(self) -> ast.Expr:
         if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:

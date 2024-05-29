@@ -999,7 +999,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
   /* cohort_calculation: */
-  SELECT [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS value,
+  SELECT [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -1084,7 +1084,7 @@
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                            if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                           [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS prop_basic,
+                           [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                            prop_basic AS prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                     FROM events AS e
@@ -1115,7 +1115,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
   /* cohort_calculation: */
-  SELECT [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS value,
+  SELECT [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -1202,7 +1202,7 @@
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                            if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                           [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS prop_basic,
+                           [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                            if(ifNull(equals(step_0, 1), 0), prop_basic, []) AS prop_0,
                            if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop_1,
                            prop_1 AS prop,
@@ -1237,7 +1237,7 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '''
-  SELECT [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), '')] AS value,
+  SELECT [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -1321,7 +1321,7 @@
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                            if(equals(e.event, 'buy'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                           [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), '')] AS prop_basic,
+                           [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                            prop_basic AS prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                     FROM events AS e
@@ -1351,7 +1351,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
-  SELECT ifNull(e__group_0.properties___industry, '') AS value,
+  SELECT ifNull(toString(e__group_0.properties___industry), '') AS value,
          count(*) AS count
   FROM events AS e
   LEFT JOIN
@@ -1475,7 +1475,7 @@
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
                                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-                                 ifNull(e__group_0.properties___industry, '') AS prop_basic,
+                                 ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                  prop_basic AS prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                           FROM events AS e
@@ -1506,7 +1506,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
-  SELECT ifNull(e__group_0.properties___industry, '') AS value,
+  SELECT ifNull(toString(e__group_0.properties___industry), '') AS value,
          count(*) AS count
   FROM events AS e
   LEFT OUTER JOIN
@@ -1636,7 +1636,7 @@
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
                                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-                                 ifNull(e__group_0.properties___industry, '') AS prop_basic,
+                                 ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                  prop_basic AS prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                           FROM events AS e
@@ -1667,7 +1667,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
-  SELECT ifNull(e__group_0.properties___industry, '') AS value,
+  SELECT ifNull(toString(e__group_0.properties___industry), '') AS value,
          count(*) AS count
   FROM events AS e
   INNER JOIN
@@ -1798,7 +1798,7 @@
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
                                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-                                 ifNull(e__group_0.properties___industry, '') AS prop_basic,
+                                 ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                  prop_basic AS prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                           FROM events AS e

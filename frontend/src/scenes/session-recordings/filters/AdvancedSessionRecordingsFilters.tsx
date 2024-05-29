@@ -3,7 +3,9 @@ import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -72,6 +74,27 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const allowedPropertyTaxonomyTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
+        ...groupsTaxonomicTypes,
+    ]
+
+    const hasHogQLFiltering = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]
+
+    if (hasHogQLFiltering) {
+        allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
+    const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+    if (hasHogQLFiltering) {
+        addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
     return (
         <div className="space-y-2 bg-light p-3">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
@@ -92,13 +115,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 hideDuplicate
                 showNestedArrow={false}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    ...groupsTaxonomicTypes,
-                ]}
+                propertiesTaxonomicGroupTypes={allowedPropertyTaxonomyTypes}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{
                     id: '$pageview',
@@ -108,7 +125,15 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
+            {hasHogQLFiltering ? (
+                <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                    Properties
+                </LemonLabel>
+            ) : (
+                <LemonLabel info="Show recordings by persons who match the set criteria">
+                    Persons and cohorts
+                </LemonLabel>
+            )}
 
             <TestAccountFilter
                 filters={filters}
@@ -118,8 +143,8 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText="Person or cohort"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    buttonText={hasHogQLFiltering ? 'Add filter' : 'Person or cohort'}
+                    taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
                         setFilters({ properties })

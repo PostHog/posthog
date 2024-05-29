@@ -112,6 +112,8 @@ services:
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - caddy-data:/data
+            - caddy-config:/config
         depends_on:
             - web
     objectstorage:
@@ -194,3 +196,5 @@ volumes:
     objectstorage:
     postgres-data:
     clickhouse-data:
+    caddy-data:
+    caddy-config:

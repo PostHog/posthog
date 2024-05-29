@@ -9,9 +9,9 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { OnboardingProduct, ProductKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { availableOnboardingProducts, onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
@@ -45,7 +45,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        const product: BillingProductV2Type = billingJson.products[1] as unknown as BillingProductV2Type
+        const product: OnboardingProduct = availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS]
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY) + '?step=install')
     }, [])
@@ -64,7 +64,7 @@ export const _OnboardingBilling = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingUnsubscribedJson.products[1] as unknown as BillingProductV2Type)
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.PLANS))
     }, [])
     return <App />

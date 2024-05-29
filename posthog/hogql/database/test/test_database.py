@@ -16,10 +16,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaDataWarehouseTable
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 
@@ -32,7 +35,12 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(
                 HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
             )
-            assert json.dumps(serialized_database, indent=4) == self.snapshot
+            assert (
+                json.dumps(
+                    {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
+                )
+                == self.snapshot
+            )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_with_person_on_events_enabled(self):
@@ -40,7 +48,12 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(
                 HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
             )
-            assert json.dumps(serialized_database, indent=4) == self.snapshot
+            assert (
+                json.dumps(
+                    {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
+                )
+                == self.snapshot
+            )
 
     @parameterized.expand([False, True])
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
@@ -48,24 +61,136 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(
                 HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
             )
-            for table, possible_columns in serialized_database.items():
-                if table == "numbers":
-                    execute_hogql_query(
-                        "SELECT number FROM numbers(10) LIMIT 100",
-                        self.team,
-                        pretty=False,
-                    )
-                else:
-                    columns = [
-                        x["key"]
-                        for x in possible_columns
-                        if "table" not in x and "chain" not in x and "fields" not in x
-                    ]
-                    execute_hogql_query(
-                        f"SELECT {','.join(columns)} FROM {table}",
-                        team=self.team,
-                        pretty=False,
-                    )
+            for table_name, table in serialized_database.items():
+                columns = [
+                    field.name
+                    for field in table.fields.values()
+                    if field.chain is None and field.table is None and field.fields is None
+                ]
+
+                execute_hogql_query(
+                    f"SELECT {','.join(columns)} FROM {table_name}",
+                    team=self.team,
+                    pretty=False,
+                )
+
+    def test_serialize_database_posthog_table(self):
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        tables = database.get_posthog_tables()
+        for table_name in tables:
+            assert serialized_database.get(table_name) is not None
+
+    def test_serialize_database_warehouse_table_s3(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+        assert len(table.fields.keys()) == 1
+        assert table.source is None
+        assert table.schema_ is None
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.name == "id"
+        assert field.type == "string"
+        assert field.schema_valid is True
+
+    def test_serialize_database_warehouse_table_s3_with_hyphens(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+            },
+        )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+
+        field = table.fields.get("id-hype")
+        assert field is not None
+        assert field.name == "id-hype"
+        assert field.hogql_value == "`id-hype`"
+
+    def test_serialize_database_warehouse_table_source(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name="table_1",
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            last_synced_at="2024-01-01",
+        )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+        assert len(table.fields.keys()) == 1
+
+        assert table.source is not None
+        assert table.source.id == source.source_id
+        assert table.source.status == "Completed"
+        assert table.source.source_type == "Stripe"
+
+        assert table.schema_ is not None
+        assert table.schema_.id == str(schema.id)
+        assert table.schema_.name == "table_1"
+        assert table.schema_.should_sync is True
+        assert table.schema_.incremental is False
+        assert table.schema_.status == "Completed"
+        assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.name == "id"
+        assert field.hogql_value == "id"
+        assert field.type == "string"
+        assert field.schema_valid is True
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     @pytest.mark.usefixtures("unittest_snapshot")

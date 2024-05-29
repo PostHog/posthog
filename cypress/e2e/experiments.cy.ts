@@ -133,11 +133,15 @@ describe('Experiments', () => {
         cy.get('[data-attr="lemon-calendar-month-previous"]').first().click()
         cy.get('[data-attr="lemon-calendar-day"]').first().click()
         cy.get('[data-attr="lemon-calendar-select-apply"]').first().click()
-        cy.get('[data-attr="experiment-start-date"]').contains('month ago').should('be.visible')
+        cy.get('[data-attr="experiment-start-date"]')
+            .contains(/months? ago/)
+            .should('be.visible')
 
         cy.reload()
 
         // Check that the start date persists
-        cy.get('[data-attr="experiment-start-date"]').contains('month ago').should('be.visible')
+        cy.get('[data-attr="experiment-start-date"]')
+            .contains(/months? ago/)
+            .should('be.visible')
     })
 })

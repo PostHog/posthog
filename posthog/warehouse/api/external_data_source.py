@@ -2,6 +2,7 @@ import uuid
 from typing import Any
 
 from psycopg2 import OperationalError
+from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -42,6 +43,7 @@ PostgresErrors = {
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
+    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
 }
 
 
@@ -438,11 +440,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except OperationalError as e:
                 exposed_error = self._expose_postgres_error(e)
 
+                if exposed_error is None:
+                    capture_exception(e)
+
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or GenericPostgresError},
                 )
             except Exception as e:
+                capture_exception(e)
                 logger.exception("Could not fetch Postgres schemas", exc_info=e)
 
                 return Response(

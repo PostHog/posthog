@@ -1,6 +1,6 @@
-import random
 from datetime import timedelta
 from time import sleep
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -71,19 +71,20 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
-    def test_materialized_column_naming(self):
-        random.seed(0)
-
+    @patch("secrets.choice", return_value="X")
+    def test_materialized_column_naming(self, mock_choice):
         materialize("events", "$foO();--sqlinject", create_minmax_index=True)
+        mock_choice.return_value = "Y"
         materialize("events", "$foO();ääsqlinject", create_minmax_index=True)
+        mock_choice.return_value = "Z"
         materialize("events", "$foO_____sqlinject", create_minmax_index=True)
         materialize("person", "SoMePrOp", create_minmax_index=True)
 
         self.assertDictContainsSubset(
             {
                 ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
-                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_yWAc",
-                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_qGFz",
+                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
+                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
             },
             get_materialized_columns("events"),
         )

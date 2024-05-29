@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,7 +14,7 @@ describe('activationLogic', () => {
         initKeaTests()
         logic = activationLogic()
         logic.mount()
-        await expectLogic(logic).toMount([inviteLogic, membersLogic, teamLogic, pluginsLogic])
+        await expectLogic(logic).toMount([inviteLogic, membersLogic, teamLogic])
     })
 
     afterEach(() => logic.unmount())

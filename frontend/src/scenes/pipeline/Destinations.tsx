@@ -13,7 +13,7 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
@@ -44,7 +44,6 @@ export function Destinations(): JSX.Element {
 
 export function DestinationsTable({ inOverview = false }: { inOverview?: boolean }): JSX.Element {
     const { loading, destinations } = useValues(pipelineDestinationsLogic)
-
     const data = inOverview ? destinations.filter((destination) => destination.enabled) : destinations
 
     return (
@@ -153,7 +152,7 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
+    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineAccessLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (

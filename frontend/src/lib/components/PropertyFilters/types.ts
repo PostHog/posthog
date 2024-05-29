@@ -6,7 +6,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
@@ -40,7 +40,7 @@ export interface PropertyFilterInternalProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null
