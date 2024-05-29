@@ -36,11 +36,21 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         productWithFeature: [
             (s) => [s.billing],
             (billing) => {
-                // check addons first since their features are rolled up into the parent
+                // There are some features where we want to check the product first
+                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
+
+                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = undefined
+
+                if (checkProductFirst.includes(props.featureKey)) {
+                    foundProduct = billing?.products?.find((product) =>
+                        product.features?.some((f) => f.key === props.featureKey)
+                    )
+                }
+
+                // Check addons first if no included in the check list about since their features are rolled up into the parent
                 const allAddons = billing?.products?.map((product) => product.addons).flat() || []
-                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = allAddons.find(
-                    (addon) => addon.features?.some((f) => f.key === props.featureKey)
-                )
+                foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.featureKey))
+
                 if (!foundProduct) {
                     foundProduct = billing?.products?.find((product) =>
                         product.features?.some((f) => f.key === props.featureKey)
