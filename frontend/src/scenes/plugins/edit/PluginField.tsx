@@ -121,7 +121,7 @@ function JsonConfigField(props: {
         <AutoSizer disableWidth className="min-h-60">
             {({ height }) => (
                 <CodeEditor
-                    className="border rounded overflow-hidden"
+                    className="border rounded"
                     language="json"
                     value={props.value}
                     onChange={(v) => props.onChange?.(v ?? '')}
