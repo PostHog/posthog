@@ -477,8 +477,8 @@ devDependencies:
     specifier: ^4.1.1
     version: 4.1.1
   '@types/jest':
-    specifier: ^29.2.3
-    version: 29.2.4
+    specifier: ^29.5.12
+    version: 29.5.12
   '@types/jest-image-snapshot':
     specifier: ^6.1.0
     version: 6.1.0
@@ -8106,13 +8106,13 @@ packages:
   /@types/jest-image-snapshot@6.1.0:
     resolution: {integrity: sha512-wYayjKQGdI0ZbmsAq7OPt+5wMMi1CDXXkF3LfoGj4eRC0dOqlYJdXqLwfC89Qf2apQdlL9StgCkw0iTDb8lpUw==}
     dependencies:
-      '@types/jest': 29.2.4
+      '@types/jest': 29.5.12
       '@types/pixelmatch': 5.2.4
       ssim.js: 3.5.0
     dev: true
 
-  /@types/jest@29.2.4:
-    resolution: {integrity: sha512-PipFB04k2qTRPePduVLTRiPzQfvMeLwUN3Z21hsAKaB/W9IIzgB2pizCL466ftJlcyZqnHoC9ZHpxLGl3fS86A==}
+  /@types/jest@29.5.12:
+    resolution: {integrity: sha512-eDC8bTvT/QhYdxJAulQikueigY5AsdBRH2yDKW3yveW7svY3+DzN84/2NUgkw10RTiJbWqZrTtoGVdYlvFJdLw==}
     dependencies:
       expect: 29.3.1
       pretty-format: 29.3.1
@@ -8384,7 +8384,7 @@ packages:
   /@types/testing-library__jest-dom@5.14.5:
     resolution: {integrity: sha512-SBwbxYoyPIvxHbeHxTZX2Pe/74F/tX2/D3mMvzabdeJ25bBojfW0TyB8BHrbq/9zaaKICJZjLP+8r6AeZMFCuQ==}
     dependencies:
-      '@types/jest': 29.2.4
+      '@types/jest': 29.5.12
     dev: true
 
   /@types/throttle-debounce@2.1.0:

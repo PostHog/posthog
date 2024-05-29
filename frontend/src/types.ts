@@ -3946,13 +3946,32 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
-export interface SourceFieldConfig {
+export interface SourceFieldInputConfig {
+    type: LemonInputProps['type'] | 'textarea'
     name: string
     label: string
-    type: LemonInputProps['type']
     required: boolean
     placeholder: string
 }
+
+export interface SourceFieldSelectConfig {
+    type: 'select'
+    name: string
+    label: string
+    required: boolean
+    defaultValue: string
+    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+}
+
+export interface SourceFieldSwitchGroupConfig {
+    type: 'switch-group'
+    name: string
+    label: string
+    default: string | number | boolean
+    fields: SourceFieldConfig[]
+}
+
+export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
