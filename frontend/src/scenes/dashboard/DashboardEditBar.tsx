@@ -15,6 +15,7 @@ export function DashboardEditBar(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const isEditInProgress: boolean = canEditDashboard && stale
+    const disabledReason = !canEditDashboard ? "You don't have permission to edit this dashboard" : undefined
 
     return (
         <Popover
@@ -49,7 +50,7 @@ export function DashboardEditBar(): JSX.Element {
                     dateFrom={temporaryFilters.date_from}
                     dateTo={temporaryFilters.date_to}
                     onChange={setDates}
-                    disabled={!canEditDashboard}
+                    disabledReason={disabledReason}
                     makeLabel={(key) => (
                         <>
                             <IconCalendar />
@@ -58,7 +59,7 @@ export function DashboardEditBar(): JSX.Element {
                     )}
                 />
                 <PropertyFilters
-                    disabled={!canEditDashboard}
+                    disabledReason={disabledReason}
                     onChange={setProperties}
                     pageKey={'dashboard_' + dashboard?.id}
                     propertyFilters={temporaryFilters.properties}
