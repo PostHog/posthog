@@ -7,6 +7,7 @@ import { PropertyFilterType, ResourceFilterType } from '~/types'
 export function PropertyFilterIcon({ type }: { type?: PropertyFilterType | ResourceFilterType }): JSX.Element {
     let iconElement = <></>
     switch (type) {
+        case 'events':
         case 'event':
             iconElement = (
                 <Tooltip title="Event property">
