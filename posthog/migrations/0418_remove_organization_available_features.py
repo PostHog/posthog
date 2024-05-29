@@ -9,8 +9,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="organization",
-            name="available_features",
-        ),
+        migrations.RunSQL(
+            "ALTER TABLE posthog_organization  DROP COLUMN available_features CASCADE -- drop-column-ignore"
+        )
     ]
