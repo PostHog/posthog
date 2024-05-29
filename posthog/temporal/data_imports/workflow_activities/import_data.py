@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+from typing import Any
 import uuid
 
 from dlt.common.schema.typing import TSchemaTables
@@ -19,8 +20,9 @@ from posthog.warehouse.models import (
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 import asyncio
 from django.utils import timezone
-
+from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
 
 @dataclasses.dataclass
@@ -82,6 +84,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             start_date=start_date,
             end_date=end_date,
         )
+
+        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
@@ -99,6 +103,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             refresh_token=refresh_token,
             endpoints=tuple(endpoints),
         )
+
+        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.postgres import postgres_source
 
@@ -108,6 +114,44 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         password = model.pipeline.job_inputs.get("password")
         database = model.pipeline.job_inputs.get("database")
         pg_schema = model.pipeline.job_inputs.get("schema")
+
+        using_ssh_tunnel = str(model.pipeline.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
+        ssh_tunnel_host = model.pipeline.job_inputs.get("ssh_tunnel_host")
+        ssh_tunnel_port = model.pipeline.job_inputs.get("ssh_tunnel_port")
+        ssh_tunnel_auth_type = model.pipeline.job_inputs.get("ssh_tunnel_auth_type")
+        ssh_tunnel_auth_type_username = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_username")
+        ssh_tunnel_auth_type_password = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_password")
+        ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
+        ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
+
+        ssh_tunnel = SSHTunnel(
+            enabled=using_ssh_tunnel,
+            host=ssh_tunnel_host,
+            port=ssh_tunnel_port,
+            auth_type=ssh_tunnel_auth_type,
+            username=ssh_tunnel_auth_type_username,
+            password=ssh_tunnel_auth_type_password,
+            passphrase=ssh_tunnel_auth_type_passphrase,
+            private_key=ssh_tunnel_auth_type_private_key,
+        )
+
+        if ssh_tunnel.enabled:
+            with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+                if tunnel is None:
+                    raise Exception("Can't open tunnel to SSH server")
+
+                source = postgres_source(
+                    host=tunnel.local_bind_host,
+                    port=tunnel.local_bind_port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    sslmode="prefer",
+                    schema=pg_schema,
+                    table_names=endpoints,
+                )
+
+                return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
 
         source = postgres_source(
             host=host,
@@ -119,6 +163,9 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             schema=pg_schema,
             table_names=endpoints,
         )
+
+        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
@@ -135,9 +182,19 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         # data_talk = zendesk_talk()
 
         source = data_support
+
+        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
+
+async def _run(
+    job_inputs: PipelineInputs,
+    source: Any,
+    logger: FilteringBoundLogger,
+    inputs: ImportDataActivityInputs,
+    schema: ExternalDataSchema,
+) -> tuple[TSchemaTables, dict[str, int]]:
     # Temp background heartbeat for now
     async def heartbeat() -> None:
         while True:

@@ -53,6 +53,12 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     selectors({
+        settingId: [
+            () => [(_, props) => props],
+            (props): SettingId | null => {
+                return props.settingId || null
+            },
+        ],
         sections: [
             (s) => [s.featureFlags],
             (featureFlags): SettingSection[] => {
@@ -66,16 +72,27 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags, s.hasAvailableFeature],
-            (selectedLevel, selectedSectionId, sections, featureFlags, hasAvailableFeature): Setting[] => {
+            (s) => [
+                s.selectedLevel,
+                s.selectedSectionId,
+                s.sections,
+                s.settingId,
+                s.featureFlags,
+                s.hasAvailableFeature,
+            ],
+            (selectedLevel, selectedSectionId, sections, settingId, featureFlags, hasAvailableFeature): Setting[] => {
                 let settings: Setting[] = []
 
-                if (!selectedSectionId) {
+                if (selectedSectionId) {
+                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                } else {
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
                         .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
-                } else {
-                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                }
+
+                if (settingId) {
+                    return settings.filter((x) => x.id === settingId)
                 }
 
                 return settings.filter((x) => {
