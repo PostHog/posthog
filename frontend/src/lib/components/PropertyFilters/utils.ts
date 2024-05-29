@@ -330,7 +330,9 @@ export function propertyFilterTypeToPropertyDefinitionType(
         : PropertyDefinitionType.Event
 }
 
-export function taxonomicFilterTypeToFilterType(filterType?: TaxonomicFilterGroupType): PropertyFilterType | undefined {
+export function taxonomicFilterTypeToPropertyFilterType(
+    filterType?: TaxonomicFilterGroupType
+): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
     }

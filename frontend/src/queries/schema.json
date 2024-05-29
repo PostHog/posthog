@@ -279,7 +279,10 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationFilter"
+                    "$ref": "#/definitions/RecordingDurationPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RecordingEventPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -2565,6 +2568,10 @@
         "Day": {
             "type": "integer"
         },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
+        },
         "ElementPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -2728,6 +2735,9 @@
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
             "properties": {
+                "eventKey": {
+                    "type": "string"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -6826,9 +6836,12 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationFilter": {
+        "RecordingDurationPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "durationType": {
+                    "$ref": "#/definitions/DurationType"
+                },
                 "key": {
                     "const": "duration",
                     "type": "string"
@@ -6847,7 +6860,34 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["durationType", "key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "RecordingEventPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "event",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "properties", "type"],
             "type": "object"
         },
         "RetentionEntity": {

@@ -6,7 +6,7 @@ import {
     propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
-    taxonomicFilterTypeToFilterType,
+    taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -94,7 +94,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
-            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToFilterType(taxonomicGroup.type)
+            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
                     const cohortProperty: CohortPropertyFilter = {
