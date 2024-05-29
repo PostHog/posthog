@@ -60,7 +60,10 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
     }
 }
 
-function sanitizeFilters(filters: FilterType): PluginConfigTypeNew['filters'] {
+function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
+    if (!filters) {
+        return null
+    }
     const sanitized: PluginConfigFilters = {}
 
     if (filters.events) {
