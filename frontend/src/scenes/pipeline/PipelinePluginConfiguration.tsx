@@ -5,6 +5,7 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
@@ -177,37 +178,47 @@ export function PipelinePluginConfiguration({
 
                         {pluginFilteringEnabled ? (
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filter by events and actions">
+                                <LemonField name="filters" label="Filters by events and actions">
                                     {({ value, onChange }) => (
-                                        <ActionFilter
-                                            bordered
-                                            filters={value ?? {}}
-                                            setFilters={(payload) => {
-                                                onChange(payload)
-                                            }}
-                                            typeKey="plugin-filters"
-                                            mathAvailability={MathAvailability.None}
-                                            hideRename
-                                            hideDuplicate
-                                            showNestedArrow={false}
-                                            actionsTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.Events,
-                                                TaxonomicFilterGroupType.Actions,
-                                            ]}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                TaxonomicFilterGroupType.Elements,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                            ]}
-                                            propertyFiltersPopover
-                                            addFilterDefaultOptions={{
-                                                id: '$pageview',
-                                                name: '$pageview',
-                                                type: EntityTypes.EVENTS,
-                                            }}
-                                            buttonCopy="Add event filter"
-                                        />
+                                        <>
+                                            <TestAccountFilterSwitch
+                                                checked={value?.filter_test_accounts ?? false}
+                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
+                                                fullWidth
+                                            />
+                                            <ActionFilter
+                                                bordered
+                                                filters={value ?? {}}
+                                                setFilters={(payload) => {
+                                                    onChange({
+                                                        ...payload,
+                                                        filter_test_accounts: value?.filter_test_accounts,
+                                                    })
+                                                }}
+                                                typeKey="plugin-filters"
+                                                mathAvailability={MathAvailability.None}
+                                                hideRename
+                                                hideDuplicate
+                                                showNestedArrow={false}
+                                                actionsTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.Events,
+                                                    TaxonomicFilterGroupType.Actions,
+                                                ]}
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                ]}
+                                                propertyFiltersPopover
+                                                addFilterDefaultOptions={{
+                                                    id: '$pageview',
+                                                    name: '$pageview',
+                                                    type: EntityTypes.EVENTS,
+                                                }}
+                                                buttonCopy="Add event filter"
+                                            />
+                                        </>
                                     )}
                                 </LemonField>
 

@@ -57,7 +57,7 @@ describe('ActionMatcher', () => {
         ;[hub, closeServer] = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         actionCounter = 0
     })
 
@@ -1337,6 +1337,20 @@ describe('ActionMatcher', () => {
 })
 
 describe('ActionMatcher.checkFilters', () => {
+    const mockTeamManager = {
+        fetchTeam: jest.fn(() =>
+            Promise.resolve({
+                test_account_filters: [
+                    {
+                        key: '$host',
+                        type: 'event',
+                        value: '^(localhost|127\\.0\\.0\\.1)($|:)',
+                        operator: 'not_regex',
+                    },
+                ],
+            })
+        ),
+    }
     const mockActionManager = {
         getTeamActions: jest.fn(
             (): Record<number, Partial<Action>> => ({
@@ -1362,10 +1376,11 @@ describe('ActionMatcher.checkFilters', () => {
             })
         ),
     }
-    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any)
+    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any, mockTeamManager as any)
 
-    const createFilters = (
-        partials: Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[]
+    const f = (
+        partials: Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[],
+        filterTestAccounts = false
     ): PluginConfigFilters => {
         const events = partials
             .filter((x) => !x.type || x.type === 'events')
@@ -1388,21 +1403,20 @@ describe('ActionMatcher.checkFilters', () => {
                 properties: [],
                 ...x,
             })),
+            filter_test_accounts: filterTestAccounts,
         }
     }
 
-    const testCases: [
-        Partial<PostIngestionEvent>,
-        Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[],
-        boolean
-    ][] = [
-        [{ event: '$pageview' }, [{ name: null }], true],
-        [{ event: '$pageview' }, [{ name: '$pageview' }], true],
-        [{ event: '$not-pageview' }, [{ name: '$pageview' }], false],
-        [{ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }, [{ name: '$pageview' }], true],
+    const testCases: [Partial<PostIngestionEvent>, PluginConfigFilters, boolean][] = [
+        // No filters should be true
+        [{ event: '$pageview' }, f([]), true],
+        [{ event: '$pageview' }, f([{ name: null }]), true],
+        [{ event: '$pageview' }, f([{ name: '$pageview' }]), true],
+        [{ event: '$not-pageview' }, f([{ name: '$pageview' }]), false],
+        [{ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }, f([{ name: '$pageview' }]), true],
         [
             { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            [
+            f([
                 {
                     name: '$pageview',
                     properties: [
@@ -1414,12 +1428,12 @@ describe('ActionMatcher.checkFilters', () => {
                         },
                     ],
                 },
-            ],
+            ]),
             true,
         ],
         [
             { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            [
+            f([
                 {
                     name: '$pageview',
                     properties: [
@@ -1431,12 +1445,12 @@ describe('ActionMatcher.checkFilters', () => {
                         },
                     ],
                 },
-            ],
+            ]),
             true,
         ],
         [
             { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            [
+            f([
                 {
                     name: '$pageview',
                     properties: [
@@ -1448,12 +1462,12 @@ describe('ActionMatcher.checkFilters', () => {
                         },
                     ],
                 },
-            ],
+            ]),
             false,
         ],
         [
             { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            [
+            f([
                 {
                     name: '$pageview',
                     properties: [
@@ -1465,15 +1479,15 @@ describe('ActionMatcher.checkFilters', () => {
                         },
                     ],
                 },
-            ],
+            ]),
             true,
         ],
 
-        [{ event: '$pageview' }, [{ type: 'actions', id: '1' }], true],
-        [{ event: '$not-pageview' }, [{ type: 'actions', id: '1' }], false],
+        [{ event: '$pageview' }, f([{ type: 'actions', id: '1' }]), true],
+        [{ event: '$not-pageview' }, f([{ type: 'actions', id: '1' }]), false],
         [
             { event: '$pageview' },
-            [
+            f([
                 {
                     type: 'actions',
                     id: '1',
@@ -1486,15 +1500,17 @@ describe('ActionMatcher.checkFilters', () => {
                         },
                     ],
                 },
-            ],
+            ]),
             false,
         ],
-        [{ event: '$not-pageview' }, [{ type: 'actions', id: '1' }, { name: '$not-pageview' }], true],
+        [{ event: '$not-pageview' }, f([{ type: 'actions', id: '1' }, { name: '$not-pageview' }]), true],
+        // test internal filters
+        [{ event: '$pageview', properties: { $host: 'localhost:8000' } }, f([], true), false],
+        [{ event: '$pageview', properties: { $host: 'posthog.com' } }, f([], true), true],
     ]
 
-    it.each(testCases)('should correctly match filters %o %o', async (partialEvent, partialFilters, expectation) => {
+    it.each(testCases)('should correctly match filters %o %o', async (partialEvent, filters, expectation) => {
         const event = createTestEvent(partialEvent)
-        const filters = createFilters(partialFilters)
 
         expect(await actionMatcher.checkFilters(event, filters)).toEqual(expectation)
     })

@@ -277,7 +277,7 @@ describe('runComposeWebhook', () => {
                 queueMetric: jest.fn(),
                 queueError: jest.fn(),
             } as any,
-            actionMatcher: new ActionMatcher(mockPostgres, mockActionManager),
+            actionMatcher: new ActionMatcher(mockPostgres, mockActionManager, {} as any),
         }
     })
 
