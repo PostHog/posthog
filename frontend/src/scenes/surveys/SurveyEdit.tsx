@@ -22,6 +22,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -80,6 +81,15 @@ export default function SurveyEdit(): JSX.Element {
         }
         setSurveyValue('appearance', updatedAppearance)
     }
+
+    const initialContentType = survey.appearance.thankYouMessageDescriptionContentType === 'html'
+
+    // TODO I know I shouldn't use this, but I'm not sure of the kea way to handle this, since
+    // it's not just that I'm changing state variables, but I'm also changing the value of the
+    // form field, and I'm not sure how to make sure I'm handling that correctly.
+    useEffect(() => {
+        setWritingHTMLDescription(initialContentType)
+    }, [survey.appearance.thankYouMessageDescriptionContentType, setWritingHTMLDescription])
 
     return (
         <div className="flex flex-row gap-4">
