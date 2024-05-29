@@ -4,8 +4,8 @@ import { LemonButton, LemonFileInput, LemonInput, LemonSelect } from '@posthog/l
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
-import { IDisposable, languages } from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { languages } from 'monaco-editor'
+import { useEffect, useMemo, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 
@@ -60,13 +60,6 @@ function JsonConfigField(props: {
     autoFocus: boolean
     value: any
 }): JSX.Element {
-    const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
-        return () => {
-            monacoDisposables.current.forEach((d) => d?.dispose())
-        }
-    }, [])
-
     const suggestions = useAutocompleteOptions()
     const [monaco, setMonaco] = useState<Monaco>()
 
@@ -119,7 +112,7 @@ function JsonConfigField(props: {
             },
         })
 
-        monacoDisposables.current.push(provider)
+        return () => provider.dispose()
     }, [suggestions, monaco])
 
     // TODO: Add auto complete suggestions to the editor
