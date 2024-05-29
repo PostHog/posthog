@@ -153,6 +153,31 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
+        daysRemaining: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(dayjs(), 'days')
+                },
+            },
+        ],
+        daysTotal: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(
+                        billing.billing_period.current_period_start,
+                        'days'
+                    )
+                },
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
@@ -213,8 +238,9 @@ export const billingLogic = kea<billingLogicType>([
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
-                                    error.detail ||
-                                    `We encountered a problem. Please try again or submit a support ticket.`,
+                                    typeof error.detail === 'string'
+                                        ? error.detail
+                                        : `We encountered a problem. Please try again or submit a support ticket.`,
                             } as UnsubscribeError)
                         }
                         console.error(error)

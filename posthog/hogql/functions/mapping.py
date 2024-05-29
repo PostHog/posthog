@@ -158,6 +158,24 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "xor": HogQLFunctionMeta("xor", 2, None),
     "not": HogQLFunctionMeta("not", 1, 1, case_sensitive=False),
     # type conversions
+    "hex": HogQLFunctionMeta("hex", 1, 1),
+    "unhex": HogQLFunctionMeta("unhex", 1, 1),
+    # instead of just "reinterpret" we use specific list of "reinterpretAs*"" functions
+    # that we know are safe to use to minimize the security risk
+    "reinterpretAsUInt8": HogQLFunctionMeta("reinterpretAsUInt8", 1, 1),
+    "reinterpretAsUInt16": HogQLFunctionMeta("reinterpretAsUInt16", 1, 1),
+    "reinterpretAsUInt32": HogQLFunctionMeta("reinterpretAsUInt32", 1, 1),
+    "reinterpretAsUInt64": HogQLFunctionMeta("reinterpretAsUInt64", 1, 1),
+    "reinterpretAsUInt128": HogQLFunctionMeta("reinterpretAsUInt128", 1, 1),
+    "reinterpretAsUInt256": HogQLFunctionMeta("reinterpretAsUInt256", 1, 1),
+    "reinterpretAsInt8": HogQLFunctionMeta("reinterpretAsInt8", 1, 1),
+    "reinterpretAsInt16": HogQLFunctionMeta("reinterpretAsInt16", 1, 1),
+    "reinterpretAsInt32": HogQLFunctionMeta("reinterpretAsInt32", 1, 1),
+    "reinterpretAsInt64": HogQLFunctionMeta("reinterpretAsInt64", 1, 1),
+    "reinterpretAsInt128": HogQLFunctionMeta("reinterpretAsInt128", 1, 1),
+    "reinterpretAsInt256": HogQLFunctionMeta("reinterpretAsInt256", 1, 1),
+    "reinterpretAsFloat32": HogQLFunctionMeta("reinterpretAsFloat32", 1, 1),
+    "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
@@ -264,6 +282,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toIntervalQuarter": HogQLFunctionMeta("toIntervalQuarter", 1, 1),
     "toIntervalYear": HogQLFunctionMeta("toIntervalYear", 1, 1),
     # strings
+    "left": HogQLFunctionMeta("left", 2, 2),
+    "right": HogQLFunctionMeta("right", 2, 2),
     "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
     "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),

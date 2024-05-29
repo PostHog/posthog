@@ -3,6 +3,7 @@ from typing import Optional
 from collections.abc import Callable
 from unittest.mock import call, patch
 
+from django.test import override_settings
 import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -129,6 +130,9 @@ def test_fetch_states_in_need_of_updating(team: Team, user: User, params, expect
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
+@override_settings(
+    HOGQL_INSIGHTS_OVERRIDE=False  # get_safe_cache is too low-level for HogQL, which serializes differently
+)
 def test_update_cache(team: Team, user: User, cache):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
 
@@ -166,9 +170,11 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
 @patch("posthog.caching.insight_cache.update_cache_task")
-@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight", side_effect=Exception())
+@patch("posthog.caching.insight_cache.process_query_dict", side_effect=Exception())  # HogQL branch
+@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight", side_effect=Exception())  # Legacy branch
 def test_update_cache_when_calculation_fails(
     spy_calculate_for_filter_based_insight,
+    spy_process_query_dict,
     spy_update_cache_task,
     team: Team,
     user: User,

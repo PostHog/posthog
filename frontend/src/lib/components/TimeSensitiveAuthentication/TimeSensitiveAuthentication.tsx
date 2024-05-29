@@ -1,17 +1,25 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useEffect } from 'react'
 
-import { SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
+import { SocialLoginButtons, SSOEnforcedLoginButton } from '../SocialLoginButton/SocialLoginButton'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
-    const { showAuthenticationModal, isReauthenticationSubmitting, twoFactorRequired, user } = useValues(
-        timeSensitiveAuthenticationLogic
-    )
+    const {
+        showAuthenticationModal,
+        isReauthenticationSubmitting,
+        twoFactorRequired,
+        user,
+        precheckResponse,
+        precheckResponseLoading,
+    } = useValues(timeSensitiveAuthenticationLogic)
     const { submitReauthentication, setDismissedReauthentication } = useActions(timeSensitiveAuthenticationLogic)
+
+    const ssoEnforcement = precheckResponse?.sso_enforcement
+    const showPassword = !ssoEnforcement && user?.has_password
 
     return (
         <LemonModal
@@ -20,7 +28,11 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             onClose={() => setDismissedReauthentication(true)}
             maxWidth="30rem"
             footer={
-                user?.has_password ? (
+                ssoEnforcement ? (
+                    <span className="flex-1">
+                        <SSOEnforcedLoginButton provider={ssoEnforcement} email={user!.email} size="medium" />
+                    </span>
+                ) : showPassword ? (
                     <LemonButton
                         type="primary"
                         form="reauthentication"
@@ -34,7 +46,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         >
             <p>You are accessing a sensitive part of PostHog. For your security we require you to re-authenticate.</p>
 
-            {user?.has_password ? (
+            {showPassword ? (
                 <Form
                     logic={timeSensitiveAuthenticationLogic}
                     formKey="reauthentication"
@@ -67,15 +79,21 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 </Form>
             ) : null}
 
-            {user?.has_social_auth ? (
-                <SocialLoginButtons
-                    className="mt-4"
-                    caption={user.has_password ? 'Or re-authenticate with' : undefined}
-                    redirectQueryParams={{
-                        next: window.location.pathname,
-                    }}
-                />
+            {!ssoEnforcement ? (
+                <div className="space-y-2">
+                    <SocialLoginButtons
+                        className="mt-4"
+                        caption={showPassword ? 'Or re-authenticate with' : undefined}
+                        redirectQueryParams={{
+                            next: window.location.pathname,
+                        }}
+                    />
+                    {precheckResponse?.saml_available ? (
+                        <SSOEnforcedLoginButton provider="saml" email={user!.email} size="medium" />
+                    ) : null}
+                </div>
             ) : null}
+            {precheckResponseLoading && <SpinnerOverlay />}
         </LemonModal>
     )
 }

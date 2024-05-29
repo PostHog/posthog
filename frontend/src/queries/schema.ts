@@ -1,4 +1,5 @@
 import {
+    AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
     Breakdown,
@@ -13,7 +14,6 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntervalType,
@@ -54,6 +54,7 @@ export enum NodeKind {
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
+    HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
@@ -103,6 +104,7 @@ export type AnyDataNode =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -125,6 +127,7 @@ export type QuerySchema =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -172,6 +175,7 @@ export interface Node<R extends Record<string, any> = Record<string, any>> {
 
 export type AnyResponseType =
     | Record<string, any>
+    | HogQueryResponse
     | HogQLQueryResponse
     | HogQLMetadataResponse
     | HogQLAutocompleteResponse
@@ -197,6 +201,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -240,6 +245,17 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+}
+
+export interface HogQueryResponse {
+    results: any
+    bytecode?: any[]
+    stdout?: string
+}
+
+export interface HogQuery extends DataNode<HogQueryResponse> {
+    kind: NodeKind.HogQuery
+    code?: string
 }
 
 export interface HogQLNotice {
@@ -990,10 +1006,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    /** Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py. */
-    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
-    /** Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py. */
-    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?: AnyPersonScopeFilter[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -1055,8 +1071,8 @@ export interface SamplingRate {
 
 export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
-    dateFrom: string
-    dateTo: string
+    dateFrom?: string
+    dateTo?: string
 }
 export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
@@ -1317,6 +1333,7 @@ export interface DatabaseSchemaSource {
 
 export interface DatabaseSchemaField {
     name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string

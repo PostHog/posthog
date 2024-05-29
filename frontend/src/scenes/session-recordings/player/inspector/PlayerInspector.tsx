@@ -36,7 +36,11 @@ export function PlayerInspector({
             className={clsx('SessionRecordingPlayer__inspector')}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={isVerticallyStacked ? { height: desiredSize ?? undefined } : { width: desiredSize ?? undefined }}
+            style={
+                isVerticallyStacked
+                    ? { height: desiredSize ?? undefined, minHeight: 110 }
+                    : { width: desiredSize ?? undefined }
+            }
         >
             <Resizer
                 logicKey={logicKey}
