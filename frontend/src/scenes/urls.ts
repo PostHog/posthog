@@ -117,8 +117,14 @@ export const urls = {
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
-    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string =>
-        `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`,
+    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string => {
+        if (stage === PipelineStage.DataImport) {
+            // should match 'pipelineNodeDataWarehouseNew'
+            return `/pipeline/new/data-warehouse`
+        }
+
+        return `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`
+    },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (

@@ -4,10 +4,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import hubspotLogo from 'public/hubspot-logo.svg'
+import postgresLogo from 'public/postgres-logo.svg'
+import stripeLogo from 'public/stripe-logo.svg'
+import zendeskLogo from 'public/zendesk-logo.png'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExternalDataSourceSchema, ExternalDataStripeSource, ProductKey } from '~/types'
+import {
+    ExternalDataSourceSchema,
+    ExternalDataSourceType,
+    ExternalDataStripeSource,
+    PipelineInterval,
+    ProductKey,
+} from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -56,6 +66,12 @@ export function DataWarehouseSourcesTable(): JSX.Element {
             disableTableWhileLoading={false}
             columns={[
                 {
+                    width: 0,
+                    render: function RenderAppInfo(_, source) {
+                        return <RenderDataWarehouseSourceIcon type={source.source_type as ExternalDataSourceType} />
+                    },
+                },
+                {
                     title: 'Source Type',
                     key: 'name',
                     render: function RenderName(_, source) {
@@ -70,17 +86,10 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     },
                 },
                 {
-                    title: 'Status',
-                    key: 'status',
-                    render: function RenderStatus(_, source) {
-                        return <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
-                    },
-                },
-                {
                     title: 'Sync Frequency',
                     key: 'frequency',
                     render: function RenderFrequency() {
-                        return 'Every 24 hours'
+                        return 'day' as PipelineInterval
                     },
                 },
                 {
@@ -93,6 +102,13 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                         ) : (
                             'Never'
                         )
+                    },
+                },
+                {
+                    title: 'Status',
+                    key: 'status',
+                    render: function RenderStatus(_, source) {
+                        return <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                     },
                 },
                 {
@@ -160,6 +176,45 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                 noIndent: true,
             }}
         />
+    )
+}
+
+export function getDataWarehouseSourceUrl(service: ExternalDataSourceType): string {
+    return `https://posthog.com/docs/data-warehouse/setup#${service.toLowerCase()}`
+}
+
+export function RenderDataWarehouseSourceIcon({
+    type,
+    size = 'small',
+}: {
+    type: ExternalDataSourceType
+    size?: 'small' | 'medium'
+}): JSX.Element {
+    const icon = {
+        Stripe: stripeLogo,
+        Hubspot: hubspotLogo,
+        Zendesk: zendeskLogo,
+        Postgres: postgresLogo,
+    }[type]
+
+    const sizePx = size === 'small' ? 30 : 60
+
+    return (
+        <div className="flex items-center gap-4">
+            <Tooltip
+                title={
+                    <>
+                        {type}
+                        <br />
+                        Click to view docs
+                    </>
+                }
+            >
+                <Link to={getDataWarehouseSourceUrl(type)}>
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                </Link>
+            </Tooltip>
+        </div>
     )
 }
 

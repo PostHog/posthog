@@ -19,7 +19,7 @@ export function NewButton({ stage }: NewButtonProps): JSX.Element {
     return (
         <LemonButton
             data-attr={`new-${stage}`}
-            to={stage === PipelineStage.DataImport ? urls.pipelineNodeDataWarehouseNew() : urls.pipelineNodeNew(stage)}
+            to={urls.pipelineNodeNew(stage)}
             type="primary"
             icon={<IconPlusSmall />}
         >

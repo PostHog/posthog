@@ -3808,6 +3808,8 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
 
+export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
@@ -3815,7 +3817,7 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: 'hour' | 'day' | 'every 5 minutes'
+    interval: PipelineInterval
     created_at: string
     start_at: string | null
     end_at: string | null
