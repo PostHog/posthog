@@ -2464,7 +2464,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2482,7 +2482,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2500,7 +2500,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3367,7 +3367,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4027,7 +4027,7 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4062,8 +4062,9 @@ class QueryResponseAlternative(
             QueryResponseAlternative21,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
-            QueryResponseAlternative26,
+            QueryResponseAlternative24,
             QueryResponseAlternative27,
+            QueryResponseAlternative28,
         ]
     ]
 ):
@@ -4093,8 +4094,9 @@ class QueryResponseAlternative(
         QueryResponseAlternative21,
         QueryResponseAlternative22,
         QueryResponseAlternative23,
-        QueryResponseAlternative26,
+        QueryResponseAlternative24,
         QueryResponseAlternative27,
+        QueryResponseAlternative28,
     ]
 
 
