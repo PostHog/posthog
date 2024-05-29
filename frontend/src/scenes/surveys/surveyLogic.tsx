@@ -157,7 +157,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
-        setShowSurveyRepeatSchedule: (showSurveyRepeatSchedule: boolean) => ({ showSurveyRepeatSchedule }),
+
         setSchedule: (schedule: string) => ({ schedule }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
@@ -725,12 +725,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
-        showSurveyRepeatSchedule: [
-            false,
-            {
-                setShowSurveyRepeatSchedule: (_, { showSurveyRepeatSchedule }) => showSurveyRepeatSchedule,
-            },
-        ],
         schedule: [
             'once',
             {
@@ -751,6 +745,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: string) => schedule == 'recurring'],
         hasTargetingSet: [
             (s) => [s.survey],
             (survey: Survey): boolean => {

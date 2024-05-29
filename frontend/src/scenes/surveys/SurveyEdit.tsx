@@ -58,7 +58,6 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion,
         setSelectedSection,
         setFlagPropertyErrors,
-        setShowSurveyRepeatSchedule,
         setSchedule,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
@@ -67,12 +66,6 @@ export default function SurveyEdit(): JSX.Element {
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Subscribe to surveys for multiple questions'
-    // setSchedule(survey.iteration_frequency_days === 0 ? 'once' : 'recurring')
-    // setShowSurveyRepeatSchedule(
-    //     survey.iteration_frequency_days !== undefined &&
-    //         survey.iteration_frequency_days != null &&
-    //         survey.iteration_frequency_days > 0
-    // )
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -665,37 +658,31 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <>
                                     <h2> How often should we show this survey? </h2>
-                                    <LemonField name="schedule">
-                                        {({ onChange }) => {
-                                            return (
-                                                <LemonRadio
-                                                    value={schedule}
-                                                    onChange={(newValue) => {
-                                                        onChange(newValue)
-                                                        if (newValue === 'once') {
-                                                            setShowSurveyRepeatSchedule(false)
-                                                        } else {
-                                                            setShowSurveyRepeatSchedule(true)
-                                                        }
-                                                        setSchedule(newValue)
-                                                    }}
-                                                    options={[
-                                                        {
-                                                            value: 'once',
-                                                            label: 'Once',
-                                                            'data-attr': 'survey-iteration-frequency-days',
-                                                        },
-                                                        {
-                                                            value: 'recurring',
-                                                            label: 'Repeat on a Schedule',
-                                                            'data-attr': 'survey-iteration-frequency-days',
-                                                            disabledReason: surveysRecurringScheduleDisabledReason,
-                                                        },
-                                                    ]}
-                                                />
-                                            )
-                                        }}
-                                    </LemonField>
+                                    <LemonField.Pure>
+                                        <LemonRadio
+                                            value={schedule}
+                                            onChange={(newValue) => {
+                                                setSchedule(newValue)
+                                                if (newValue === 'once') {
+                                                    setSurveyValue('iteration_count', 0)
+                                                    setSurveyValue('iteration_frequency_days', 0)
+                                                }
+                                            }}
+                                            options={[
+                                                {
+                                                    value: 'once',
+                                                    label: 'Once',
+                                                    'data-attr': 'survey-iteration-frequency-days',
+                                                },
+                                                {
+                                                    value: 'recurring',
+                                                    label: 'Repeat on a Schedule',
+                                                    'data-attr': 'survey-iteration-frequency-days',
+                                                    disabledReason: surveysRecurringScheduleDisabledReason,
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField.Pure>
 
                                     {showSurveyRepeatSchedule && (
                                         <div className="flex flex-row gap-2 items-center">
