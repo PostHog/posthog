@@ -851,7 +851,7 @@ export type PathsFilterLegacy = Omit<
 
 export type PathsFilter = {
     /** @default 50 */
-    edgeLimit?: PathsFilterLegacy['edge_limit']
+    edgeLimit?: integer
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']
     startPoint?: PathsFilterLegacy['start_point']
@@ -859,7 +859,7 @@ export type PathsFilter = {
     pathGroupings?: PathsFilterLegacy['path_groupings']
     excludeEvents?: PathsFilterLegacy['exclude_events']
     /** @default 5 */
-    stepLimit?: PathsFilterLegacy['step_limit']
+    stepLimit?: integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']

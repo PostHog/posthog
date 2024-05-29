@@ -5178,7 +5178,7 @@
             "properties": {
                 "edgeLimit": {
                     "default": 50,
-                    "type": "number"
+                    "type": "integer"
                 },
                 "endPoint": {
                     "type": "string"
@@ -5236,7 +5236,7 @@
                 },
                 "stepLimit": {
                     "default": 5,
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"

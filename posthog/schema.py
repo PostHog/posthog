@@ -684,7 +684,7 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edgeLimit: Optional[float] = 50
+    edgeLimit: Optional[int] = 50
     endPoint: Optional[str] = None
     excludeEvents: Optional[list[str]] = None
     includeEventTypes: Optional[list[PathType]] = None
@@ -698,7 +698,7 @@ class PathsFilter(BaseModel):
     pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
-    stepLimit: Optional[float] = 5
+    stepLimit: Optional[int] = 5
 
 
 class PathsFilterLegacy(BaseModel):
