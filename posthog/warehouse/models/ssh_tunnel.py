@@ -1,8 +1,51 @@
 import dataclasses
 from io import StringIO
-from typing import Literal
+from typing import IO, Literal
 from sshtunnel import SSHTunnelForwarder
-from paramiko import RSAKey
+from paramiko import RSAKey, Ed25519Key, ECDSAKey, DSSKey, PKey
+from cryptography.hazmat.primitives import serialization as crypto_serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, dsa, rsa, ec
+
+
+# Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
+def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
+    private_key: PKey | None = None
+    file_bytes = bytes(file_obj.read(), "utf-8")
+    password = bytes(StringIO(passphrase).read(), "utf-8")
+    try:
+        key = crypto_serialization.load_ssh_private_key(  # type: ignore
+            file_bytes,
+            password=password,
+        )
+        file_obj.seek(0)
+    except ValueError:
+        key = crypto_serialization.load_pem_private_key(
+            file_bytes,
+            password=password,
+        )
+        if password:
+            encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
+        else:
+            encryption_algorithm = crypto_serialization.NoEncryption()
+        file_obj = StringIO(
+            key.private_bytes(
+                crypto_serialization.Encoding.PEM,
+                crypto_serialization.PrivateFormat.OpenSSH,
+                encryption_algorithm,
+            ).decode("utf-8")
+        )
+    if isinstance(key, rsa.RSAPrivateKey):
+        private_key = RSAKey.from_private_key(file_obj, passphrase)
+    elif isinstance(key, ed25519.Ed25519PrivateKey):
+        private_key = Ed25519Key.from_private_key(file_obj, passphrase)
+    elif isinstance(key, ec.EllipticCurvePrivateKey):
+        private_key = ECDSAKey.from_private_key(file_obj, passphrase)
+    elif isinstance(key, dsa.DSAPrivateKey):
+        private_key = DSSKey.from_private_key(file_obj, passphrase)
+    else:
+        raise TypeError
+
+    return private_key
 
 
 @dataclasses.dataclass
@@ -17,7 +60,7 @@ class SSHTunnel:
     private_key: str | None
     passphrase: str | None
 
-    def parse_private_key(self) -> RSAKey:
+    def parse_private_key(self) -> PKey:
         if self.passphrase is None:
             passphrase = None
         elif len(self.passphrase) == 0:
@@ -25,7 +68,7 @@ class SSHTunnel:
         else:
             passphrase = self.passphrase
 
-        return RSAKey.from_private_key(StringIO(self.private_key), passphrase)
+        return from_private_key(StringIO(self.private_key), passphrase)
 
     def is_auth_valid(self) -> tuple[bool, str]:
         if self.auth_type != "password" and self.auth_type != "keypair":
@@ -45,6 +88,7 @@ class SSHTunnel:
             try:
                 self.parse_private_key()
             except:
+                # TODO: More helpful error messages
                 return False, "Private key could not be parsed"
 
             return True, ""
