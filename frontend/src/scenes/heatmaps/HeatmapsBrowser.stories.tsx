@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-let topUrls: [string, number][]
+let topUrls: [string, number][] = []
 
 const meta: Meta = {
     title: 'Scenes-App/Heatmaps',
@@ -44,7 +44,6 @@ const meta: Meta = {
 export default meta
 
 export function HeatmapsBrowserNoPagesAvailable(): JSX.Element {
-    topUrls = []
     useEffect(() => {
         router.actions.push(urls.heatmaps())
     }, [])
@@ -58,6 +57,22 @@ export function HeatmapsBrowserNoPageSelected(): JSX.Element {
     ]
     useEffect(() => {
         router.actions.push(urls.heatmaps())
+    }, [])
+    return <App />
+}
+
+export function HeatmapsBrowserWithUnauthorizedPageSelected(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.heatmaps('pageURL=https://example.com'))
+    }, [])
+    return <App />
+}
+
+export function HeatmapsBrowserWithPageSelected(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(
+            urls.heatmaps('pageURL=https://posthog.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}')
+        )
     }, [])
     return <App />
 }
