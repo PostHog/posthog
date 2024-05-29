@@ -112,7 +112,7 @@ def join_with_persons_table(
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if organization
+        if organization and context.team
         else False
     )
     if use_inner_join:
