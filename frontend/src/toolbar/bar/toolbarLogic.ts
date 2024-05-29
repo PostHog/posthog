@@ -300,6 +300,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
             switch (type) {
                 case PostHogAppToolbarEvent.PH_APP_INIT:
                     actions.setIsEmbeddedInApp(true)
+                    actions.patchHeatmapFilters(e.data.payload.filters)
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
