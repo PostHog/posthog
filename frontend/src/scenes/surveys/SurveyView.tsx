@@ -226,8 +226,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         <div className="flex flex-col">
                                                             <span className="card-secondary mt-4">Schedule</span>
                                                             <span>
-                                                                Repeats every {survey.iteration_frequency_days} days,{' '}
-                                                                {survey.iteration_count} times
+                                                                Repeats every {survey.iteration_frequency_days}{' '}
+                                                                {pluralize(
+                                                                    survey.iteration_frequency_days,
+                                                                    'day',
+                                                                    'days',
+                                                                    false
+                                                                )}
+                                                                , {survey.iteration_count}{' '}
+                                                                {pluralize(
+                                                                    survey.iteration_count,
+                                                                    'times',
+                                                                    'times',
+                                                                    false
+                                                                )}
                                                             </span>
                                                         </div>
                                                     )}

@@ -1628,6 +1628,48 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert len(response_data["iteration_start_dates"]) == 2
         assert response_data["current_iteration"] == 1
 
+    def test_can_set_internal_targeting_flag(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+        survey.refresh_from_db()
+        assert survey.internal_targeting_flag
+        survey_id = response_data["id"]
+        user_submitted_dismissed_filter = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter
+
     @freeze_time("2024-05-22 14:40:09")
     def test_iterations_always_start_from_start_date(self):
         survey = self._create_recurring_survey()
@@ -1690,6 +1732,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
                 "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 0,
             },
         )
         response_data = response.json()

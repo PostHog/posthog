@@ -2,7 +2,7 @@ from posthog.models import Survey, Organization, Team, User, FeatureFlag
 from django.test import TestCase
 from datetime import timedelta, datetime
 from django.utils.timezone import now
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, snapshot_postgres_queries
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 
@@ -40,6 +40,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             key="internal-targeting-flag",
         )
 
+    @snapshot_postgres_queries
     def test_can_update_survey_iteration(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()

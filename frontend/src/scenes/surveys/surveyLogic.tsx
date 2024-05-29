@@ -100,6 +100,8 @@ export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
+export type ScheduleType = 'once' | 'recurring'
+
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
@@ -158,7 +160,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
 
-        setSchedule: (schedule: string) => ({ schedule }),
+        setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
@@ -584,8 +586,10 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
             actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
-            actions.setSurveyValue('iteration_count', NEW_SURVEY.iteration_count)
-            actions.setSurveyValue('iteration_frequency_days', NEW_SURVEY.iteration_frequency_days)
+            actions.setSurveyValues({
+                iteration_count: NEW_SURVEY.iteration_count,
+                iteration_frequency_days: NEW_SURVEY.iteration_frequency_days,
+            })
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -745,7 +749,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
-        showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: string) => schedule == 'recurring'],
+        showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
         hasTargetingSet: [
             (s) => [s.survey],
             (survey: Survey): boolean => {

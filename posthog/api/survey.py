@@ -264,36 +264,25 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        if instance.current_iteration is not None and instance.current_iteration > validated_data.get(
-            "iteration_count"
-        ):
+        iteration_count = validated_data.get("iteration_count")
+        if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
             raise serializers.ValidationError(
                 f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
             )
 
-        instance.iteration_count = validated_data.get("iteration_count")
+        instance.iteration_count = iteration_count
         instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
         instance = super().update(instance, validated_data)
-        # if "iteration_count" in validated_data and "iteration_frequency_days" in validated_data:
-        #     iteration_count = validated_data.get("iteration_count")
-        #
-        #     if instance.current_iteration is not None and instance.current_iteration > iteration_count:
-        #         raise serializers.ValidationError(
-        #             f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
-        #         )
-        #
-        #     instance.update_survey_iteration_count(iteration_count, validated_data.get("iteration_frequency_days"))
-        # else:
-        #     instance.iteration_start_dates = []
-        #     instance.current_iteration = None
-        #     instance.current_iteration_start_date = None
-        #     instance.save()
 
         self._add_user_survey_interacted_filters(instance, end_date)
         return instance
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
+        survey_key = f"{instance.id}"
+        if instance.iteration_count is not None and instance.iteration_count > 0:
+            survey_key = f"{instance.id}/{instance.current_iteration or 1}"
+
         user_submitted_dismissed_filter = {
             "groups": [
                 {
@@ -301,13 +290,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"$survey_dismissed/{instance.id}",
+                            "key": f"$survey_dismissed/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"$survey_responded/{instance.id}",
+                            "key": f"$survey_responded/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -443,6 +432,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = fields
 

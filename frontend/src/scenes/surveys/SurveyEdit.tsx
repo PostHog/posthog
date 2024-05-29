@@ -699,7 +699,6 @@ export default function SurveyEdit(): JSX.Element {
                                                             onChange={(newValue) => {
                                                                 if (newValue && newValue > 0) {
                                                                     onChange(newValue)
-                                                                    setSurveyValue('iteration_count', newValue)
                                                                 } else {
                                                                     onChange(null)
                                                                 }
@@ -722,7 +721,6 @@ export default function SurveyEdit(): JSX.Element {
                                                             onChange={(newValue) => {
                                                                 if (newValue && newValue > 0) {
                                                                     onChange(newValue)
-                                                                    setSurveyValue('iteration_frequency_days', newValue)
                                                                 } else {
                                                                     onChange(null)
                                                                 }

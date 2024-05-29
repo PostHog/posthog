@@ -28,6 +28,10 @@ const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
 }
 
+const recurringNPSInsightProps: InsightLogicProps = {
+    dashboardItemId: `new-survey-recurring-nps`,
+}
+
 const formatCount = (count: number, total: number): string => {
     if ((count / total) * 100 < 3) {
         return ''
@@ -288,7 +292,7 @@ export function NPSSurveyResultsBarChart({
                     <div className="text-xl font-bold mb-2">NPS Scores over time for "{question.question}"</div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
-                            <BindLogic logic={insightLogic} props={insightProps}>
+                            <BindLogic logic={insightLogic} props={recurringNPSInsightProps}>
                                 <LineGraph
                                     inSurveyView={true}
                                     hideYAxis={false}
