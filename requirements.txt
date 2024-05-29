@@ -685,7 +685,7 @@ wcwidth==0.2.6
     # via prompt-toolkit
 webdriver-manager==4.0.1
     # via -r requirements.in
-wheel==0.43.0
+wheel==0.42.0
     # via astunparse
 whitenoise==6.5.0
     # via -r requirements.in
