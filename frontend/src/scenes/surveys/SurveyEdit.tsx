@@ -4,6 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import {
     LemonButton,
     LemonCheckbox,
@@ -390,6 +391,15 @@ export default function SurveyEdit(): JSX.Element {
                             header: 'Targeting',
                             content: (
                                 <LemonField.Pure>
+                                    <EventSelect
+                            onChange={(excludedEvents) =>  console.log(`excludedEvents is `, excludedEvents)}
+                            selectedEvents={[]}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Add Event
+                                </LemonButton>
+                            }
+                        />
                                     <LemonSelect
                                         onChange={(value) => {
                                             if (value) {
