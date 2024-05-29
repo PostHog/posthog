@@ -61,7 +61,6 @@ posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" h
 posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "settings"  [union-attr]
 posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
-posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]

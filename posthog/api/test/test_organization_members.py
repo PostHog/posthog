@@ -1,5 +1,6 @@
-from rest_framework import status
 from unittest.mock import call, patch
+
+from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -189,7 +190,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_pass_ownership(self):
+    def test_add_another_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
@@ -203,16 +204,16 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(
             OrganizationMembership.objects.filter(
                 organization=self.organization, level=OrganizationMembership.Level.OWNER
             ).count(),
-            1,
+            2,
         )
 
-    def test_pass_ownership_only_if_owner(self):
+    def test_add_owner_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
@@ -230,7 +231,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             {
                 "attr": None,
                 "code": "permission_denied",
-                "detail": "You can only pass on organization ownership if you're its owner.",
+                "detail": "You can only make another member owner if you're this organization's owner.",
                 "type": "authentication_error",
             },
         )

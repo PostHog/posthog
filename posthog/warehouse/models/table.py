@@ -189,7 +189,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if column_type.startswith("Array("):
                 column_type = remove_named_tuples(column_type)
 
-            column_type = re.sub(r"\(.+?\)+", "", column_type)
+            column_type = re.sub(r"\(.+\)+", "", column_type)
 
             return column_type
 
@@ -250,7 +250,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 column_invalid = False
 
             if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"{column} {clickhouse_type}")
+                structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):

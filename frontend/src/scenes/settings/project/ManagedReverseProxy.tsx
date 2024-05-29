@@ -2,6 +2,7 @@ import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonMenu,
     LemonTable,
@@ -14,19 +15,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
-export function Proxy(): JSX.Element {
-    const { isCloudOrDev } = useValues(preflightLogic)
+const MAX_PROXY_RECORDS = 3
+
+export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
 
-    if (!isCloudOrDev) {
-        return <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
-    }
+    const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -75,7 +77,22 @@ export function Proxy(): JSX.Element {
                                 {
                                     label: 'Delete',
                                     status: 'danger',
-                                    onClick: () => deleteRecord(id),
+                                    onClick: () => {
+                                        LemonDialog.open({
+                                            title: 'Delete managed proxy',
+                                            width: '20rem',
+                                            content:
+                                                'Are you sure you want to delete this managed proxy? This cannot be undone and if it is in use then events sent to the domain will not be processed.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                onClick: () => deleteRecord(id),
+                                                children: 'Delete',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    },
                                 },
                             ]}
                         >
@@ -88,23 +105,31 @@ export function Proxy(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-2">
-            <LemonTable
-                loading={proxyRecords.length === 0 && proxyRecordsLoading}
-                columns={columns}
-                dataSource={proxyRecords}
-                expandable={{
-                    expandedRowRender: (record) => <ExpandedRow record={record} />,
-                }}
-            />
-            {formState === 'collapsed' ? (
-                <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                    Add domain
-                </LemonButton>
-            ) : (
-                <CreateRecordForm />
-            )}
-        </div>
+        <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
+            <div className="space-y-2">
+                <LemonTable
+                    loading={proxyRecords.length === 0 && proxyRecordsLoading}
+                    columns={columns}
+                    dataSource={proxyRecords}
+                    expandable={{
+                        expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    }}
+                />
+                {formState === 'collapsed' ? (
+                    maxRecordsReached ? (
+                        <LemonBanner type="info">
+                            There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
+                        </LemonBanner>
+                    ) : (
+                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
+                            New managed proxy
+                        </LemonButton>
+                    )
+                ) : (
+                    <CreateRecordForm />
+                )}
+            </div>
+        </PayGateMini>
     )
 }
 
