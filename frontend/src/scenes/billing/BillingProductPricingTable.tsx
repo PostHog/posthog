@@ -59,15 +59,25 @@ export const BillingProductPricingTable = ({
                                             usage: compactNumber(tier.current_usage),
                                             price: `$${tier.unit_amount_usd}`,
                                             total: `$${tier.current_amount_usd || '0.00'}`,
-                                            projectedTotal: `$${tier.projected_amount_usd || '0.00'}`,
+                                            projectedTotal: `$${parseFloat(
+                                                tier.projected_amount_usd === 'None'
+                                                    ? '0'
+                                                    : tier.projected_amount_usd || '0'
+                                            ).toFixed(2)}`,
                                         },
-                                        ...(subscribedAddons?.map((addon) => ({
-                                            productName: addon.name,
-                                            usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
-                                            price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
-                                            total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
-                                            projectedTotal: `$${addon.tiers?.[i]?.projected_amount_usd || '0.00'}`,
-                                        })) ?? []),
+                                        ...(subscribedAddons?.map((addon) => {
+                                            return {
+                                                productName: addon.name,
+                                                usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
+                                                price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
+                                                total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
+                                                projectedTotal: `$${parseFloat(
+                                                    addon.tiers?.[i]?.projected_amount_usd === 'None'
+                                                        ? '0'
+                                                        : addon.tiers?.[i]?.projected_amount_usd || '0'
+                                                ).toFixed(2)}`,
+                                            }
+                                        }) ?? []),
                                     ]
                                   : [],
                           columns: [
