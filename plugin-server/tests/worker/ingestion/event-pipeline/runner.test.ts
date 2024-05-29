@@ -121,6 +121,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'embedLogs',
                 'createEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
@@ -149,6 +150,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'embedLogs',
                 'createEventStep',
             ])
         })
