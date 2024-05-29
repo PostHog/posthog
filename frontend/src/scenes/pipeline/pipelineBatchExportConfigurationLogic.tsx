@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
@@ -238,6 +238,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         },
     })),
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.configurationChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadBatchExportConfig()
     }),

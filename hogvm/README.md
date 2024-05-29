@@ -77,7 +77,7 @@ def async_operation(*args):
         return db.queryInCohort(args[1], args[2])
     return False
 
-execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation)
+execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation).result
 ```
 
 ### Functions

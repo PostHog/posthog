@@ -130,7 +130,7 @@ class BillingManager:
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: dict[str, Any] = {"available_features": []}
+            response: dict[str, Any] = {"available_product_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -196,7 +196,7 @@ class BillingManager:
         else:
             products = self.get_default_products(organization)
             response = {
-                "available_features": [],
+                "available_product_features": [],
                 "products": products["products"],
             }
 
@@ -354,11 +354,6 @@ class BillingManager:
             if set_org_usage_summary(organization, new_usage=usage_info):
                 org_modified = True
                 sync_org_quota_limits(organization)
-
-        available_features = data.get("available_features", None)
-        if available_features and available_features != organization.available_features:
-            organization.available_features = data["available_features"]
-            org_modified = True
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:

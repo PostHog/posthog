@@ -960,7 +960,9 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+private@posthog.com", organization=self.organization
         )
 
-        self.organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+        ]
         self.organization.save()
         self.team.access_control = True
         self.team.save()

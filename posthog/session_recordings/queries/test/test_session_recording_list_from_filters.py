@@ -8,13 +8,10 @@ from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Cohort, GroupTypeMapping
+from posthog.models import Cohort, GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
@@ -23,6 +20,9 @@ from posthog.session_recordings.queries.session_recording_list_from_filters impo
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
+)
+from posthog.session_recordings.sql.session_replay_event_sql import (
+    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -717,7 +717,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2023-09-01T12:00:01Z"):
                 assert ttl_days(self.team) == 30
 
-            self.team.organization.available_features = [AvailableFeature.RECORDINGS_PLAYLISTS]
+            self.team.organization.available_product_features = [
+                {"key": AvailableFeature.RECORDINGS_PLAYLISTS, "name": AvailableFeature.RECORDINGS_PLAYLISTS}
+            ]
 
             # Far enough in the future from `days_since_blob_ingestion` but paid
             with freeze_time("2023-12-01T12:00:01Z"):

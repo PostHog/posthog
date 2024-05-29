@@ -157,7 +157,8 @@ export function SurveyDisplaySummary({
                     <div className="flex-row">
                         <span>Wait period after seeing survey:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">
-                            {survey.conditions.seenSurveyWaitPeriodInDays} days
+                            {survey.conditions.seenSurveyWaitPeriodInDays}{' '}
+                            {survey.conditions.seenSurveyWaitPeriodInDays === 1 ? 'day' : 'days'}
                         </span>
                     </div>
                 </div>

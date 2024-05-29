@@ -1,11 +1,11 @@
 from typing import Any, cast
 
+from rest_framework import serializers, viewsets
 from django.db.models import Count
-from rest_framework import request, serializers, viewsets
-from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.api.plugin import PluginConfigSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import (
@@ -38,6 +38,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
+    plugin_configs = PluginConfigSerializer(many=True, read_only=True)
 
     class Meta:
         model = Action
@@ -57,6 +58,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "team_id",
             "is_action",
             "bytecode_error",
+            "plugin_configs",
         ]
         read_only_fields = [
             "team_id",
@@ -103,6 +105,10 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
+        if validated_data.get("deleted"):
+            if instance.plugin_configs.count():
+                raise serializers.ValidationError("Actions with plugins cannot be deleted. Remove the plugin first.")
+
         instance = super().update(instance, validated_data)
 
         report_user_action(
@@ -134,11 +140,5 @@ class ActionViewSet(
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
+        queryset = queryset.prefetch_related("plugin_configs")
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
-
-    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.filter_queryset(self.get_queryset())
-        actions_list: list[dict[Any, Any]] = self.serializer_class(
-            actions, many=True, context={"request": request}
-        ).data  # type: ignore
-        return Response({"results": actions_list})

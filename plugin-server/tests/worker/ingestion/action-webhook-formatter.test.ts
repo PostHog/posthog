@@ -28,6 +28,21 @@ describe('ActionWebhookFormatter', () => {
         elementsList: [],
         properties: { $browser: 'Chrome' },
         timestamp: '2021-10-31T00%3A44%3A00.000Z' as ISOTimestamp,
+        groups: {
+            organization: {
+                index: 1,
+                type: 'organization',
+                key: '123',
+                properties: { name: 'PostHog', plan: 'paid' },
+            },
+
+            project: {
+                index: 2,
+                type: 'project',
+                key: '234',
+                properties: {},
+            },
+        },
     }
 
     const createFormatter = (options?: ActionWebhookFormatterOptions) => {
@@ -102,6 +117,11 @@ describe('ActionWebhookFormatter', () => {
                     },
                 },
             ],
+            [{ messageFormat: '[groups]' }],
+            [{ messageFormat: '[groups.missing]' }],
+            [{ messageFormat: '[groups.organization]' }],
+            [{ messageFormat: '[groups.organization.properties.plan]' }],
+            [{ messageFormat: '[groups.project]' }], // No-name one
         ]
 
         it.each(cases)('%s', (options) => {
