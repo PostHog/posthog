@@ -45,10 +45,6 @@ export class MessageFormatter {
             return this.getFormattedMessage(template)
         }
 
-        if (typeof template === 'object') {
-            return JSON.parse(this.getFormattedMessage(JSON.stringify(template)))
-        }
-
         return template
     }
 
