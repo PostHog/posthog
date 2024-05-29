@@ -280,15 +280,36 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // between the aftermount setting the loading state and the toolbar load cancelling it
                 actions.setLoading(false)
             }
+            if (searchParams.heatmapFilters) {
+                actions.patchHeatmapFilters(searchParams.heatmapFilters)
+            }
+            if (searchParams.heatmapPalette) {
+                actions.setHeatmapColorPalette(searchParams.heatmapPalette)
+            }
+            if (searchParams.heatmapFixedPositionMode) {
+                actions.setHeatmapFixedPositionMode(searchParams.heatmapFixedPositionMode as HeatmapFixedPositionMode)
+            }
         },
     })),
 
-    actionToUrl(() => ({
+    actionToUrl(({ values }) => ({
         setBrowserUrl: ({ url }) => {
             const searchParams = { ...router.values.searchParams, pageURL: url }
             if (!url || url.trim() === '') {
                 delete searchParams.pageURL
             }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        patchHeatmapFilters: () => {
+            const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setHeatmapColorPalette: ({ Palette }) => {
+            const searchParams = { ...router.values.searchParams, heatmapPalette: Palette }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setHeatmapFixedPositionMode: ({ mode }) => {
+            const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
