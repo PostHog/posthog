@@ -1,5 +1,6 @@
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -115,7 +116,25 @@ export function AggregationSelect({
                                     value={value}
                                     disablePersonProperties
                                     placeholder={
-                                        "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                        <div>
+                                            Enter HogQL expression, such as:
+                                            <ul className="list-disc ml-5">
+                                                <li className="pt-2">
+                                                    <CodeSnippet compact>distinct_id</CodeSnippet>
+                                                </li>
+                                                <li className="pt-2">
+                                                    <CodeSnippet compact>properties.$session_id</CodeSnippet>
+                                                </li>
+                                                <li className="pt-2">
+                                                    <CodeSnippet compact>
+                                                        concat(distinct_id, ' ', properties.$session_id)
+                                                    </CodeSnippet>
+                                                </li>
+                                                <li className="pt-2">
+                                                    <CodeSnippet compact>if(1 &lt; 2, 'one', 'two')</CodeSnippet>
+                                                </li>
+                                            </ul>
+                                        </div>
                                     }
                                 />
                             </div>

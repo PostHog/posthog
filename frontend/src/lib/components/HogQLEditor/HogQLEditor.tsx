@@ -1,11 +1,12 @@
 import { IconInfo } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 
 import { AnyDataNode } from '~/queries/schema'
 import { isActorsQuery } from '~/queries/utils'
@@ -20,7 +21,7 @@ export interface HogQLEditorProps {
     disableAutoFocus?: boolean
     disableCmdEnter?: boolean
     submitText?: string
-    placeholder?: string
+    placeholder?: string | React.ReactNode
 }
 let uniqueNode = 0
 
@@ -62,14 +63,67 @@ export function HogQLEditor({
                 placeholder="properties.$browser"
             />
             <div className="text-muted pt-2 text-xs">
-                <pre>
-                    {placeholder ??
-                        (metadataSource && isActorsQuery(metadataSource)
-                            ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
-                            : disablePersonProperties
-                            ? "Enter HogQL expression, such as:\n- properties.$current_url\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')"
-                            : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")}
-                </pre>
+                {placeholder ??
+                    (metadataSource && isActorsQuery(metadataSource) ? (
+                        <div>
+                            Enter HogQL expression, such as:
+                            <ul className="list-disc ml-5">
+                                <li className="pt-2">
+                                    <CodeSnippet compact>properties.$geoip_country_name</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>toInt(properties.$browser_version) * 10</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>
+                                        concat(properties.name, ' &lt;', properties.email, '&gt;')
+                                    </CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>is_identified ? 'user' : 'anon'</CodeSnippet>
+                                </li>
+                            </ul>
+                        </div>
+                    ) : disablePersonProperties ? (
+                        <div>
+                            Enter HogQL expression, such as:
+                            <ul className="list-disc ml-5">
+                                <li className="pt-2">
+                                    <CodeSnippet>properties.$current_url</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>toInt(properties.`Long Field Name`) * 10</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>concat(event, ' ', distinct_id)</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>if(1 &lt; 2, 'small', 'large')</CodeSnippet>
+                                </li>
+                            </ul>
+                        </div>
+                    ) : (
+                        <div>
+                            Enter HogQL Expression, such as:
+                            <ul className="list-disc ml-5">
+                                <li className="pt-2">
+                                    <CodeSnippet compact>properties.$current_url</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>person.properties.$geoip_country_name</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>toInt(properties.`Long Field Name`) * 10</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>concat(event, ' ', distinct_id)</CodeSnippet>
+                                </li>
+                                <li className="pt-2">
+                                    <CodeSnippet compact>if(1 &lt; 2, 'small', 'large')</CodeSnippet>
+                                </li>
+                            </ul>
+                        </div>
+                    ))}
             </div>
             {error ? (
                 <div className="text-danger flex mt-1 gap-1 text-sm max-h-20 overflow-auto">
