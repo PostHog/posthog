@@ -65,7 +65,7 @@ export default function SurveyEdit(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
-        ? null
+        ? undefined
         : 'Subscribe to surveys for multiple questions'
     // setSchedule(survey.iteration_frequency_days === 0 ? 'once' : 'recurring')
     // setShowSurveyRepeatSchedule(
