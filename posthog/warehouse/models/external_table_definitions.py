@@ -2,14 +2,17 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
-    FieldOrTable,
+    DatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
+    FloatDatabaseField,
+    DateDatabaseField,
 )
 
 
-external_tables: dict[str, dict[str, FieldOrTable]] = {
+external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
@@ -613,3 +616,29 @@ external_tables: dict[str, dict[str, FieldOrTable]] = {
         "only_private_comments": BooleanDatabaseField(name="only_private_comments"),
     },
 }
+
+HOGQL_FIELD_DLT_TYPE_MAP = {
+    StringDatabaseField: "text",
+    IntegerDatabaseField: "bigint",
+    BooleanDatabaseField: "bool",
+    DateTimeDatabaseField: "timestamp",
+    StringJSONDatabaseField: "complex",
+    StringArrayDatabaseField: "complex",
+    FloatDatabaseField: "double",
+    DateDatabaseField: "date",
+}
+
+
+def get_dlt_mapping_for_external_table(table):
+    return {
+        field.name: {
+            "data_type": HOGQL_FIELD_DLT_TYPE_MAP[type(field)],
+            "nullable": True,
+        }
+        for _, field in external_tables[table].items()
+        if type(field) != ast.ExpressionField
+    }
+
+
+def get_imported_fields_for_table(table):
+    return [field.name for _, field in external_tables[table].items() if type(field) != ast.ExpressionField]

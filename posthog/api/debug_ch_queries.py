@@ -37,16 +37,19 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(query_start_time, type) AS query_start_time,
                 argMax(exception, type) AS exception,
                 argMax(query_duration_ms, type) AS query_duration_ms,
+                argMax(ProfileEvents, type) as profile_events,
                 max(type) AS status
             FROM (
                 SELECT
                     query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
-                    JSONExtractRaw(log_comment, 'query') as query_json
+                    JSONExtractRaw(log_comment, 'query') as query_json,
+                    ProfileEvents
                 FROM clusterAllReplicas(%(cluster)s, system, query_log)
                 WHERE
                     query LIKE %(query)s AND
                     query NOT LIKE %(not_query)s AND
-                    query_start_time > %(start_time)s
+                    event_time > %(start_time)s AND
+                    is_initial_query
                 ORDER BY query_start_time DESC
                 LIMIT 100
             )
@@ -68,7 +71,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     "timestamp": resp[3],
                     "exception": resp[4],
                     "execution_time": resp[5],
-                    "status": resp[6],
+                    "profile_events": resp[6],
+                    "status": resp[7],
                     "path": self._get_path(resp[1]),
                 }
                 for resp in response
