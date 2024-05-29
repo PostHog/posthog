@@ -10,7 +10,7 @@ import {
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
-import { WebhookFormatter } from '../ingestion/webhook-formatter'
+import { MessageFormatter } from '../ingestion/message-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
@@ -91,7 +91,30 @@ async function runSingleTeamPluginComposeWebhook(
 
     const event = convertToPostHogEvent(postIngestionEvent)
     let maybeWebhook: Webhook | null = null
+
     try {
+        const team = await hub.teamManager.fetchTeam(event.team_id)
+        if (team) {
+            const webhookFormatter = new MessageFormatter({
+                event: postIngestionEvent,
+                team,
+                siteUrl: hub.SITE_URL || '',
+                // TODO: What about pluginConfig.name ?
+                sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
+                sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
+            })
+
+            const templatedConfig = { ...pluginConfig.config }
+
+            Object.keys(templatedConfig).forEach((key) => {
+                templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key])
+            })
+
+            maybeWebhook = composeWebhook(event)
+        } else {
+            throw new Error('Team not found')
+        }
+
         // TODO: template out the config options...
 
         // if (pluginConfig.plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK) {

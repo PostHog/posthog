@@ -40,6 +40,18 @@ export class MessageFormatter {
         return message
     }
 
+    formatSafely(template: unknown): unknown {
+        if (typeof template === 'string') {
+            return this.getFormattedMessage(template)
+        }
+
+        if (typeof template === 'object') {
+            return JSON.parse(this.getFormattedMessage(JSON.stringify(template)))
+        }
+
+        return template
+    }
+
     private getFormattedMessage(template: string): string {
         try {
             const [tokens, tokenizedMessage] = this.getTokens(template)

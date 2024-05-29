@@ -108,7 +108,6 @@ describe('MessageFormatter', () => {
             ['{{groups.organization}}', {}],
             ['{{groups.organization.properties.plan}}', {}],
             ['{{groups.project}}', {}], // No-name one
-
             ['{ "event_properties": {{event.properties}}, "person_link": "{{person.link}}" }', {}], // JSON object
         ]
 
