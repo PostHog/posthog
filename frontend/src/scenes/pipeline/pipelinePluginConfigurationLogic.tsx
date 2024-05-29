@@ -1,8 +1,11 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,9 +20,9 @@ import {
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { checkPermissions } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -27,9 +30,12 @@ export interface PipelinePluginConfigurationLogicProps {
     pluginConfigId: number | null
 }
 
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
+        match_action: pluginConfig.match_action,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
         name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
@@ -57,7 +63,16 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            ['nextAvailableOrder'],
+            featureFlagLogic,
+            ['featureFlags'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -85,26 +100,26 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         return null
                     }
                     if (
-                        !checkPermissions(
-                            props.stage,
-                            !props.pluginConfigId ||
-                                (values.pluginConfig && !values.pluginConfig.enabled && formdata.enabled)
-                        )
+                        (!values.pluginConfig || (!values.pluginConfig.enabled && formdata.enabled)) &&
+                        props.stage === PipelineStage.Destination &&
+                        !values.canEnableNewDestinations
                     ) {
+                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, ...config } = formdata
+                    const { enabled, order, name, description, match_action, ...config } = formdata
+
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
                         defaultConfigForPlugin(values.plugin),
                         config
                     )
-                    for (const key in formdata) {
-                        formData.append(key, formdata[key])
-                    }
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
+                    if (match_action) {
+                        formData.append('match_action', match_action ?? null)
+                    }
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
                     // it doesn't matter for other stages so we can use any value
@@ -211,6 +226,18 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         ],
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
+
+        actionMatchingEnabled: [
+            (s) => [s.featureFlags, s.pluginConfig, s.plugin],
+            (featureFlags, pluginConfig, plugin) => {
+                const actionMatchingFlag = featureFlags[FEATURE_FLAGS.PLUGINS_ACTION_MATCHING]
+                const actionMatchingEnabled =
+                    (actionMatchingFlag || pluginConfig?.match_action) &&
+                    plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK
+
+                return actionMatchingEnabled
+            },
+        ],
     })),
     forms(({ asyncActions, values }) => ({
         configuration: {
@@ -225,6 +252,13 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             submit: async (formdata) => {
                 await asyncActions.updatePluginConfig(formdata)
             },
+        },
+    })),
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.configurationChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
         },
     })),
     afterMount(({ props, actions }) => {

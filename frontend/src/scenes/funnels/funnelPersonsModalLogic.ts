@@ -44,7 +44,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             insightLogic(props),
             ['isInDashboardContext', 'isInExperimentContext'],
             funnelDataLogic(props),
-            ['hogQLInsightsFunnelsFlagEnabled', 'steps', 'querySource', 'funnelsFilter'],
+            ['isHogQLInsight', 'steps', 'querySource', 'funnelsFilter'],
         ],
     })),
 
@@ -107,7 +107,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             })
 
             // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
-            if (values.hogQLInsightsFunnelsFlagEnabled) {
+            if (values.isHogQLInsight) {
                 const query: FunnelsActorsQuery = {
                     kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
@@ -139,7 +139,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             })
 
             // Version of openPersonsModalForStep that accurately handles breakdown series
-            if (values.hogQLInsightsFunnelsFlagEnabled) {
+            if (values.isHogQLInsight) {
                 const query: FunnelsActorsQuery = {
                     kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
@@ -169,7 +169,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     label: breakdown,
                 })
 
-                if (values.hogQLInsightsFunnelsFlagEnabled) {
+                if (values.isHogQLInsight) {
                     // properties
                     const [propertyName, propertyValue] = correlation.event.event.split('::')
                     const propType = values.querySource?.aggregation_group_type_index ? 'group' : 'person'
@@ -217,7 +217,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     label: name,
                 })
 
-                if (values.hogQLInsightsFunnelsFlagEnabled) {
+                if (values.isHogQLInsight) {
                     const actorsQuery: FunnelsActorsQuery = {
                         kind: NodeKind.FunnelsActorsQuery,
                         source: values.querySource!,

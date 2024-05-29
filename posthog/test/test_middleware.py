@@ -527,7 +527,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
-            assert self.client.session.get("loginas_started_at") == now.timestamp()
+            assert self.client.session.get("session_created_at") == now.timestamp()
 
         with freeze_time(now + timedelta(seconds=10)):
             res = self.client.get("/api/users/@me")

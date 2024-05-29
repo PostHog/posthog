@@ -9,7 +9,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
@@ -36,6 +35,7 @@ from posthog.schema import (
 )
 
 from posthog.schema import Series as InsightActorsQuerySeries
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -673,7 +673,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 4)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
-            self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
+            self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 
     def test_trends_compare(self):
         self._create_test_events()
@@ -1962,7 +1962,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
 
     def test_actors_query_explicit_dates(self):
         self._create_test_events()
@@ -1979,20 +1979,24 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # date_to starts at specific time
-        response = runner.to_actors_query(time_frame="2020-01-09", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-09", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 
         # date_from ends at specific time
-        response = runner.to_actors_query(time_frame="2020-01-20", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-20", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 

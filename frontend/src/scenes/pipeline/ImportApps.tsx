@@ -19,8 +19,8 @@ export function ImportApps(): JSX.Element {
                 size="small"
                 loading={loading}
                 columns={[
-                    nameColumn() as LemonTableColumn<ImportApp, any>,
                     appColumn() as LemonTableColumn<ImportApp, any>,
+                    nameColumn() as LemonTableColumn<ImportApp, any>,
                     updatedAtColumn() as LemonTableColumn<ImportApp, any>,
                     statusColumn() as LemonTableColumn<ImportApp, any>,
                     {

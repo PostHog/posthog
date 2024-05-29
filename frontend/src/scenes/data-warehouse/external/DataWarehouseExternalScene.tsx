@@ -1,6 +1,6 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,9 +8,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSceneTab } from '../types'
-import { viewLinkLogic } from '../viewLinkLogic'
-import { DataWarehouseJoins } from './DataWarehouseJoins'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -19,60 +16,32 @@ export const scene: SceneExport = {
     logic: dataWarehouseSceneLogic,
 }
 
-const TABS_TO_CONTENT = {
-    [DataWarehouseSceneTab.Tables]: {
-        label: 'Tables',
-        content: <DataWarehouseTables />,
-    },
-    [DataWarehouseSceneTab.Joins]: {
-        label: 'Joins',
-        content: <DataWarehouseJoins />,
-    },
-}
-
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { activeSceneTab } = useValues(dataWarehouseSceneLogic)
-    const { setSceneTab } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { toggleNewJoinModal } = useActions(viewLinkLogic)
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {activeSceneTab === DataWarehouseSceneTab.Tables && (
-                            <>
-                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="new-data-warehouse-view"
-                                        key="new-data-warehouse-view"
-                                        to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
-                                    >
-                                        Create View
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="new-data-warehouse-easy-link"
-                                    key="new-data-warehouse-easy-link"
-                                    to={urls.dataWarehouseTable()}
-                                >
-                                    Link Source
-                                </LemonButton>
-                            </>
-                        )}
-
-                        {activeSceneTab === DataWarehouseSceneTab.Joins && (
+                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                             <LemonButton
-                                type="primary"
-                                key="new-data-warehouse-join"
-                                onClick={() => toggleNewJoinModal()}
+                                type="secondary"
+                                data-attr="new-data-warehouse-view"
+                                key="new-data-warehouse-view"
+                                to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
                             >
-                                Add Join
+                                Create View
                             </LemonButton>
                         )}
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-data-warehouse-easy-link"
+                            key="new-data-warehouse-easy-link"
+                            to={urls.dataWarehouseTable()}
+                        >
+                            Link Source
+                        </LemonButton>
 
                         <LemonButton
                             type="primary"
@@ -95,15 +64,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
 
-            <LemonTabs
-                activeKey={activeSceneTab}
-                onChange={(tab) => setSceneTab(tab as DataWarehouseSceneTab)}
-                tabs={Object.values(TABS_TO_CONTENT).map((tab, index) => ({
-                    label: tab.label,
-                    key: Object.keys(TABS_TO_CONTENT)[index],
-                    content: tab.content,
-                }))}
-            />
+            <DataWarehouseTables />
         </div>
     )
 }

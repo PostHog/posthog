@@ -1,11 +1,10 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { canConfigurePlugins, canGloballyManagePlugins } from 'scenes/plugins/access'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, Breadcrumb, PipelineTab } from '~/types'
+import { Breadcrumb, PipelineTab } from '~/types'
 
 import type { pipelineLogicType } from './pipelineLogicType'
 
@@ -54,16 +53,6 @@ export const pipelineLogic = kea<pipelineLogicType>([
                     },
                 ]
             },
-        ],
-        // This is currently an organization level setting but might in the future be user level
-        // it's better to add the permission checks everywhere now
-        canGloballyManagePlugins: [(s) => [s.user], (user) => canGloballyManagePlugins(user?.organization)],
-        canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
-        canEnableNewDestinations: [
-            (s) => [s.user, s.hasAvailableFeature],
-            (user, hasAvailableFeature) =>
-                user?.is_impersonated ||
-                (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
         ],
     })),
     actionToUrl(({ values }) => {

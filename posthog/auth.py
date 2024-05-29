@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import jwt
 from django.apps import apps
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
@@ -23,6 +24,27 @@ from posthog.models.personal_api_key import (
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
+from zxcvbn import zxcvbn
+
+
+class ZxcvbnValidator:
+    """
+    Validate that the password satisfies zxcvbn
+    """
+
+    def __init__(self, min_length=8):
+        self.min_length = min_length
+
+    def validate(self, password, user=None):
+        result = zxcvbn(password)
+
+        if result["score"] < 3:
+            joined_feedback = " ".join(result["feedback"]["suggestions"])
+
+            raise ValidationError(
+                joined_feedback or "This password is too weak.",
+                code="password_too_weak",
+            )
 
 
 class SessionAuthentication(authentication.SessionAuthentication):

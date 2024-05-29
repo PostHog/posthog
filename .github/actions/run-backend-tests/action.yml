@@ -60,7 +60,7 @@ runs:
           shell: bash
           id: hogql-parser-diff
           run: |
-              git fetch --no-tags --prune --depth=1 origin
+              git fetch --no-tags --prune --depth=1 origin master
               changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
 
@@ -70,9 +70,7 @@ runs:
               sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
         - name: Install pnpm
-          uses: pnpm/action-setup@v2
-          with:
-              version: 8.x.x
+          uses: pnpm/action-setup@v4
 
         - name: Set up Node.js
           uses: actions/setup-node@v3
@@ -151,6 +149,7 @@ runs:
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+              HOGQL_INSIGHTS_OVERRIDE: '1' # HogQL insights are fully rolled out in production
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{

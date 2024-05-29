@@ -1,4 +1,5 @@
-from posthog.hogql.ast import SelectQuery
+from typing import Any
+from posthog.hogql.ast import SelectQuery, JoinExpr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     Table,
@@ -18,6 +19,32 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from datetime import datetime
+
+from posthog.hogql.database.schema.sessions import SessionsTable, select_from_sessions_table
+from posthog.hogql.errors import ResolutionError
+
+
+def join_replay_table_to_sessions_table(
+    from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: SelectQuery
+) -> JoinExpr:
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ResolutionError("No fields requested from replay")
+
+    # TODO i think this should be fixed in the session_where_clause_extractor so that it grabs time bounds for us
+    join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "session_id"]),
+            right=ast.Field(chain=[to_table, "session_id"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
 
 
 def join_with_events_table(
@@ -51,7 +78,8 @@ def join_with_events_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "session_id"]),
             right=ast.Field(chain=[to_table, "$session_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
 
     return join_expr
@@ -103,7 +131,8 @@ def join_with_console_logs_log_entries_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "session_id"]),
             right=ast.Field(chain=[to_table, "log_source_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
 
     return join_expr
@@ -147,6 +176,11 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     ),
     "person": FieldTraverser(chain=["pdi", "person"]),
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
+    "session": LazyJoin(
+        from_field=["session_id"],
+        join_table=SessionsTable(),
+        join_function=join_replay_table_to_sessions_table,
+    ),
 }
 
 

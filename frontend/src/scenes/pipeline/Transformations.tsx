@@ -13,14 +13,14 @@ import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
     const { sortedEnabledTransformations, shouldShowProductIntroduction } = useValues(pipelineTransformationsLogic)
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedEnabledTransformations.length === 0
@@ -72,8 +72,9 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                 loading={loading}
                 columns={[
                     {
-                        title: 'Order',
+                        title: '',
                         key: 'order',
+                        width: 0,
                         sticky: true,
                         render: function RenderOrdering(_, transformation) {
                             if (!transformation.enabled) {
@@ -84,8 +85,8 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                             return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                         },
                     },
-                    nameColumn() as LemonTableColumn<Transformation, any>,
                     appColumn() as LemonTableColumn<Transformation, any>,
+                    nameColumn() as LemonTableColumn<Transformation, any>,
                     updatedAtColumn() as LemonTableColumn<Transformation, any>,
                     statusColumn() as LemonTableColumn<Transformation, any>,
                     {
@@ -116,7 +117,7 @@ export const TransformationsMoreOverlay = ({
     transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { toggleEnabled, loadPluginConfigs, openReorderModal } = useActions(pipelineTransformationsLogic)
     const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 

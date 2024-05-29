@@ -415,7 +415,12 @@ class FeatureFlagViewSet(
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags))
+            survey_internal_targeting_flags = Survey.objects.filter(
+                team=self.team, internal_targeting_flag__isnull=False
+            ).values_list("internal_targeting_flag_id", flat=True)
+            queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
+                Q(id__in=survey_internal_targeting_flags)
+            )
 
         return queryset.select_related("created_by").order_by("-created_at")
 

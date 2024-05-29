@@ -1,4 +1,4 @@
-import { RawOrganization, Team, TeamId } from '../../types'
+import { ProductFeature, RawOrganization, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { getByAge } from '../../utils/utils'
@@ -12,13 +12,13 @@ export class OrganizationManager {
     postgres: PostgresRouter
     teamManager: TeamManager
     organizationCache: OrganizationCache<RawOrganization | null>
-    availableFeaturesCache: Map<TeamId, [Array<string>, number]>
+    availableProductFeaturesCache: Map<TeamId, [Array<ProductFeature>, number]>
 
     constructor(postgres: PostgresRouter, teamManager: TeamManager) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationCache = new Map()
-        this.availableFeaturesCache = new Map()
+        this.availableProductFeaturesCache = new Map()
     }
 
     public async fetchOrganization(organizationId: RawOrganization['id']): Promise<RawOrganization | null> {
@@ -39,10 +39,11 @@ export class OrganizationManager {
     }
 
     public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
-        const cachedAvailableFeatures = getByAge(this.availableFeaturesCache, teamId, ONE_DAY)
+        const cachedAvailableFeatures = getByAge(this.availableProductFeaturesCache, teamId, ONE_DAY)
 
         if (cachedAvailableFeatures !== undefined) {
-            return cachedAvailableFeatures.includes(feature)
+            const availableProductFeaturesKeys = cachedAvailableFeatures.map((feature) => feature.key)
+            return availableProductFeaturesKeys.includes(feature)
         }
 
         const _team = team || (await this.teamManager.fetchTeam(teamId))
@@ -52,14 +53,15 @@ export class OrganizationManager {
         }
 
         const organization = await this.fetchOrganization(_team.organization_id)
-        const availableFeatures = organization?.available_features || []
-        this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
+        const availableProductFeatures = organization?.available_product_features || []
+        this.availableProductFeaturesCache.set(teamId, [availableProductFeatures, Date.now()])
 
-        return availableFeatures.includes(feature)
+        const availableProductFeaturesKeys = availableProductFeatures.map((feature) => feature.key)
+        return availableProductFeaturesKeys.includes(feature)
     }
 
-    public resetAvailableFeatureCache(organizationId: string) {
-        this.availableFeaturesCache = new Map()
+    public resetAvailableProductFeaturesCache(organizationId: string) {
+        this.availableProductFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
     }
 }

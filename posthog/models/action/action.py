@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 import json
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Literal, Optional, Union, get_args
 
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -72,25 +72,7 @@ class Action(models.Model):
 
     @property
     def steps(self) -> list[ActionStepJSON]:
-        if self.steps_json is None:
-            db_steps = self.action_steps.all()
-            return [
-                ActionStepJSON(
-                    tag_name=step.tag_name,
-                    text=step.text,
-                    text_matching=step.text_matching,
-                    href=step.href,
-                    href_matching=step.href_matching,
-                    selector=step.selector,
-                    url=step.url,
-                    url_matching=step.url_matching,
-                    event=step.event,
-                    properties=step.properties,
-                )
-                for step in db_steps
-            ]
-
-        return [ActionStepJSON(**step) for step in self.steps_json]
+        return [ActionStepJSON(**step) for step in self.steps_json or []]
 
     @steps.setter
     def steps(self, value: list[dict]):
@@ -100,15 +82,12 @@ class Action(models.Model):
     def get_step_events(self) -> list[Union[str, None]]:
         return [action_step.event for action_step in self.steps]
 
-    def generate_bytecode(self) -> list[Any]:
+    def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
         from posthog.hogql.bytecode import create_bytecode
 
-        return create_bytecode(action_to_expr(self))
-
-    def refresh_bytecode(self):
         try:
-            new_bytecode = self.generate_bytecode()
+            new_bytecode = create_bytecode(action_to_expr(self))
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
@@ -120,9 +99,7 @@ class Action(models.Model):
                 self.bytecode_error = str(e)
 
     def save(self, *args, **kwargs):
-        # NOTE: Eventually we can remove this once we no longer ever reference ActionStep
-        if self.steps_json is not None:
-            self.refresh_bytecode()
+        self.refresh_bytecode()
         super().save(*args, **kwargs)
 
 

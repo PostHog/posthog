@@ -35,11 +35,17 @@ def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[i
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
+def mask_key_value(value: str) -> str:
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    return f"{value[:4]}...{value[-4:]}"
+
+
 class PersonalAPIKey(models.Model):
     id: models.CharField = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label: models.CharField = models.CharField(max_length=40)
     value: models.CharField = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
+    mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(
         unique=True,
         max_length=300,

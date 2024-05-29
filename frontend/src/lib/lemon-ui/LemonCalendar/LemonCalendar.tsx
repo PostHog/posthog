@@ -25,8 +25,8 @@ export interface LemonCalendarProps {
     months?: number
     /** 0 or unset for Sunday, 1 for Monday. */
     weekStartDay?: number
-    /** Show a time picker */
-    showTime?: boolean
+    /** Set the time granularity of the calendar */
+    granularity?: 'day' | 'hour' | 'minute'
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -43,7 +43,7 @@ export interface GetLemonButtonTimePropsOpts {
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export const LemonCalendar = forwardRef(function LemonCalendar(
-    { showTime = false, ...props }: LemonCalendarProps,
+    { granularity = 'day', ...props }: LemonCalendarProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const { weekStartDay: teamWeekStartDay } = useValues(teamLogic)
@@ -61,12 +61,14 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     return (
         <div
             ref={ref}
-            className={clsx('LemonCalendar relative flex items-start gap-4', showTime && 'LemonCalendar--with-time')}
+            className={clsx('LemonCalendar relative flex items-start gap-4', `LemonCalendar--${granularity}`)}
             data-attr="lemon-calendar"
         >
             {range(0, months).map((month) => {
                 const startOfMonth = leftmostMonth.add(month, 'month').startOf('month')
-                const endOfMonth = startOfMonth.endOf('month')
+                // need to add a day because of https://github.com/iamkun/dayjs/issues/2007
+                // calling endOf('month') on startOfMonth goes to the end of the previous month
+                const endOfMonth = startOfMonth.add(1, 'day').endOf('month')
                 const firstDay = startOfMonth.subtract((startOfMonth.day() - weekStartDay + 7) % 7, 'days')
                 const lastDay = endOfMonth.add((((weekStartDay + 6) % 7) - endOfMonth.day() + 7) % 7, 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1
@@ -162,7 +164,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                     </table>
                 )
             })}
-            {showTime && (
+            {granularity != 'day' && (
                 <div className="LemonCalendar__time absolute top-0 bottom-0 right-0 flex divide-x border-l">
                     <ScrollableShadows direction="vertical">
                         {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
@@ -179,20 +181,24 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                         })}
                         <div className="LemonCalendar__time--scroll-spacer" />
                     </ScrollableShadows>
-                    <ScrollableShadows direction="vertical">
-                        {range(0, 60).map((minute) => {
-                            const buttonProps = props.getLemonButtonTimeProps?.({
-                                unit: 'm',
-                                value: minute,
-                            })
-                            return (
-                                <LemonButton fullWidth key={minute} {...buttonProps}>
-                                    <span className="w-full text-center px-2">{String(minute).padStart(2, '0')}</span>
-                                </LemonButton>
-                            )
-                        })}
-                        <div className="LemonCalendar__time--scroll-spacer" />
-                    </ScrollableShadows>
+                    {granularity === 'minute' && (
+                        <ScrollableShadows direction="vertical">
+                            {range(0, 60).map((minute) => {
+                                const buttonProps = props.getLemonButtonTimeProps?.({
+                                    unit: 'm',
+                                    value: minute,
+                                })
+                                return (
+                                    <LemonButton fullWidth key={minute} {...buttonProps}>
+                                        <span className="w-full text-center px-2">
+                                            {String(minute).padStart(2, '0')}
+                                        </span>
+                                    </LemonButton>
+                                )
+                            })}
+                            <div className="LemonCalendar__time--scroll-spacer" />
+                        </ScrollableShadows>
+                    )}
                     <div>
                         <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
                             <span className="w-full text-center">AM</span>

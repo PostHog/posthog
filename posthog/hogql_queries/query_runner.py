@@ -49,6 +49,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InsightActorsQueryOptions,
 )
+from posthog.schema_helpers import to_json
 from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
@@ -266,6 +267,23 @@ def get_query_runner(
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
+def get_query_runner_or_none(
+    query: dict[str, Any] | RunnableQueryNode | BaseModel,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    limit_context: Optional[LimitContext] = None,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> Optional["QueryRunner"]:
+    try:
+        return get_query_runner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
+        )
+    except ValueError as e:
+        if "Can't get a runner for an unknown" in str(e):
+            return None
+        raise e
+
+
 Q = TypeVar("Q", bound=RunnableQueryNode)
 # R (for Response) should have a structure similar to QueryResponse
 # Due to the way schema.py is generated, we don't have a good inheritance story here
@@ -316,10 +334,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return isinstance(data, self.query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
-        return (
-            hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
-            or (isinstance(data, dict) and "is_cached" in data)
+        return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
+            isinstance(data, dict) and "is_cached" in data
         )
+
+    @property
+    def _limit_context_aliased_for_cache(self) -> LimitContext:
+        # For caching purposes, QUERY_ASYNC is equivalent to QUERY (max query duration should be the only difference)
+        if not self.limit_context or self.limit_context == LimitContext.QUERY_ASYNC:
+            return LimitContext.QUERY
+        return self.limit_context
 
     @abstractmethod
     def calculate(self) -> R:
@@ -328,8 +352,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CR | CacheMissResponse:
-        # TODO: `self.limit_context` should probably just be in get_cache_key()
-        cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}_v2"
+        cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
         CachedResponse: type[CR] = self.cached_response_type
 
@@ -384,9 +407,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedResponse(**fresh_response_dict)
 
-        # Dont cache debug queries with errors
+        # Dont cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if has_error is None or len(has_error) == 0:
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
             # TODO: Use JSON serializer in general for redis cache
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
             cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
@@ -415,13 +438,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "hogql",
             )
 
-    def to_json(self) -> str:
-        return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
-
     def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
+            f"query_{to_json(self.query)}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
         )
 
     @abstractmethod
@@ -435,9 +455,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
-            raise NotImplementedError(
-                f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
+            capture_exception(
+                NotImplementedError(
+                    f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
+                )
             )
+            return
 
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
@@ -455,7 +478,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             ),
                         ],
                     )
-                except Exception:
+                except:
                     # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
                     capture_exception()
                     logger.exception("Failed to apply dashboard property filters")

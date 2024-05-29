@@ -245,7 +245,8 @@ class FunnelTrends(FunnelBase):
                         ),
                         *fill_breakdown_join_constraint,
                     ]
-                )
+                ),
+                constraint_type="ON",
             ),
         )
 

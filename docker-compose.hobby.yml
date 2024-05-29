@@ -76,6 +76,8 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_ENABLED: true
         depends_on:
             - db
             - redis
@@ -107,6 +109,8 @@ services:
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - caddy-data:/data
+            - caddy-config:/config
         depends_on:
             - web
     objectstorage:
@@ -116,6 +120,9 @@ services:
         restart: on-failure
         volumes:
             - objectstorage:/data
+        ports:
+            - '19000:19000'
+            - '19001:19001'
 
     asyncmigrationscheck:
         extends:
@@ -186,3 +193,5 @@ volumes:
     objectstorage:
     postgres-data:
     clickhouse-data:
+    caddy-data:
+    caddy-config:
