@@ -315,7 +315,7 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 
-(router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries"),)
+router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
 
 from posthog.api.action import ActionViewSet  # noqa: E402
