@@ -1061,7 +1061,7 @@ class TrendsFilter(BaseModel):
     showLegend: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
-    smoothingIntervals: Optional[float] = 1
+    smoothingIntervals: Optional[int] = 1
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -3446,7 +3446,7 @@ class RetentionQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3487,7 +3487,7 @@ class StickinessQuery(BaseModel):
     )
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3528,7 +3528,7 @@ class StickinessQuery(BaseModel):
     )
     stickinessFilter: Optional[StickinessFilter] = Field(
         default_factory=lambda: StickinessFilter.model_validate({"compare": False}),
-        description="Properties specific to the stickiness insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
+        description="Properties specific to the stickiness insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
 
 
@@ -3539,11 +3539,11 @@ class TrendsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(
         default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
-        description="Breakdown of the events and actions",
+        description="Breakdown of the events and actions\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3584,7 +3584,7 @@ class TrendsQuery(BaseModel):
     )
     trendsFilter: Optional[TrendsFilter] = Field(
         default_factory=lambda: TrendsFilter.model_validate({"display": "ActionsLineGraph"}),
-        description="Properties specific to the trends insight",
+        description="Properties specific to the trends insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
 
 
@@ -3648,18 +3648,18 @@ class FunnelsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(
         default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
-        description="Breakdown of the events and actions",
+        description="Breakdown of the events and actions\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
         default_factory=lambda: FunnelsFilter.model_validate({"exclusions": []}),
-        description="Properties specific to the funnels insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
+        description="Properties specific to the funnels insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -3703,7 +3703,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3744,7 +3744,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3785,7 +3785,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3826,7 +3826,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3867,7 +3867,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3908,7 +3908,7 @@ class LifecycleQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -3920,7 +3920,7 @@ class LifecycleQuery(BaseModel):
     kind: Literal["LifecycleQuery"] = "LifecycleQuery"
     lifecycleFilter: Optional[LifecycleFilter] = Field(
         default_factory=lambda: LifecycleFilter.model_validate({"showLegend": False}),
-        description="Properties specific to the lifecycle insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
+        description="Properties specific to the lifecycle insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -4084,7 +4084,7 @@ class PathsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
-        description="Date range for the query",
+        description="Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop.",
     )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
