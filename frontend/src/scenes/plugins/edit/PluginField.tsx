@@ -136,6 +136,10 @@ function JsonConfigField(props: {
                     showFields: false,
                     showKeywords: false,
                 },
+                scrollbar: {
+                    vertical: 'hidden',
+                    verticalScrollbarSize: 0,
+                },
             }}
             onMount={(_editor, monaco) => {
                 setMonaco(monaco)
