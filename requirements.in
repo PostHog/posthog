@@ -51,6 +51,7 @@ numpy==1.23.3
 openpyxl==3.1.2
 orjson==3.9.10
 pandas==2.2.0
+paramiko==3.4.0
 Pillow==10.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
@@ -75,6 +76,7 @@ snowflake-connector-python==3.6.0
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 sqlalchemy==2.0.23
+sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
