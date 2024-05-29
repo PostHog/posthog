@@ -36,6 +36,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         productWithFeature: [
             (s) => [s.billing],
             (billing) => {
+                // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
                 const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
 
