@@ -42,11 +42,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
-        // TODO duplicated with the heatmapLogic
+        // TRICKY: duplicated with the heatmapLogic so that we can share the settings picker
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        // TODO duplication ends
+        // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
     }),
 
@@ -105,7 +105,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
-        // TODO duplicated with the heatmapLogic
         heatmapColorPalette: [
             'default' as string | null,
             {
@@ -124,7 +123,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setHeatmapFixedPositionMode: (_, { mode }) => mode,
             },
         ],
-        // TODO duplication ends
         iframeWidth: [
             null as number | null,
             {
