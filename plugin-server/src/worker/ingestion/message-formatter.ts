@@ -9,9 +9,7 @@ const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'Email', 'name', 'Name'
 const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\){{)(.*?)(?=(?<!\\)}})/g
 const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\){{(.*?)(?<!\\)\}}/g
 
-export type WebhookFormatterTarget = 'string' | 'json'
-
-export type WebhookFormatterOptions = {
+export type MessageFormatterOptions = {
     event: PostIngestionEvent
     team: Team
     siteUrl: string
@@ -20,13 +18,13 @@ export type WebhookFormatterOptions = {
 }
 
 // This formatter is "simpler" in that it only supports parsing of a few tokens
-export class WebhookFormatterV2 {
+export class MessageFormatter {
     private projectUrl: string
     private personLink: string
     private eventLink: string
     private sourceLink: string
 
-    constructor(private options: WebhookFormatterOptions) {
+    constructor(private options: MessageFormatterOptions) {
         this.projectUrl = `${options.siteUrl}/project/${options.team.id}`
 
         this.personLink = `${this.projectUrl}/person/${encodeURIComponent(options.event.distinctId)}`

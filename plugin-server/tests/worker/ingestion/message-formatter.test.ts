@@ -1,11 +1,11 @@
 import { ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
-import { WebhookFormatterOptions, WebhookFormatterV2 } from '../../../src/worker/ingestion/webhook-formatter-v2'
+import { MessageFormatter, MessageFormatterOptions } from '../../../src/worker/ingestion/message-formatter'
 
-type TestWebhookFormatterOptions = Partial<WebhookFormatterOptions> & {
+type TestWebhookFormatterOptions = Partial<MessageFormatterOptions> & {
     personProperties?: PostIngestionEvent['person_properties']
 }
 
-describe('WebhookFormatterV2', () => {
+describe('MessageFormatter', () => {
     const team = { id: 123, person_display_name_properties: null } as Team
     const event: PostIngestionEvent = {
         event: '$pageview',
@@ -36,7 +36,7 @@ describe('WebhookFormatterV2', () => {
     }
 
     const createFormatter = (options?: TestWebhookFormatterOptions) => {
-        return new WebhookFormatterV2({
+        return new MessageFormatter({
             sourceName: options?.sourceName ?? 'action1',
             sourcePath: options?.sourcePath ?? '/action/1',
             event: {

@@ -1,0 +1,53 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`MessageFormatter webhook formatting options { "event_properties": {{event.properties}}, "person_link": "{{person.link}}" } {} 1`] = `"{ \\"event_properties\\": {\\"$browser\\":\\"Chrome\\"}, \\"person_link\\": \\"http://localhost:8000/project/123/person/WALL-E\\" }"`;
+
+exports[`MessageFormatter webhook formatting options {{action.name\\}} got done by \\{{user.name\\}} {} 1`] = `"{{action.name}} got done by {{user.name}}"`;
+
+exports[`MessageFormatter webhook formatting options {{action.name}} {} 1`] = `"action1"`;
+
+exports[`MessageFormatter webhook formatting options {{action.name}} was done by {{user.name}} {} 1`] = `"action1 was done by test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options {{event.distinct_id}} {} 1`] = `"WALL-E"`;
+
+exports[`MessageFormatter webhook formatting options {{event.event}} {} 1`] = `"$pageview"`;
+
+exports[`MessageFormatter webhook formatting options {{event.name}} {} 1`] = `"$pageview"`;
+
+exports[`MessageFormatter webhook formatting options {{event.uuid}} {} 1`] = `"123"`;
+
+exports[`MessageFormatter webhook formatting options {{event}} { event: [Object] } 1`] = `"{\\"uuid\\":\\"**)\\",\\"event\\":\\"text](yes!), [new link\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options {{event}} {} 1`] = `"{\\"uuid\\":\\"123\\",\\"event\\":\\"$pageview\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/123/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options {{groups.missing}} {} 1`] = `"(event without group 'missing')"`;
+
+exports[`MessageFormatter webhook formatting options {{groups.organization.properties.plan}} {} 1`] = `"paid"`;
+
+exports[`MessageFormatter webhook formatting options {{groups.organization}} {} 1`] = `"{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options {{groups.project}} {} 1`] = `"{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}"`;
+
+exports[`MessageFormatter webhook formatting options {{groups}} {} 1`] = `"{\\"organization\\":{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}},\\"project\\":{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}}"`;
+
+exports[`MessageFormatter webhook formatting options {{person.link}} {} 1`] = `"http://localhost:8000/project/123/person/WALL-E"`;
+
+exports[`MessageFormatter webhook formatting options {{person.properties.enjoys_broccoli_on_pizza}} { personProperties: [Object] } 1`] = `"false"`;
+
+exports[`MessageFormatter webhook formatting options {{person.properties.pizza_ingredient_ranking}} { personProperties: [Object] } 1`] = `"[\\"pineapple\\",\\"broccoli\\",\\"aubergine\\"\\\\]"`;
+
+exports[`MessageFormatter webhook formatting options {{person}} { personProperties: [Object], team: [Object] } 1`] = `"{\\"properties\\":{\\"imię\\":\\"Grzegorz\\",\\"nazwisko\\":\\"Brzęczyszczykiewicz\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
+
+exports[`MessageFormatter webhook formatting options {{person}} {} 1`] = `"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
+
+exports[`MessageFormatter webhook formatting options {{source.name}} {} 1`] = `"action1"`;
+
+exports[`MessageFormatter webhook formatting options {{source.name}} was done by {{user.name}} {} 1`] = `"action1 was done by test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options {{user.browser}} {} 1`] = `"Chrome"`;
+
+exports[`MessageFormatter webhook formatting options {{user.missing_property}} {} 1`] = `"undefined"`;
+
+exports[`MessageFormatter webhook formatting options {{user.name}} {} 1`] = `"test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options {{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}} { event: [Object] } 1`] = `"test@posthog.com from Chrome on Pricing page with undefined, yes sir"`;
