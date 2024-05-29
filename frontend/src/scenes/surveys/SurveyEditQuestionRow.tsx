@@ -86,13 +86,14 @@ export function SurveyEditQuestionHeader({
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
-
-    useEffect(() => {
-        setWritingHTMLDescription(question.descriptionContentType === 'html')
-    }, [question.descriptionContentType, setWritingHTMLDescription])
-
     const initialContentType = question.descriptionContentType === 'html'
-    setWritingHTMLDescription(initialContentType)
+
+    // TODO I know I shouldn't use this, but I'm not sure of the kea way to handle this, since
+    // it's not just that I'm changing state variables, but I'm also changing the value of the
+    // form field, and I'm not sure how to make sure I'm handling that correctly.
+    useEffect(() => {
+        setWritingHTMLDescription(initialContentType)
+    }, [question.descriptionContentType, setWritingHTMLDescription])
 
     const handleQuestionValueChange = (key: string, val: string): void => {
         const updatedQuestion = survey.questions.map((question, idx) => {
@@ -109,7 +110,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const updateWritingHTMLDescription = (isHTML: boolean): void => {
         setWritingHTMLDescription(isHTML)
-        // setDescriptionContentType(index, isHTML ? 'html' : 'text')
         handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
     }
 
