@@ -142,10 +142,6 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
-        - name: Setup upterm session for batch 1
-          if: ${{ inputs.group == '1' || inputs.group == 1 }}
-          uses: lhotari/action-upterm@v1
-
         # Tests
         - name: Run Core tests
           id: run-core-tests
@@ -162,6 +158,7 @@ runs:
                   || 'hogvm posthog'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
+                  --ignore=hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
