@@ -598,12 +598,12 @@ def demo_reset_master_team() -> None:
 
 
 @shared_task(ignore_result=True)
-def sync_all_organization_available_features() -> None:
-    from posthog.tasks.sync_all_organization_available_features import (
-        sync_all_organization_available_features,
+def sync_all_organization_available_product_features() -> None:
+    from posthog.tasks.sync_all_organization_available_product_features import (
+        sync_all_organization_available_product_features,
     )
 
-    sync_all_organization_available_features()
+    sync_all_organization_available_product_features()
 
 
 @shared_task(ignore_result=False, track_started=True, max_retries=0)

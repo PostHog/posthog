@@ -73,7 +73,10 @@ describe('eachMessageWebhooksHandlers', () => {
         ])
 
         const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableFeaturesCache'].set(2, [['group_analytics'], Date.now()])
+        organizationManager['availableProductFeaturesCache'].set(2, [
+            [{ name: 'Group Analytics', key: 'group_analytics' }],
+            Date.now(),
+        ])
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {
