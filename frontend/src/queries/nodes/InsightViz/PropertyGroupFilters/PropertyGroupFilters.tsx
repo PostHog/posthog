@@ -9,7 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, LogsQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
@@ -19,7 +19,7 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
     query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+    setQuery: (node: TrendsQuery | StickinessQuery | LogsQuery) => void
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]

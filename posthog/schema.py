@@ -3251,41 +3251,6 @@ class HogQLQuery(BaseModel):
     )
 
 
-class LogsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: Optional[str] = Field(default=None, description="Only fetch logs that happened after this timestamp")
-    before: Optional[str] = Field(default=None, description="Only fetch logs that happened before this timestamp")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    kind: Literal["LogsQuery"] = "LogsQuery"
-    limit: Optional[int] = Field(default=None, description="Number of rows to return")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = Field(default=None, description="Property filters for all series")
-    response: Optional[LogsQueryResponse] = None
-    searchTerm: Optional[str] = Field(default=None, description="Text to filter the logs by")
-
-
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4018,6 +3983,44 @@ class LifecycleQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+
+
+class LogsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Optional[str] = Field(default=None, description="Only fetch logs that happened after this timestamp")
+    before: Optional[str] = Field(default=None, description="Only fetch logs that happened before this timestamp")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    kind: Literal["LogsQuery"] = "LogsQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
+    properties: Optional[
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingDurationFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[LogsQueryResponse] = None
+    searchTerm: Optional[str] = Field(default=None, description="Text to filter the logs by")
 
 
 class NamedParametersTypeofDateRangeForFilter(BaseModel):

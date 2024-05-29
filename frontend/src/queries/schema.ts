@@ -736,7 +736,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Text to filter the logs by */
     searchTerm?: string
     /** Property filters for all series */
-    properties?: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params

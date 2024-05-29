@@ -5114,11 +5114,18 @@
                     "type": "integer"
                 },
                 "properties": {
-                    "description": "Property filters for all series",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
                 },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
