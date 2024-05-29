@@ -19,10 +19,11 @@ export interface PropertyFilterButtonProps {
     onClose?: () => void
     children?: string
     item: AnyPropertyFilter
+    disabled?: boolean
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, children, item }, ref): JSX.Element {
+    function PropertyFilterButton({ onClick, onClose, children, item, disabled }, ref): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -37,18 +38,19 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         return (
             <ButtonComponent
                 ref={ref as any}
-                onClick={onClick}
+                onClick={disabled ? undefined : onClick}
                 className={clsx('PropertyFilterButton', {
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
                     'ph-no-capture': true,
                 })}
+                aria-disabled={disabled}
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>
-                {closable && (
+                {closable && !disabled && (
                     // The context below prevents close button from going into active status when filter popover is open
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
