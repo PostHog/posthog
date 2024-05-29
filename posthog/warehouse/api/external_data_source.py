@@ -85,7 +85,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
-        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+        any_active = any(schema.status == ExternalDataSchema.Status.ACTIVE for schema in active_schemas)
 
         if any_failures:
             return ExternalDataSchema.Status.ERROR
@@ -95,8 +95,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
             return ExternalDataSchema.Status.RUNNING
-        elif any_completed:
-            return ExternalDataSchema.Status.COMPLETED
+        elif any_active:
+            return ExternalDataSchema.Status.ACTIVE
         else:
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status

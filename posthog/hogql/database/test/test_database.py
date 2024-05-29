@@ -160,7 +160,7 @@ class TestDatabase(BaseTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
+            status=ExternalDataSchema.Status.ACTIVE,
             last_synced_at="2024-01-01",
         )
 
@@ -174,7 +174,7 @@ class TestDatabase(BaseTest):
 
         assert table.source is not None
         assert table.source.id == source.source_id
-        assert table.source.status == "Completed"
+        assert table.source.status == "Active"
         assert table.source.source_type == "Stripe"
 
         assert table.schema_ is not None
@@ -182,7 +182,7 @@ class TestDatabase(BaseTest):
         assert table.schema_.name == "table_1"
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
-        assert table.schema_.status == "Completed"
+        assert table.schema_.status == "Active"
         assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
 
         field = table.fields.get("id")

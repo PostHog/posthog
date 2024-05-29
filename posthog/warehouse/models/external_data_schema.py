@@ -13,7 +13,7 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
         ERROR = "Error", "Error"
-        COMPLETED = "Completed", "Completed"
+        ACTIVE = "Active", "Active"
         CANCELLED = "Cancelled", "Cancelled"
 
     name: models.CharField = models.CharField(max_length=400)
