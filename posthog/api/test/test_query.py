@@ -918,6 +918,52 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
+    def test_dashboard_filters_applied_with_source(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        with freeze_time("2020-01-07 12:00:00"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        with freeze_time("2020-01-10 15:00:00"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 19:00:00"):
+            response_without_dashboard_filters = process_query_dict(
+                team=self.team,
+                query_json={
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select count() from events where {filters}",
+                    },
+                },
+            )
+            response_with_dashboard_filters = process_query_dict(
+                team=self.team,
+                query_json={
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select count() from events where {filters}",
+                    },
+                },
+                dashboard_filters_json={"date_from": "2020-01-09", "date_to": "2020-01-11"},
+            )
+
+        assert isinstance(response_without_dashboard_filters, CachedHogQLQueryResponse)
+        self.assertEqual(response_without_dashboard_filters.results, [(2,)])
+        assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
+        self.assertEqual(response_with_dashboard_filters.results, [(1,)])
+
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):

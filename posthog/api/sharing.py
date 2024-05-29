@@ -6,6 +6,7 @@ from urllib.parse import urlparse, urlunparse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
+from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
@@ -15,8 +16,8 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import SharingConfiguration, Team
-from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
+from posthog.models import SessionRecording, SharingConfiguration, Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
     ExportedAsset,
@@ -24,12 +25,10 @@ from posthog.models.exported_asset import (
     get_content_response,
 )
 from posthog.models.insight import Insight
-from posthog.models import SessionRecording
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
-from loginas.utils import is_impersonated_session
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -285,7 +284,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in resource.team.organization.available_features:
+        if "whitelabel" in request.GET and "white_labelling" in [
+            feature["key"] for feature in resource.team.organization.available_product_features
+        ]:
             exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
