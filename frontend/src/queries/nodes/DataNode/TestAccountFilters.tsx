@@ -53,7 +53,6 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
                 onChange?.(checked)
                 setLocalDefault(checked)
             }}
-            fullWidth
         />
     )
 }
