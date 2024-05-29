@@ -1,12 +1,10 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonSwitchProps, Link } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -111,38 +109,5 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
             </div>
             <TestAccountFiltersConfig />
         </>
-    )
-}
-
-type TestAccountFilterProps = Partial<LemonSwitchProps> & {
-    value: boolean
-    onChange: (value: boolean) => void
-}
-
-export function TestAccountFilterSwitch({ value, onChange, ...props }: TestAccountFilterProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-
-    return (
-        <LemonSwitch
-            id="test-account-filter"
-            bordered
-            disabled={!hasFilters}
-            {...props}
-            checked={value}
-            onChange={onChange}
-            label={
-                <div className="flex items-center">
-                    <span>Filter out internal and test users</span>
-                    <LemonButton
-                        icon={<IconGear />}
-                        to={urls.settings('project', 'internal-user-filtering')}
-                        size="small"
-                        noPadding
-                        className="ml-1"
-                    />
-                </div>
-            }
-        />
     )
 }
