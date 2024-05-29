@@ -106,36 +106,18 @@ async function runSingleTeamPluginComposeWebhook(
 
             const templatedConfig = { ...pluginConfig.config }
 
+            // TODO: Pass this through to the function instead of doing it here
             Object.keys(templatedConfig).forEach((key) => {
                 templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key])
             })
 
-            maybeWebhook = composeWebhook(event)
+            maybeWebhook = composeWebhook(event, {
+                config: templatedConfig,
+                __pluginMeta: true,
+            })
         } else {
             throw new Error('Team not found')
         }
-
-        // TODO: template out the config options...
-
-        // if (pluginConfig.plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK) {
-        //     const team = await hub.teamManager.fetchTeam(event.team_id)
-
-        //     if (team) {
-        //         const webhookFormatter = new WebhookFormatter({
-        //             webhookUrl: pluginConfig.config.webhook_url as string,
-        //             messageFormat: pluginConfig.config.message_format as string,
-        //             event: postIngestionEvent,
-        //             team,
-        //             siteUrl: hub.SITE_URL || '',
-        //             // TODO: What about pluginConfig.name ?
-        //             sourceName: pluginConfig.plugin.name || 'Unnamed plugin',
-        //             sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
-        //         })
-        //         maybeWebhook = webhookFormatter.composeWebhook()
-        //     }
-        // } else {
-        maybeWebhook = composeWebhook(event)
-        // }
 
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm

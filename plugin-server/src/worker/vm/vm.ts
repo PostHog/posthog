@@ -162,8 +162,30 @@ export function createPluginConfigVM(
             };
             function __bindMeta (keyOrFunc) {
                 const func = typeof keyOrFunc === 'function' ? keyOrFunc : __getExported(keyOrFunc);
-                if (func) return function __inBindMeta${pluginConfigIdentifier} (...args) { return func(...args, __pluginMeta) };
+                if (func) return function __inBindMeta${pluginConfigIdentifier} (...args) {
+                    // Tricky: To avoid changing the function signature, we check if the last argument is an object containing __pluginMeta
+                    const lastArg = args[args.length - 1];
+                    let meta = {
+                        ...__pluginMeta,
+                    }
+
+                    if (lastArg && lastArg.__pluginMeta ) {
+                        // Remove it from the args list
+                        args.pop();
+                        meta = {
+                            ...meta,
+                            config: {
+                                ...meta.config,
+                                ...lastArg.config
+                            }
+                        }
+                    }
+
+                    return func(...args, meta) 
+                };
             }
+
+            // TODO: Do we need this? It isn't referenced anywhere
             function __callWithMeta (keyOrFunc, ...args) {
                 const func = __bindMeta(keyOrFunc);
                 if (func) return func(...args);
@@ -183,6 +205,8 @@ export function createPluginConfigVM(
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
                 composeWebhook: __bindMeta('composeWebhook'),
+
+                // TODO: Do we need this? It isn't referenced anywhere
                 getSettings: __bindMeta('getSettings'),
             };
 

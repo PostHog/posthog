@@ -504,12 +504,18 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
+export type VMMethodsOptions = {
+    config?: PluginConfig['config']
+    // Identifier for the VM to know for certain this object is options and not payload for the handler
+    __pluginMeta: true
+}
+
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    composeWebhook?: (event: PostHogEvent) => Webhook | null
+    composeWebhook?: (event: PostHogEvent, options?: VMMethodsOptions) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
