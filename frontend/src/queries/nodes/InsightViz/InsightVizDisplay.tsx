@@ -128,6 +128,7 @@ export function InsightVizDisplay({
                     <RetentionContainer
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
+                        inCardView={embedded}
                     />
                 )
             case InsightType.PATHS:
