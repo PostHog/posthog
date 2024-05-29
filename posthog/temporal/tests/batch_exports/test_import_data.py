@@ -1,9 +1,7 @@
-import asyncio
 from typing import Any
 from unittest import mock
 import pytest
 from asgiref.sync import sync_to_async
-from temporalio.testing import ActivityEnvironment
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
 from posthog.warehouse.models.credential import DataWarehouseCredential
@@ -12,12 +10,6 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.models.table import DataWarehouseTable
-
-
-@pytest.fixture
-def activity_environment():
-    """Return a testing temporal ActivityEnvironment."""
-    return ActivityEnvironment()
 
 
 async def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
@@ -81,9 +73,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
         mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
-        await asyncio.gather(
-            activity_environment.run(import_data_activity, activity_inputs),
-        )
+        await activity_environment.run(import_data_activity, activity_inputs)
 
         postgres_source.assert_called_once_with(
             host="host.com",
@@ -118,9 +108,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
         mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
-        await asyncio.gather(
-            activity_environment.run(import_data_activity, activity_inputs),
-        )
+        await activity_environment.run(import_data_activity, activity_inputs)
 
         postgres_source.assert_called_once_with(
             host="host.com",
@@ -172,9 +160,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):
-        await asyncio.gather(
-            activity_environment.run(import_data_activity, activity_inputs),
-        )
+        await activity_environment.run(import_data_activity, activity_inputs)
 
         postgres_source.assert_called_once_with(
             host="other-host.com",
