@@ -109,7 +109,7 @@ joinConstraintClause
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
-orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE templateString)?;
+orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
@@ -138,12 +138,12 @@ columnExprList: columnExpr (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
-    | DATE templateString                                                                 # ColumnExprDate
+    | DATE string                                                                         # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
-    | TIMESTAMP templateString                                                            # ColumnExprTimestamp
-    | TRIM LPAREN (BOTH | LEADING | TRAILING) templateString FROM columnExpr RPAREN       # ColumnExprTrim
+    | TIMESTAMP string                                                                    # ColumnExprTimestamp
+    | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
@@ -188,8 +188,8 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS templateString" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS templateString)                              # ColumnExprAlias
+    // Note: difference with ClickHouse: we also support "AS string" as a shortcut for naming columns
+    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
@@ -213,7 +213,7 @@ hogqlxTagElement
     | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' templateString
+    :   identifier '=' string
     |   identifier '=' LBRACE columnExpr RBRACE
     |   identifier
     ;
@@ -258,7 +258,7 @@ floatingLiteral
 numberLiteral: (PLUS | DASH)? (floatingLiteral | OCTAL_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
 literal
     : numberLiteral
-    | templateString
+    | STRING_LITERAL
     | NULL_SQL
     ;
 interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
@@ -282,10 +282,11 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-enumValue: templateString EQ_SINGLE numberLiteral;
+enumValue: string EQ_SINGLE numberLiteral;
 placeholder: LBRACE columnExpr RBRACE;
 
-templateString : QUOTE_SINGLE stringContents* QUOTE_SINGLE ;
-stringContents : STRING_BACKSLASH_PAREN columnExpr DOUBLE_RBRACE
+string: STRING_LITERAL | templateString;
+templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
+stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE
                | STRING_TEXT
                ;

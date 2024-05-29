@@ -148,19 +148,7 @@ DECIMAL_LITERAL: DEC_DIGIT+;
 HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+;
 
 // It's important that quote-symbol is a single character.
-//STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR_SINGLE | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
-
-//
-//STRING_TEMPLATE_CHAR
-//    : ESCAPE_CHAR_SINGLE
-//    | (BACKSLASH LBRACE)
-//    | (LBRACE LBRACE)
-//    | (QUOTE_SINGLE QUOTE_SINGLE)
-//    | ~[{}\\'\r\n]
-//    ;
-//
-//STRING_TEMPLATE_CHARS: STRING_TEMPLATE_CHAR+;
-
+STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR_SINGLE | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
 
 
 // Alphabet and allowed symbols
@@ -207,8 +195,6 @@ CONCAT: '||';
 DASH: '-';
 DOLLAR: '$';
 DOT: '.';
-DOUBLE_LBRACE: '{{' -> pushMode(DEFAULT_MODE);
-DOUBLE_RBRACE: '}}' -> popMode;
 EQ_DOUBLE: '==';
 EQ_SINGLE: '=';
 GT_EQ: '>=';
@@ -216,7 +202,7 @@ GT: '>';
 HASH: '#';
 IREGEX_SINGLE: '~*';
 IREGEX_DOUBLE: '=~*';
-LBRACE: '{';
+LBRACE: '{' -> pushMode(DEFAULT_MODE);
 LBRACKET: '[';
 LPAREN: '(';
 LT_EQ: '<=';
@@ -229,10 +215,11 @@ PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
 QUOTE_DOUBLE: '"';
+QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_STRING);
 QUOTE_SINGLE: '\'' -> pushMode(IN_STRING);
 REGEX_SINGLE: '~';
 REGEX_DOUBLE: '=~';
-RBRACE: '}';
+RBRACE: '}' -> popMode;
 RBRACKET: ']';
 RPAREN: ')';
 SEMICOLON: ';';
@@ -247,6 +234,6 @@ SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 
 mode IN_STRING;
-STRING_TEXT: ~([\\']) | ESCAPE_CHAR_SINGLE | (QUOTE_SINGLE QUOTE_SINGLE);
-STRING_BACKSLASH_PAREN: DOUBLE_LBRACE -> pushMode(DEFAULT_MODE);
-QUOTE_SINGLE_IN_STRING: '\'' -> type(QUOTE_SINGLE), popMode;
+STRING_TEXT: ((~([\\'{])) | ESCAPE_CHAR_SINGLE | (BACKSLASH LBRACE) | (QUOTE_SINGLE QUOTE_SINGLE))+;
+STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);
+STRING_QUOTE_SINGLE: QUOTE_SINGLE -> type(QUOTE_SINGLE), popMode;
