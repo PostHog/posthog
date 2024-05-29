@@ -6,7 +6,6 @@ import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { languages } from 'monaco-editor'
 import { useEffect, useMemo, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -118,33 +117,30 @@ function JsonConfigField(props: {
     // TODO: Add auto complete suggestions to the editor
 
     return (
-        <AutoSizer disableWidth className="min-h-60">
-            {({ height }) => (
-                <CodeEditor
-                    className="border rounded"
-                    language="json"
-                    value={props.value}
-                    onChange={(v) => props.onChange?.(v ?? '')}
-                    height={height}
-                    options={{
-                        lineNumbers: 'off',
-                        minimap: {
-                            enabled: false,
-                        },
-                        quickSuggestions: {
-                            other: true,
-                            strings: true,
-                        },
-                        suggest: {
-                            showWords: false,
-                        },
-                    }}
-                    onMount={(_editor, monaco) => {
-                        setMonaco(monaco)
-                    }}
-                />
-            )}
-        </AutoSizer>
+        <CodeEditor
+            className="border rounded min-h-60"
+            language="json"
+            value={props.value}
+            onChange={(v) => props.onChange?.(v ?? '')}
+            options={{
+                lineNumbers: 'off',
+                minimap: {
+                    enabled: false,
+                },
+                quickSuggestions: {
+                    other: true,
+                    strings: true,
+                },
+                suggest: {
+                    showWords: false,
+                    showFields: false,
+                    showKeywords: false,
+                },
+            }}
+            onMount={(_editor, monaco) => {
+                setMonaco(monaco)
+            }}
+        />
     )
 }
 
