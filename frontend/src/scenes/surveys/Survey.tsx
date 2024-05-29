@@ -51,15 +51,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     const handleCancelClick = (): void => {
-        if (isEditingSurvey) {
-            editingSurvey(false)
-            if (id === 'new') {
-                router.actions.push(urls.surveys())
-            } else {
-                loadSurvey()
-            }
-        } else {
+        editingSurvey(false)
+        if (id === 'new') {
             router.actions.push(urls.surveys())
+        } else {
+            loadSurvey()
         }
     }
 
