@@ -643,17 +643,16 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     /**
      * Date range for the query
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"date_from": "-7d"}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     dateRange?: InsightDateRange
     /**
      * Exclude internal and test users by applying the respective filters
@@ -724,32 +723,30 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     /**
      * Properties specific to the trends insight
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"display": "ActionsLineGraph"}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     trendsFilter?: TrendsFilter
     /**
      * Breakdown of the events and actions
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"breakdown_type": "event"}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     breakdownFilter?: BreakdownFilter
 }
 
@@ -810,32 +807,30 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     series: AnyEntityNode[]
     /** Properties specific to the funnels insight
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"exclusions":[]}
-     * */
+     */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     funnelsFilter?: FunnelsFilter
     /**
      * Breakdown of the events and actions
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"breakdown_type": "event"}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     breakdownFilter?: BreakdownFilter
 }
 
@@ -967,17 +962,16 @@ export interface StickinessQuery
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"compare":false}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     stickinessFilter?: StickinessFilter
 }
 
@@ -1103,17 +1097,16 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
     series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight
      *
-     * :TRICKY: We can't set the default to an empty dict, as otherwise
-     * datamodel-code-generator does not generate a model with a factory.
-     *
-     * This would cause a different serialization of an empty and a missing
-     * prop, which we don't want for stable cache keys.
-     *
-     * As a workaround we simply set any prop to its default, so that a
-     * factory is used to instantiate an empty model for a missing prop.
-     *
      * @default {"showLegend":false}
      */
+    // :TRICKY: We can't set the default to an empty dict, as otherwise
+    // datamodel-code-generator does not generate a model with a factory.
+    //
+    // This would cause a different serialization of an empty and a missing
+    // prop, which we don't want for stable cache keys.
+    //
+    // As a workaround we simply set any prop to its default, so that a
+    // factory is used to instantiate an empty model for a missing prop.
     lifecycleFilter?: LifecycleFilter
 }
 

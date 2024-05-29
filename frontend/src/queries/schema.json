@@ -3752,14 +3752,14 @@
                     "default": {
                         "breakdown_type": "event"
                     },
-                    "description": "Breakdown of the events and actions\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -3771,7 +3771,7 @@
                     "default": {
                         "exclusions": []
                     },
-                    "description": "Properties specific to the funnels insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Properties specific to the funnels insight"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
@@ -4687,7 +4687,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -4740,7 +4740,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -4793,7 +4793,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -4846,7 +4846,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -4899,7 +4899,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -4993,7 +4993,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -5014,7 +5014,7 @@
                     "default": {
                         "showLegend": false
                     },
-                    "description": "Properties specific to the lifecycle insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Properties specific to the lifecycle insight"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -5317,7 +5317,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -7034,7 +7034,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -7436,7 +7436,7 @@
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -7490,7 +7490,7 @@
                     "default": {
                         "compare": false
                     },
-                    "description": "Properties specific to the stickiness insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Properties specific to the stickiness insight"
                 }
             },
             "required": ["kind", "series"],
@@ -7865,14 +7865,14 @@
                     "default": {
                         "breakdown_type": "event"
                     },
-                    "description": "Breakdown of the events and actions\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "default": {
                         "date_from": "-7d"
                     },
-                    "description": "Date range for the query\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "default": false,
@@ -7926,7 +7926,7 @@
                     "default": {
                         "display": "ActionsLineGraph"
                     },
-                    "description": "Properties specific to the trends insight\n\n:TRICKY: We can't set the default to an empty dict, as otherwise datamodel-code-generator does not generate a model with a factory.\n\nThis would cause a different serialization of an empty and a missing prop, which we don't want for stable cache keys.\n\nAs a workaround we simply set any prop to its default, so that a factory is used to instantiate an empty model for a missing prop."
+                    "description": "Properties specific to the trends insight"
                 }
             },
             "required": ["kind", "series"],
