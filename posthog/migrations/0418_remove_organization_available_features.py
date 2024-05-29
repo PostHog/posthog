@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            "ALTER TABLE posthog_organization DROP COLUMN available_features CASCADE -- drop-column-ignore",
-            reverse_sql="ALTER TABLE posthog_organization ADD COLUMN available_features VARCHAR(64)[] DEFAULT array[]::varchar(64)[]",
+            'ALTER TABLE "posthog_organization" DROP COLUMN "available_features" CASCADE -- drop-column-ignore',
+            reverse_sql='ALTER TABLE "posthog_organization" ADD COLUMN "available_features" VARCHAR(64)[] DEFAULT array[]::varchar(64)[]',
         )
     ]
