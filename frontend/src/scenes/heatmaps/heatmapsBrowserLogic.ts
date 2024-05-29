@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
@@ -46,6 +46,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
+        setCommonFilters: (filters: CommonFilters) => ({ filters }),
         // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
     }),
@@ -105,6 +106,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        // they're called common filters in the toobara because they're shared between heatmaps and clickmaps
+        // the name is continued here since they're passed down into the embedded iframe
+        commonFilters: [
+            {} as CommonFilters,
+            {
+                setCommonFilters: (_, { filters }) => filters,
+            },
+        ],
         heatmapColorPalette: [
             'default' as string | null,
             {
@@ -219,6 +228,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 colorPalette: Palette,
             })
         },
+        setCommonFilters: ({ filters }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
+        },
 
         onIframeLoad: () => {
             // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error
@@ -227,6 +239,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     filters: values.heatmapFilters,
                     colorPalette: values.heatmapColorPalette,
                     fixedPositionMode: values.heatmapFixedPositionMode,
+                    commonFilters: values.commonFilters,
                 })
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
                     enabled: true,
@@ -298,6 +311,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (searchParams.heatmapFixedPositionMode) {
                 actions.setHeatmapFixedPositionMode(searchParams.heatmapFixedPositionMode as HeatmapFixedPositionMode)
             }
+            if (searchParams.commonFilters) {
+                actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
         },
     })),
 
@@ -319,6 +335,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
         setHeatmapFixedPositionMode: ({ mode }) => {
             const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setCommonFilters: ({ filters }) => {
+            const searchParams = { ...router.values.searchParams, commonFilters: filters }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),

@@ -30,6 +30,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'patchHeatmapFilters',
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
+                'setCommonFilters',
             ],
         ],
     })),
@@ -303,6 +304,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.patchHeatmapFilters(e.data.payload.filters)
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    actions.setCommonFilters(e.data.payload.commonFilters)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
@@ -317,7 +319,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     return
-
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
+                    actions.setCommonFilters(e.data.payload.commonFilters)
+                    return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }

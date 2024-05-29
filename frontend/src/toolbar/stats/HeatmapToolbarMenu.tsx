@@ -1,8 +1,8 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { buildToolbarDateMenuItems } from 'lib/components/heatmaps/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -10,8 +10,8 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils'
-import React from 'react'
+import { dateFilterToText } from 'lib/utils'
+import React, { useEffect, useState } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -99,16 +99,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
-    // some of the date options we allow in insights don't apply to heatmaps
-    // let's filter the list down
-    const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
-
-    const dateItems = dateMapping
-        .filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
-        .map((dateOption) => ({
-            label: dateOption.key,
-            onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
-        }))
+    const [dateItems, setDateItems] = useState<LemonMenuItem[]>([])
+    useEffect(() => {
+        setDateItems(buildToolbarDateMenuItems(setCommonFilters))
+    }, [setCommonFilters])
 
     return (
         <ToolbarMenu>
