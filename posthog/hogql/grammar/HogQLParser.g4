@@ -109,7 +109,7 @@ joinConstraintClause
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
-orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
+orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE templateString)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
@@ -125,8 +125,6 @@ winFrameExtend
 winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | numberLiteral PRECEDING | numberLiteral FOLLOWING);
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
 
-
-
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
@@ -140,16 +138,17 @@ columnExprList: columnExpr (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
-    | DATE STRING_LITERAL                                                                 # ColumnExprDate
+    | DATE templateString                                                                 # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
-    | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
-    | TRIM LPAREN (BOTH | LEADING | TRAILING) STRING_LITERAL FROM columnExpr RPAREN       # ColumnExprTrim
+    | TIMESTAMP templateString                                                            # ColumnExprTimestamp
+    | TRIM LPAREN (BOTH | LEADING | TRAILING) templateString FROM columnExpr RPAREN       # ColumnExprTrim
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
+    | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -189,8 +188,8 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+    // Note: difference with ClickHouse: we also support "AS templateString" as a shortcut for naming columns
+    | columnExpr (alias | AS identifier | AS templateString)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
@@ -214,7 +213,7 @@ hogqlxTagElement
     | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' STRING_LITERAL
+    :   identifier '=' templateString
     |   identifier '=' LBRACE columnExpr RBRACE
     |   identifier
     ;
@@ -259,7 +258,7 @@ floatingLiteral
 numberLiteral: (PLUS | DASH)? (floatingLiteral | OCTAL_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
 literal
     : numberLiteral
-    | STRING_LITERAL
+    | templateString
     | NULL_SQL
     ;
 interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
@@ -283,5 +282,10 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
-placeholder: LBRACE identifier RBRACE;
+enumValue: templateString EQ_SINGLE numberLiteral;
+placeholder: LBRACE columnExpr RBRACE;
+
+templateString : QUOTE_SINGLE stringContents* QUOTE_SINGLE ;
+stringContents : STRING_BACKSLASH_PAREN columnExpr DOUBLE_RBRACE
+               | STRING_TEXT
+               ;
