@@ -1,3 +1,7 @@
+posthog/warehouse/models/ssh_tunnel.py:0: error: Library stubs not installed for "paramiko"  [import-untyped]
+posthog/warehouse/models/ssh_tunnel.py:0: note: Hint: "python3 -m pip install types-paramiko"
+posthog/warehouse/models/ssh_tunnel.py:0: note: (or run "mypy --install-types" to install all missing stub packages)
+posthog/warehouse/models/ssh_tunnel.py:0: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
 posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" has incompatible type "Callable[[HeartbeatDetails, Any], Any]"; expected "Callable[[type[Never], Any], Any]"  [arg-type]
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
@@ -588,7 +592,6 @@ posthog/api/notebook.py:0: error: Incompatible types in assignment (expression h
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "str | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]

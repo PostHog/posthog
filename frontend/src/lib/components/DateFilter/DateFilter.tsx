@@ -31,6 +31,7 @@ export interface DateFilterProps {
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
+    disabledReason?: string
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
@@ -50,6 +51,7 @@ export function DateFilter({
     showRollingRangePicker = true,
     className,
     disabled,
+    disabledReason,
     makeLabel,
     onChange,
     dateFrom,
@@ -218,6 +220,7 @@ export function DateFilter({
             id="daterange_selector"
             onClick={isVisible ? close : open}
             disabled={disabled}
+            disabledReason={disabledReason}
             className={clsx('text-nowrap', className)}
             size={size ?? 'small'}
             type="secondary"
