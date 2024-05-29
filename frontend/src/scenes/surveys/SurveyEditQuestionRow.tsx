@@ -155,12 +155,21 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
-                            onChange={onChange}
+                            onChange={(val) => {
+                                onChange(val)
+                                handleQuestionValueChange('description', val)
+                                // Set descriptionContentType to 'text' if it's not already set, since we default to text
+                                // TODO if this content type is set to 'html' and the user switches to text, we should strip HTML tags
+                                if (!question.descriptionContentType) {
+                                    handleQuestionValueChange('descriptionContentType', 'text')
+                                }
+                            }}
                             writingHTMLDescription={writingHTMLDescription}
                             setWritingHTMLDescription={(isHTML) => {
                                 setWritingHTMLDescription(isHTML)
                                 handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
                             }}
+                            initialContentType={question.descriptionContentType || 'text'}
                         />
                     )}
                 </LemonField>

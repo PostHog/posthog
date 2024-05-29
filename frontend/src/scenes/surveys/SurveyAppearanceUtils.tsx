@@ -5,6 +5,7 @@ import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
+// import { useEffect } from 'react'
 import { AvailableFeature } from '~/types'
 
 import { surveysLogic } from './surveysLogic'
@@ -59,6 +60,7 @@ export function HTMLEditor({
     writingHTMLDescription: boolean
     setWritingHTMLDescription: (writingHTML: boolean) => void
     textPlaceholder?: string
+    initialContentType: 'text' | 'html'
 }): JSX.Element {
     const { surveysHTMLAvailable } = useValues(surveysLogic)
 

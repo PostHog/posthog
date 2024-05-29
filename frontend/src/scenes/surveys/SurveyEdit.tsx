@@ -269,6 +269,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           ...survey.appearance,
                                                                                           thankYouMessageDescription:
                                                                                               val,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              survey.appearance
+                                                                                                  .thankYouMessageDescriptionContentType ||
+                                                                                              'text',
                                                                                       })
                                                                                   }
                                                                                   writingHTMLDescription={
@@ -283,6 +287,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           isHTML ? 'html' : 'text'
                                                                                       )
                                                                                   }}
+                                                                                  initialContentType={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageDescriptionContentType ||
+                                                                                      'text'
+                                                                                  }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
                                                                           </LemonField.Pure>
