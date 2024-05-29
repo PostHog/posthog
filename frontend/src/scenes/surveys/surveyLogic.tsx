@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -785,17 +785,6 @@ export const surveyLogic = kea<surveyLogicType>([
             hashParams['fromTemplate'] = true
 
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
-        },
-    })),
-    beforeUnload(({ values, actions }) => ({
-        enabled: (newLocation) => {
-            return values.isEditingSurvey && newLocation?.pathname !== router.values.location.pathname
-        },
-        message:
-            'You have unsaved changes to your survey. If you leave this page, your changes will not be saved. Are you sure you want to proceed?',
-        onConfirm: () => {
-            // Turn off editing mode once the user has decided to leave. Useful for when the user clicks the back button.
-            actions.editingSurvey(false)
         },
     })),
     afterMount(({ props, actions }) => {
