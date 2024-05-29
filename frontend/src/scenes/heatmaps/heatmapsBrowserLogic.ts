@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
+import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -246,6 +247,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
+                        posthog.capture('in-app heatmap loaded', {
+                            inapp_heatmap_page_url_visited: values.browserUrl,
+                            inapp_heatmap_filters: values.heatmapFilters,
+                            inapp_heatmap_color_palette: values.heatmapColorPalette,
+                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                        })
                         return actions.onIframeToolbarLoad()
                     default:
                         console.warn(`[PostHog Heatmpas] Received unknown child window message: ${type}`)
