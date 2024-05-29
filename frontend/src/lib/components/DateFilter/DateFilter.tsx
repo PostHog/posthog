@@ -219,7 +219,7 @@ export function DateFilter({
             overlay={popoverOverlay}
             placement={dropdownPlacement}
             actionable
-            additionalRefs={[rollingDateRangeRef, '.datefilter-datepicker']}
+            additionalRefs={[rollingDateRangeRef]}
             onClickOutside={close}
             closeParentPopoverOnClickInside={false}
         >

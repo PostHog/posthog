@@ -1,3 +1,4 @@
+import { ReferenceType } from '@floating-ui/react'
 import { useEffect } from 'react'
 
 import { useFloatingContainer } from './useFloatingContainerContext'
@@ -7,13 +8,11 @@ export const CLICK_OUTSIDE_BLOCK_CLASS = 'click-outside-block'
 const exceptions = ['.ant-select-dropdown *', `.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
 
 export function useOutsideClickHandler(
-    refOrRefs: string | React.MutableRefObject<any> | (React.MutableRefObject<any> | string)[],
+    refs: React.MutableRefObject<HTMLElement | ReferenceType | null>[],
     handleClickOutside: (event: Event) => void,
     extraDeps: any[] = [],
     exceptTagNames?: string[] // list of tag names that don't trigger the callback even if outside
 ): void {
-    const allRefs = Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]
-
     const floatingContainer = useFloatingContainer()
 
     useEffect(() => {
@@ -22,7 +21,7 @@ export function useOutsideClickHandler(
                 return
             }
             if (
-                allRefs.some((maybeRef) => {
+                refs.some((maybeRef) => {
                     if (typeof maybeRef === 'string') {
                         return event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
                     }
@@ -39,7 +38,7 @@ export function useOutsideClickHandler(
             handleClickOutside?.(event)
         }
 
-        if (allRefs.length > 0) {
+        if (refs.length > 0) {
             // Only attach event listeners if there's something to track
             const root = floatingContainer || document
 
@@ -50,5 +49,5 @@ export function useOutsideClickHandler(
                 root.removeEventListener('touchend', handleClick)
             }
         }
-    }, [...allRefs, ...extraDeps])
+    }, [...refs, ...extraDeps])
 }
