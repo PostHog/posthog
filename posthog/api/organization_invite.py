@@ -31,6 +31,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "level",
             "is_expired",
             "created_by",
             "created_at",

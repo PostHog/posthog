@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { HogDebug } from 'scenes/debug/HogDebug'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'
 import { Modifiers } from 'scenes/debug/Modifiers'
 import { QueryTabs } from 'scenes/debug/QueryTabs'
@@ -7,7 +8,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { Node } from '~/queries/schema'
-import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 
 interface DebugSceneQueryProps {
     queryKey: `new-${string}`
@@ -35,7 +36,14 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
 
     return (
         <>
-            {isHogQLQuery(parsed) ? (
+            {isHogQuery(parsed) ? (
+                <HogDebug
+                    queryKey={queryKey}
+                    query={parsed}
+                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    debug
+                />
+            ) : isHogQLQuery(parsed) ? (
                 <HogQLDebug
                     queryKey={queryKey}
                     query={parsed}
@@ -49,7 +57,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                         aboveButton={
                             <Modifiers
                                 setQuery={
-                                    parsed?.source
+                                    parsed && 'source' in parsed && parsed?.source
                                         ? (query) => setQuery(JSON.stringify({ ...parsed, source: query }, null, 2))
                                         : (query) => setQuery(JSON.stringify(query, null, 2))
                                 }

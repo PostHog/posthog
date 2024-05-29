@@ -1,6 +1,8 @@
 import { IconX } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -38,7 +40,8 @@ function makeActionsComponent(
                     invite.is_expired
                         ? deleteInvite(invite)
                         : LemonDialog.open({
-                              title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                              title: 'Cancel invite',
+                              description: `Do you want to cancel the invite for ${invite.target_email}?`,
                               primaryButton: {
                                   children: 'Yes, cancel invite',
                                   status: 'danger',
@@ -81,6 +84,15 @@ export function Invites(): JSX.Element {
                 )
             },
             width: '20%',
+        },
+        {
+            title: 'Level',
+            dataIndex: 'level',
+            render: function LevelRender(_, invite) {
+                return (
+                    <LemonTag data-attr="invite-membership-level">{OrganizationMembershipLevel[invite.level]}</LemonTag>
+                )
+            },
         },
         createdByColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
         createdAtColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
