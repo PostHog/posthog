@@ -97,12 +97,20 @@ def join_with_persons_table(
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
 
     organization: Organization = context.team.organization if context.team else None
-    # TODO: Remove flag check and use left join for all once deletes are caught up
+    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
     use_inner_join = (
         posthoganalytics.feature_enabled(
             "personless-events-not-supported",
             str(context.team.uuid),
             groups={"organization": str(organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(organization.id),
+                    "created_at": organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
         if organization
         else False
