@@ -1,10 +1,5 @@
-.filter-row-popover .ScrollableShadows {
-    overflow: visible; // Only required because the Ant popover is rendered _within_ the filter popover
-}
-
 .property-filter-row {
     flex-basis: 100%;
-    overflow: hidden;
 
     &.wrap-filters {
         flex-basis: auto;
