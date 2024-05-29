@@ -47,19 +47,15 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, targetingFlagFilters } = useValues(surveyLogic)
+    const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     const handleCancelClick = (): void => {
-        if (isEditingSurvey) {
-            editingSurvey(false)
-            if (id === 'new') {
-                router.actions.push(urls.surveys())
-            } else {
-                loadSurvey()
-            }
-        } else {
+        editingSurvey(false)
+        if (id === 'new') {
             router.actions.push(urls.surveys())
+        } else {
+            loadSurvey()
         }
     }
 
