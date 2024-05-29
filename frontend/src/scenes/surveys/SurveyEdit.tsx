@@ -67,6 +67,10 @@ export default function SurveyEdit(): JSX.Element {
         ? undefined
         : 'Subscribe to surveys for multiple questions'
 
+    if (survey.iteration_count && survey.iteration_count > 0) {
+        setSchedule('recurring')
+    }
+
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
             const clone = [...arr]
