@@ -1,11 +1,11 @@
+import { Monaco } from '@monaco-editor/react'
 import { IconPencil, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
-import { flattenObject } from 'lib/utils'
 import { IDisposable, languages } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 
@@ -14,53 +14,44 @@ import { groupsModel } from '~/models/groupsModel'
 function useAutocompleteOptions(): languages.CompletionItem[] {
     const { groupTypes } = useValues(groupsModel)
 
-    const exampleEvent = {
-        event: {
-            link: 'https://example.com',
-            name: 'event_name',
-            properties: {
-                key: 'value',
-            },
-        },
-        person: {
-            link: 'https://example.com',
+    return useMemo(() => {
+        const options = [
+            ['event', 'The entire event payload as a JSON object'],
+            ['event.link', 'URL to the event in PostHog'],
+            ['event.properties', 'Properties of the event'],
+            ['event.properties.<key>', 'The individual property of the event'],
+            ['person', 'The entire person payload as a JSON object'],
+            ['person.link', 'URL to the person in PostHog'],
+            ['person.properties', 'Properties of the person'],
+            ['person.properties.<key>', 'The individual property of the person'],
+        ]
 
-            properties: {
-                key: 'Choose your property',
-            },
-        },
-        groups: {},
-    }
+        groupTypes.forEach((groupType) => {
+            options.push([`groups.${groupType.group_type}`, `The entire group payload as a JSON object`])
+            options.push([`groups.${groupType.group_type}.name`, `Display name of the group`])
+            options.push([`groups.${groupType.group_type}.link`, `URL to the group in PostHog`])
+            options.push([`groups.${groupType.group_type}.properties`, `Properties of the group`])
+            options.push([`groups.${groupType.group_type}.properties.<key>`, `The individual property of the group`])
+            options.push([`groups.${groupType.group_type}.index`, `Index of the group`])
+        })
 
-    groupTypes.forEach((groupType) => {
-        exampleEvent.groups[groupType.group_type] = {
-            link: 'URL to the group in PostHog',
-            name: 'Display name of the group',
-            index: 'Index of the group',
-            properties: {
-                key: 'value',
-            },
-        }
-    })
+        const items: languages.CompletionItem[] = options.map(([key, value]) => {
+            return {
+                label: key,
+                kind: languages.CompletionItemKind.Variable,
+                detail: value,
+                insertText: key,
+                range: {
+                    startLineNumber: 1,
+                    endLineNumber: 1,
+                    startColumn: 0,
+                    endColumn: 0,
+                },
+            }
+        })
 
-    const flattened = flattenObject(exampleEvent)
-
-    const items: languages.CompletionItem[] = Object.entries(flattened).map(([key, value]) => {
-        return {
-            label: key,
-            kind: languages.CompletionItemKind.Variable,
-            detail: value,
-            insertText: key,
-            range: {
-                startLineNumber: 1,
-                endLineNumber: 1,
-                startColumn: 0,
-                endColumn: 0,
-            },
-        }
-    })
-
-    return items
+        return items
+    }, [groupTypes])
 }
 
 function JsonConfigField(props: {
@@ -77,6 +68,59 @@ function JsonConfigField(props: {
     }, [])
 
     const suggestions = useAutocompleteOptions()
+    const [monaco, setMonaco] = useState<Monaco>()
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.setLanguageConfiguration('json', {
+            wordPattern: /[a-zA-Z0-9_\-.]+/,
+        })
+
+        const provider = monaco.languages.registerCompletionItemProvider('json', {
+            triggerCharacters: ['{{'],
+            provideCompletionItems: async (model, position) => {
+                const word = model.getWordUntilPosition(position)
+
+                const wordWithTrigger = model.getValueInRange({
+                    startLineNumber: position.lineNumber,
+                    startColumn: 0,
+                    endLineNumber: position.lineNumber,
+                    endColumn: position.column,
+                })
+
+                if (wordWithTrigger.indexOf('{{') === -1) {
+                    return { suggestions: [] }
+                }
+
+                const followingCharacters = model.getValueInRange({
+                    startLineNumber: position.lineNumber,
+                    startColumn: position.column,
+                    endLineNumber: position.lineNumber,
+                    endColumn: position.column + 2,
+                })
+
+                const localSuggestions = suggestions.map((x) => ({
+                    ...x,
+                    insertText: x.insertText + (followingCharacters !== '}}' ? '}}' : ''),
+                    range: {
+                        startLineNumber: position.lineNumber,
+                        endLineNumber: position.lineNumber,
+                        startColumn: word.startColumn,
+                        endColumn: word.endColumn,
+                    },
+                }))
+
+                return {
+                    suggestions: localSuggestions,
+                    incomplete: false,
+                }
+            },
+        })
+
+        monacoDisposables.current.push(provider)
+    }, [suggestions, monaco])
 
     // TODO: Add auto complete suggestions to the editor
 
@@ -98,85 +142,12 @@ function JsonConfigField(props: {
                             other: true,
                             strings: true,
                         },
+                        suggest: {
+                            showWords: false,
+                        },
                     }}
                     onMount={(_editor, monaco) => {
-                        monaco.languages.setLanguageConfiguration('json', {
-                            wordPattern: /[a-zA-Z0-9_\-.]+/,
-                        })
-
-                        const provider = monaco.languages.registerCompletionItemProvider('json', {
-                            triggerCharacters: ['{{'],
-                            provideCompletionItems: async (model, position) => {
-                                const word = model.getWordUntilPosition(position)
-
-                                const wordWithTrigger = model.getValueInRange({
-                                    startLineNumber: position.lineNumber,
-                                    startColumn: 0,
-                                    endLineNumber: position.lineNumber,
-                                    endColumn: position.column,
-                                })
-
-                                if (wordWithTrigger.indexOf('{{') === -1) {
-                                    return { suggestions: [] }
-                                }
-
-                                const followingCharacters = model.getValueInRange({
-                                    startLineNumber: position.lineNumber,
-                                    startColumn: position.column,
-                                    endLineNumber: position.lineNumber,
-                                    endColumn: position.column + 2,
-                                })
-
-                                const localSuggestions = suggestions.map((x) => ({
-                                    ...x,
-                                    insertText: x.insertText + (followingCharacters !== '}}' ? '}}' : ''),
-                                    range: {
-                                        startLineNumber: position.lineNumber,
-                                        endLineNumber: position.lineNumber,
-                                        startColumn: word.startColumn,
-                                        endColumn: word.endColumn,
-                                    },
-                                }))
-
-                                // const completionItems = response.suggestions
-
-                                // const suggestions = completionItems.map<languages.CompletionItem>((item) => {
-                                //     const kind = convertCompletionItemKind(item.kind)
-                                //     const sortText = kindToSortText(item.kind, item.label)
-
-                                //     return {
-                                //         label: {
-                                //             label: item.label,
-                                //             detail: item.detail,
-                                //         },
-                                //         documentation: item.documentation,
-                                //         insertText: item.insertText,
-                                //         range: {
-                                //             startLineNumber: position.lineNumber,
-                                //             endLineNumber: position.lineNumber,
-                                //             startColumn: word.startColumn,
-                                //             endColumn: word.endColumn,
-                                //         },
-                                //         kind,
-                                //         sortText,
-                                //         command:
-                                //             kind === languages.CompletionItemKind.Function
-                                //                 ? {
-                                //                       id: 'cursorLeft',
-                                //                       title: 'Move cursor left',
-                                //                   }
-                                //                 : undefined,
-                                //     }
-                                // })
-
-                                return {
-                                    suggestions: localSuggestions,
-                                    incomplete: false,
-                                }
-                            },
-                        })
-
-                        monacoDisposables.current.push(provider)
+                        setMonaco(monaco)
                     }}
                 />
             )}

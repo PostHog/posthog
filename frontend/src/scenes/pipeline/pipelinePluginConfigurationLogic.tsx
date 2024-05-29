@@ -160,7 +160,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('description', description)
 
                     const sanitizedFilters = sanitizeFilters(filters)
-                    formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
+                    if (filters) {
+                        formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
+                    }
 
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
