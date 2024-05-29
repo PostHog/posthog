@@ -19,7 +19,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
         )
         file_obj.seek(0)
     except ValueError:
-        key = crypto_serialization.load_pem_private_key(
+        key = crypto_serialization.load_pem_private_key(  # type: ignore
             file_bytes,
             password=password,
         )
