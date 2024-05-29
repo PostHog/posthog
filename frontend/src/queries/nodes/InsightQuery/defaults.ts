@@ -98,7 +98,7 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
 }
 
 export const insightTypeToDefaultQuery: Record<
-    Exclude<InsightType, InsightType.SQL | InsightType.JSON>,
+    Exclude<InsightType, InsightType.SQL | InsightType.JSON | InsightType.HOG>,
     InsightQueryNode
 > = {
     [InsightType.TRENDS]: trendsQueryDefault,

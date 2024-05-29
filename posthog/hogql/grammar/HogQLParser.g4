@@ -5,6 +5,44 @@ options {
 }
 
 
+program: declaration* EOF;
+declaration
+    : varDecl
+    | statement ;
+
+expression: columnExpr | dict;
+
+varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
+varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
+identifierList: identifier (COMMA identifier)*;
+
+statement      : returnStmt
+               | emptyStmt
+               | exprStmt
+               | ifStmt
+               | whileStmt
+               | funcStmt
+               | varAssignment
+               | returnStmt
+               | block ;
+
+exprStmt       : expression SEMICOLON ;
+ifStmt         : IF LPAREN expression RPAREN statement
+                 ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement;
+returnStmt     : RETURN expression SEMICOLON ;
+funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+emptyStmt      : SEMICOLON ;
+block          : LBRACE declaration* RBRACE ;
+
+
+dict:
+    | LBRACE (kvPairList)? RBRACE ;
+
+kvPair: expression ':' expression ;
+kvPairList: kvPair (COMMA kvPair)* ;
+
+
 // SELECT statement
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
@@ -227,18 +265,18 @@ literal
 interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
-    : AFTER | ALIAS | ALL | ALTER | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | AST | ASYNC | ATTACH | BETWEEN | BOTH | BY | CASE
-    | CAST | CHECK | CLEAR | CLUSTER | CODEC | COLLATE | COLUMN | COMMENT | CONSTRAINT | CREATE | CROSS | CUBE | CURRENT | DATABASE
-    | DATABASES | DATE | DEDUPLICATE | DEFAULT | DELAY | DELETE | DESCRIBE | DESC | DESCENDING | DETACH | DICTIONARIES | DICTIONARY | DISK
-    | DISTINCT | DISTRIBUTED | DROP | ELSE | END | ENGINE | EVENTS | EXISTS | EXPLAIN | EXPRESSION | EXTRACT | FETCHES | FINAL | FIRST
-    | FLUSH | FOR | FOLLOWING | FOR | FORMAT | FREEZE | FROM | FULL | FUNCTION | GLOBAL | GRANULARITY | GROUP | HAVING | HIERARCHICAL | ID
-    | IF | ILIKE | IN | INDEX | INJECTIVE | INNER | INSERT | INTERVAL | INTO | IS | IS_OBJECT_ID | JOIN | JSON_FALSE | JSON_TRUE | KEY
-    | KILL | LAST | LAYOUT | LEADING | LEFT | LIFETIME | LIKE | LIMIT | LIVE | LOCAL | LOGS | MATERIALIZE | MATERIALIZED | MAX | MERGES
-    | MIN | MODIFY | MOVE | MUTATION | NO | NOT | NULLS | OFFSET | ON | OPTIMIZE | OR | ORDER | OUTER | OUTFILE | OVER | PARTITION
-    | POPULATE | PRECEDING | PREWHERE | PRIMARY | RANGE | RELOAD | REMOVE | RENAME | REPLACE | REPLICA | REPLICATED | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SENDS | SET | SETTINGS | SHOW | SOURCE | START | STOP | SUBSTRING | SYNC | SYNTAX | SYSTEM | TABLE
-    | TABLES | TEMPORARY | TEST | THEN | TIES | TIMEOUT | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP | TTL | TYPE
-    | UNBOUNDED | UNION | UPDATE | USE | USING | UUID | VALUES | VIEW | VOLUME | WATCH | WHEN | WHERE | WINDOW | WITH
+    : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
+    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT
+    | DATE | DESC | DESCENDING
+    | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
+    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID
+    | IF | ILIKE | IN | INNER | INTERVAL | IS | JOIN | KEY
+    | LAST | LEADING | LEFT | LIKE | LIMIT
+    | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
+    | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
+    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
+    | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY
