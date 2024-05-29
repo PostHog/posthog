@@ -9,6 +9,7 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useEffect } from 'react'
 
 import { Survey, SurveyQuestionType } from '~/types'
 
@@ -86,6 +87,13 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
 
+    useEffect(() => {
+        setWritingHTMLDescription(question.descriptionContentType === 'html')
+    }, [question.descriptionContentType, setWritingHTMLDescription])
+
+    const initialContentType = question.descriptionContentType === 'html'
+    setWritingHTMLDescription(initialContentType)
+
     const handleQuestionValueChange = (key: string, val: string): void => {
         const updatedQuestion = survey.questions.map((question, idx) => {
             if (index === idx) {
@@ -97,6 +105,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             return question
         })
         setSurveyValue('questions', updatedQuestion)
+    }
+
+    const updateWritingHTMLDescription = (isHTML: boolean): void => {
+        setWritingHTMLDescription(isHTML)
+        // setDescriptionContentType(index, isHTML ? 'html' : 'text')
+        handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
     }
 
     return (
@@ -158,18 +172,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             onChange={(val) => {
                                 onChange(val)
                                 handleQuestionValueChange('description', val)
-                                // Set descriptionContentType to 'text' if it's not already set, since we default to text
-                                // TODO if this content type is set to 'html' and the user switches to text, we should strip HTML tags
-                                if (!question.descriptionContentType) {
-                                    handleQuestionValueChange('descriptionContentType', 'text')
-                                }
                             }}
                             writingHTMLDescription={writingHTMLDescription}
-                            setWritingHTMLDescription={(isHTML) => {
-                                setWritingHTMLDescription(isHTML)
-                                handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
-                            }}
-                            initialContentType={question.descriptionContentType || 'text'}
+                            setWritingHTMLDescription={updateWritingHTMLDescription}
                         />
                     )}
                 </LemonField>

@@ -145,6 +145,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
+        // setDescriptionContentType: (index: number, contentType: string) => ({ index, contentType }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -502,8 +503,22 @@ export const surveyLogic = kea<surveyLogicType>([
                 setSurveyMissing: () => true,
             },
         ],
+
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
+            // {
+            //     setDescriptionContentType: (state, { index, contentType }) => {
+            //         const newQuestions = [...state.questions]
+            //         newQuestions[index] = {
+            //             ...newQuestions[index],
+            //             descriptionContentType: contentType as 'text' | 'html',
+            //         }
+            //         return {
+            //             ...state,
+            //             questions: newQuestions,
+            //         }
+            //     },
+            // },
             {
                 setDefaultForQuestionType: (
                     state,
