@@ -273,7 +273,11 @@ export class SessionRecordingIngester {
         const { partition, highOffset } = event.metadata
         const isDebug = this.debugPartition === partition
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+                ...event.metadata,
+                team_id,
+                session_id,
+            })
         }
 
         function dropEvent(dropCause: string) {

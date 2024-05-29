@@ -103,7 +103,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 label: 'Password',
                 type: 'password',
                 required: true,
-                placeholder: 'password',
+                placeholder: '',
             },
             {
                 name: 'schema',
@@ -111,6 +111,77 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: 'public',
+            },
+            {
+                name: 'ssh-tunnel',
+                label: 'Use SSH tunnel?',
+                type: 'switch-group',
+                default: false,
+                fields: [
+                    {
+                        name: 'host',
+                        label: 'Tunnel host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                    {
+                        name: 'port',
+                        label: 'Tunnel port',
+                        type: 'number',
+                        required: true,
+                        placeholder: '22',
+                    },
+                    {
+                        type: 'select',
+                        name: 'auth_type',
+                        label: 'Authentication type',
+                        required: true,
+                        defaultValue: 'password',
+                        options: [
+                            {
+                                label: 'Password',
+                                value: 'password',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'password',
+                                        label: 'Tunnel password',
+                                        type: 'password',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Key pair',
+                                value: 'key_pair',
+                                fields: [
+                                    {
+                                        name: 'private_key',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
+                                        name: 'passphrase',
+                                        label: 'Tunnel passphrase',
+                                        type: 'password',
+                                        required: false,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
             },
         ],
     },
@@ -146,6 +217,47 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             },
         ],
     },
+}
+
+export const buildKeaFormDefaultFromSourceDetails = (
+    sourceDetails: Record<string, SourceConfig>
+): Record<string, any> => {
+    const fieldDefaults = (field: SourceFieldConfig, obj: Record<string, any>): void => {
+        if (field.type === 'switch-group') {
+            obj[field.name] = {}
+            obj[field.name]['enabled'] = field.default
+            field.fields.forEach((f) => fieldDefaults(f, obj[field.name]))
+            return
+        }
+
+        if (field.type === 'select') {
+            const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+            if (hasOptionFields) {
+                obj[field.name] = {}
+                obj[field.name]['selection'] = field.defaultValue
+                field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj[field.name]))
+            } else {
+                obj[field.name] = field.defaultValue
+            }
+            return
+        }
+
+        // All other types
+        obj[field.name] = ''
+    }
+
+    const sourceDetailsKeys = Object.keys(sourceDetails)
+    const formDefault = sourceDetailsKeys.reduce(
+        (defaults, cur) => {
+            const fields = sourceDetails[cur].fields
+            fields.forEach((f) => fieldDefaults(f, defaults['payload']))
+
+            return defaults
+        },
+        { prefix: '', payload: {} } as Record<string, any>
+    )
+
+    return formDefault
 }
 
 export type ManualLinkProvider = 'aws' | 'google-cloud' | 'cloudflare-r2'
@@ -404,11 +516,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     listeners(({ actions, values }) => ({
         onBack: () => {
             if (values.currentStep <= 1) {
-                actions.selectConnector(null)
+                actions.onClear()
             }
         },
         onClear: () => {
             actions.selectConnector(null)
+            actions.resetSourceConnectionDetails()
             actions.clearSource()
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
@@ -543,15 +656,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
-            defaults: {
-                prefix: '',
-                payload: {},
-            } as {
-                prefix: string
-                payload: Record<string, any>
-            },
+            defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
@@ -562,8 +669,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setIsLoading(true)
 
                     try {
-                        await api.externalDataSources.source_prefix(payload.source_type, payload.prefix)
-                        actions.updateSource(payload)
+                        await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+
+                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+
+                        // Only store the keys of the source type we're using
+                        actions.updateSource({
+                            ...payload,
+                            payload: {
+                                source_type: values.selectedConnector.name,
+                                ...payloadKeys.reduce((acc, cur) => {
+                                    acc[cur] = payload['payload'][cur]
+                                    return acc
+                                }, {} as Record<string, any>),
+                            },
+                        })
+
                         actions.setIsLoading(false)
                     } catch (e: any) {
                         if (e?.data?.message) {
@@ -579,25 +700,58 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
 ])
 
-const getErrorsForFields = (
+export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    { prefix, payload }: { prefix: string; payload: Record<string, any> }
+    values: { prefix: string; payload: Record<string, any> } | undefined
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
     }
 
     // Prefix errors
-    if (!/^[a-zA-Z0-9_-]*$/.test(prefix ?? '')) {
+    if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
         errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
     }
 
     // Payload errors
-    for (const field of fields) {
-        const fieldValue = payload[field.name]
-        if (field.required && !fieldValue) {
-            errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
+    const validateField = (
+        field: SourceFieldConfig,
+        valueObj: Record<string, any>,
+        errorsObj: Record<string, any>
+    ): void => {
+        if (field.type === 'switch-group') {
+            if (valueObj[field.name]?.['enabled']) {
+                errorsObj[field.name] = {}
+                field.fields.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
+            }
+
+            return
         }
+
+        if (field.type === 'select') {
+            const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+            if (!hasOptionFields) {
+                if (field.required && !valueObj[field.name]) {
+                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                }
+            } else {
+                errorsObj[field.name] = {}
+                const selection = valueObj[field.name]['selection']
+                field.options
+                    .find((n) => n.value === selection)
+                    ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
+            }
+            return
+        }
+
+        // All other types
+        if (field.required && !valueObj[field.name]) {
+            errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
+        }
+    }
+
+    for (const field of fields) {
+        validateField(field, values?.payload ?? {}, errors['payload'])
     }
 
     return errors

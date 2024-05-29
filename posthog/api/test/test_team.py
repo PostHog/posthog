@@ -1,8 +1,8 @@
 import json
 import uuid
-from typing import cast, Optional, Any
+from typing import Any, Optional
 from unittest import mock
-from unittest.mock import MagicMock, call, patch, ANY
+from unittest.mock import ANY, MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -14,9 +14,8 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
-from posthog.models import EarlyAccessFeature, ActivityLog
+from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -24,6 +23,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 
 
@@ -96,7 +96,9 @@ class TestTeamAPI(APIBaseTest):
 
     @patch("posthog.api.team.get_geoip_properties")
     def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
-        self.organization.available_features = cast(list[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
+        ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
