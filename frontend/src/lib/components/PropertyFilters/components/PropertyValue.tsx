@@ -9,11 +9,11 @@ import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString }
 import { useEffect } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType, PropertyOperator, PropertyType, ResourceFilterType } from '~/types'
+import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
-    type: PropertyFilterType | ResourceFilterType
+    type: PropertyFilterType
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction

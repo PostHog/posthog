@@ -21,13 +21,13 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
     CohortPropertyFilter,
-    EventFilter,
     HogQLPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
-    ResourceFilterType,
+    RecordingDurationPropertyFilter,
+    RecordingEventPropertyFilter,
 } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
@@ -110,14 +110,23 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         value: null, // must specify something to be compatible with existing types
                     }
                     props.setFilter(props.filterIndex, hogQLProperty)
-                } else if (propertyType === ResourceFilterType.Events) {
-                    const eventFilter: EventFilter = {
-                        key: 'id',
-                        value: String(propertyKey),
-                        type: ResourceFilterType.Events,
-                        properties: [],
+                } else if (propertyType === PropertyFilterType.Recording) {
+                    if (propertyKey === 'duration') {
+                        const durationProperty: RecordingDurationPropertyFilter = {
+                            type: PropertyFilterType.Recording,
+                            key: propertyKey,
+                            operator: PropertyOperator.GreaterThan,
+                            durationType: 'duration',
+                        }
+                        props.setFilter(props.filterIndex, durationProperty)
+                    } else if (propertyKey === 'event') {
+                        const eventProperty: RecordingEventPropertyFilter = {
+                            type: PropertyFilterType.Recording,
+                            key: propertyKey,
+                            properties: [],
+                        }
+                        props.setFilter(props.filterIndex, eventProperty)
                     }
-                    props.setFilter(props.filterIndex, eventFilter)
                 } else {
                     const apiType =
                         propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event

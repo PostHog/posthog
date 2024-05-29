@@ -7,10 +7,11 @@ import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
-import { AnyPropertyFilter, EventFilter, EventPropertyFilter, FilterLogicalOperator, ResourceFilterType } from '~/types'
+import { AnyPropertyFilter, EventPropertyFilter, FilterLogicalOperator, RecordingEventFilter } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { isRecordingEventFilter } from './utils'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -108,17 +109,20 @@ export function PropertyFilters({
                                     label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
-                                    filterComponent={(onComplete) =>
-                                        item.type === ResourceFilterType.Events ? (
-                                            <EventFilterSubProperties
-                                                item={item}
-                                                index={index}
-                                                onComplete={onComplete}
-                                                onChange={(properties) => {
-                                                    setFilter(index, { ...item, properties })
-                                                }}
-                                            />
-                                        ) : (
+                                    filterComponent={(onComplete) => {
+                                        if (isRecordingEventFilter(item)) {
+                                            return (
+                                                <EventFilterSubProperties
+                                                    item={item}
+                                                    index={index}
+                                                    onComplete={onComplete}
+                                                    onChange={(properties) => {
+                                                        setFilter(index, { ...item, properties })
+                                                    }}
+                                                />
+                                            )
+                                        }
+                                        return (
                                             <TaxonomicPropertyFilter
                                                 key={index}
                                                 pageKey={pageKey}
@@ -140,7 +144,7 @@ export function PropertyFilters({
                                                 allowRelativeDateOptions={allowRelativeDateOptions}
                                             />
                                         )
-                                    }
+                                    }}
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}
@@ -158,7 +162,7 @@ const EventFilterSubProperties = ({
     item,
     onChange,
 }: {
-    item: EventFilter
+    item: RecordingEventFilter
     index: number
     onChange: (filters: EventPropertyFilter[]) => void
     onComplete: () => void

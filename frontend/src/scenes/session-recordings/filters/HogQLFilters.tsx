@@ -21,6 +21,7 @@ export const HogQLFilters = (): JSX.Element => {
     })
 
     const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.Replay,
         TaxonomicFilterGroupType.Events,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,

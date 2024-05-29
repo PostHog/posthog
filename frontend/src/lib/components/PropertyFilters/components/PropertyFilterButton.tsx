@@ -11,9 +11,9 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, ResourceFilterType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
-import { formatPropertyLabel } from '../utils'
+import { formatPropertyLabel, isRecordingEventFilter } from '../utils'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -47,11 +47,12 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 })}
                 aria-disabled={!!disabledReason}
             >
-                <PropertyFilterIcon type={item.type} />
+                <PropertyFilterIcon item={item} />
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>
-                {item.type === ResourceFilterType.Events && (
+
+                {isRecordingEventFilter(item) && (
                     <LemonButton
                         size="xsmall"
                         icon={

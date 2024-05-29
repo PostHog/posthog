@@ -668,10 +668,6 @@ export enum ProgressStatus {
     Complete = 'complete',
 }
 
-export enum ResourceFilterType {
-    Events = 'events',
-}
-
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
@@ -766,21 +762,14 @@ export interface EmptyPropertyFilter {
     key?: never
 }
 
-export type EventFilter = {
-    type: ResourceFilterType.Events
-    key: 'id'
-    value: string
-    properties: EventPropertyFilter[]
-}
-
 export type AnyPropertyFilter =
-    | EventFilter
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
-    | RecordingDurationFilter
+    | RecordingDurationPropertyFilter
+    | RecordingEventPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -949,11 +938,17 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-export interface RecordingDurationFilter extends BasePropertyFilter {
+export interface RecordingDurationPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
     key: 'duration'
-    value: number
     operator: PropertyOperator
+    durationType: DurationType
+}
+
+export interface RecordingEventPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Recording
+    key: 'event'
+    properties: EventPropertyFilter[]
 }
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
@@ -969,7 +964,7 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    session_recording_duration?: RecordingDurationFilter
+    session_recording_duration?: RecordingDurationPropertyFilter
     duration_type_filter?: DurationType
     console_search_query?: string
     console_logs?: FilterableLogLevel[]

@@ -11,19 +11,12 @@ import {
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import {
-    PropertyDefinition,
-    PropertyFilterType,
-    PropertyFilterValue,
-    PropertyOperator,
-    PropertyType,
-    ResourceFilterType,
-} from '~/types'
+import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
 export interface OperatorValueSelectProps {
-    type?: PropertyFilterType | ResourceFilterType
+    type?: PropertyFilterType
     propkey?: string
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null

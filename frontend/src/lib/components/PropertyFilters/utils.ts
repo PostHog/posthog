@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema'
@@ -25,8 +26,8 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
-    RecordingDurationFilter,
-    ResourceFilterType,
+    RecordingDurationPropertyFilter,
+    RecordingEventPropertyFilter,
     SessionPropertyFilter,
 } from '~/types'
 
@@ -117,8 +118,12 @@ export function formatPropertyLabel(
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
-    if (item.type === ResourceFilterType.Events) {
+    if (isRecordingEventFilter(item)) {
         return `"${item.value}" occured`
+    }
+
+    if (isRecordingDurationFilter(item)) {
+        return humanFriendlyDurationFilter(item, item.durationType)
     }
 
     return type === 'cohort'
@@ -203,8 +208,11 @@ export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter i
 export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter is SessionPropertyFilter {
     return filter?.type === PropertyFilterType.Session
 }
-export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationFilter {
-    return filter?.type === PropertyFilterType.Recording
+export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationPropertyFilter {
+    return filter?.type === PropertyFilterType.Recording && filter.key === 'duration'
+}
+export function isRecordingEventFilter(filter?: AnyFilterLike | null): filter is RecordingEventPropertyFilter {
+    return filter?.type === PropertyFilterType.Recording && filter.key === 'event'
 }
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
@@ -239,7 +247,8 @@ export function isPropertyFilterWithOperator(
     | PersonPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
-    | RecordingDurationFilter
+    | RecordingDurationPropertyFilter
+    | RecordingEventPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter {
@@ -322,9 +331,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         : PropertyDefinitionType.Event
 }
 
-export function taxonomicFilterTypeToFilterType(
-    filterType?: TaxonomicFilterGroupType
-): PropertyFilterType | ResourceFilterType | undefined {
+export function taxonomicFilterTypeToFilterType(filterType?: TaxonomicFilterGroupType): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
     }
@@ -340,8 +347,8 @@ export function taxonomicFilterTypeToFilterType(
         return PropertyFilterType.Event
     }
 
-    if (filterType === TaxonomicFilterGroupType.Events) {
-        return ResourceFilterType.Events
+    if (filterType === TaxonomicFilterGroupType.Replay || filterType === TaxonomicFilterGroupType.Events) {
+        return PropertyFilterType.Recording
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {

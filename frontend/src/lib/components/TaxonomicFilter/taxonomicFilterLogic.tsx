@@ -22,6 +22,7 @@ import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWare
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { TaxonomicFilterReplayGroup } from 'scenes/session-recordings/filters/TaxonomicFilterReplayGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -362,6 +363,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        completeOnChange: true,
                     },
                     {
                         name: 'Cohorts',
@@ -505,6 +507,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
                         componentProps: { metadataSource },
+                        completeOnChange: true,
+                    },
+                    {
+                        name: 'Replay',
+                        searchPlaceholder: 'Replay',
+                        type: TaxonomicFilterGroupType.Replay,
+                        render: TaxonomicFilterReplayGroup,
+                        getPopoverHeader: () => 'Replay',
+                        completeOnChange: true,
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
