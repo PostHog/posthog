@@ -1,15 +1,16 @@
+import posthoganalytics
+
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    StringDatabaseField,
-    LazyTable,
     FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
+    StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
-from posthog.schema import PersonsJoinMode
+from posthog.models.organization import Organization
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
@@ -41,10 +42,29 @@ def persons_pdi_join(
     if not requested_fields:
         raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(requested_fields))
-    if context.modifiers.personsJoinMode == PersonsJoinMode.left:
-        join_expr.join_type = "LEFT JOIN"
-    else:
+    organization: Organization = context.team.organization if context.team else None
+    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
+    use_inner_join = (
+        posthoganalytics.feature_enabled(
+            "personless-events-not-supported",
+            str(context.team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(organization.id),
+                    "created_at": organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if organization and context.team
+        else False
+    )
+    if use_inner_join:
         join_expr.join_type = "INNER JOIN"
+    else:
+        join_expr.join_type = "LEFT JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
