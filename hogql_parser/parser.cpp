@@ -1064,7 +1064,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
     } else if (ctx->STRING_LITERAL()) {
-      alias = unquote_string_terminal(ctx->STRING_LITERAL());
+      alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
     } else {
       throw ParsingError("A ColumnExprAlias must have the alias in some form");
     }
@@ -1861,7 +1861,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     auto string_literal_terminal = ctx->STRING_LITERAL();
     if (string_literal_terminal) {
-      string text = unquote_string_terminal(string_literal_terminal);
+      string text = parse_string_literal_ctx(string_literal_terminal);
       RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
     }
     return visitChildren(ctx);
@@ -1879,7 +1879,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return unquote_string(text);
+        return parse_string_literal_text(text);
       }
     }
     return text;
@@ -1891,7 +1891,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return unquote_string(text);
+        return parse_string_literal_text(text);
       }
     }
     return text;
@@ -2014,7 +2014,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(String) {
     auto string_literal = ctx->STRING_LITERAL();
     if (string_literal) {
-      string text = unquote_string_terminal(string_literal);
+      string text = parse_string_literal_ctx(string_literal);
       RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
     }
     return visit(ctx->templateString());
@@ -2057,7 +2057,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(StringContents) {
     auto string_text = ctx->STRING_TEXT();
     if (string_text) {
-      string text = unquote_string_chunk_terminal(string_text, true);
+      string text = parse_string_text_ctx(string_text, true);
       RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
     }
     auto column_expr = ctx->columnExpr();
@@ -2071,7 +2071,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(StringContentsFull) {
     auto full_string_text = ctx->FULL_STRING_TEXT();
     if (full_string_text) {
-      string text = unquote_string_chunk_terminal(full_string_text, false);
+      string text = parse_string_text_ctx(full_string_text, false);
       RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
     }
     auto column_expr = ctx->columnExpr();
@@ -2164,7 +2164,7 @@ METHOD_PARSE_NODE(FullTemplateString, fullTemplateString, full_template_string)
 
 #undef METHOD_PARSE_NODE
 
-static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
+static PyObject* method_parse_string_literal_text(PyObject* self, PyObject* args) {
   parser_state* state = get_module_state(self);
   const char* str;
   if (!PyArg_ParseTuple(args, "s", &str)) {
@@ -2172,7 +2172,7 @@ static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
   }
   string unquoted_string;
   try {
-    unquoted_string = unquote_string(str);
+    unquoted_string = parse_string_literal_text(str);
   } catch HANDLE_HOGQL_ERROR(SyntaxError, );
   return PyUnicode_FromStringAndSize(unquoted_string.data(), unquoted_string.size());
 }
@@ -2196,8 +2196,8 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = (PyCFunction)method_parse_full_template_string,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse a Hog template string into an AST"},
-    {.ml_name = "unquote_string",
-     .ml_meth = method_unquote_string,
+    {.ml_name = "parse_string_literal_text",
+     .ml_meth = method_parse_string_literal_text,
      .ml_flags = METH_VARARGS,
      .ml_doc = "Unquote the string (an identifier or a string literal))"},
     {NULL, NULL, 0, NULL}

@@ -11,7 +11,7 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parse_string import parse_string, parse_string_literal, parse_string_chunk
+from posthog.hogql.parse_string import parse_string_literal_text, parse_string_literal_ctx, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 from hogql_parser import (
@@ -585,7 +585,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.identifier():
             alias = self.visit(ctx.identifier())
         elif ctx.STRING_LITERAL():
-            alias = parse_string_literal(ctx.STRING_LITERAL())
+            alias = parse_string_literal_ctx(ctx.STRING_LITERAL())
         else:
             raise NotImplementedError(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
@@ -963,7 +963,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.NULL_SQL():
             return ast.Constant(value=None)
         if ctx.STRING_LITERAL():
-            text = parse_string_literal(ctx)
+            text = parse_string_literal_ctx(ctx)
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 
@@ -981,7 +981,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if len(text) >= 2 and (
             (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
         ):
-            text = parse_string(text)
+            text = parse_string_literal_text(text)
         return text
 
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
@@ -989,7 +989,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if len(text) >= 2 and (
             (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
         ):
-            text = parse_string(text)
+            text = parse_string_literal_text(text)
         return text
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
@@ -1039,7 +1039,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitString(self, ctx: HogQLParser.StringContext):
         if ctx.STRING_LITERAL():
-            return ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL()))
+            return ast.Constant(value=parse_string_literal_ctx(ctx.STRING_LITERAL()))
         return self.visit(ctx.templateString())
 
     def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
@@ -1068,14 +1068,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitStringContents(self, ctx: HogQLParser.StringContentsContext):
         if ctx.STRING_TEXT():
-            return ast.Constant(value=parse_string_chunk(ctx.STRING_TEXT(), escape_quotes=True))
+            return ast.Constant(value=parse_string_text_ctx(ctx.STRING_TEXT(), escape_quotes=True))
         elif ctx.columnExpr():
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")
 
     def visitStringContentsFull(self, ctx: HogQLParser.StringContentsFullContext):
         if ctx.FULL_STRING_TEXT():
-            return ast.Constant(value=parse_string_chunk(ctx.FULL_STRING_TEXT(), escape_quotes=False))
+            return ast.Constant(value=parse_string_text_ctx(ctx.FULL_STRING_TEXT(), escape_quotes=False))
         elif ctx.columnExpr():
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")

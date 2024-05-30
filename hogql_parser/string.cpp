@@ -5,7 +5,7 @@
 
 using namespace std;
 
-string unescape_string(string text) {
+string replace_common_escape_characters(string text) {
   // Copied from clickhouse_driver/util/escape.py
   boost::replace_all(text, "\\a", "\a");
   boost::replace_all(text, "\\b", "\b");
@@ -20,7 +20,7 @@ string unescape_string(string text) {
   return text;
 }
 
-string unquote_string(string text) {
+string parse_string_literal_text(string text) {
   size_t original_text_size = text.size();
   if (original_text_size == 0) {
     throw ParsingError("Encountered an unexpected empty string input");
@@ -46,14 +46,14 @@ string unquote_string(string text) {
   } else {
     throw SyntaxError("Invalid string literal, must start and end with the same quote type: " + text);
   }
-  return unescape_string(text);
+  return replace_common_escape_characters(text);
 }
 
 
-string unquote_string_terminal(antlr4::tree::TerminalNode* node) {
+string parse_string_literal_ctx(antlr4::tree::TerminalNode* node) {
   string text = node->getText();
   try {
-    return unquote_string(text);
+    return parse_string_literal_text(text);
   } catch (SyntaxError& e) {
     throw SyntaxError(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);
   } catch (ParsingError& e) {
@@ -61,14 +61,14 @@ string unquote_string_terminal(antlr4::tree::TerminalNode* node) {
   }
 }
 
-string unquote_string_chunk_terminal(antlr4::tree::TerminalNode* node, bool escape_quotes) {
+string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quotes) {
   string text = node->getText();
   try {
     if (escape_quotes) {
       boost::replace_all(text, "''", "'");
       boost::replace_all(text, "\\'", "'");
     }
-    return unescape_string(text);
+    return replace_common_escape_characters(text);
   } catch (SyntaxError& e) {
     throw SyntaxError(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);
   } catch (ParsingError& e) {

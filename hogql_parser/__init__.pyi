@@ -29,7 +29,7 @@ def parse_full_template_string(expr: str, /, *, is_internal: bool = False) -> AS
     """
     ...
 
-def unquote_string(value: str, /) -> str:
+def parse_string_literal_text(value: str, /) -> str:
     """Unquote the string (an identifier or a string literal).
 
     If the expr is `internal`, spans and notices won't be included in the AST.
