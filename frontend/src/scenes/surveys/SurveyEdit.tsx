@@ -35,7 +35,7 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { ScheduleType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 export default function SurveyEdit(): JSX.Element {
@@ -666,7 +666,7 @@ export default function SurveyEdit(): JSX.Element {
                                         <LemonRadio
                                             value={schedule}
                                             onChange={(newValue) => {
-                                                setSchedule(newValue)
+                                                setSchedule(newValue as ScheduleType)
                                                 if (newValue === 'once') {
                                                     setSurveyValue('iteration_count', 0)
                                                     setSurveyValue('iteration_frequency_days', 0)

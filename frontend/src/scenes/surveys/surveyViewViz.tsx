@@ -295,22 +295,26 @@ export function NPSSurveyResultsBarChart({
                             <BindLogic logic={insightLogic} props={recurringNPSInsightProps}>
                                 <LineGraph
                                     inSurveyView={true}
-                                    hideYAxis={false}
+                                    hideYAxis={true}
                                     showValuesOnSeries={true}
-                                    labelGroupType={1}
+                                    labelGroupType="none"
                                     data-attr="survey-rating"
                                     type={GraphType.Line}
-                                    hideAnnotations={true}
-                                    compare={true}
+                                    hideAnnotations={false}
+                                    compare={false}
                                     formula="-"
                                     tooltip={{
-                                        showHeader: false,
+                                        showHeader: true,
                                         hideColorCol: true,
+                                    }}
+                                    trendsFilter={{
+                                        compare: true,
+                                        showLegend: true,
                                     }}
                                     datasets={[
                                         {
                                             id: 1,
-                                            label: 'NPS Score over time',
+                                            label: 'NPS Score',
                                             barPercentage: 0.8,
                                             minBarLength: 2,
                                             data: surveyRecurringNPSResults[questionIndex].data,
@@ -325,10 +329,6 @@ export function NPSSurveyResultsBarChart({
                                 />
                             </BindLogic>
                         </div>
-                    </div>
-                    <div className="flex flex-row justify-between mt-1">
-                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
-                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
                     </div>
                 </div>
             )}
