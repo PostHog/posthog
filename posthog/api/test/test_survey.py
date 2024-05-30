@@ -1,27 +1,27 @@
-from datetime import datetime, timedelta
-
-from unittest.mock import ANY
-import pytest
 import re
-from rest_framework import status
+from datetime import datetime, timedelta
+from unittest.mock import ANY
+
+import pytest
 from django.core.cache import cache
 from django.test.client import Client
 from freezegun.api import freeze_time
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.models.cohort.cohort import Cohort
+from rest_framework import status
 
+from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.constants import AvailableFeature
+from posthog.models import FeatureFlag
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
     APIBaseTest,
-    ClickhouseTestMixin,
     BaseTest,
+    ClickhouseTestMixin,
     QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_clickhouse_queries,
     _create_event,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
 )
-
-from posthog.models import FeatureFlag
 
 
 class TestSurvey(APIBaseTest):
@@ -1580,6 +1580,194 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["detail"] == "Question choices must be a list of strings"
 
 
+class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = self.create_organization_with_features([AvailableFeature.SURVEYS_TEXT_HTML])
+        self.team = self.create_team_with_organization(self.organization)
+        self.user = self.create_user_with_organization(self.organization)
+        self.client.force_login(self.user)
+
+    def test_create_survey_with_valid_question_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["questions"][0]["descriptionContentType"] == "text"
+
+    def test_validate_question_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text/html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question descriptionContentType must be one of ['text', 'html']"
+
+    def test_create_survey_with_valid_thank_you_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "This is a thank you message",
+                    "thankYouMessageDescriptionContentType": "text",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "text"
+
+    def test_validate_thank_you_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "This is a thank you message",
+                    "thankYouMessageDescriptionContentType": "text/html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+
+    def test_create_survey_with_valid_question_description_content_type_html(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "<b>This is a description</b>",
+                        "descriptionContentType": "html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["questions"][0]["descriptionContentType"] == "html"
+        assert response_data["questions"][0]["description"] == "<b>This is a description</b>"
+
+    def test_create_survey_with_html_without_feature_flag(self):
+        # Remove the SURVEYS_TEXT_HTML feature
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "<b>This is a description</b>",
+                        "descriptionContentType": "html",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
+
+    def test_create_survey_with_valid_thank_you_description_content_type_html(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
+        assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
+
+    def test_create_survey_with_html_thank_you_without_feature_flag(self):
+        # Remove the SURVEYS_TEXT_HTML feature
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert (
+            response_data["detail"]
+            == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
+        )
+
+
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):
         cache.clear()
@@ -1588,12 +1776,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
 
-    def _get_surveys(
-        self,
-        token=None,
-        origin="http://127.0.0.1:8000",
-        ip="127.0.0.1",
-    ):
+    def _get_surveys(self, token=None, origin="http://127.0.0.1:8000", ip="127.0.0.1"):
         return self.client.get(
             "/api/surveys/",
             data={"token": token or self.team.api_token},
@@ -1632,36 +1815,42 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-            self.assertListEqual(
-                response.json()["surveys"],
-                [
-                    {
-                        "id": str(basic_survey.id),
-                        "name": "Survey 1",
-                        "description": "",
-                        "type": "popover",
-                        "questions": [{"type": "open", "question": "What's a survey?"}],
-                        "conditions": None,
-                        "appearance": None,
-                        "start_date": None,
-                        "end_date": None,
-                    },
-                    {
-                        "id": str(survey_with_flags.id),
-                        "name": "Survey 2",
-                        "description": "",
-                        "type": "popover",
-                        "conditions": None,
-                        "appearance": None,
-                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                        "linked_flag_key": "linked-flag",
-                        "targeting_flag_key": "targeting-flag",
-                        "internal_targeting_flag_key": "custom-targeting-flag",
-                        "start_date": None,
-                        "end_date": None,
-                    },
-                ],
-            )
+
+            # Sort response data by id
+            response_data = sorted(response.json()["surveys"], key=lambda x: x["id"])
+
+            # Define expected data and sort it by id
+            expected_data = [
+                {
+                    "id": str(basic_survey.id),
+                    "name": "Survey 1",
+                    "description": "",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "conditions": None,
+                    "appearance": None,
+                    "start_date": None,
+                    "end_date": None,
+                },
+                {
+                    "id": str(survey_with_flags.id),
+                    "name": "Survey 2",
+                    "description": "",
+                    "type": "popover",
+                    "conditions": None,
+                    "appearance": None,
+                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "linked_flag_key": "linked-flag",
+                    "targeting_flag_key": "targeting-flag",
+                    "internal_targeting_flag_key": "custom-targeting-flag",
+                    "start_date": None,
+                    "end_date": None,
+                },
+            ]
+            expected_data = sorted(expected_data, key=lambda x: x["id"])
+
+            # Perform the assertion
+            self.assertListEqual(response_data, expected_data)
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):

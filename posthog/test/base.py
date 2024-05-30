@@ -5,11 +5,10 @@ import resource
 import threading
 import time
 import uuid
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
-from collections.abc import Callable
-from collections.abc import Generator
 from unittest.mock import patch
 
 import freezegun
@@ -31,16 +30,14 @@ from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import (
-    TEST_clear_instance_license_cache,
-)
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
-    CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-    CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_DATA_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
@@ -63,13 +60,13 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.sessions.sql import (
-    DROP_SESSION_TABLE_SQL,
-    DROP_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_SESSION_VIEW_SQL,
-    SESSIONS_TABLE_SQL,
-    SESSIONS_TABLE_MV_SQL,
-    SESSIONS_VIEW_SQL,
     DISTRIBUTED_SESSIONS_TABLE_SQL,
+    DROP_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_SESSION_TABLE_SQL,
+    DROP_SESSION_VIEW_SQL,
+    SESSIONS_TABLE_MV_SQL,
+    SESSIONS_TABLE_SQL,
+    SESSIONS_VIEW_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -351,13 +348,27 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         cache.clear()
         TEST_clear_instance_license_cache()
 
-        # Sets the cloud mode to stabilise things tests, especially num query counts
-        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        # Sets the cloud mode to stabilize things tests, especially num query counts
+        # Clear the is_rate_limit lru_Caches so that they do not flap in test snapshots
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+
+    def create_organization_with_features(self, features):
+        organization = Organization.objects.create(name="Test Organization")
+        organization.available_product_features = [{"name": feature, "key": feature} for feature in features]
+        organization.save()
+        return organization
+
+    def create_team_with_organization(self, organization):
+        return Team.objects.create(organization=organization, name="Test Team")
+
+    def create_user_with_organization(self, organization):
+        user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
+        organization.members.add(user)
+        return user
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)

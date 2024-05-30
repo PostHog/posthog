@@ -119,7 +119,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError(
-                "Appearance thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+                "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
             )
 
         use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
@@ -159,9 +159,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
 
-            description_content_type = raw_question.get("description_content_type")
+            description_content_type = raw_question.get("descriptionContentType")
             if description_content_type and description_content_type not in ["text", "html"]:
-                raise serializers.ValidationError("Question description_content_type must be one of ['text', 'html']")
+                raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
 
             use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
                 AvailableFeature.SURVEYS_TEXT_HTML
