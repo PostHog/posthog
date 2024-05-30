@@ -1775,7 +1775,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         # it is really important to know that this is CSRF exempt
         self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
-        self.maxDiff = None
 
     def _get_surveys(
         self,
