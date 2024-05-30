@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from dataclasses import dataclass
 import datetime as dt
 import dns.resolver
@@ -35,6 +36,7 @@ class CreateManagedProxyInputs:
 @dataclass
 class WaitForDNSRecordsInputs:
     organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
 
@@ -57,6 +59,14 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         inputs.domain,
         inputs.target_cname,
     )
+
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for DNS records")
 
     try:
         cnames = dns.resolver.query(inputs.domain, "CNAME")
@@ -81,9 +91,17 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Creating managed proxy resources for domain %s",
         inputs.domain,
     )
+
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for certificate to be provisioned")
 
     client = await get_grpc_client()
 
@@ -108,7 +126,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Waiting for certificate to be provisioned for domain %s",
         inputs.domain,
     )
 
@@ -158,7 +176,10 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 wait_for_dns_records,
                 WaitForDNSRecordsInputs(
-                    organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    domain=inputs.domain,
+                    target_cname=inputs.target_cname,
                 ),
                 schedule_to_close_timeout=dt.timedelta(days=7),
                 start_to_close_timeout=dt.timedelta(seconds=2),
