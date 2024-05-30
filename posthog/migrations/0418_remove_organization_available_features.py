@@ -12,5 +12,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             'ALTER TABLE "posthog_organization" DROP COLUMN "available_features" CASCADE -- drop-column-ignore',
             reverse_sql='ALTER TABLE "posthog_organization" ADD COLUMN "available_features" VARCHAR(64)[] DEFAULT array[]::varchar(64)[]',
+            state_operations=[migrations.RemoveField("organization", "available_features")],
         )
     ]
