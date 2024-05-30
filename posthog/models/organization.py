@@ -155,9 +155,6 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
-    available_features = ArrayField(
-        models.CharField(max_length=64, blank=False), blank=True, default=list
-    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
