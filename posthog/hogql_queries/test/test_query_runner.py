@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -106,7 +107,8 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         self.assertEqual(cache_key, "cache_fb3bac966786fa05510fec5401803b8b")
 
-    def test_cache_response(self):
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_cache_response(self, mock_enqueue_process_query_task):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -138,6 +140,13 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
+
+        with freeze_time(datetime(2023, 2, 5, 13, 37 + 11, 42)):
+            # returns cached response but kicks off calculation in the background
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+            mock_enqueue_process_query_task.assert_called_once()
 
     def test_modifier_passthrough(self):
         try:
