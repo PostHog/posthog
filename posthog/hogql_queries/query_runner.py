@@ -11,6 +11,7 @@ from sentry_sdk import capture_exception, push_scope
 import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -68,10 +69,12 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 
 
 class ExecutionMode(IntEnum):
-    CALCULATION_ALWAYS = 2
+    CALCULATION_ALWAYS = 3
     """Always recalculate."""
-    RECENT_CACHE_CALCULATE_IF_STALE = 1
+    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 2
     """Use cache, unless the results are missing or stale."""
+    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 1
+    """Use cache, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
 
@@ -350,7 +353,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise NotImplementedError()
 
     def run(
-        self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
+        self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     ) -> CR | CacheMissResponse:
         cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
@@ -384,17 +387,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     # We have a valid result that's fresh enough, let's return it
                     return cached_response
-                else:
-                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
-                    # We have a stale result. If we aren't allowed to calculate, let's still return it
-                    # – otherwise let's proceed to calculation
-                    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                        return cached_response
+
+                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+                # We have a stale result. If we aren't allowed to calculate, let's still return it
+                # – otherwise let's proceed to calculation
+                if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                    return cached_response
+                elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+                    # We're allowed to calculate, but we'll do it asynchronously
+                    self.kick_off_async_calculation()
+                    return cached_response
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
                 # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
                 # – otherwise let's proceed to calculation
                 if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                    return cached_response
+                elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+                    # We're allowed to calculate, but we'll do it asynchronously
+                    self.kick_off_async_calculation()
                     return cached_response
 
         fresh_response_dict = self.calculate().model_dump()
@@ -416,6 +427,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
+
+    def kick_off_async_calculation(self):
+        enqueue_process_query_task(
+            team=self.team,
+            user=self.team.all_users_with_access().first(),  # TODO
+            query_json=self.query.model_dump(),
+            query_id=None,
+            refresh_requested=True,
+        )
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:

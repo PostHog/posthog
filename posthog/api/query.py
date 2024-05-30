@@ -83,7 +83,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data.query,
                 execution_mode=ExecutionMode.CALCULATION_ALWAYS
                 if data.refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+                else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

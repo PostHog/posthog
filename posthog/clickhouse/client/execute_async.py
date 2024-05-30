@@ -196,7 +196,7 @@ def execute_process_query(
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATION_ALWAYS
             if refresh_requested
-            else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+            else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)

@@ -40,7 +40,7 @@ def process_query_dict(
     *,
     dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
-    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 ) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -60,7 +60,7 @@ def process_query_model(
     *,
     dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
-    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 

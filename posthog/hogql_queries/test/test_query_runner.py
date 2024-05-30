@@ -117,14 +117,14 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, CacheMissResponse)
 
             # returns fresh response if uncached
-            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
             self.assertEqual(response.last_refresh, "2023-02-04T13:37:42Z")
             self.assertEqual(response.next_allowed_client_refresh, "2023-02-04T13:41:42Z")
 
             # returns cached response afterwards
-            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
 
@@ -135,7 +135,7 @@ class TestQueryRunner(BaseTest):
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
-            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
 
