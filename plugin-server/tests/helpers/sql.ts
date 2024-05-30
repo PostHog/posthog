@@ -212,7 +212,6 @@ export async function createUserTeamAndOrganization(
         personalization: '{}', // DEPRECATED
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
-        available_features: [],
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
@@ -315,7 +314,6 @@ export const createOrganization = async (pg: PostgresRouter) => {
         personalization: '{}', // DEPRECATED
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
-        available_features: [],
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,

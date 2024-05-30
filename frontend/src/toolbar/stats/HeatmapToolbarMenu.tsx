@@ -1,16 +1,16 @@
 import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonLabel, LemonSegmentedButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils'
 import React, { useState } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -158,13 +158,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     // some of the date options we allow in insights don't apply to heatmaps
     // let's filter the list down
     const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
-
-    const dateItems = dateMapping
-        .filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
-        .map((dateOption) => ({
-            label: dateOption.key,
-            onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
-        }))
+    const dateOptions = dateMapping.filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
 
     return (
         <ToolbarMenu>
@@ -189,11 +183,14 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 </div>
 
                 <div className="flex flex-row items-center gap-2 py-2 border-b">
-                    <LemonMenu items={dateItems}>
-                        <LemonButton size="small" type="secondary">
-                            {dateFilterToText(commonFilters.date_from, commonFilters.date_to, 'Last 7 days')}
-                        </LemonButton>
-                    </LemonMenu>
+                    <DateFilter
+                        dateFrom={commonFilters.date_from}
+                        dateTo={commonFilters.date_to}
+                        onChange={(fromDate, toDate) => {
+                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                        }}
+                        dateOptions={dateOptions}
+                    />
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
