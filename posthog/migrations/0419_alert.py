@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0417_remove_organizationmembership_only_one_owner_per_organization_and_more"),
+        ("posthog", "0418_pluginconfig_filters"),
     ]
 
     operations = [
