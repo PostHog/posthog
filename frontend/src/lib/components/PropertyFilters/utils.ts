@@ -92,7 +92,6 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     Record<PropertyFilterType, TaxonomicFilterGroupType>,
     PropertyFilterType.Recording // Recording filters are not part of the taxonomic filter, only Replay-specific UI
 > = {
-    [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Events]: TaxonomicFilterGroupType.Events,

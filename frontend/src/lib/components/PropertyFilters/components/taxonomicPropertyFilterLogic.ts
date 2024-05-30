@@ -145,13 +145,13 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
                     // is the equivalent of selecting a property value
-                    const property: AnyPropertyFilter = {
+                    const property = {
                         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
                         value: isGroupNameFilter ? propertyKey.toString() : null,
                         operator,
-                        type: propertyType as AnyPropertyFilter['type'], // bad | pipe chain :(
+                        type: propertyType,
                         group_type_index: taxonomicGroup.groupTypeIndex,
-                    }
+                    } as AnyPropertyFilter // bad | pipe chain on type :(
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
                 }
                 actions.closeDropdown()

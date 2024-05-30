@@ -669,8 +669,6 @@ export enum ProgressStatus {
 }
 
 export enum PropertyFilterType {
-    /** Event metadata and fields on the clickhouse events table */
-    Meta = 'meta',
     /** Event properties */
     Event = 'event',
     /** Event occurences */
