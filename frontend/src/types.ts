@@ -610,6 +610,7 @@ export enum PropertyOperator {
     LessThanOrEqual = 'lte',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    Occurred = 'occurred',
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
@@ -672,6 +673,8 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    /** Event occurences */
+    Events = 'events',
     /** Person properties */
     Person = 'person',
     Element = 'element',
@@ -753,6 +756,12 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
+export interface EventsFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Events
+    properties: EventPropertyFilter[]
+    operator: PropertyOperator.Occurred
+}
+
 export interface EmptyPropertyFilter {
     type?: never
     value?: never
@@ -761,6 +770,7 @@ export interface EmptyPropertyFilter {
 }
 
 export type AnyPropertyFilter =
+    | EventsFilter
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
@@ -940,6 +950,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     key: 'duration'
     value: number
     operator: PropertyOperator
+    durationType: DurationType
 }
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'

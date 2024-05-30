@@ -1,10 +1,11 @@
 import './PropertyFilterButton.scss'
 
-import { IconX } from '@posthog/icons'
+import { IconFilter, IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { midEllipsis } from 'lib/utils'
 import React from 'react'
 
@@ -12,7 +13,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter } from '~/types'
 
-import { formatPropertyLabel } from '../utils'
+import { formatPropertyLabel, isEventFilter } from '../utils'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -50,6 +51,17 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>
+                {isEventFilter(item) && (
+                    <LemonButton
+                        size="xsmall"
+                        icon={
+                            <IconWithCount count={item.properties.length} showZero={false}>
+                                <IconFilter />
+                            </IconWithCount>
+                        }
+                        className="p-0.5"
+                    />
+                )}
                 {closable && !disabledReason && (
                     // The context below prevents close button from going into active status when filter popover is open
                     <PopoverReferenceContext.Provider value={null}>

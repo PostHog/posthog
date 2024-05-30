@@ -64,7 +64,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     })),
 
     selectors({
-        filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
         filtersWithNew: [
             (s) => [s.filters],
             (filters) => {

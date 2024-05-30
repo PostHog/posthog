@@ -291,6 +291,12 @@ class Day(RootModel[int]):
     root: int
 
 
+class DurationType(str, Enum):
+    duration = "duration"
+    active_seconds = "active_seconds"
+    inactive_seconds = "inactive_seconds"
+
+
 class Key(str, Enum):
     tag_name = "tag_name"
     text = "text"
@@ -714,6 +720,7 @@ class PathsFilterLegacy(BaseModel):
 class PropertyFilterType(str, Enum):
     meta = "meta"
     event = "event"
+    events = "events"
     person = "person"
     element = "element"
     feature = "feature"
@@ -750,6 +757,7 @@ class PropertyOperator(str, Enum):
     lte = "lte"
     is_set = "is_set"
     is_not_set = "is_not_set"
+    occurred = "occurred"
     is_date_exact = "is_date_exact"
     is_date_before = "is_date_before"
     is_date_after = "is_date_after"
@@ -837,6 +845,7 @@ class RecordingDurationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    durationType: DurationType
     key: Literal["duration"] = "duration"
     label: Optional[str] = None
     operator: PropertyOperator
@@ -1795,6 +1804,18 @@ class EventPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class EventsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: Literal["occurred"] = "occurred"
+    properties: list[EventPropertyFilter]
+    type: Literal["events"] = Field(default="events", description="Event occurences")
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
 class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2710,6 +2731,7 @@ class DashboardFilter(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2763,6 +2785,7 @@ class DataWarehouseNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2794,6 +2817,7 @@ class DataWarehouseNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2836,6 +2860,7 @@ class EntityNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2865,6 +2890,7 @@ class EntityNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2892,6 +2918,7 @@ class EventsNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2923,6 +2950,7 @@ class EventsNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2953,6 +2981,7 @@ class EventsQuery(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -2982,6 +3011,7 @@ class EventsQuery(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3010,6 +3040,7 @@ class FunnelExclusionActionsNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3042,6 +3073,7 @@ class FunnelExclusionActionsNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3069,6 +3101,7 @@ class FunnelExclusionEventsNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3102,6 +3135,7 @@ class FunnelExclusionEventsNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3129,6 +3163,7 @@ class HogQLFilters(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3172,6 +3207,7 @@ class PersonsNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3199,6 +3235,7 @@ class PersonsNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3227,6 +3264,7 @@ class PropertyGroupFilterValue(BaseModel):
         Union[
             PropertyGroupFilterValue,
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3306,6 +3344,7 @@ class ActionsNode(BaseModel):
     fixedProperties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3336,6 +3375,7 @@ class ActionsNode(BaseModel):
     properties: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
@@ -3445,6 +3485,7 @@ class RetentionQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3486,6 +3527,7 @@ class StickinessQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3534,6 +3576,7 @@ class TrendsQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3592,6 +3635,7 @@ class FilterType(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3636,6 +3680,7 @@ class FunnelsQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3677,6 +3722,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3715,6 +3761,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3753,6 +3800,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3791,6 +3839,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3829,6 +3878,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -3873,6 +3923,7 @@ class LifecycleQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -4042,6 +4093,7 @@ class PathsQuery(BaseModel):
         Union[
             list[
                 Union[
+                    EventsFilter,
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
@@ -4122,6 +4174,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
     funnelCorrelationPropertyValues: Optional[
         list[
             Union[
+                EventsFilter,
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,

@@ -38,6 +38,7 @@ describe('DurationFilter', () => {
             const filter: RecordingDurationFilter = {
                 type: PropertyFilterType.Recording,
                 key: 'duration',
+                durationType: 'duration',
                 value,
                 operator,
             }

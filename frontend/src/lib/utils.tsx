@@ -209,6 +209,7 @@ export const booleanOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    occurred: 'occurred',
 }
 
 export const durationOperatorMap: Record<string, string> = {
@@ -256,7 +257,7 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.Occurred].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {

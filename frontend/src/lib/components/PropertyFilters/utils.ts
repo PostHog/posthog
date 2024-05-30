@@ -14,6 +14,7 @@ import {
     EmptyPropertyFilter,
     EventDefinition,
     EventPropertyFilter,
+    EventsFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     GroupPropertyFilter,
@@ -94,6 +95,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+    [PropertyFilterType.Events]: TaxonomicFilterGroupType.Events,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -212,6 +214,9 @@ export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter i
 }
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
+}
+export function isEventFilter(filter?: AnyFilterLike | null): filter is EventsFilter {
+    return filter?.type === PropertyFilterType.Events
 }
 
 export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
@@ -333,6 +338,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.Events) {
+        return PropertyFilterType.Events
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {

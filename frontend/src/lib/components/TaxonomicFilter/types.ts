@@ -73,6 +73,7 @@ export interface TaxonomicFilterGroup {
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
     propertyAllowList?: string[]
+    completeOnChange?: boolean
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
 }

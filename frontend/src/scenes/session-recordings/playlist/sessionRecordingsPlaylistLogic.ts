@@ -67,6 +67,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     key: 'duration',
     value: 1,
     operator: PropertyOperator.GreaterThan,
+    durationType: 'duration',
 }
 
 export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {

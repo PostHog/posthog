@@ -21,6 +21,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
     CohortPropertyFilter,
+    EventsFilter,
     HogQLPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -110,6 +111,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         value: null, // must specify something to be compatible with existing types
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
+                } else if (propertyType === PropertyFilterType.Events) {
+                    const eventsFilter: EventsFilter = {
+                        type: propertyType,
+                        key: String(propertyKey),
+                        operator: PropertyOperator.Occurred,
+                        properties: [],
+                    }
+                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, eventsFilter)
                 } else {
                     const apiType =
                         propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
@@ -140,7 +149,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
                         value: isGroupNameFilter ? propertyKey.toString() : null,
                         operator,
-                        type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
+                        type: propertyType as AnyPropertyFilter['type'], // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)

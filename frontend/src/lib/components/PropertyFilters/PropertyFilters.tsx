@@ -11,6 +11,7 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { isEventFilter } from './utils'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -108,26 +109,36 @@ export function PropertyFilters({
                                     label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
-                                    filterComponent={(onComplete) => (
-                                        <TaxonomicPropertyFilter
-                                            key={index}
-                                            pageKey={pageKey}
-                                            index={index}
-                                            onComplete={onComplete}
-                                            orFiltering={orFiltering}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            metadataSource={metadataSource}
-                                            eventNames={eventNames}
-                                            schemaColumns={schemaColumns}
-                                            propertyGroupType={propertyGroupType}
-                                            disablePopover={disablePopover || orFiltering}
-                                            addText={addText}
-                                            hasRowOperator={hasRowOperator}
-                                            propertyAllowList={propertyAllowList}
-                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
-                                            allowRelativeDateOptions={allowRelativeDateOptions}
-                                        />
-                                    )}
+                                    filterComponent={(onComplete) =>
+                                        isEventFilter(item) ? (
+                                            <PropertyFilters
+                                                propertyFilters={item.properties}
+                                                pageKey={`${pageKey}.${item.key}.${index}`}
+                                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                                disablePopover
+                                                onChange={onChange}
+                                            />
+                                        ) : (
+                                            <TaxonomicPropertyFilter
+                                                key={index}
+                                                pageKey={pageKey}
+                                                index={index}
+                                                onComplete={onComplete}
+                                                orFiltering={orFiltering}
+                                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                                metadataSource={metadataSource}
+                                                eventNames={eventNames}
+                                                schemaColumns={schemaColumns}
+                                                propertyGroupType={propertyGroupType}
+                                                disablePopover={disablePopover || orFiltering}
+                                                addText={addText}
+                                                hasRowOperator={hasRowOperator}
+                                                propertyAllowList={propertyAllowList}
+                                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                                allowRelativeDateOptions={allowRelativeDateOptions}
+                                            />
+                                        )
+                                    }
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}

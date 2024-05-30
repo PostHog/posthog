@@ -362,6 +362,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        completeOnChange: true,
                     },
                     {
                         name: 'Cohorts',
@@ -505,6 +506,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
                         componentProps: { metadataSource },
+                        completeOnChange: true,
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

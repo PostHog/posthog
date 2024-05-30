@@ -264,6 +264,9 @@
         "AnyPropertyFilter": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/EventsFilter"
+                },
+                {
                     "$ref": "#/definitions/EventPropertyFilter"
                 },
                 {
@@ -2565,6 +2568,10 @@
         "Day": {
             "type": "integer"
         },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
+        },
         "ElementPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -2801,6 +2808,37 @@
                 }
             },
             "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
+            "type": "object"
+        },
+        "EventsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "occurred",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "events",
+                    "description": "Event occurences",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "properties", "type"],
             "type": "object"
         },
         "EventsNode": {
@@ -5393,6 +5431,7 @@
             "enum": [
                 "meta",
                 "event",
+                "events",
                 "person",
                 "element",
                 "feature",
@@ -5483,6 +5522,7 @@
                 "lte",
                 "is_set",
                 "is_not_set",
+                "occurred",
                 "is_date_exact",
                 "is_date_before",
                 "is_date_after",
@@ -6829,6 +6869,9 @@
         "RecordingDurationFilter": {
             "additionalProperties": false,
             "properties": {
+                "durationType": {
+                    "$ref": "#/definitions/DurationType"
+                },
                 "key": {
                     "const": "duration",
                     "type": "string"
@@ -6847,7 +6890,7 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["durationType", "key", "operator", "type", "value"],
             "type": "object"
         },
         "RetentionEntity": {

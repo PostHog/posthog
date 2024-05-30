@@ -881,11 +881,19 @@ export enum PropertyOperator {
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
     LessThan = 'lt',
+    LessThanOrEqual = 'lte',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    Occurred = 'occurred',
+    IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
 }
 
 /** Sync with posthog/frontend/src/types.ts */

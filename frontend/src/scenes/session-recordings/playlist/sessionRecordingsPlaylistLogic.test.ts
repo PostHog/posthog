@@ -278,6 +278,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         session_recording_duration: {
                             type: PropertyFilterType.Recording,
                             key: 'duration',
+                            durationType: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,
                         },

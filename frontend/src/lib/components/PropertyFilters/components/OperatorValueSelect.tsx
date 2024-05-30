@@ -110,9 +110,9 @@ export function OperatorValueSelect({
                         if (tentativeValidationError) {
                             setValidationError(tentativeValidationError)
                             return
-                        } else {
-                            setValidationError(null)
                         }
+                        setValidationError(null)
+
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -151,9 +151,9 @@ export function OperatorValueSelect({
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
-                            } else {
-                                setValidationError(null)
                             }
+                            setValidationError(null)
+
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
