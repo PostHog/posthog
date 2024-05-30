@@ -274,6 +274,11 @@ SPECTACULAR_SETTINGS = {
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
+    "ENUM_NAME_OVERRIDES": {
+        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        "SurveyType": "posthog.models.feedback.survey.Survey.SurveyType",
+    },
 }
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}

@@ -12,6 +12,8 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
@@ -29,14 +31,18 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
-from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.fetch_from_cache import (
+    InsightResult,
+    fetch_cached_insight_result,
+    synchronously_update_cache,
+)
 from posthog.caching.insights_api import should_refresh_insight
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -46,14 +52,21 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.decorators import cached_by_filters
-from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.helpers.multi_property_breakdown import (
+    protect_old_clients_from_multi_property_default,
+)
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.feature_flag import (
+    hogql_insights_replace_filters,
+)
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
+    flagged_conversion_to_query_based,
+)
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -81,17 +94,18 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
+    cache_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
 )
-from loginas.utils import is_impersonated_session
-
 
 logger = structlog.get_logger(__name__)
 
@@ -509,7 +523,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
-            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+            from posthog.hogql_queries.apply_dashboard_filters import (
+                apply_dashboard_filters_to_dict,
+            )
 
             query = instance.query or instance.query_from_filters
             if dashboard:
@@ -537,10 +553,19 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             if insight.query:
                 # Uses query
                 try:
+                    refresh_requested = refresh_requested_by_client(self.context["request"])
+                    execution_mode = (
+                        ExecutionMode.CALCULATION_ALWAYS
+                        if refresh_requested
+                        else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                    )
+                    if refresh_requested and cache_requested_by_client(self.context["request"]):
+                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
+
                     return calculate_for_query_based_insight(
                         insight,
                         dashboard=dashboard,
-                        refresh_requested=refresh_requested_by_client(self.context["request"]),
+                        execution_mode=execution_mode,
                     )
                 except ExposedHogQLError as e:
                     raise ValidationError(str(e))
