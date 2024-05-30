@@ -17,7 +17,7 @@ export function Reload(): JSX.Element {
                 if (responseLoading) {
                     cancelQuery()
                 } else {
-                    loadData()
+                    loadData(true)
                 }
             }}
             // Setting the loading icon manually to capture clicks while spinning.
