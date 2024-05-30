@@ -4,7 +4,6 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
-import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import {
     LemonButton,
     LemonCheckbox,
@@ -17,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -392,14 +392,21 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <LemonField.Pure>
                                     <EventSelect
-                            onChange={(excludedEvents) =>  console.log(`excludedEvents is `, excludedEvents)}
-                            selectedEvents={[]}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Add Event
-                                </LemonButton>
-                            }
-                        />
+                                        onChange={(includedEvents) => {
+                                            setSurveyValue('events', includedEvents)
+                                        }}
+                                        selectedEvents={survey.events || []}
+                                        addElement={
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                icon={<IconPlus />}
+                                                sideIcon={null}
+                                            >
+                                                Add event
+                                            </LemonButton>
+                                        }
+                                    />
                                     <LemonSelect
                                         onChange={(value) => {
                                             if (value) {

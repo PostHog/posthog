@@ -2540,6 +2540,7 @@ export interface Survey {
     archived: boolean
     remove_targeting_flag?: boolean
     responses_limit: number | null
+    events: string[]
 }
 
 export enum SurveyUrlMatchType {
