@@ -11,6 +11,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
 
@@ -42,7 +43,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert isinstance(response["last_refresh"], str)
 
     def test_returns_cached_result(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy").json()
@@ -50,8 +51,25 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert response["result"] == "bla"
         assert response["is_cached"] is True
 
+    def test_team_id_from_viewset_is_used(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+
+        # Prime the cache
+        self.client.get(f"/api/dummy").json()
+
+        # Now switch to the other team - cache should be different
+        DummyViewSet.team = other_team
+
+        response_for_other_team_initial = self.client.get(f"/api/dummy").json()
+        response_for_other_team_repeated = self.client.get(f"/api/dummy").json()
+
+        assert response_for_other_team_initial["result"] == "bla"
+        assert response_for_other_team_initial["is_cached"] is False
+        assert response_for_other_team_repeated["result"] == "bla"
+        assert response_for_other_team_repeated["is_cached"] is True
+
     def test_cache_bypass_with_refresh_param(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy", data={"refresh": "true"}).json()
@@ -59,7 +77,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert response["is_cached"] is False
 
     def test_cache_bypass_with_invalidation_key_param(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy", data={"cache_invalidation_key": "abc"}).json()
@@ -68,7 +86,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
 
     def test_discards_stale_response(self) -> None:
         with freeze_time("2023-02-08T12:05:23Z"):
-            # cache the result
+            # Prime the cache
             self.client.get(f"/api/dummy").json()
 
         with freeze_time("2023-02-10T12:00:00Z"):
