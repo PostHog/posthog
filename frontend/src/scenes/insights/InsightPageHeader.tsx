@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -80,6 +81,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insight={insight}
                         canEditInsight={canEditInsight}
                     />
+                    <AlertsModal
+                        isOpen={insightMode === ItemMode.Alerts}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insight.short_id as InsightShortId}
+                        alertId={subscriptionId}
+                    />
                     <NewDashboardModal />
                 </>
             )}
@@ -127,6 +134,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
+                                            {insight.short_id && <AlertsButton insightShortId={insight.short_id} />}
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth

@@ -225,4 +225,6 @@ export const urls = {
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (): string => `/heatmaps`,
+    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
+    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
 }
