@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 from freezegun import freeze_time
 from posthog.decorators import cached_by_filters, is_stale_filter
 
@@ -15,8 +16,15 @@ from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
 
+if TYPE_CHECKING:
+    from posthog.api.routing import TeamAndOrgViewSetMixin
 
-class DummyViewSet(GenericViewSet):
+
+class DummyViewSet(*((TeamAndOrgViewSetMixin, GenericViewSet) if TYPE_CHECKING else (GenericViewSet,))):  # type: ignore
+    # We don't actually want TeamAndOrgViewSetMixin's functionality in this class, but we do pretend to act like
+    # TeamAndOrgViewSetMixin in terms of having `team`. To make mypy happy, we make it _think_ that the mixin is used
+    team: Team
+
     def list(self, request):
         data = self.calculate_with_filters(request)
         return Response(data)
