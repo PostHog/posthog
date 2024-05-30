@@ -63,7 +63,7 @@ def parse_string_template(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = "cpp",
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
     if timings is None:
@@ -83,7 +83,7 @@ def parse_expr(
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = "cpp",
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
@@ -101,7 +101,7 @@ def parse_order_expr(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = "cpp",
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
@@ -119,10 +119,8 @@ def parse_select(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):

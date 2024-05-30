@@ -1646,6 +1646,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             assert node3 == node1
 
             node4 = self._select("select TRIM (LEADING f'fi{'a'}sh' FROM event) from events")
+            assert isinstance(node4, ast.SelectQuery)
             assert node4.select[0] == ast.Call(
                 name="trimLeft",
                 args=[
@@ -1666,6 +1667,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
 
             select = self._select("select f'hello {event}' from events")
+            assert isinstance(select, ast.SelectQuery)
             assert select.select[0] == node
 
         def test_template_strings_nested_strings(self):
