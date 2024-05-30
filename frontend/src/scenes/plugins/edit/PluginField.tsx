@@ -152,7 +152,9 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
 
     useEffect(() => {
-        onChange?.(Object.fromEntries(entries))
+        // NOTE: Filter out all empty entries as fetch will throw if passed in
+        const validEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        onChange?.(validEntries)
     }, [entries])
 
     return (
