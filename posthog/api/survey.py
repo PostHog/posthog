@@ -119,7 +119,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("Appearance thankYouMessageDescriptionContentType must be one of ['text', 'html']")
-        
+
         use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
                 AvailableFeature.SURVEYS_TEXT_HTML
             )
@@ -128,7 +128,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             raise serializers.ValidationError(
                 "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
             )
-        
+
         return value
 
     def validate_questions(self, value):
