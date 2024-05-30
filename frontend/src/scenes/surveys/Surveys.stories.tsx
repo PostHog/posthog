@@ -310,6 +310,73 @@ export const NewSurveyAppearanceSection: StoryFn = () => {
     return <App />
 }
 
+// export const NewSurveyWithHTMLDescriptionInAppearanceSection: StoryFn = () => {
+//     useEffect(() => {
+//         router.actions.push(urls.survey('new'))
+//         surveyLogic({ id: 'new' }).mount()
+//         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
+//         surveyLogic({ id: 'new' }).actions.setSurveyValue('appearance', {
+//             thankYouMessageDescription: '<strong>This description has HTML in it</strong>',
+//             thankYouMessageDescriptionContentType: 'html',
+//         })
+//     }, [])
+//     return <App />
+// }
+
+// NewSurveyWithHTMLDescriptionInAppearanceSection.parameters = {
+//     testOptions: {
+//         waitForSelector: '.CodeMirror-line',
+//     },
+// }
+
+export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'html',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithHTMLQuestionDescription.parameters = {
+    testOptions: {
+        waitForSelector:
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div:nth-child(2) > div.description > strong',
+    },
+}
+
+export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'text',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
+    testOptions: {
+        waitForSelector:
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div:nth-child(2) > div.description',
+    },
+}
+
 export const SurveyView: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
