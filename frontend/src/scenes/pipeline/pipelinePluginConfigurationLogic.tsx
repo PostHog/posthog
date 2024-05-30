@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -306,13 +306,19 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         },
     })),
     // TODO: Add this back in once we have a plan for handling automatic url changes
-    // beforeUnload(({ actions, values }) => ({
-    //     enabled: () => values.configurationChanged,
-    //     message: 'Leave action?\nChanges you made will be discarded.',
-    //     onConfirm: () => {
-    //         actions.resetConfiguration()
-    //     },
-    // })),
+    beforeUnload(({ actions, values, cache }) => ({
+        enabled: () => {
+            if (cache.ignoreUrlChange) {
+                cache.ignoreUrlChange = false
+                return false
+            }
+            return values.configurationChanged
+        },
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
+        },
+    })),
     afterMount(({ props, actions, cache }) => {
         if (props.pluginConfigId) {
             actions.loadPluginConfig() // comes with plugin info
@@ -327,6 +333,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         configuration: (configuration) => {
             if (values.isNew) {
                 // Sync state to the URL bar if new
+                cache.ignoreUrlChange = true
                 router.actions.replace(router.values.location.pathname, undefined, {
                     configuration,
                 })
