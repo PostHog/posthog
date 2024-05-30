@@ -4,7 +4,7 @@ import math
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_template_string
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -20,8 +20,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _template_string(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
-            return clear_locations(parse_template_string(expr, placeholders=placeholders, backend=backend))
+        def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+            return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
 
         def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
@@ -1638,7 +1638,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             assert node1 == node2
 
         def test_template_strings(self):
-            node = clear_locations(parse_template_string("f'hello {event}'"))
+            node = self._expr("f'hello {event}'")
             assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
 
             select = self._select("select f'hello {event}' from events")
@@ -1700,5 +1700,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
                 op=ast.CompareOperationOp.Eq,
             )
+
+        def test_template_strings_full(self):
+            node = self._string_template("hello {event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to open {person.properties.email}")
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="we're ready to open "), ast.Field(chain=["person", "properties", "email"])],
+            )
+
+            node = self._string_template("strings' to {'strings'}")
+            assert node == ast.Call(
+                name="concat", args=[ast.Constant(value="strings' to "), ast.Constant(value="strings")]
+            )
+            node2 = self._expr("f'strings\\' to {'strings'}'")
+            assert node2 == node
 
     return TestParser

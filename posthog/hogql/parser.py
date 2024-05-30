@@ -53,8 +53,8 @@ def parse_program(
     return node
 
 
-def parse_template_string(
-    program: str,
+def parse_string_template(
+    string: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
     start: Optional[int] = 0,
     *,
@@ -62,7 +62,7 @@ def parse_template_string(
 ) -> ast.Call:
     if backend == "cpp":
         raise NotImplementedError("Template strings are not supported in C++")
-    parse_tree = get_parser(program).templateString()
+    parse_tree = get_parser("F'" + string).fullTemplateString()
     node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
         return cast(ast.Call, replace_placeholders(node, placeholders))
@@ -1052,9 +1052,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.Call(name="concat", args=pieces)
 
+    def visitFullTemplateString(self, ctx: HogQLParser.FullTemplateStringContext):
+        pieces = []
+        for chunk in ctx.stringContentsFull():
+            pieces.append(self.visit(chunk))
+
+        if len(pieces) == 0:
+            return ast.Constant(value="")
+        elif len(pieces) == 1:
+            return pieces[0]
+
+        return ast.Call(name="concat", args=pieces)
+
     def visitStringContents(self, ctx: HogQLParser.StringContentsContext):
         if ctx.STRING_TEXT():
-            return ast.Constant(value=parse_string_chunk(ctx.STRING_TEXT()))
+            return ast.Constant(value=parse_string_chunk(ctx.STRING_TEXT(), escape_quotes=True))
+        elif ctx.columnExpr():
+            return self.visit(ctx.columnExpr())
+        return ast.Constant(value="")
+
+    def visitStringContentsFull(self, ctx: HogQLParser.StringContentsFullContext):
+        if ctx.FULL_STRING_TEXT():
+            return ast.Constant(value=parse_string_chunk(ctx.FULL_STRING_TEXT(), escape_quotes=False))
         elif ctx.columnExpr():
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")

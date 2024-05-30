@@ -669,5 +669,15 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#fullTemplateString.
+    def visitFullTemplateString(self, ctx:HogQLParser.FullTemplateStringContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#stringContentsFull.
+    def visitStringContentsFull(self, ctx:HogQLParser.StringContentsFullContext):
+        return self.visitChildren(ctx)
+
+
 
 del HogQLParser

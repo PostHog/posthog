@@ -287,6 +287,8 @@ placeholder: LBRACE columnExpr RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
-stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE
-               | STRING_TEXT
-               ;
+stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
+
+// Template string without needing to escape single quotes --> use when users enter the full string into a form
+fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
+stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;

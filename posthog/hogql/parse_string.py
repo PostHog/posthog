@@ -47,7 +47,10 @@ def parse_string_literal(ctx: ParserRuleContext) -> str:
     return parse_string(text)
 
 
-def parse_string_chunk(ctx: ParserRuleContext) -> str:
+def parse_string_chunk(ctx: ParserRuleContext, escape_quotes=True) -> str:
     """Converts a STRING_LITERAL received from antlr via ctx.getText() into a Python string"""
     text = ctx.getText()
+    if escape_quotes:
+        text = text.replace("''", "'")
+        text = text.replace("\\'", "'")
     return unescape_string(text)
