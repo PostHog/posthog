@@ -202,8 +202,8 @@ PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
 QUOTE_DOUBLE: '"';
-QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING);
-QUOTE_SINGLE_TEMPLATE_FULL: 'F\'' -> pushMode(IN_FULL_TEMPLATE_STRING);
+QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING); // start of regular f'' template strings
+QUOTE_SINGLE_TEMPLATE_FULL: 'F\'' -> pushMode(IN_FULL_TEMPLATE_STRING); // magic F' symbol used to parse "full text" templates
 QUOTE_SINGLE: '\'';
 REGEX_SINGLE: '~';
 REGEX_DOUBLE: '=~';
@@ -221,11 +221,14 @@ SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 
+// regular f' template strings
 mode IN_TEMPLATE_STRING;
 STRING_TEXT: ((~([\\'{])) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_SINGLE | (BACKSLASH LBRACE) | (QUOTE_SINGLE QUOTE_SINGLE))+;
 STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);
 STRING_QUOTE_SINGLE: QUOTE_SINGLE -> type(QUOTE_SINGLE), popMode;
 
+// a magic F' takes us to "full template strings" mode, where we don't need to escape single quotes and parse until EOF
+// this can't be used within a normal columnExpr, but has to be parsed for separately
 mode IN_FULL_TEMPLATE_STRING;
 FULL_STRING_TEXT: ((~([{])) | ESCAPE_CHAR_COMMON | (BACKSLASH LBRACE))+;
 FULL_STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);

@@ -289,6 +289,7 @@ string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
 stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
 
-// Template string without needing to escape single quotes --> use when users enter the full string into a form
+// These are magic "full template strings", which are used to parse "full text field" templates without the surrounding SQL.
+// We will need to add F' to the start of the string to change the lexer's mode.
 fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
 stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
