@@ -17,7 +17,7 @@ export interface FeatureFlagSnippet {
     instantlyAvailableProperties?: boolean
 }
 
-const LOCAL_EVAL_REMINDER = `// Remember to set a personal API key in the SDK to enable local evaluation.
+const LOCAL_EVAL_REMINDER = `Remember to set a personal API key in the SDK to enable local evaluation.
 `
 
 export function NodeJSSnippet({
@@ -36,29 +36,40 @@ export function NodeJSSnippet({
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-                // add group properties used in the flag to ensure the flag
-                // is evaluated locally, vs. going to our servers
-                groupProperties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
+        // add group properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        groupProperties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
-                // add person properties used in the flag to ensure the flag
-                // is evaluated locally, vs. going to our servers
-                personProperties: {'${propertyName}': 'value'}`
+        // add person properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        personProperties: {'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',
-            {
-                groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
-            }
-        )`
+    '${flagKey}',
+    'user distinct id',${
+        payload
+            ? `
+    undefined,`
+            : ''
+    }
+    {
+        groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
+    }
+)`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',
-            {${localEvalAddition}}
-            )`
+    '${flagKey}',
+    'user distinct id',${
+        payload
+            ? `
+    undefined,`
+            : ''
+    }
+    {${localEvalAddition}
+    }
+)`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
 
     const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabledForUser'
@@ -76,7 +87,9 @@ if (${conditional}) {
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}const ${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${
+                    localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''
+                }const ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -98,29 +111,29 @@ export function PHPSnippet({
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-            // empty person properties
-            [],
-            // add group properties used in the flag to ensure the flag
-            // is evaluated locally, vs. going to our servers
-            [${groupType.group_type} =>  ['${propertyName}' => 'value', 'name' => 'xyz']]`
+    // empty person properties
+    [],
+    // add group properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    [${groupType.group_type} =>  ['${propertyName}' => 'value', 'name' => 'xyz']]`
             : `
-            // add person properties used in the flag to ensure the flag
-            // is evaluated locally, vs. going to our servers
-            ['${propertyName}' => 'value']`
+    // add person properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    ['${propertyName}' => 'value']`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',
-            // group types
-            ['${groupType.group_type}' => '<${groupType.name_singular || 'group'} ID>'],${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',
+    // group types
+    ['${groupType.group_type}' => '<${groupType.name_singular || 'group'} ID>'],${localEvalAddition}
+)`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',${localEvalAddition}
+)`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = multivariant ? '$enabledVariant' : '$isMyFlagEnabledForUser'
 
@@ -129,7 +142,7 @@ export function PHPSnippet({
     return (
         <>
             <CodeSnippet language={Language.PHP} wrap>
-                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}
+                {`${localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}
 
 if (${conditional}) {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -155,31 +168,28 @@ export function GolangSnippet({
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-                // add group properties used in the flag to ensure the flag
-                // is evaluated locally, vs. going to our servers
-                
-                groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
+        // add group properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
             : `
-                // add person properties used in the flag to ensure the flag
-                // is evaluated locally, vs. going to our servers
-                PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
+        // add person properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
-            FeatureFlagPayload{
-                Key:        "${flagKey}",
-                DistinctId: "distinct-id",
-                Groups:     Groups{'${groupType.group_type}': '<${
-              groupType.name_singular || 'group'
-          } ID>'},${localEvalAddition}
-            }
-        )`
+    FeatureFlagPayload{
+        Key:        "${flagKey}",
+        DistinctId: "distinct-id",
+        Groups:     Groups{'${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>'},${localEvalAddition}
+    }
+)`
         : `${clientSuffix}${flagFunction}(
-            FeatureFlagPayload{
-                Key:        '${flagKey}',
-                DistinctId: "distinct-id",${localEvalAddition}
-            })`
+    FeatureFlagPayload{
+        Key:        '${flagKey}',
+        DistinctId: "distinct-id",${localEvalAddition}
+    })`
     const variableName = multivariant ? 'enabledVariant, err' : 'isMyFlagEnabledForUser, err'
 
     const conditional = multivariant ? `enabledVariant == 'example-variant'` : `isMyFlagEnabledForUser`
@@ -187,7 +197,7 @@ export function GolangSnippet({
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
+                {`${localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
 
 if ${conditional} {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -213,26 +223,26 @@ export function RubySnippet({
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-            # // add group properties used in the flag to ensure the flag
-            # // is evaluated locally, vs. going to our servers
-            group_properties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
+    # add group properties used in the flag to ensure the flag
+    # is evaluated locally, vs. going to our servers
+    group_properties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
-            # // add person properties used in the flag to ensure the flag
-            # // is evaluated locally, vs. going to our servers
-            person_properties: {'${propertyName}': 'value'}`
+    # add person properties used in the flag to ensure the flag
+    # is evaluated locally, vs. going to our servers
+    person_properties: {'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',
-            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',
+    groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
+)`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',${localEvalAddition}
+)`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
@@ -271,26 +281,26 @@ export function PythonSnippet({
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-            # // add group properties used in the flag to ensure the flag
-            # // is evaluated locally, vs. going to our servers
-            group_properties={ ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
+    # add group properties used in the flag to ensure the flag
+    # is evaluated locally, vs. going to our servers
+    group_properties={ ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
-            # // add person properties used in the flag to ensure the flag
-            # // is evaluated locally, vs. going to our servers
-            person_properties={'${propertyName}': 'value'}`
+    # add person properties used in the flag to ensure the flag
+    # is evaluated locally, vs. going to our servers
+    person_properties={'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',
-            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',
+    groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
+)`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
-            '${flagKey}',
-            'user distinct id',${localEvalAddition}
-        )`
+    '${flagKey}',
+    'user distinct id',${localEvalAddition}
+)`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
