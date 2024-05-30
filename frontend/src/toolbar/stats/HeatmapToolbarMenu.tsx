@@ -187,7 +187,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters({ date_from: fromDate || undefined, date_to: toDate || undefined })
+                            setCommonFilters({ date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={dateOptions}
                     />
