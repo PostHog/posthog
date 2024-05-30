@@ -160,6 +160,7 @@ function NodeOptionsTable({
     loading: boolean
 }): JSX.Element {
     const { hashParams } = useValues(router)
+
     return (
         <>
             <LemonTable

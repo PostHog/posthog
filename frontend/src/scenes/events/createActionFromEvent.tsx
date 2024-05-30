@@ -10,11 +10,17 @@ import {
     ActionStepType,
     ActionType,
     ElementType,
+    EventPropertyFilter,
     EventType,
     PropertyFilterType,
     PropertyOperator,
     TeamType,
 } from '~/types'
+
+export type MinimalEventFilterType = {
+    event: string
+    properties: EventPropertyFilter[]
+}
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -116,5 +122,42 @@ export async function createActionFromEvent(
     if (action.id) {
         router.actions.push(urls.action(action.id))
         lemonToast.success('Action created')
+    }
+}
+
+export const createFilterFromEvent = (event: EventType): MinimalEventFilterType => {
+    const properties: EventPropertyFilter[] = []
+
+    if (event.event === '$pageview' || event.event === '$autocapture') {
+        properties.push({
+            key: '$current_url',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: event.properties?.$current_url || '',
+        })
+    }
+
+    if (event.event === '$screen') {
+        properties.push({
+            key: '$screen_name',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: event.properties?.$screen_name || '',
+        })
+    }
+
+    if (event.event === '$autocapture') {
+        // THE hard one! - todo...
+        properties.push({
+            key: '$event_type',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: event.properties?.$event_type || '',
+        })
+    }
+
+    return {
+        event: event.event,
+        properties,
     }
 }

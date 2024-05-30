@@ -336,10 +336,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
 
                 // Hash params never hit the server so are relatively safe
                 if (cache.configFromUrl) {
-                    actions.resetConfiguration({
-                        ...values.configuration,
-                        ...cache.configFromUrl,
-                    })
+                    try {
+                        actions.resetConfiguration({
+                            ...values.configuration,
+                            ...JSON.parse(cache.configFromUrl),
+                        })
+                    } catch (e) {
+                        console.error(e)
+                    }
                 }
             }
         },

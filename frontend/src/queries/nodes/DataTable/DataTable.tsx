@@ -369,7 +369,27 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                               return { props: { colSpan: 0 } }
                           }
                           if (result && columnsInResponse?.includes('*')) {
-                              return <EventRowActions event={result[columnsInResponse.indexOf('*')]} />
+                              return (
+                                  <EventRowActions
+                                      event={result[columnsInResponse.indexOf('*')]}
+                                      onAddFilter={
+                                          isEventsQuery(query.source) && setQuery
+                                              ? (filter) => {
+                                                    if (isEventsQuery(query.source)) {
+                                                        setQuery({
+                                                            ...query,
+                                                            source: {
+                                                                ...query.source,
+                                                                event: filter.event,
+                                                                properties: filter.properties,
+                                                            },
+                                                        })
+                                                    }
+                                                }
+                                              : undefined
+                                      }
+                                  />
+                              )
                           }
                           return null
                       },
