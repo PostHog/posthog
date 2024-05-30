@@ -10,7 +10,7 @@ from posthog.schema import OptimizeJoinedFilters, PersonsOnEventsMode, PersonsAr
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
-def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
+def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
     if s is None:
         return None
     if isinstance(s, str):
@@ -20,7 +20,7 @@ def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]]
     return clone_expr(expr, clear_types=True, clear_locations=True)
 
 
-def parse(
+def _select(
     s: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
@@ -48,7 +48,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=modifiers,
         )
-        select = parse(query)
+        select = _select(query)
         new_select = prepare_ast_for_printing(select, context, "clickhouse")
 
         assert isinstance(new_select, ast.SelectQuery)
@@ -70,12 +70,12 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
 
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")
-        expected = f("properties.email = 'jimmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_1(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or false")
-        expected = f("properties.email = 'jimmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_2(self):
@@ -86,28 +86,28 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' and person.properties.email = 'timmy@posthog.com'"
         )
-        expected = f("properties.email = 'jimmy@posthog.com' and properties.email = 'timmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com' and properties.email = 'timmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_4(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or person.properties.email = 'timmy@posthog.com'"
         )
-        expected = f("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_5(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (1 and person.properties.email = 'timmy@posthog.com')"
         )
-        expected = f("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_6(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (0 or person.properties.email = 'timmy@posthog.com')"
         )
-        expected = f("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_7(self):
@@ -120,7 +120,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE event == '$pageview' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = f("properties.email = 'jimmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_andor_9(self):
@@ -139,21 +139,21 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = f("properties.email = 'jimmy@posthog.com'")
+        expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_function_calls(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
         )
-        expected = f("toString(properties.email) = 'jimmy@posthog.com'")
+        expected = _expr("toString(properties.email) = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_function_call_args(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, 10) = 'jimmy@posthog.com'"
         )
-        expected = f("substring(properties.email, 10) = 'jimmy@posthog.com'")
+        expected = _expr("substring(properties.email, 10) = 'jimmy@posthog.com'")
         assert actual == expected
 
     def test_person_properties_function_call_args_complex(self):
