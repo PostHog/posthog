@@ -1775,8 +1775,14 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         # it is really important to know that this is CSRF exempt
         self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
+        self.maxDiff = None
 
-    def _get_surveys(self, token=None, origin="http://127.0.0.1:8000", ip="127.0.0.1"):
+    def _get_surveys(
+        self,
+        token=None,
+        origin="http://127.0.0.1:8000",
+        ip="127.0.0.1",
+    ):
         return self.client.get(
             "/api/surveys/",
             data={"token": token or self.team.api_token},
@@ -1815,42 +1821,36 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-
-            # Sort response data by id
-            response_data = sorted(response.json()["surveys"], key=lambda x: x["id"])
-
-            # Define expected data and sort it by id
-            expected_data = [
-                {
-                    "id": str(basic_survey.id),
-                    "name": "Survey 1",
-                    "description": "",
-                    "type": "popover",
-                    "questions": [{"type": "open", "question": "What's a survey?"}],
-                    "conditions": None,
-                    "appearance": None,
-                    "start_date": None,
-                    "end_date": None,
-                },
-                {
-                    "id": str(survey_with_flags.id),
-                    "name": "Survey 2",
-                    "description": "",
-                    "type": "popover",
-                    "conditions": None,
-                    "appearance": None,
-                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                    "linked_flag_key": "linked-flag",
-                    "targeting_flag_key": "targeting-flag",
-                    "internal_targeting_flag_key": "custom-targeting-flag",
-                    "start_date": None,
-                    "end_date": None,
-                },
-            ]
-            expected_data = sorted(expected_data, key=lambda x: x["id"])
-
-            # Perform the assertion
-            self.assertListEqual(response_data, expected_data)
+            self.assertListEqual(
+                response.json()["surveys"],
+                [
+                    {
+                        "id": str(basic_survey.id),
+                        "name": "Survey 1",
+                        "description": "",
+                        "type": "popover",
+                        "questions": [{"type": "open", "question": "What's a survey?"}],
+                        "conditions": None,
+                        "appearance": None,
+                        "start_date": None,
+                        "end_date": None,
+                    },
+                    {
+                        "id": str(survey_with_flags.id),
+                        "name": "Survey 2",
+                        "description": "",
+                        "type": "popover",
+                        "conditions": None,
+                        "appearance": None,
+                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                        "linked_flag_key": "linked-flag",
+                        "targeting_flag_key": "targeting-flag",
+                        "internal_targeting_flag_key": "custom-targeting-flag",
+                        "start_date": None,
+                        "end_date": None,
+                    },
+                ],
+            )
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
