@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,6 +21,8 @@ function NextEnvVarsSnippet(): JSX.Element {
 }
 
 function NextPagesRouterCodeSnippet(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`// pages/_app.js
@@ -28,7 +32,11 @@ import { PostHogProvider } from 'posthog-js/react'
 if (typeof window !== 'undefined') { // checks that we are client-side
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
-    person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
+    ${
+        isPersonProfilesDisabled
+            ? ``
+            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+    }
     loaded: (posthog) => {
       if (process.env.NODE_ENV === 'development') posthog.debug() // debug mode in development
     },
@@ -51,6 +59,8 @@ export default function App(
 }
 
 function NextAppRouterCodeSnippet(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`// app/providers.js
@@ -61,7 +71,11 @@ import { PostHogProvider } from 'posthog-js/react'
 if (typeof window !== 'undefined') {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-    person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
+    ${
+        isPersonProfilesDisabled
+            ? ``
+            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+    }
   })
 }
 export function CSPostHogProvider({ children }) {

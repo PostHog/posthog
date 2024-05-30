@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +15,8 @@ export function JSInstallSnippet(): JSX.Element {
 
 export function JSSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
     return (
         <CodeSnippet language={Language.JavaScript}>
@@ -21,8 +25,10 @@ export function JSSetupSnippet(): JSX.Element {
                 '',
                 `posthog.init('${currentTeam?.api_token}',`,
                 `    {`,
-                `        api_host: '${apiHostOrigin()}'`,
-                `        person_profiles: 'identified_only' // or 'always' to create profiles for anonymous users as well`,
+                `        api_host: '${apiHostOrigin()}',`,
+                isPersonProfilesDisabled
+                    ? ``
+                    : `        person_profiles: 'identified_only' // or 'always' to create profiles for anonymous users as well`,
                 `    }`,
                 `)`,
             ].join('\n')}

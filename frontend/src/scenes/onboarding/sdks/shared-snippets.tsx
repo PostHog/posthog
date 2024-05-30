@@ -1,5 +1,8 @@
 import { Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function SessionReplayFinalSteps(): JSX.Element {
     return (
@@ -11,7 +14,10 @@ export function SessionReplayFinalSteps(): JSX.Element {
 }
 
 export function PersonModeEventPropertyInstructions(): JSX.Element {
-    return (
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
+
+    return !isPersonProfilesDisabled ? (
         <>
             <h4>Optional: Specify person profile processing</h4>
             <p>
@@ -27,5 +33,7 @@ export function PersonModeEventPropertyInstructions(): JSX.Element {
             </p>
             <CodeSnippet>"$process_person_profile": false</CodeSnippet>.
         </>
+    ) : (
+        <></>
     )
 }
