@@ -1,6 +1,6 @@
 import random
 import string
-from typing import Optional, Literal, cast
+from typing import Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
@@ -44,8 +44,6 @@ class WhereClauseExtractor(CloningVisitor):
     capture_timestamp_comparisons: bool = False
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
-
-    limits: Literal["", "session_min"] = ""
 
     def __init__(self, context: HogQLContext):
         super().__init__()
@@ -323,7 +321,6 @@ class WhereClauseExtractor(CloningVisitor):
 
 
 class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
-    limits = "session_min"
     capture_timestamp_comparisons = True
 
     def __init__(self, context: HogQLContext):
