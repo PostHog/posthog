@@ -57,7 +57,7 @@ services:
         depends_on:
             - zookeeper
         volumes:
-            - kafka-data:/var/lib/kafka    
+            - kafka-data:/bitnami/kafka   
 
     worker:
         extends:
