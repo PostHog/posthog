@@ -10,12 +10,12 @@ import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)
-    const { product } = useValues(onboardingLogic)
+    const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
     const { invitesToSend, canSubmit: canSubmitInvites } = useValues(inviteLogic)
 
     const titlePrefix = (): string => {
-        switch (product?.type) {
+        switch (productKey) {
             case ProductKey.PRODUCT_ANALYTICS:
                 return 'Analytics are'
             case ProductKey.SESSION_REPLAY:
@@ -30,7 +30,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
     }
 
     const likeTo = (): string => {
-        switch (product?.type) {
+        switch (productKey) {
             case ProductKey.PRODUCT_ANALYTICS:
                 return 'dig into the data'
             case ProductKey.SESSION_REPLAY:

@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,6 +15,7 @@ import { debugSceneLogic } from './debugSceneLogic'
 export function DebugScene(): JSX.Element {
     const { query1, query2 } = useValues(debugSceneLogic)
     const { setQuery1, setQuery2 } = useActions(debugSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="QueryScene">
@@ -28,6 +31,14 @@ export function DebugScene(): JSX.Element {
                         >
                             HogQL Debug
                         </LemonButton>
+                        {featureFlags[FEATURE_FLAGS.HOG] ? (
+                            <LemonButton
+                                active={query1 === stringifiedExamples.Hoggonacci}
+                                onClick={() => setQuery1(stringifiedExamples.Hoggonacci)}
+                            >
+                                Hog
+                            </LemonButton>
+                        ) : null}
                         <LemonButton
                             active={query1 === stringifiedExamples.HogQLTable}
                             onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
