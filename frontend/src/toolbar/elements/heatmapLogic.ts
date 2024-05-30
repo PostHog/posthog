@@ -462,6 +462,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
 
+        heatmapTooltipLabel: [
+            (s) => [s.heatmapFilters],
+            (heatmapFilters) => {
+                if (heatmapFilters.aggregation === 'unique_visitors') {
+                    return 'visitors'
+                }
+                return heatmapFilters.type + 's'
+            },
+        ],
+
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
