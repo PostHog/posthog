@@ -135,7 +135,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 display !== ChartDisplayType.WorldMap &&
                 dateRange?.date_from !== 'all',
         ],
-        supportsPercentStackView: [(s) => [s.querySource, s.display], (q, d) => supportsPercentStackView(q, d)],
+        supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) => {
