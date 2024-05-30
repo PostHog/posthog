@@ -108,15 +108,53 @@ describe('MessageFormatter', () => {
             ['{{groups.organization}}', {}],
             ['{{groups.organization.properties.plan}}', {}],
             ['{{groups.project}}', {}], // No-name one
-            ['{ "event_properties": {{event.properties}}, "person_link": "{{person.link}}" }', {}], // JSON object
             ['{{ person.name}} did {{ event . event }}', {}], // Weird spacing
         ]
 
-        it.each(cases)('%s %s', (template, options) => {
+        it.each(cases)('format string %s %s', (template, options) => {
             const formatter = createFormatter(options)
-            const message = formatter.format(template)
+            const message = formatter.format(template, 'string')
+            console.log('Template:', template)
+            console.log('Output:', message)
             // For non-slack messages the text is always markdown
             expect(message).toMatchSnapshot()
+        })
+
+        const jsonCases: [any, TestWebhookFormatterOptions][] = [
+            // Strings where the whole template is an object should be formatted as JSON
+            ['{{person}}', {}],
+            ['{{event.properties}}', {}],
+            // Special escaping
+            ['{{event}}', { event: { ...event, eventUuid: '**)', event: 'text](yes!), [new link' } }], // Special escaping
+            [
+                '{{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}}',
+                {
+                    event: {
+                        ...event,
+                        distinctId: '2',
+                        properties: { $browser: 'Chrome', page_title: 'Pricing', 'with space': 'yes sir' },
+                    },
+                },
+            ],
+            // Object with a range of values
+            [
+                {
+                    event_properties: '{{event.properties}}',
+                    person_link: '{{person.link}}',
+                    missing: '{{event.properties.missing}}',
+                },
+                {},
+            ],
+        ]
+
+        it.each(jsonCases)('format json %s %s', (jsonTemplate, options) => {
+            const formatter = createFormatter(options)
+            const message = formatter.format(JSON.stringify(jsonTemplate), 'json')
+            console.log('Template:', jsonTemplate)
+            console.log('Output:', message)
+            // For non-slack messages the text is always markdown
+            expect(message).toMatchSnapshot()
+            expect(() => JSON.parse(message)).not.toThrow()
         })
 
         it('should handle an advanced case', () => {
@@ -124,30 +162,44 @@ describe('MessageFormatter', () => {
                 event: {
                     properties: {
                         array_item: ['item1', 'item2'],
-                        bad_string: '`"\'\\',
+                        bad_string: '\n`"\'\\',
+                    },
+                    groups: {
+                        organization: {
+                            properties: { name: 'PostHog', plan: 'paid' },
+                        },
                     },
                 },
             })
-            const message = formatter.format(`{
-    "event_properties": {{event.properties}},
-    "string_with_complex_properties": "This is a string with {{event.properties.array_item}} and {{event.properties.bad_string}}"
-}`)
-
-            console.log(message)
+            const message = formatter.format(
+                JSON.stringify(
+                    {
+                        event_properties: 'json: {{event.properties}}',
+                        string_with_complex_properties:
+                            'This is a string with {{event.properties.array_item}} and {{event.properties.bad_string}}',
+                        bad_string: '{{event.properties.bad_string}}',
+                        object_in_string: '{{groups.organization.properties}}',
+                    },
+                    null,
+                    2
+                )
+            )
+            console.log('Message:', message)
+            expect(() => JSON.parse(message)).not.toThrow()
             expect(message).toMatchSnapshot()
-
             const parsed = JSON.parse(message)
 
             expect(parsed).toMatchInlineSnapshot(`
                 Object {
-                  "event_properties": Object {
-                    "array_item": Array [
-                      "item1",
-                      "item2",
-                    ],
-                    "bad_string": "\`\\"'\\\\",
+                  "bad_string": "
+                \`\\"'\\\\",
+                  "event_properties": "json: {\\"array_item\\":[\\"item1\\",\\"item2\\"],\\"bad_string\\":\\"\\\\n\`\\\\\\"'\\\\\\\\\\"}",
+                  "object_in_string": Object {
+                    "name": "PostHog",
+                    "plan": "paid",
                   },
-                  "string_with_complex_properties": "This is a string with [\\"item1\\",\\"item2\\"] and \`\\"'\\\\",
+                  "string_with_complex_properties": "This is a string with [\\"item1\\",\\"item2\\"] and 
+                \`\\"'\\\\",
                 }
             `)
         })
