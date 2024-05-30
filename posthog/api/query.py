@@ -1,11 +1,10 @@
 import re
-from typing import cast
 import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
@@ -20,7 +19,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
-    enqueue_process_query_task,
     get_query_status,
 )
 from posthog.clickhouse.query_tagging import tag_queries
@@ -63,31 +61,29 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
+        execution_mode = execution_mode_from_refresh(data.refresh)
+        response_status = status.HTTP_200_OK
 
         self._tag_client_query_id(client_query_id)
 
         if data.async_:
-            query_status = enqueue_process_query_task(
-                team=self.team,
-                user=cast(User, self.request.user),
-                query_json=request.data["query"],
-                query_id=client_query_id,
-                refresh_requested=data.refresh or False,
-            )
-            return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+        elif execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
+            # Here in query endpoint we always want to calculate if the cache is stale
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
         tag_queries(query=request.data["query"])
         try:
             result = process_query_model(
                 self.team,
                 data.query,
-                execution_mode=ExecutionMode.CALCULATION_ALWAYS
-                if data.refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=execution_mode,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
-            return Response(result)
+            if "query_async" in result:
+                response_status = status.HTTP_202_ACCEPTED
+            return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except Exception as e:

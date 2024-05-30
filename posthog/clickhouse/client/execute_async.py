@@ -20,7 +20,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import CacheMissResponse, QueryStatus, ClickhouseQueryStatus
+from posthog.schema import QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
@@ -251,9 +251,6 @@ def enqueue_process_query_task(
     force: bool = False,
     _test_only_bypass_celery: bool = False,
 ) -> QueryStatus:
-    from posthog.api.services.query import process_query_dict
-    from posthog.hogql_queries.query_runner import ExecutionMode
-
     if not query_id:
         query_id = uuid.uuid4().hex
 
@@ -269,31 +266,6 @@ def enqueue_process_query_task(
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
-
-    # Skip cache if refresh requested
-    if not refresh_requested:
-        try:
-            cached_response = process_query_dict(
-                team=team,
-                query_json=query_json,
-                limit_context=LimitContext.QUERY_ASYNC,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-            )
-            if not isinstance(cached_response, CacheMissResponse):
-                if isinstance(cached_response, BaseModel):
-                    cached_response = cached_response.model_dump(by_alias=True)
-                # We got a response with results, rather than a `CacheMissResponse`
-                query_status.complete = True
-                query_status.error = False
-                query_status.results = cached_response
-                query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
-                query_status.expiration_time = query_status.end_time + datetime.timedelta(
-                    seconds=manager.STATUS_TTL_SECONDS
-                )
-                manager.store_query_status(query_status)
-                return query_status
-        except:
-            sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
 
     if _test_only_bypass_celery:
         process_query_task(

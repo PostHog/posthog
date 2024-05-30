@@ -66,7 +66,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     flagged_conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -101,7 +101,6 @@ from posthog.rate_limit import (
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
-    cache_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
@@ -554,16 +553,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 # Uses query
                 try:
                     refresh_requested = refresh_requested_by_client(self.context["request"])
-
-                    execution_mode = ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-                    if refresh_requested and cache_requested_by_client(self.context["request"]):
-                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-                    elif refresh_requested == "if_stale":
-                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-                    elif refresh_requested == "async":
-                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                    elif refresh_requested:
-                        execution_mode = ExecutionMode.CALCULATION_ALWAYS
+                    execution_mode = execution_mode_from_refresh(refresh_requested)
 
                     return calculate_for_query_based_insight(
                         insight,

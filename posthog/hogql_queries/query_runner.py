@@ -49,6 +49,7 @@ from posthog.schema import (
     DashboardFilter,
     HogQLQueryModifiers,
     InsightActorsQueryOptions,
+    QueryStatus,
 )
 from posthog.schema_helpers import to_json
 from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
@@ -77,6 +78,17 @@ class ExecutionMode(IntEnum):
     """Use cache, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
+
+
+def execution_mode_from_refresh(refresh_requested: bool | str) -> ExecutionMode:
+    refresh_map = {
+        "stale": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        True: ExecutionMode.CALCULATION_ALWAYS,
+    }
+    if refresh_requested in refresh_map:
+        return refresh_map[refresh_requested]
+    return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
 RunnableQueryNode = Union[
@@ -396,6 +408,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                     # We're allowed to calculate, but we'll do it asynchronously
                     self.kick_off_async_calculation()
+                    # TODO: We might want to return the query status as well
                     return cached_response
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
@@ -405,8 +418,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     return cached_response
                 elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                     # We're allowed to calculate, but we'll do it asynchronously
-                    self.kick_off_async_calculation()
-                    return cached_response
+                    return self.kick_off_async_calculation()
 
         fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
@@ -428,13 +440,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
-    def kick_off_async_calculation(self):
-        enqueue_process_query_task(
+    def kick_off_async_calculation(self) -> QueryStatus:
+        return enqueue_process_query_task(
             team=self.team,
             user=self.team.all_users_with_access().first(),  # TODO
             query_json=self.query.model_dump(),
-            query_id=None,
-            refresh_requested=True,
+            query_id=None,  # TODO
         )
 
     @abstractmethod
