@@ -63,11 +63,9 @@ def parse_string_template(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Optional[Literal["python", "cpp"]] = "cpp",
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_full_template_string_{backend}"):
@@ -85,10 +83,8 @@ def parse_expr(
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Optional[Literal["python", "cpp"]] = "cpp",
 ) -> ast.Expr:
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -105,10 +101,8 @@ def parse_order_expr(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Optional[Literal["python", "cpp"]] = "cpp",
 ) -> ast.OrderExpr:
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):

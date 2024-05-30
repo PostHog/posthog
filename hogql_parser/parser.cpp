@@ -2025,7 +2025,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     if (string_contents.size() == 0) {
       string empty = "";
-      RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", empty.data(), empty.size());
+      RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
     }
 
     if (string_contents.size() == 1) {
@@ -2042,7 +2042,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     if (string_contents_full.size() == 0) {
       string empty = "";
-      RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", empty.data(), empty.size());
+      RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
     }
 
     if (string_contents_full.size() == 1) {
@@ -2065,7 +2065,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(column_expr);
     }
     string empty = "";
-    RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", empty.data(), empty.size());
+    RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 
   VISIT(StringContentsFull) {
@@ -2079,7 +2079,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(column_expr);
     }
     string empty = "";
-    RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", empty.data(), empty.size());
+    RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 };
 
