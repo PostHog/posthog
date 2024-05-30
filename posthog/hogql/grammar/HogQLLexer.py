@@ -573,7 +573,7 @@ class HogQLLexer(Lexer):
 
     decisionsToDFA = [ DFA(ds, i) for i, ds in enumerate(atn.decisionToState) ]
 
-    IN_STRING = 1
+    IN_TEMPLATE_STRING = 1
 
     ALL = 1
     AND = 2
@@ -730,7 +730,7 @@ class HogQLLexer(Lexer):
 
     channelNames = [ u"DEFAULT_TOKEN_CHANNEL", u"HIDDEN" ]
 
-    modeNames = [ "DEFAULT_MODE", "IN_STRING" ]
+    modeNames = [ "DEFAULT_MODE", "IN_TEMPLATE_STRING" ]
 
     literalNames = [ "<INVALID>",
             "'->'", "'*'", "'`'", "'\\'", "':'", "','", "'||'", "'-'", "'$'", 

@@ -54,8 +54,14 @@ def parse_program(
 
 
 def parse_template_string(
-    program: str, placeholders: Optional[dict[str, ast.Expr]] = None, start: Optional[int] = 0
+    program: str,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    *,
+    backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Call:
+    if backend == "cpp":
+        raise NotImplementedError("Template strings are not supported in C++")
     parse_tree = get_parser(program).templateString()
     node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:

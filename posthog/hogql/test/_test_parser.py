@@ -4,7 +4,7 @@ import math
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_template_string
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -19,6 +19,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         MEMORY_LEAK_CHECK_RUNS_N = 100
 
         maxDiff = None
+
+        def _template_string(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+            return clear_locations(parse_template_string(expr, placeholders=placeholders, backend=backend))
 
         def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
@@ -1633,5 +1636,69 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "select trimLeft(event, 'fish'), trimRight(event, 'fish'), trim(event, 'fish') from events"
             )
             assert node1 == node2
+
+        def test_template_strings(self):
+            node = clear_locations(parse_template_string("f'hello {event}'"))
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            select = self._select("select f'hello {event}' from events")
+            assert select.select[0] == node
+
+        def test_template_strings_nested_strings(self):
+            node = self._expr("a = f'aa {1 + call('string')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(name="call", args=[ast.Constant(value="string")]),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
+
+        def test_template_strings_multiple_levels(self):
+            node = self._expr("a = f'aa {1 + call(f'fi{one(more, time, 'stringy')}sh')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(
+                                name="call",
+                                args=[
+                                    ast.Call(
+                                        name="concat",
+                                        args=[
+                                            ast.Constant(value="fi"),
+                                            ast.Call(
+                                                name="one",
+                                                args=[
+                                                    ast.Field(chain=["more"]),
+                                                    ast.Field(chain=["time"]),
+                                                    ast.Constant(value="stringy"),
+                                                ],
+                                            ),
+                                            ast.Constant(value="sh"),
+                                        ],
+                                    )
+                                ],
+                            ),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
 
     return TestParser

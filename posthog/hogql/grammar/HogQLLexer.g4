@@ -215,8 +215,8 @@ PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
 QUOTE_DOUBLE: '"';
-QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_STRING);
-QUOTE_SINGLE: '\'' -> pushMode(IN_STRING);
+QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING);
+QUOTE_SINGLE: '\'';
 REGEX_SINGLE: '~';
 REGEX_DOUBLE: '=~';
 RBRACE: '}' -> popMode;
@@ -233,7 +233,7 @@ SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 
-mode IN_STRING;
+mode IN_TEMPLATE_STRING;
 STRING_TEXT: ((~([\\'{])) | ESCAPE_CHAR_SINGLE | (BACKSLASH LBRACE) | (QUOTE_SINGLE QUOTE_SINGLE))+;
 STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);
 STRING_QUOTE_SINGLE: QUOTE_SINGLE -> type(QUOTE_SINGLE), popMode;
