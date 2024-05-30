@@ -1,6 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconCalendar, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
@@ -72,11 +72,6 @@ export function RunsDateSelection({ id }: { id: string }): JSX.Element {
             makeLabel={(key) => (
                 <>
                     <IconCalendar /> {key}
-                    {key == 'All time' && (
-                        <Tooltip title="Only events dated after 2015 will be shown">
-                            <IconInfo className="info-indicator" />
-                        </Tooltip>
-                    )}
                 </>
             )}
         />
