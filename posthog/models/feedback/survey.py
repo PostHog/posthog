@@ -67,7 +67,7 @@ class Survey(UUIDModel):
     archived: models.BooleanField = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
     responses_limit = models.PositiveIntegerField(null=True)
-    event_targets = ArrayField(
+    events = ArrayField(
         base_field=models.TextField(null=True),
         blank=True,
         default=None,
