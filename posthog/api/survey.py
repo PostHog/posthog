@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
 from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
@@ -115,6 +116,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         if thank_you_description and nh3.is_html(thank_you_description):
             value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
 
+        thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
+        if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("Appearance thankYouMessageDescriptionContentType must be one of ['text', 'html']")
+        
+        use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
+                AvailableFeature.SURVEYS_TEXT_HTML
+            )
+
+        if thank_you_description_content_type == "html" and not use_survey_html_descriptions:
+            raise serializers.ValidationError(
+                "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
+            )
+        
         return value
 
     def validate_questions(self, value):
@@ -142,6 +156,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
+
+            description_content_type = raw_question.get("description_content_type")
+            if description_content_type and description_content_type not in ["text", "html"]:
+                raise serializers.ValidationError("Question description_content_type must be one of ['text', 'html']")
+
+            use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
+                AvailableFeature.SURVEYS_TEXT_HTML
+            )
+
+            if description_content_type == "html" and not use_survey_html_descriptions:
+                raise serializers.ValidationError(
+                    "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
+                )
 
             choices = raw_question.get("choices")
             if choices and not isinstance(choices, list):

@@ -9,7 +9,6 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useEffect } from 'react'
 
 import { Survey, SurveyQuestionType } from '~/types'
 
@@ -84,16 +83,8 @@ export function SurveyEditQuestionHeader({
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
-    const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
-    const initialContentType = question.descriptionContentType === 'html'
-
-    // TODO I know I shouldn't use this, but I'm not sure of the kea way to handle this, since
-    // it's not just that I'm changing state variables, but I'm also changing the value of the
-    // form field, and I'm not sure how to make sure I'm handling that correctly.
-    useEffect(() => {
-        setWritingHTMLDescription(initialContentType)
-    }, [question.descriptionContentType, setWritingHTMLDescription])
+    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
 
     const handleQuestionValueChange = (key: string, val: string): void => {
         const updatedQuestion = survey.questions.map((question, idx) => {
@@ -109,7 +100,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const updateWritingHTMLDescription = (isHTML: boolean): void => {
-        setWritingHTMLDescription(isHTML)
         handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
     }
 
@@ -173,7 +163,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 onChange(val)
                                 handleQuestionValueChange('description', val)
                             }}
-                            writingHTMLDescription={writingHTMLDescription}
+                            writingHTMLDescription={descriptionContentType(index) == 'html'}
                             setWritingHTMLDescription={updateWritingHTMLDescription}
                         />
                     )}

@@ -20,7 +20,6 @@ import {
     PropertyOperator,
     Survey,
     SurveyQuestionBase,
-    SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -146,10 +145,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
-        setDescriptionContentType: (index: number, contentType: SurveyQuestionDescriptionContentType) => ({
-            index,
-            contentType,
-        }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -511,19 +506,6 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDescriptionContentType: (state, { index, contentType }) => {
-                    const newQuestions = [...state.questions]
-                    newQuestions[index] = {
-                        ...newQuestions[index],
-                        descriptionContentType: contentType,
-                    }
-                    return {
-                        ...state,
-                        questions: newQuestions,
-                    }
-                },
-            },
-            {
                 setDefaultForQuestionType: (
                     state,
                     { idx, type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
@@ -639,6 +621,16 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
             },
+        ],
+        descriptionContentType: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number) => {
+                return survey.questions[questionIndex].descriptionContentType
+            },
+        ],
+        thankYouMessageDescriptionContentType: [
+            (s) => [s.survey],
+            (survey) => survey.appearance.thankYouMessageDescriptionContentType,
         ],
         hasTargetingSet: [
             (s) => [s.survey],

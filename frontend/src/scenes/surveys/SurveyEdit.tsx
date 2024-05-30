@@ -22,7 +22,6 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -42,21 +41,15 @@ export default function SurveyEdit(): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
-        writingHTMLDescription,
         hasTargetingSet,
         selectedQuestion,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
+        thankYouMessageDescriptionContentType,
     } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        setWritingHTMLDescription,
-        resetTargeting,
-        setSelectedQuestion,
-        setSelectedSection,
-        setFlagPropertyErrors,
-    } = useActions(surveyLogic)
+    const { setSurveyValue, resetTargeting, setSelectedQuestion, setSelectedSection, setFlagPropertyErrors } =
+        useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
@@ -82,14 +75,19 @@ export default function SurveyEdit(): JSX.Element {
         setSurveyValue('appearance', updatedAppearance)
     }
 
-    const initialContentType = survey.appearance.thankYouMessageDescriptionContentType === 'html'
+    const isWritingHTML = thankYouMessageDescriptionContentType === 'html'
 
-    // TODO I know I shouldn't use this, but I'm not sure of the kea way to handle this, since
-    // it's not just that I'm changing state variables, but I'm also changing the value of the
-    // form field, and I'm not sure how to make sure I'm handling that correctly.
-    useEffect(() => {
-        setWritingHTMLDescription(initialContentType)
-    }, [survey.appearance.thankYouMessageDescriptionContentType, setWritingHTMLDescription])
+    const handleHTMLToggle = (isHTML: boolean): void => {
+        handleSurveyValueChange('thankYouMessageDescriptionContentType', isHTML ? 'html' : 'text')
+    }
+
+    const handleChange = (val: string): void => {
+        setSurveyValue('appearance', {
+            ...survey.appearance,
+            thankYouMessageDescription: val,
+            thankYouMessageDescriptionContentType,
+        })
+    }
 
     return (
         <div className="flex flex-row gap-4">
@@ -274,29 +272,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       survey.appearance
                                                                                           .thankYouMessageDescription
                                                                                   }
-                                                                                  onChange={(val) =>
-                                                                                      setSurveyValue('appearance', {
-                                                                                          ...survey.appearance,
-                                                                                          thankYouMessageDescription:
-                                                                                              val,
-                                                                                          thankYouMessageDescriptionContentType:
-                                                                                              survey.appearance
-                                                                                                  .thankYouMessageDescriptionContentType ||
-                                                                                              'text',
-                                                                                      })
+                                                                                  onChange={handleChange}
+                                                                                  writingHTMLDescription={isWritingHTML}
+                                                                                  setWritingHTMLDescription={
+                                                                                      handleHTMLToggle
                                                                                   }
-                                                                                  writingHTMLDescription={
-                                                                                      writingHTMLDescription
-                                                                                  }
-                                                                                  setWritingHTMLDescription={(
-                                                                                      isHTML
-                                                                                  ) => {
-                                                                                      setWritingHTMLDescription(isHTML)
-                                                                                      handleSurveyValueChange(
-                                                                                          'thankYouMessageDescriptionContentType',
-                                                                                          isHTML ? 'html' : 'text'
-                                                                                      )
-                                                                                  }}
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
                                                                           </LemonField.Pure>
