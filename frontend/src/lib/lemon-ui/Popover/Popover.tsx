@@ -50,7 +50,7 @@ export interface PopoverProps {
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
      * **/
-    additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
+    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
     style?: React.CSSProperties
