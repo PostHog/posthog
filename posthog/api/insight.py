@@ -550,13 +550,22 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
         with flagged_conversion_to_query_based(insight):
+            dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+            is_shared = self.context.get("is_shared", False)
+            refresh_insight_now, refresh_frequency = should_refresh_insight(
+                insight,
+                dashboard_tile,
+                request=self.context["request"],
+                is_shared=is_shared,
+            )
+
             if insight.query:
                 # Uses query
                 try:
                     refresh_requested = refresh_requested_by_client(self.context["request"])
                     execution_mode = (
                         ExecutionMode.CALCULATION_ALWAYS
-                        if refresh_requested
+                        if refresh_requested or refresh_insight_now
                         else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                     )
                     if refresh_requested and cache_requested_by_client(self.context["request"]):
@@ -571,14 +580,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     raise ValidationError(str(e))
             else:
                 # Uses legacy filters
-                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-                is_shared = self.context.get("is_shared", False)
-                refresh_insight_now, refresh_frequency = should_refresh_insight(
-                    insight,
-                    dashboard_tile,
-                    request=self.context["request"],
-                    is_shared=is_shared,
-                )
                 if refresh_insight_now:
                     INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
                     return synchronously_update_cache(insight, dashboard, refresh_frequency=refresh_frequency)
