@@ -724,7 +724,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
-        args = [self.visit(ctx.columnExpr()), ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL()))]
+        args = [self.visit(ctx.columnExpr()), self.visit(ctx.string())]
         if ctx.LEADING():
             return ast.Call(name="trimLeft", args=args)
         if ctx.TRAILING():
@@ -1024,7 +1024,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         field = self.visit(ctx.columnExpr())
         if not isinstance(field, ast.Field) or len(field.chain) != 1:
             raise SyntaxError(f"Placeholder must be a field with one element, got {field}")
-        return ast.Placeholder(field=field.chain[0])
+        return ast.Placeholder(field=str(field.chain[0]))
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())
