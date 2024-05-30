@@ -1,39 +1,33 @@
 from contextlib import contextmanager
+from typing import Any
+from urllib.parse import urlparse
 
+import nh3
 from django.db.models import Min
 from django.http import JsonResponse
-
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_token
-from posthog.client import sync_execute
-from posthog.constants import AvailableFeature
-from posthog.exceptions import generate_exception_response
-from posthog.models.feedback.survey import Survey
-from rest_framework.response import Response
+from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
+from nanoid import generate
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import serializers, viewsets, request
-from rest_framework.request import Request
-from rest_framework import status
-
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
+from posthog.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.exceptions import generate_exception_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
-from django.utils.text import slugify
-from django.views.decorators.csrf import csrf_exempt
-from nanoid import generate
-
-from typing import Any
-
 from posthog.utils_cors import cors_response
-
-import nh3
-
-from urllib.parse import urlparse
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
@@ -118,9 +112,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
-            raise serializers.ValidationError(
-                "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
-            )
+            raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
         use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
             AvailableFeature.SURVEYS_TEXT_HTML
