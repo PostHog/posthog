@@ -93,7 +93,7 @@ export class MessageFormatter {
         return this.escapeMarkdown(stringify(text))
     }
 
-    private getPersonDetails(): string {
+    private getPersonDisplay(): string {
         // Sync the logic below with the frontend `asDisplay`
         const personDisplayNameProperties =
             this.options.team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -127,11 +127,14 @@ export class MessageFormatter {
     private getValueOfToken(tokenParts: string[]): string {
         let text = ''
 
+        tokenParts = tokenParts.map((part) => part.trim())
+
+        // TODO: Support spaces
         if (tokenParts[0] === 'user') {
             // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
             // [person] OR [event.properties.bar] should be used instead
             if (tokenParts[1] === 'name') {
-                text = this.getPersonDetails()
+                text = this.getPersonDisplay()
             } else {
                 const propertyName = `$${tokenParts[1]}`
                 const property = this.options.event.properties?.[propertyName]
@@ -144,6 +147,8 @@ export class MessageFormatter {
                     properties: this.options.event.person_properties,
                     link: this.personLink,
                 })
+            } else if (tokenParts[1] === 'name') {
+                text = text = this.getPersonDisplay()
             } else if (tokenParts[1] === 'link') {
                 text = this.webhookEscape(this.personLink)
             } else if (tokenParts[1] === 'properties') {

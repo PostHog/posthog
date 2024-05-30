@@ -109,6 +109,7 @@ describe('MessageFormatter', () => {
             ['{{groups.organization.properties.plan}}', {}],
             ['{{groups.project}}', {}], // No-name one
             ['{ "event_properties": {{event.properties}}, "person_link": "{{person.link}}" }', {}], // JSON object
+            ['{{ person.name}} did {{ event . event }}', {}], // Weird spacing
         ]
 
         it.each(cases)('%s %s', (template, options) => {

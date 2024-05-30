@@ -1,7 +1,8 @@
 import { buildIntegerMatcher } from '../../../src/config/config'
-import { Hub, ISOTimestamp, PluginConfig, PluginTaskType, PostIngestionEvent } from '../../../src/types'
+import { Hub, ISOTimestamp, PluginConfig, PluginTaskType, PostIngestionEvent, Team } from '../../../src/types'
 import { processError } from '../../../src/utils/db/error'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { runComposeWebhook, runOnEvent, runPluginTask } from '../../../src/worker/plugins/run'
 
 jest.mock('../../../src/utils/status')
@@ -278,6 +279,11 @@ describe('runComposeWebhook', () => {
                 queueError: jest.fn(),
             } as any,
             actionMatcher: new ActionMatcher(mockPostgres, mockActionManager, {} as any),
+            teamManager: {
+                fetchTeam: jest.fn(() => ({
+                    id: 2,
+                })),
+            } as unknown as TeamManager,
         }
     })
 
@@ -285,15 +291,49 @@ describe('runComposeWebhook', () => {
         await runComposeWebhook(mockHub as Hub, createEvent())
 
         expect(composeWebhook).toHaveBeenCalledTimes(1)
-        expect(composeWebhook.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
-              "distinct_id": "my_id",
-              "event": "$autocapture",
-              "properties": Object {},
-              "team_id": 2,
-              "timestamp": 2020-02-23T02:15:00.000Z,
-              "uuid": "uuid1",
-            }
+        expect(composeWebhook.mock.calls[0]).toMatchInlineSnapshot(`
+            Array [
+              Object {
+                "distinct_id": "my_id",
+                "event": "$autocapture",
+                "properties": Object {},
+                "team_id": 2,
+                "timestamp": 2020-02-23T02:15:00.000Z,
+                "uuid": "uuid1",
+              },
+              Object {
+                "__pluginMeta": true,
+                "config": Object {},
+              },
+            ]
+        `)
+    })
+
+    it('calls composeWebhook with PostHogEvent format and templated config', async () => {
+        mockPluginConfig.config = {
+            input: 'The event {{event.event}} was triggered!',
+        }
+
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(1)
+        expect(composeWebhook.mock.calls[0]).toMatchInlineSnapshot(`
+            Array [
+              Object {
+                "distinct_id": "my_id",
+                "event": "$autocapture",
+                "properties": Object {},
+                "team_id": 2,
+                "timestamp": 2020-02-23T02:15:00.000Z,
+                "uuid": "uuid1",
+              },
+              Object {
+                "__pluginMeta": true,
+                "config": Object {
+                  "input": "The event $autocapture was triggered!",
+                },
+              },
+            ]
         `)
     })
 

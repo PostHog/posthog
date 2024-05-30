@@ -2,6 +2,8 @@
 
 exports[`MessageFormatter webhook formatting options { "event_properties": {{event.properties}}, "person_link": "{{person.link}}" } {} 1`] = `"{ \\"event_properties\\": {\\"$browser\\":\\"Chrome\\"}, \\"person_link\\": \\"http://localhost:8000/project/123/person/WALL-E\\" }"`;
 
+exports[`MessageFormatter webhook formatting options {{ person.name}} did {{ event . event }} {} 1`] = `"test@posthog.com did $pageview"`;
+
 exports[`MessageFormatter webhook formatting options {{action.name\\}} got done by \\{{user.name\\}} {} 1`] = `"{{action.name}} got done by {{user.name}}"`;
 
 exports[`MessageFormatter webhook formatting options {{action.name}} {} 1`] = `"action1"`;
