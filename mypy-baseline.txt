@@ -55,8 +55,6 @@ posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignme
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "settings"  [union-attr]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
