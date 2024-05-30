@@ -4145,8 +4145,7 @@
                     "type": "string"
                 },
                 "optimizeJoinedFilters": {
-                    "enum": ["true", "false"],
-                    "type": "string"
+                    "type": "boolean"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],

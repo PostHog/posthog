@@ -7,7 +7,6 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     MaterializationMode,
-    OptimizeJoinedFilters,
 )
 from posthog.test.base import BaseTest
 from django.test import override_settings
@@ -250,7 +249,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=OptimizeJoinedFilters.false),
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -261,7 +260,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=OptimizeJoinedFilters.true),
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
         )
         # "ilike" shows up twice in the response
         assert response is not None

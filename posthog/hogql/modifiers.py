@@ -6,7 +6,6 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
-    OptimizeJoinedFilters,
     PersonsJoinMode,
 )
 
@@ -46,7 +45,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null
 
     if modifiers.optimizeJoinedFilters is None:
-        modifiers.optimizeJoinedFilters = OptimizeJoinedFilters.false
+        modifiers.optimizeJoinedFilters = False
 
     if modifiers.personsJoinMode is None:
         modifiers.personsJoinMode = PersonsJoinMode.inner

@@ -103,8 +103,8 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                 <div>Optimize joined filters:</div>
                 <LemonSelect
                     options={[
-                        { value: 'true', label: 'true' },
-                        { value: 'false', label: 'false' },
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
                     ]}
                     onChange={(value) =>
                         setQuery({

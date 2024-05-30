@@ -86,7 +86,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
-    if context.modifiers.optimizeJoinedFilters == "true":
+    if context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
