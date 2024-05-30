@@ -151,6 +151,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    events: [],
 }
 
 const MOCK_SURVEY_SHOWN = {

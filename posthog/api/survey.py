@@ -66,6 +66,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "events",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -98,6 +99,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "events",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -409,7 +411,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "appearance",
             "start_date",
             "end_date",
-            "event_targets",
+            "events",
         ]
         read_only_fields = fields
 
