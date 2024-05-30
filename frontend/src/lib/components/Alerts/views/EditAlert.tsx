@@ -76,7 +76,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                                         <LemonInput
                                             type="number"
                                             className="w-20"
-                                            value={value?.absolute_threshold?.lower || NaN}
+                                            value={value?.absolute_threshold?.lower}
                                             onChange={(newLower) => {
                                                 const newValue = { ...value }
                                                 if (!newValue.absolute_threshold) {
@@ -92,7 +92,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                                         <LemonInput
                                             type="number"
                                             className="w-20"
-                                            value={value?.absolute_threshold?.upper || NaN}
+                                            value={value?.absolute_threshold?.upper}
                                             onChange={(newUpper) => {
                                                 const newValue = { ...value }
                                                 if (!newValue.absolute_threshold) {
