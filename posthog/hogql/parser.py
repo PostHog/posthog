@@ -18,28 +18,33 @@ from hogql_parser import (
     parse_expr as _parse_expr_cpp,
     parse_order_expr as _parse_order_expr_cpp,
     parse_select as _parse_select_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
 )
 
-RULE_TO_PARSE_FUNCTION: dict[Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select"], Callable]] = {
+RULE_TO_PARSE_FUNCTION: dict[
+    Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select", "full_template_string"], Callable]
+] = {
     "python": {
         "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
         "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
         "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
+        "full_template_string": lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString()),
     },
     "cpp": {
         "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
+        "full_template_string": lambda string: _parse_full_template_string_cpp(string),
     },
 }
 
-RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select"], Histogram] = {
+RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_string"], Histogram] = {
     rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend"],
     )
-    for rule in ("expr", "order_expr", "select")
+    for rule in ("expr", "order_expr", "select", "full_template_string")
 }
 
 
@@ -56,17 +61,21 @@ def parse_program(
 def parse_string_template(
     string: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
-    if backend == "cpp":
-        raise NotImplementedError("Template strings are not supported in C++")
-    parse_tree = get_parser("F'" + string).fullTemplateString()
-    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
-    if placeholders:
-        return cast(ast.Call, replace_placeholders(node, placeholders))
+    if not backend:
+        backend = "cpp"
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure(f"parse_full_template_string_{backend}"):
+        with RULE_TO_HISTOGRAM["full_template_string"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["full_template_string"]("F'" + string)
+        if placeholders:
+            with timings.measure("replace_placeholders"):
+                node = replace_placeholders(node, placeholders)
     return node
 
 
@@ -1028,10 +1037,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        field = self.visit(ctx.columnExpr())
-        if not isinstance(field, ast.Field) or len(field.chain) != 1:
-            raise SyntaxError(f"Placeholder must be a field with one element, got {field}")
-        return ast.Placeholder(field=str(field.chain[0]))
+        name = self.visit(ctx.identifier())
+        return ast.Placeholder(field=name)
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())

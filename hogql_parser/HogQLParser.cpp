@@ -518,7 +518,7 @@ void hogqlparserParserInitialize() {
   	1115,1119,5,101,0,0,1116,1119,3,144,72,0,1117,1119,3,146,73,0,1118,1115,
   	1,0,0,0,1118,1116,1,0,0,0,1118,1117,1,0,0,0,1119,153,1,0,0,0,1120,1121,
   	3,158,79,0,1121,1122,5,118,0,0,1122,1123,3,140,70,0,1123,155,1,0,0,0,
-  	1124,1125,5,124,0,0,1125,1126,3,108,54,0,1126,1127,5,142,0,0,1127,157,
+  	1124,1125,5,124,0,0,1125,1126,3,152,76,0,1126,1127,5,142,0,0,1127,157,
   	1,0,0,0,1128,1131,5,106,0,0,1129,1131,3,160,80,0,1130,1128,1,0,0,0,1130,
   	1129,1,0,0,0,1131,159,1,0,0,0,1132,1136,5,137,0,0,1133,1135,3,162,81,
   	0,1134,1133,1,0,0,0,1135,1138,1,0,0,0,1136,1134,1,0,0,0,1136,1137,1,0,
@@ -10733,8 +10733,8 @@ tree::TerminalNode* HogQLParser::PlaceholderContext::LBRACE() {
   return getToken(HogQLParser::LBRACE, 0);
 }
 
-HogQLParser::ColumnExprContext* HogQLParser::PlaceholderContext::columnExpr() {
-  return getRuleContext<HogQLParser::ColumnExprContext>(0);
+HogQLParser::IdentifierContext* HogQLParser::PlaceholderContext::identifier() {
+  return getRuleContext<HogQLParser::IdentifierContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::PlaceholderContext::RBRACE() {
@@ -10770,7 +10770,7 @@ HogQLParser::PlaceholderContext* HogQLParser::placeholder() {
     setState(1124);
     match(HogQLParser::LBRACE);
     setState(1125);
-    columnExpr(0);
+    identifier();
     setState(1126);
     match(HogQLParser::RBRACE);
    

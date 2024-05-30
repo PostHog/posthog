@@ -22,6 +22,13 @@ def parse_select(expr: str, /, *, is_internal: bool = False) -> SelectQuery | Se
     """
     ...
 
+def parse_full_template_string(expr: str, /, *, is_internal: bool = False) -> AST:
+    """Parse a Hog template string into an AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
 def unquote_string(value: str, /) -> str:
     """Unquote the string (an identifier or a string literal).
 

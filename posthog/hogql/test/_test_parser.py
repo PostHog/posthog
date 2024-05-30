@@ -1637,6 +1637,27 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             assert node1 == node2
 
+            node3 = self._select(
+                "select TRIM (LEADING 'fish' FROM event), TRIM (TRAILING 'fish' FROM event), TRIM (BOTH 'fish' FROM event) from events"
+            )
+            assert node3 == node1
+
+            node4 = self._select("select TRIM (LEADING f'fi{'a'}sh' FROM event) from events")
+            assert node4.select[0] == ast.Call(
+                name="trimLeft",
+                args=[
+                    ast.Field(chain=["event"]),
+                    ast.Call(
+                        name="concat",
+                        args=[
+                            ast.Constant(value="fi"),
+                            ast.Constant(value="a"),
+                            ast.Constant(value="sh"),
+                        ],
+                    ),
+                ],
+            )
+
         def test_template_strings(self):
             node = self._expr("f'hello {event}'")
             assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
