@@ -309,12 +309,12 @@ def serializedATN():
         709,1,0,0,0,711,712,1,0,0,0,712,713,1,0,0,0,713,714,5,25,0,0,714,
         820,1,0,0,0,715,716,5,13,0,0,716,717,5,126,0,0,717,718,3,108,54,
         0,718,719,5,6,0,0,719,720,3,104,52,0,720,721,5,144,0,0,721,820,1,
-        0,0,0,722,723,5,19,0,0,723,820,3,158,79,0,724,725,5,43,0,0,725,726,
+        0,0,0,722,723,5,19,0,0,723,820,5,106,0,0,724,725,5,43,0,0,725,726,
         3,108,54,0,726,727,3,144,72,0,727,820,1,0,0,0,728,729,5,79,0,0,729,
         730,5,126,0,0,730,731,3,108,54,0,731,732,5,32,0,0,732,735,3,108,
         54,0,733,734,5,31,0,0,734,736,3,108,54,0,735,733,1,0,0,0,735,736,
         1,0,0,0,736,737,1,0,0,0,737,738,5,144,0,0,738,820,1,0,0,0,739,740,
-        5,82,0,0,740,820,3,158,79,0,741,742,5,87,0,0,742,743,5,126,0,0,743,
+        5,82,0,0,740,820,5,106,0,0,741,742,5,87,0,0,742,743,5,126,0,0,743,
         744,7,9,0,0,744,745,3,158,79,0,745,746,5,32,0,0,746,747,3,108,54,
         0,747,748,5,144,0,0,748,820,1,0,0,0,749,750,3,152,76,0,750,752,5,
         126,0,0,751,753,3,106,53,0,752,751,1,0,0,0,752,753,1,0,0,0,753,754,
@@ -5742,9 +5742,8 @@ class HogQLParser ( Parser ):
 
         def TIMESTAMP(self):
             return self.getToken(HogQLParser.TIMESTAMP, 0)
-        def string(self):
-            return self.getTypedRuleContext(HogQLParser.StringContext,0)
-
+        def STRING_LITERAL(self):
+            return self.getToken(HogQLParser.STRING_LITERAL, 0)
 
         def accept(self, visitor:ParseTreeVisitor):
             if hasattr( visitor, "visitColumnExprTimestamp" ):
@@ -5866,9 +5865,8 @@ class HogQLParser ( Parser ):
 
         def DATE(self):
             return self.getToken(HogQLParser.DATE, 0)
-        def string(self):
-            return self.getTypedRuleContext(HogQLParser.StringContext,0)
-
+        def STRING_LITERAL(self):
+            return self.getToken(HogQLParser.STRING_LITERAL, 0)
 
         def accept(self, visitor:ParseTreeVisitor):
             if hasattr( visitor, "visitColumnExprDate" ):
@@ -6090,7 +6088,7 @@ class HogQLParser ( Parser ):
                 self.state = 722
                 self.match(HogQLParser.DATE)
                 self.state = 723
-                self.string()
+                self.match(HogQLParser.STRING_LITERAL)
                 pass
 
             elif la_ == 4:
@@ -6140,7 +6138,7 @@ class HogQLParser ( Parser ):
                 self.state = 739
                 self.match(HogQLParser.TIMESTAMP)
                 self.state = 740
-                self.string()
+                self.match(HogQLParser.STRING_LITERAL)
                 pass
 
             elif la_ == 7:
