@@ -897,10 +897,31 @@ export enum PropertyOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface EmptyPropertyFilter {
+    type?: never
+    value?: never
+    operator?: never
+    key?: never
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 interface PropertyFilterBase {
     key: string
     value?: string | number | Array<string | number> | null
     label?: string
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface CohortPropertyFilter extends PropertyFilterBase {
+    type: 'cohort'
+    key: 'id'
+    value: number | string
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterBase {
+    type: 'hogql'
+    group_type_index?: number | null
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -911,6 +932,12 @@ export interface PropertyFilterWithOperator extends PropertyFilterBase {
 /** Sync with posthog/frontend/src/types.ts */
 export interface EventPropertyFilter extends PropertyFilterWithOperator {
     type: 'event'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface EventsFilter extends PropertyFilterWithOperator {
+    type: 'events'
+    properties: EventPropertyFilter[]
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -934,18 +961,43 @@ export interface ElementPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export interface CohortPropertyFilter extends PropertyFilterBase {
-    type: 'cohort'
-    key: 'id'
-    value: number | string
+export interface SessionPropertyFilter extends PropertyFilterWithOperator {
+    type: 'session'
+    operator: PropertyOperator
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface RecordingDurationFilter extends PropertyFilterWithOperator {
+    type: 'recording'
+    key: 'duration'
+    value: number
+    durationType: 'duration' | 'active_seconds' | 'inactive_seconds'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface GroupPropertyFilter extends PropertyFilterWithOperator {
+    type: 'group'
+    group_type_index?: number | null
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface FeaturePropertyFilter extends PropertyFilterWithOperator {
+    type: 'feature'
 }
 
 /** Sync with posthog/frontend/src/types.ts */
 export type PropertyFilter =
+    | EventsFilter
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
+    | SessionPropertyFilter
     | CohortPropertyFilter
+    | RecordingDurationFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+    | EmptyPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 

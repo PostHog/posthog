@@ -2639,6 +2639,7 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "type": "object"
         },
         "EntityNode": {
@@ -2812,6 +2813,7 @@
         },
         "EventsFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -3069,6 +3071,7 @@
         },
         "FeaturePropertyFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -3896,6 +3899,7 @@
         },
         "GroupPropertyFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "group_type_index": {
                     "type": ["number", "null"]
@@ -4117,6 +4121,7 @@
         },
         "HogQLPropertyFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -6867,6 +6872,7 @@
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "durationType": {
                     "$ref": "#/definitions/DurationType"
@@ -7242,6 +7248,7 @@
         },
         "SessionPropertyFilter": {
             "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"

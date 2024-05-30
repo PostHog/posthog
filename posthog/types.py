@@ -10,6 +10,7 @@ from posthog.schema import (
     DataWarehouseNode,
     ElementPropertyFilter,
     EmptyPropertyFilter,
+    EventsFilter,
     EventPropertyFilter,
     EventsNode,
     DataWarehousePropertyFilter,
@@ -48,6 +49,7 @@ InsightQueryNode: TypeAlias = Union[
 InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
 
 AnyPropertyFilter: TypeAlias = Union[
+    EventsFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
     ElementPropertyFilter,

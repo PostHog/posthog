@@ -725,6 +725,7 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
     operator: PropertyOperator
@@ -738,28 +739,33 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
     group_type_index?: number | null
     operator: PropertyOperator
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface EventsFilter extends BasePropertyFilter {
     type: PropertyFilterType.Events
     properties: EventPropertyFilter[]
     operator: PropertyOperator.Occurred
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface EmptyPropertyFilter {
     type?: never
     value?: never
@@ -943,6 +949,7 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
+/** Sync with plugin-server/src/types.ts */
 export interface RecordingDurationFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
     key: 'duration'
