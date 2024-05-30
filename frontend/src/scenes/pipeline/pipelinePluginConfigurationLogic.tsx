@@ -275,9 +275,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
 
         pluginFilteringEnabled: [
             (s) => [s.featureFlags, s.pluginConfig, s.plugin],
-            (featureFlags, pluginConfig, plugin) => {
+            (featureFlags, pluginConfig, plugin): boolean => {
                 const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
-                return (
+                return !!(
                     (pluginFilteringEnabled || pluginConfig?.filters) &&
                     plugin?.capabilities?.methods?.includes('composeWebhook')
                 )

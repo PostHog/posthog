@@ -58,12 +58,13 @@ function JsonConfigField(props: {
     className: string
     autoFocus: boolean
     value: any
+    templating?: boolean
 }): JSX.Element {
     const suggestions = useAutocompleteOptions()
     const [monaco, setMonaco] = useState<Monaco>()
 
     useEffect(() => {
-        if (!monaco) {
+        if (!monaco || !props.templating) {
             return
         }
         monaco.languages.setLanguageConfiguration('json', {
@@ -113,8 +114,6 @@ function JsonConfigField(props: {
 
         return () => provider.dispose()
     }, [suggestions, monaco])
-
-    // TODO: Add auto complete suggestions to the editor
 
     return (
         <CodeEditor
@@ -216,11 +215,13 @@ export function PluginField({
     onChange,
     fieldConfig,
     disabled,
+    templating,
 }: {
     value?: any
     onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
     disabled?: boolean
+    templating?: boolean
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
     if (
@@ -264,7 +265,13 @@ export function PluginField({
             disabled={disabled}
         />
     ) : fieldConfig.type === 'json' ? (
-        <JsonConfigField value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
+        <JsonConfigField
+            value={value}
+            onChange={onChange}
+            autoFocus={editingSecret}
+            className="ph-no-capture"
+            templating={templating}
+        />
     ) : fieldConfig.type === 'choice' ? (
         <LemonSelect
             fullWidth

@@ -84,7 +84,11 @@ export function PipelinePluginConfiguration({
                     help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
                     showOptional={!requiredFields.includes(fieldConfig.key)}
                 >
-                    <PluginField fieldConfig={fieldConfig} disabled={loadingOrSubmitting} />
+                    <PluginField
+                        fieldConfig={fieldConfig}
+                        disabled={loadingOrSubmitting}
+                        templating={pluginFilteringEnabled}
+                    />
                 </LemonField>
             ) : (
                 <>
