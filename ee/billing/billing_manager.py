@@ -60,7 +60,7 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 def compute_usage_per_tier(current_usage: int, projected_usage: int, tiers, limit):
     remaining_usage = current_usage
-    limited_remaining_usage = limit
+    limited_remaining_usage = limit or current_usage
     remaining_projected_usage = projected_usage or 0
     previous_tier: Optional[dict[str, Any]] = None
     tier_max_usage: Union[int, float] = 0
