@@ -1,6 +1,5 @@
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
-import { CommonFilters, HeatmapFilters } from 'lib/components/heatmaps/types'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { HeatmapFilters } from 'lib/components/heatmaps/types'
 import { dateMapping } from 'lib/utils'
 
 export enum PostHogAppToolbarEvent {
@@ -36,15 +35,9 @@ export const calculateViewportRange = (
     }
 }
 
-// some of the date options we allow in insights don't apply to heatmaps/clickmaps
+// some of the date options we allow in insights don't apply to heatmaps
 // let's filter the list down
 const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
-
-export function buildToolbarDateMenuItems(setCommonFilters: (filters: CommonFilters) => void): LemonMenuItem[] {
-    return dateMapping
-        .filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
-        .map((dateOption) => ({
-            label: dateOption.key,
-            onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
-        }))
-}
+export const heatmapDateOptions = dateMapping.filter(
+    (dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key)
+)

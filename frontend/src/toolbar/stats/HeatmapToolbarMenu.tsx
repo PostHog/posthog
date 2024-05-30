@@ -2,15 +2,14 @@ import { IconMagicWand } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateMapping } from 'lib/utils'
 import React from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -99,11 +98,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
-    // some of the date options we allow in insights don't apply to heatmaps
-    // let's filter the list down
-    const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
-    const dateOptions = dateMapping.filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
-
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
@@ -133,7 +127,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         onChange={(fromDate, toDate) => {
                             setCommonFilters({ date_from: fromDate, date_to: toDate })
                         }}
-                        dateOptions={dateOptions}
+                        dateOptions={heatmapDateOptions}
                     />
                 </div>
             </ToolbarMenu.Header>

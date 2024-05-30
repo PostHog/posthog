@@ -1,22 +1,14 @@
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInputSelect,
-    LemonMenu,
-    LemonMenuItem,
-    LemonSkeleton,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { buildToolbarDateMenuItems } from 'lib/components/heatmaps/utils'
+import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { dateFilterToText } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
@@ -57,11 +49,6 @@ export function HeatmapsBrowser(): JSX.Element {
     }, [iframeWidth])
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
-
-    const [dateItems, setDateItems] = useState<LemonMenuItem[]>([])
-    useEffect(() => {
-        setDateItems(buildToolbarDateMenuItems(setCommonFilters))
-    }, [setCommonFilters])
 
     return (
         <div className="flex flex-wrap gap-2">
@@ -117,15 +104,14 @@ export function HeatmapsBrowser(): JSX.Element {
                             ) : (
                                 <div className="flex flex-row gap-x-2 w-full">
                                     <div className="flex flex-col gap-y-2 px-2 py-1">
-                                        <LemonMenu items={dateItems}>
-                                            <LemonButton size="small" type="secondary">
-                                                {dateFilterToText(
-                                                    commonFilters.date_from,
-                                                    commonFilters.date_to,
-                                                    'Last 7 days'
-                                                )}
-                                            </LemonButton>
-                                        </LemonMenu>
+                                        <DateFilter
+                                            dateFrom={commonFilters.date_from}
+                                            dateTo={commonFilters.date_to}
+                                            onChange={(fromDate, toDate) => {
+                                                setCommonFilters({ date_from: fromDate, date_to: toDate })
+                                            }}
+                                            dateOptions={heatmapDateOptions}
+                                        />
                                         <HeatmapsSettings
                                             heatmapFilters={heatmapFilters}
                                             patchHeatmapFilters={patchHeatmapFilters}
