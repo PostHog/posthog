@@ -50,25 +50,25 @@ impl rdkafka::ClientContext for KafkaContext {
             let id_string = format!("{}", stats.nodeid);
             if let Some(rtt) = stats.rtt {
                 gauge!(
-                    "capture_kafka_produce_rtt_latency_ms",
+                    "capture_kafka_produce_rtt_latency_us",
                     "quantile" => "p50",
                     "broker" => id_string.clone()
                 )
                 .set(rtt.p50 as f64);
                 gauge!(
-                    "capture_kafka_produce_rtt_latency_ms",
+                    "capture_kafka_produce_rtt_latency_us",
                     "quantile" => "p90",
                     "broker" => id_string.clone()
                 )
                 .set(rtt.p90 as f64);
                 gauge!(
-                    "capture_kafka_produce_rtt_latency_ms",
+                    "capture_kafka_produce_rtt_latency_us",
                     "quantile" => "p95",
                     "broker" => id_string.clone()
                 )
                 .set(rtt.p95 as f64);
                 gauge!(
-                    "capture_kafka_produce_rtt_latency_ms",
+                    "capture_kafka_produce_rtt_latency_us",
                     "quantile" => "p99",
                     "broker" => id_string.clone()
                 )
