@@ -12,6 +12,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
     SessionRecordingPlaylistItem,
 )
 from ..warehouse.models import DataWarehouseTable
+from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .alert import Alert
 from .action import Action
 from .action.action_step import ActionStep
@@ -35,7 +36,6 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
-from .scheduled_change import ScheduledChange
 from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -61,6 +61,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -69,8 +70,6 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
-
-from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 
 __all__ = [
     "Alert",
