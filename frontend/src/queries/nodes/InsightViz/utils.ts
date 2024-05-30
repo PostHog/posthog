@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
 import {
@@ -113,8 +114,11 @@ export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
+export const supportsPercentStackView = (q: InsightQueryNode, display?: ChartDisplayType): boolean =>
+    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph)
+
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
-    if (isTrendsQuery(query)) {
+    if (isTrendsQuery(query) && supportsPercentStackView(query, query.trendsFilter?.display)) {
         return query.trendsFilter?.showPercentStackView
     }
     return undefined

@@ -3,11 +3,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import {
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-} from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -30,6 +26,7 @@ import {
     getShowLegend,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    supportsPercentStackView,
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
@@ -138,12 +135,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 display !== ChartDisplayType.WorldMap &&
                 dateRange?.date_from !== 'all',
         ],
-        supportsPercentStackView: [
-            (s) => [s.querySource, s.display],
-            (q, display) =>
-                isTrendsQuery(q) &&
-                PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
-        ],
+        supportsPercentStackView: [(s) => [s.querySource, s.display], supportsPercentStackView],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) => {
