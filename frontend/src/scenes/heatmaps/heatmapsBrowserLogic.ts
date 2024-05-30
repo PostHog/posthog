@@ -1,12 +1,15 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
+import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { PostHogAppToolbarEvent } from '~/toolbar/bar/toolbarLogic'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
@@ -39,6 +42,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
+        // TRICKY: duplicated with the heatmapLogic so that we can share the settings picker
+        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
+        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
+        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
+        setCommonFilters: (filters: CommonFilters) => ({ filters }),
+        // TRICKY: duplication ends
+        setIframeWidth: (width: number | null) => ({ width }),
     }),
 
     loaders(({ values }) => ({
@@ -53,12 +63,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT distinct properties.$current_url AS urls
-                                FROM events
-                                WHERE timestamp >= now() - INTERVAL 7 DAY
-                                AND timestamp <= now()
-                                AND properties.$current_url like '%${hogql.identifier(values.browserSearchTerm)}%'
-                                ORDER BY timestamp DESC
-                                limit 100`,
+                                     FROM events
+                                     WHERE timestamp >= now() - INTERVAL 7 DAY
+                                       AND timestamp <= now()
+                                       AND properties.$current_url like '%${hogql.identifier(
+                                           values.browserSearchTerm
+                                       )}%'
+                                     ORDER BY timestamp DESC
+                                         limit 100`,
                     }
 
                     const res = await api.query(query)
@@ -74,13 +86,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 loadTopUrls: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$current_url AS url, count() as count FROM events
-                                WHERE timestamp >= now() - INTERVAL 7 DAY
-                                AND event in ('$pageview', '$autocapture')
-                                AND timestamp <= now()
-                                GROUP BY properties.$current_url
-                                ORDER BY count DESC
-                                LIMIT 10`,
+                        query: hogql`SELECT properties.$current_url AS url, count() as count
+                                     FROM events
+                                     WHERE timestamp >= now() - INTERVAL 7 DAY
+                                       AND event in ('$pageview'
+                                         , '$autocapture')
+                                       AND timestamp <= now()
+                                     GROUP BY properties.$current_url
+                                     ORDER BY count DESC
+                                         LIMIT 10`,
                     }
 
                     const res = await api.query(query)
@@ -92,6 +106,38 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
+        // the name is continued here since they're passed down into the embedded iframe
+        commonFilters: [
+            { date_from: '-7d' } as CommonFilters,
+            {
+                setCommonFilters: (_, { filters }) => filters,
+            },
+        ],
+        heatmapColorPalette: [
+            'default' as string | null,
+            {
+                setHeatmapColorPalette: (_, { Palette }) => Palette,
+            },
+        ],
+        heatmapFilters: [
+            DEFAULT_HEATMAP_FILTERS,
+            {
+                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        heatmapFixedPositionMode: [
+            'fixed' as HeatmapFixedPositionMode,
+            {
+                setHeatmapFixedPositionMode: (_, { mode }) => mode,
+            },
+        ],
+        iframeWidth: [
+            null as number | null,
+            {
+                setIframeWidth: (_, { width }) => width,
+            },
+        ],
         browserSearchTerm: [
             '',
             {
@@ -139,6 +185,18 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return checkUrlIsAuthorized(browserUrl)
             },
         ],
+
+        viewportRange: [
+            (s) => [s.heatmapFilters, s.iframeWidth],
+            (heatmapFilters, iframeWidth) => {
+                return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
+            },
+        ],
+
+        noPageviews: [
+            (s) => [s.topUrlsLoading, s.topUrls],
+            (topUrlsLoading, topUrls) => !topUrlsLoading && (!topUrls || topUrls.length === 0),
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({
@@ -146,6 +204,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             await breakpoint(200)
             actions.loadBrowserSearchResults()
         },
+
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -156,10 +215,32 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             )
         },
 
+        patchHeatmapFilters: ({ filters }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
+        },
+        setHeatmapFixedPositionMode: ({ mode }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE, {
+                fixedPositionMode: mode,
+            })
+        },
+        setHeatmapColorPalette: ({ Palette }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE, {
+                colorPalette: Palette,
+            })
+        },
+        setCommonFilters: ({ filters }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
+        },
+
         onIframeLoad: () => {
             // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error
             const init = (): void => {
-                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT)
+                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT, {
+                    filters: values.heatmapFilters,
+                    colorPalette: values.heatmapColorPalette,
+                    fixedPositionMode: values.heatmapFixedPositionMode,
+                    commonFilters: values.commonFilters,
+                })
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
                     enabled: true,
                 })
@@ -177,6 +258,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
+                        posthog.capture('in-app heatmap loaded', {
+                            inapp_heatmap_page_url_visited: values.browserUrl,
+                            inapp_heatmap_filters: values.heatmapFilters,
+                            inapp_heatmap_color_palette: values.heatmapColorPalette,
+                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                        })
                         return actions.onIframeToolbarLoad()
                     default:
                         console.warn(`[PostHog Heatmpas] Received unknown child window message: ${type}`)
@@ -206,4 +293,53 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.maybeLoadTopUrls()
         }
     }),
+
+    urlToAction(({ actions }) => ({
+        '/heatmaps': (_, searchParams) => {
+            if (searchParams.pageURL) {
+                actions.setBrowserUrl(searchParams.pageURL)
+                // otherwise we could have a race
+                // between the aftermount setting the loading state and the toolbar load cancelling it
+                actions.setLoading(false)
+            }
+            if (searchParams.heatmapFilters) {
+                actions.patchHeatmapFilters(searchParams.heatmapFilters)
+            }
+            if (searchParams.heatmapPalette) {
+                actions.setHeatmapColorPalette(searchParams.heatmapPalette)
+            }
+            if (searchParams.heatmapFixedPositionMode) {
+                actions.setHeatmapFixedPositionMode(searchParams.heatmapFixedPositionMode as HeatmapFixedPositionMode)
+            }
+            if (searchParams.commonFilters) {
+                actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        setBrowserUrl: ({ url }) => {
+            const searchParams = { ...router.values.searchParams, pageURL: url }
+            if (!url || url.trim() === '') {
+                delete searchParams.pageURL
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        patchHeatmapFilters: () => {
+            const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setHeatmapColorPalette: ({ Palette }) => {
+            const searchParams = { ...router.values.searchParams, heatmapPalette: Palette }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setHeatmapFixedPositionMode: ({ mode }) => {
+            const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+        setCommonFilters: ({ filters }) => {
+            const searchParams = { ...router.values.searchParams, commonFilters: filters }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
 ])

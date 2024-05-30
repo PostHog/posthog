@@ -92,5 +92,5 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.8
+hogql-parser==1.0.10
 zxcvbn==4.4.28
