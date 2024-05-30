@@ -1,4 +1,3 @@
-from typing import Dict
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -95,13 +94,13 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
+            seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
 
             # destination cohort id is different from original cohort id - create mapping
-            name_to_dest_cohort_id: Dict[str, int] = {}
+            name_to_dest_cohort_id: dict[str, int] = {}
             # create cohorts in the destination project
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:

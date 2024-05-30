@@ -77,3 +77,13 @@ export const SundayFirst: Story = BasicTemplate.bind({})
 SundayFirst.args = {
     weekStartDay: 0,
 }
+
+export const Hour: Story = BasicTemplate.bind({})
+Hour.args = {
+    granularity: 'hour',
+}
+
+export const Minute: Story = BasicTemplate.bind({})
+Minute.args = {
+    granularity: 'minute',
+}

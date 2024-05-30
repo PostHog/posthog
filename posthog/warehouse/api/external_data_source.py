@@ -1,15 +1,15 @@
 import uuid
-from typing import Any, List, Tuple, Dict
+from typing import Any
 
+from psycopg2 import OperationalError
+from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import User
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -17,6 +17,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
     is_any_external_data_job_paused,
+    trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
@@ -33,14 +34,26 @@ import temporalio
 
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from sshtunnel import BaseSSHTunnelForwarderError
 
 logger = structlog.get_logger(__name__)
+
+GenericPostgresError = "Could not fetch Postgres schemas. Please check all connection details are valid."
+PostgresErrors = {
+    "password authentication failed for user": "Invalid user or password",
+    "could not translate host name": "Could not connect to the host",
+    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    'database "': "Database does not exist",
+    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+}
 
 
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -67,6 +80,28 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
+        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.ERROR
+        elif any_cancelled:
+            return ExternalDataSchema.Status.CANCELLED
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
@@ -98,25 +133,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["source_id"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .prefetch_related("created_by", "schemas")
-                .order_by(self.ordering)
-            )
-
-        return (
-            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
-        )
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -169,13 +192,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
+        active_schemas: list[ExternalDataSchema] = []
+
         for schema in enabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=True)
+            active_schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=schema, team=self.team, source=new_source_model, should_sync=True
+                )
+            )
         for schema in disabled_schemas:
             ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
-            sync_external_data_job_workflow(new_source_model, create=True)
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -258,7 +288,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_postgres_source(
         self, request: Request, *args: Any, **kwargs: Any
-    ) -> Tuple[ExternalDataSource, List[Any]]:
+    ) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -270,6 +300,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = payload.get("user")
         password = payload.get("password")
         schema = payload.get("schema")
+
+        ssh_tunnel_obj = payload.get("ssh-tunnel", {})
+        using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+        ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+        ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+        ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+        ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+        ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+        ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+        ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+        ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
         if not self._validate_postgres_host(host, self.team_id):
             raise InternalPostgresError()
@@ -288,11 +329,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "user": user,
                 "password": password,
                 "schema": schema,
+                "ssh_tunnel_enabled": using_ssh_tunnel,
+                "ssh_tunnel_host": ssh_tunnel_host,
+                "ssh_tunnel_port": ssh_tunnel_port,
+                "ssh_tunnel_auth_type": ssh_tunnel_auth_type,
+                "ssh_tunnel_auth_type_username": ssh_tunnel_auth_type_username,
+                "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
+                "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
+                "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_postgres_schemas(host, port, database, user, password, schema)
+        ssh_tunnel = SSHTunnel(
+            enabled=using_ssh_tunnel,
+            host=ssh_tunnel_host,
+            port=ssh_tunnel_port,
+            auth_type=ssh_tunnel_auth_type,
+            username=ssh_tunnel_auth_type_username,
+            password=ssh_tunnel_auth_type_password,
+            passphrase=ssh_tunnel_auth_type_passphrase,
+            private_key=ssh_tunnel_auth_type_private_key,
+        )
+
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
 
         return new_source_model, schemas
 
@@ -317,21 +377,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        latest_completed_job = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id, status="Completed")
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_completed_job:
+        all_jobs = ExternalDataJob.objects.filter(
+            pipeline_id=instance.pk, team_id=instance.team_id, status="Completed"
+        ).all()
+        for job in all_jobs:
             try:
-                delete_data_import_folder(latest_completed_job.folder_path)
+                delete_data_import_folder(job.folder_path)
             except Exception as e:
-                logger.exception(
-                    f"Could not clean up data import folder: {latest_completed_job.folder_path}", exc_info=e
-                )
+                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
                 pass
 
-        delete_external_data_schedule(instance)
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=self.team_id, source_id=instance.id, should_sync=True
+        ).all():
+            delete_external_data_schedule(str(schema.id))
+
+        delete_external_data_schedule(str(instance.id))
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
@@ -345,12 +406,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            trigger_external_data_source_workflow(instance)
 
-        except temporalio.service.RPCError as e:
-            # schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
+        except temporalio.service.RPCError:
+            # if the source schedule has been removed - trigger the schema schedules
+            for schema in ExternalDataSchema.objects.filter(
+                team_id=self.team_id, source_id=instance.id, should_sync=True
+            ).all():
+                try:
+                    trigger_external_data_workflow(schema)
+                except temporalio.service.RPCError as e:
+                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                        sync_external_data_job_workflow(schema, create=True)
+
+                except Exception as e:
+                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
+
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
@@ -378,11 +449,56 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             password = request.data.get("password", None)
             schema = request.data.get("schema", None)
 
+            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
+            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+            ssh_tunnel = SSHTunnel(
+                enabled=using_ssh_tunnel,
+                host=ssh_tunnel_host,
+                port=ssh_tunnel_port,
+                auth_type=ssh_tunnel_auth_type,
+                username=ssh_tunnel_auth_type_username,
+                password=ssh_tunnel_auth_type_password,
+                passphrase=ssh_tunnel_auth_type_passphrase,
+                private_key=ssh_tunnel_auth_type_private_key,
+            )
+
             if not host or not port or not database or not user or not password or not schema:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Missing required parameters: host, port, database, user, password, schema"},
                 )
+
+            if using_ssh_tunnel:
+                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
+                if not auth_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": auth_error_message
+                            if len(auth_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
+
+                port_valid, port_error_message = ssh_tunnel.has_valid_port()
+                if not port_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": port_error_message
+                            if len(port_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
 
             # Validate internal postgres
             if not self._validate_postgres_host(host, self.team_id):
@@ -392,17 +508,37 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             try:
-                result = get_postgres_schemas(host, port, database, user, password, schema)
-            except Exception as e:
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                result = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+                if len(result) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Postgres schema doesn't exist"},
+                    )
+            except OperationalError as e:
+                exposed_error = self._expose_postgres_error(e)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Could not fetch Postgres schemas. Please check all connection details are valid."
-                    },
+                    data={"message": exposed_error or GenericPostgresError},
+                )
+            except BaseSSHTunnelForwarderError as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": e.value or GenericPostgresError},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericPostgresError},
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
@@ -413,7 +549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": False} for row in schemas]
+        options = [{"table": row, "should_sync": True} for row in schemas]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)
@@ -431,6 +567,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
+
+    def _expose_postgres_error(self, error: OperationalError) -> str | None:
+        error_msg = " ".join(str(n) for n in error.args)
+
+        for key, value in PostgresErrors.items():
+            if key in error_msg:
+                return value
+        return None
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):

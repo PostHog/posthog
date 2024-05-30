@@ -114,7 +114,7 @@ export function SidePanel(): JSX.Element | null {
         },
     }
 
-    const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -171,7 +171,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
                 ...(theme?.sidebarStyle ?? {}),
             }}
         >

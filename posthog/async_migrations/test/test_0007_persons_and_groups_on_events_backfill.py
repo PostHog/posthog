@@ -1,5 +1,4 @@
 import json
-from typing import Dict, List
 from uuid import uuid4
 
 import pytest
@@ -31,7 +30,7 @@ pytestmark = pytest.mark.async_migrations
 
 MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
-uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
+uuid1, uuid2, uuid3 = (UUIDT() for _ in range(3))
 # Clickhouse leaves behind blank/zero values for non-filled columns, these are checked against these constants
 ZERO_UUID = UUIDT(uuid_str="00000000-0000-0000-0000-000000000000")
 ZERO_DATE = "1970-01-01T00:00:00Z"
@@ -44,7 +43,7 @@ def run_migration():
     return start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
 
 
-def query_events() -> List[Dict]:
+def query_events() -> list[dict]:
     return query_with_columns(
         """
         SELECT
@@ -351,7 +350,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         MIGRATION_DEFINITION.operations[-1].fn = old_fn
 
     def test_timestamp_boundaries(self):
-        _uuid1, _uuid2, _uuid3 = [UUIDT() for _ in range(3)]
+        _uuid1, _uuid2, _uuid3 = (UUIDT() for _ in range(3))
         create_event(
             event_uuid=_uuid1,
             team=self.team,

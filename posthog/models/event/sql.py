@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
     {materialized_columns}
     {extra_fields}
     {indexes}

@@ -60,7 +60,8 @@ def clean_property_group_filter(properties: dict):
 
 
 def clean_property_group_filter_values(properties: list[dict]):
-    return [clean_property_group_filter_value(property) for property in properties]
+    cleaned = [clean_property_group_filter_value(property) for property in properties if property]
+    return cleaned
 
 
 def clean_property_group_filter_value(property: dict):
@@ -120,8 +121,8 @@ def is_old_style_properties(properties):
 
 
 def transform_old_style_properties(properties):
-    key = list(properties.keys())[0]
-    value = list(properties.values())[0]
+    key = next(iter(properties.keys()))
+    value = next(iter(properties.values()))
     key_split = key.split("__")
     return [
         {

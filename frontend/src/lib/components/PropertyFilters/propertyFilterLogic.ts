@@ -45,7 +45,14 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     listeners(({ actions, props, values }) => ({
         // Only send update if value is set to something
         setFilter: async ({ property }) => {
-            if (props.sendAllKeyUpdates || property?.value || (property?.key && property.type === 'hogql')) {
+            if (
+                props.sendAllKeyUpdates ||
+                property?.value ||
+                ('operator' in property &&
+                    property?.operator &&
+                    ['is_set', 'is_not_set'].includes(property?.operator)) ||
+                (property?.key && property.type === 'hogql')
+            ) {
                 actions.update()
             }
         },
@@ -63,9 +70,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             (filters) => {
                 if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
                     return [...filters, {} as AnyPropertyFilter]
-                } else {
-                    return filters
                 }
+                return filters
             },
         ],
     }),

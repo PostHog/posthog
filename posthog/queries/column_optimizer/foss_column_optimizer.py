@@ -1,6 +1,7 @@
 from collections import Counter
-from typing import Counter as TCounter
-from typing import Generator, List, Set, Union, cast
+from collections import Counter as TCounter
+from typing import Union, cast
+from collections.abc import Generator
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -48,19 +49,19 @@ class FOSSColumnOptimizer:
         self.property_optimizer = PropertyOptimizer()
 
     @cached_property
-    def event_columns_to_query(self) -> Set[ColumnName]:
+    def event_columns_to_query(self) -> set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
 
         return self.columns_to_query("events", set(self.used_properties_with_type("event")))
 
     @cached_property
-    def person_on_event_columns_to_query(self) -> Set[ColumnName]:
+    def person_on_event_columns_to_query(self) -> set[ColumnName]:
         "Returns a list of event table person columns containing materialized properties that this query needs"
 
         return self.columns_to_query("events", set(self.used_properties_with_type("person")), "person_properties")
 
     @cached_property
-    def person_columns_to_query(self) -> Set[ColumnName]:
+    def person_columns_to_query(self) -> set[ColumnName]:
         "Returns a list of person table columns containing materialized properties that this query needs"
 
         return self.columns_to_query("person", set(self.used_properties_with_type("person")))
@@ -68,9 +69,9 @@ class FOSSColumnOptimizer:
     def columns_to_query(
         self,
         table: TableWithProperties,
-        used_properties: Set[PropertyIdentifier],
+        used_properties: set[PropertyIdentifier],
         table_column: str = "properties",
-    ) -> Set[ColumnName]:
+    ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
         materialized_columns = get_materialized_columns(table)
@@ -92,11 +93,11 @@ class FOSSColumnOptimizer:
         )
 
     @cached_property
-    def group_types_to_query(self) -> Set[GroupTypeIndex]:
+    def group_types_to_query(self) -> set[GroupTypeIndex]:
         return set()
 
     @cached_property
-    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
+    def group_on_event_columns_to_query(self) -> set[ColumnName]:
         return set()
 
     @cached_property
@@ -171,7 +172,7 @@ class FOSSColumnOptimizer:
                 counter += get_action_tables_and_properties(entity.get_action())
 
         if (
-            not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter))
+            not isinstance(self.filter, StickinessFilter | PropertiesTimelineFilter)
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):
@@ -195,7 +196,7 @@ class FOSSColumnOptimizer:
 
     def entities_used_in_filter(self) -> Generator[Entity, None, None]:
         yield from self.filter.entities
-        yield from cast(List[Entity], self.filter.exclusions)
+        yield from cast(list[Entity], self.filter.exclusions)
 
         if isinstance(self.filter, RetentionFilter):
             yield self.filter.target_entity

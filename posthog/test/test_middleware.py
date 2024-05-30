@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta
 import json
 from urllib.parse import quote
 
 from django.test.client import Client
+from django.urls import reverse
+from freezegun import freeze_time
 from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -9,6 +12,7 @@ from posthog.api.test.test_team import create_team
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.test.base import APIBaseTest, override_settings
 
@@ -113,15 +117,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    third_team: Team
     no_access_team: Team
     base_app_num_queries: int
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 42
+        cls.base_app_num_queries = 43
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+
+        # some teams have non-standard API tokens
+        cls.third_team = create_team(organization=cls.organization, name="Third Life")
+        cls.third_team.api_token = "sTMFPsFhdP1Ssg"
+        cls.third_team.save()
+
         other_org = create_organization(name="test org")
         cls.no_access_team = create_team(organization=other_org)
 
@@ -315,6 +326,16 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.second_team.pk}/home"
 
+    def test_project_redirects_to_posthog_org_style_tokens(self):
+        res = self.client.get(
+            f"/project/{self.third_team.api_token}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
+        )
+        assert res.status_code == 302, res.content
+        assert (
+            res.headers["Location"]
+            == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
+        )
+
     def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
         res = self.client.get(f"/project/phc_123/home")
         assert res.status_code == 302
@@ -324,6 +345,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+
+    def test_project_redirects_including_query_params(self):
+        res = self.client.get(f"/project/phc_123?t=1")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}?t=1"
+
+        res = self.client.get(f"/project/phc_123/home?t=1")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
@@ -382,7 +412,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         }
 
         response = self.client.get(
-            "/e/?data=%s" % quote(json.dumps(data)),
+            "/e/?data={}".format(quote(json.dumps(data))),
             HTTP_ORIGIN="https://localhost",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -451,3 +481,77 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         # Check if the cookies are not present in the response
         self.assertNotIn("ph_current_project_token", response.cookies)
         self.assertNotIn("ph_current_project_name", response.cookies)
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=30)
+class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        # Reset back to initial team/org for each test
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+
+        self.user.is_staff = True
+        self.user.save()
+
+    def get_csrf_token_payload(self):
+        return {}
+
+    def login_as_other_user(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+    def test_staff_user_can_login(self):
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+        response = self.login_as_other_user()
+        assert response.status_code == 200
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+    def test_not_staff_user_cannot_login(self):
+        self.user.is_staff = False
+        self.user.save()
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+        response = self.login_as_other_user()
+        assert response.status_code == 200
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_after_timeout_api_requests_401(self):
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert self.client.session.get("session_created_at") == now.timestamp()
+
+        with freeze_time(now + timedelta(seconds=10)):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+
+        with freeze_time(now + timedelta(seconds=35)):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 401
+
+    def test_after_timeout_redirects_to_logout_then_admin(self):
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            res = self.client.get("/dashboards")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/logout/"
+
+            res = self.client.get("/logout/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/admin/"
+
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"

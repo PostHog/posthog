@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Optional
 from uuid import UUID
 
 import structlog
@@ -12,8 +12,12 @@ from prometheus_client import Counter
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.caching.calculate_results import calculate_result_by_insight
-from posthog.models import Dashboard, Insight, InsightCachingState, Team
+from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_filter_based_insight
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
 from posthog.tasks.tasks import update_cache_task
 
@@ -49,7 +53,7 @@ def schedule_cache_updates():
         logger.warn("No caches were found to be updated")
 
 
-def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
+def fetch_states_in_need_of_updating(limit: int) -> list[tuple[int, str, UUID]]:
     current_time = now()
     with connection.cursor() as cursor:
         cursor.execute(
@@ -90,33 +94,51 @@ def update_cache(caching_state_id: UUID):
         return
 
     insight, dashboard = _extract_insight_dashboard(caching_state)
-    team: Team = insight.team
     start_time = perf_counter()
 
-    exception = cache_key = cache_type = None
+    exception: Optional[Exception] = None
+    cache_key: Optional[str] = None
+    cache_type: Optional[str] = None
+    result: Any = None
 
     metadata = {
-        "team_id": team.pk,
+        "team_id": insight.team_id,
         "insight_id": insight.pk,
         "dashboard_id": dashboard.pk if dashboard else None,
         "last_refresh": caching_state.last_refresh,
         "last_refresh_queued_at": caching_state.last_refresh_queued_at,
     }
 
-    try:
-        cache_key, cache_type, result = calculate_result_by_insight(team=team, insight=insight, dashboard=dashboard)
-    except Exception as err:
-        capture_exception(err, metadata)
-        exception = err
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    if dashboard:
+        tag_queries(dashboard_id=dashboard.pk)
+
+    with flagged_conversion_to_query_based(insight):
+        try:
+            if insight.query:
+                response = process_query_dict(
+                    insight.team,
+                    insight.query,
+                    dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+                    execution_mode=ExecutionMode.CALCULATION_ALWAYS,
+                )
+                # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
+                cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
+            else:
+                cache_key, cache_type, result = calculate_for_filter_based_insight(insight=insight, dashboard=dashboard)
+        except Exception as err:
+            capture_exception(err, metadata)
+            exception = err
 
     duration = perf_counter() - start_time
     if exception is None:
+        assert cache_key is not None
         timestamp = now()
         rows_updated = update_cached_state(
             caching_state.team_id,
-            cast(str, cache_key),
+            cache_key,
             timestamp,
-            {"result": result, "type": cache_type, "last_refresh": timestamp},
+            {"result": result, "type": cache_type, "last_refresh": timestamp} if result is not None else None,
         )
         statsd.incr("caching_state_update_success")
         statsd.incr("caching_state_update_rows_updated", rows_updated)
@@ -149,11 +171,12 @@ def update_cache(caching_state_id: UUID):
 def update_cached_state(
     team_id: int,
     cache_key: str,
-    timestamp: datetime,
+    timestamp: datetime | str,
     result: Any,
     ttl: Optional[int] = None,
 ):
-    cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
+    if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
+        cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
     insight_cache_write_counter.inc()
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
@@ -163,7 +186,7 @@ def update_cached_state(
     )
 
 
-def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:
+def _extract_insight_dashboard(caching_state: InsightCachingState) -> tuple[Insight, Optional[Dashboard]]:
     if caching_state.dashboard_tile is not None:
         assert caching_state.dashboard_tile.insight is not None
 

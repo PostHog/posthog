@@ -2,12 +2,8 @@ import dataclasses
 import urllib.parse
 from typing import (
     Any,
-    Dict,
-    List,
     Literal,
     Optional,
-    Set,
-    Tuple,
     TypedDict,
     Union,
     cast,
@@ -34,12 +30,13 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import PersonOnEventsMode, generate_short_id
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import generate_short_id
 
 
 class EventDefinition(TypedDict):
     event: str
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
     elements: list
 
 
@@ -73,7 +70,7 @@ class FunnelCorrelationResponse(TypedDict):
     queries, but we could use, for example, a dataclass
     """
 
-    events: List[EventOddsRatioSerialized]
+    events: list[EventOddsRatioSerialized]
     skewed: bool
 
 
@@ -152,10 +149,10 @@ class FunnelCorrelation:
         )
 
     @property
-    def properties_to_include(self) -> List[str]:
+    def properties_to_include(self) -> list[str]:
         props_to_include = []
         if (
-            self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            self._team.person_on_events_mode != PersonsOnEventsMode.disabled
             and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
         ):
             # When dealing with properties, make sure funnel response comes with properties
@@ -202,7 +199,7 @@ class FunnelCorrelation:
             return True
         return False
 
-    def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_contingency_table_query(self) -> tuple[str, dict[str, Any]]:
         """
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
@@ -215,7 +212,7 @@ class FunnelCorrelation:
 
         return self.get_event_query()
 
-    def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_event_query(self) -> tuple[str, dict[str, Any]]:
         funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
         event_join_query = self._get_events_join_query()
@@ -278,7 +275,7 @@ class FunnelCorrelation:
 
         return query, params
 
-    def get_event_property_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_event_property_query(self) -> tuple[str, dict[str, Any]]:
         if not self._filter.correlation_event_names:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
@@ -358,7 +355,7 @@ class FunnelCorrelation:
 
         return query, params
 
-    def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_properties_query(self) -> tuple[str, dict[str, Any]]:
         if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
@@ -435,7 +432,7 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-        if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self._team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
@@ -502,7 +499,7 @@ class FunnelCorrelation:
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
-            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
                 return "", {}
 
             person_query, person_query_params = PersonQuery(
@@ -522,7 +519,7 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
             group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
             aggregation_properties_alias = (
                 "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
@@ -549,7 +546,7 @@ class FunnelCorrelation:
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
+                        "groups" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
@@ -557,12 +554,12 @@ class FunnelCorrelation:
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
+                        "person" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
                         materialised_table_column=aggregation_properties_alias
-                        if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
+                        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled
                         else "properties",
                     )
                 person_property_params[param_name] = property_name
@@ -579,17 +576,17 @@ class FunnelCorrelation:
             )
 
     def _get_funnel_step_names(self):
-        events: Set[Union[int, str]] = set()
+        events: set[Union[int, str]] = set()
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                events.update(action.get_step_events())
+                events.update([x for x in action.get_step_events() if x])
             elif entity.id is not None:
                 events.add(entity.id)
 
         return sorted(events)
 
-    def _run(self) -> Tuple[List[EventOddsRatio], bool]:
+    def _run(self) -> tuple[list[EventOddsRatio], bool]:
         """
         Run the diagnose query.
 
@@ -833,7 +830,7 @@ class FunnelCorrelation:
         ).to_params()
         return f"{self._base_uri}api/person/funnel/correlation?{urllib.parse.urlencode(params)}&cache_invalidation_key={cache_invalidation_key}"
 
-    def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
+    def format_results(self, results: tuple[list[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results
         return {
             "events": [self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in odds_ratios],
@@ -846,7 +843,7 @@ class FunnelCorrelation:
 
         return self.format_results(self._run())
 
-    def get_partial_event_contingency_tables(self) -> Tuple[List[EventContingencyTable], int, int]:
+    def get_partial_event_contingency_tables(self) -> tuple[list[EventContingencyTable], int, int]:
         """
         For each event a person that started going through the funnel, gets stats
         for how many of these users are sucessful and how many are unsuccessful.
@@ -867,9 +864,9 @@ class FunnelCorrelation:
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [
+        _, success_total, failure_total = next(
             result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
-        ][0]
+        )
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -887,7 +884,7 @@ class FunnelCorrelation:
             failure_total,
         )
 
-    def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
+    def get_funnel_actors_cte(self) -> tuple[str, dict[str, Any]]:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
 
         for prop in self.properties_to_include:
@@ -974,12 +971,12 @@ def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_
     )
 
 
-def build_selector(elements: List[Dict[str, Any]]) -> str:
+def build_selector(elements: list[dict[str, Any]]) -> str:
     # build a CSS select given an "elements_chain"
     # NOTE: my source of what this should be doing is
     # https://github.com/PostHog/posthog/blob/cc054930a47fb59940531e99a856add49a348ee5/frontend/src/scenes/events/createActionFromEvent.tsx#L36:L36
     #
-    def element_to_selector(element: Dict[str, Any]) -> str:
+    def element_to_selector(element: dict[str, Any]) -> str:
         if attr_id := element.get("attr_id"):
             return f'[id="{attr_id}"]'
 

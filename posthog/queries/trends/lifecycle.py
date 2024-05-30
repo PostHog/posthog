@@ -1,5 +1,6 @@
 import urllib
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any
+from collections.abc import Callable
 
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
@@ -13,11 +14,8 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import (
-    PersonOnEventsMode,
-    encode_get_request_params,
-    generate_short_id,
-)
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import encode_get_request_params, generate_short_id
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -31,7 +29,7 @@ from posthog.utils import (
 
 
 class Lifecycle:
-    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> tuple[str, dict, Callable]:
         event_query, event_params = LifecycleEventQuery(
             team=team, filter=filter, person_on_events_mode=team.person_on_events_mode
         ).get_query()
@@ -43,7 +41,7 @@ class Lifecycle:
         )
 
     def _parse_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
-        def _parse(result: List) -> List:
+        def _parse(result: list) -> list:
             res = []
             for val in result:
                 label = "{} - {}".format(entity.name, val[2])
@@ -64,7 +62,7 @@ class Lifecycle:
         _, serialized_actors, _ = LifecycleActors(filter=filter, team=team, limit_actors=True).get_actors()
         return serialized_actors
 
-    def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
+    def _get_persons_urls(self, filter: Filter, entity: Entity, times: list[str], status) -> list[dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
         for target_date in times:
@@ -78,7 +76,7 @@ class Lifecycle:
                 "lifecycle_type": status,
             }
 
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {
                     "filter": extra_params,
@@ -128,12 +126,12 @@ class LifecycleEventQuery(EventQuery):
         self.params.update(entity_prop_params)
 
         created_at_clause = (
-            "person.created_at" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_created_at"
+            "person.created_at" if self._person_on_events_mode == PersonsOnEventsMode.disabled else "person_created_at"
         )
 
         null_person_filter = (
             ""
-            if self._person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self._person_on_events_mode == PersonsOnEventsMode.disabled
             else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
         )
 
@@ -170,7 +168,7 @@ class LifecycleEventQuery(EventQuery):
         )
 
     def _get_date_filter(self):
-        date_params: Dict[str, Any] = {}
+        date_params: dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team, should_round=False)
         _, date_from_params = query_date_range.date_from
         _, date_to_params = query_date_range.date_to
@@ -188,7 +186,9 @@ class LifecycleEventQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = self._person_on_events_mode != PersonOnEventsMode.V1_ENABLED
+        self._should_join_distinct_ids = (
+            self._person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events
+        )
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = self._person_on_events_mode == PersonOnEventsMode.DISABLED
+        self._should_join_persons = self._person_on_events_mode == PersonsOnEventsMode.disabled

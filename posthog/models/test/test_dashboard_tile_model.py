@@ -1,5 +1,4 @@
 import datetime
-from typing import Dict, List
 
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
@@ -19,7 +18,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 class TestDashboardTileModel(APIBaseTest):
     dashboard: Dashboard
     asset: ExportedAsset
-    tiles: List[DashboardTile]
+    tiles: list[DashboardTile]
 
     def setUp(self) -> None:
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
@@ -64,7 +63,7 @@ class TestDashboardTileModel(APIBaseTest):
             DashboardTile.objects.create(dashboard=self.dashboard, insight=insight, text=text)
 
     def test_cannot_set_caching_data_for_text_tiles(self) -> None:
-        tile_fields: List[Dict] = [
+        tile_fields: list[dict] = [
             {"filters_hash": "123"},
             {"refreshing": True},
             {"refresh_attempt": 2},

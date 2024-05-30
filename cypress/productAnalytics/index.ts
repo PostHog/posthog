@@ -16,43 +16,6 @@ export const savedInsights = {
     },
 }
 
-export function interceptInsightLoad(insightType: string): string {
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/trend\//).as('loadNewTrendsInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\//).as('loadNewFunnelInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/retention\//).as('loadNewRetentionInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/path\//).as('loadNewPathsInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
-
-    let networkInterceptAlias: string = ''
-    switch (insightType) {
-        case 'TRENDS':
-        case 'STICKINESS':
-        case 'LIFECYCLE':
-            networkInterceptAlias = 'loadNewTrendsInsight'
-            break
-        case 'FUNNELS':
-            networkInterceptAlias = 'loadNewFunnelInsight'
-            break
-        case 'RETENTION':
-            networkInterceptAlias = 'loadNewRetentionInsight'
-            break
-        case 'PATH':
-        case 'PATHS':
-            networkInterceptAlias = 'loadNewPathsInsight'
-            break
-        case 'SQL':
-        case 'JSON':
-            networkInterceptAlias = 'loadNewQueryInsight'
-            break
-    }
-
-    if (networkInterceptAlias === '') {
-        throw new Error('Unknown insight type: ' + insightType)
-    }
-
-    return networkInterceptAlias
-}
-
 export const insight = {
     applyFilter: (): void => {
         cy.get('[data-attr$=add-filter-group]').click()
@@ -75,16 +38,16 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     clickTab: (tabName: string): void => {
-        const networkInterceptAlias = interceptInsightLoad(tabName)
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
         if (tabName !== 'FUNNELS') {
             // funnel insights require two steps before making an api call
-            cy.wait(`@${networkInterceptAlias}`)
+            cy.wait(`@loadNewQueryInsight`)
         }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
-        const networkInterceptAlias = interceptInsightLoad(insightType)
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         if (insightType === 'JSON') {
             cy.clickNavMenu('savedinsights')
@@ -99,12 +62,12 @@ export const insight = {
 
         if (insightType !== 'FUNNELS') {
             // funnel insights require two steps before making an api call
-            cy.wait(`@${networkInterceptAlias}`)
+            cy.wait(`@loadNewQueryInsight`)
         }
     },
     visitInsight: (insightName: string): void => {
         cy.clickNavMenu('savedinsights')
-        cy.contains('.row-name > .Link', insightName).click()
+        cy.contains('.Link', insightName).click()
     },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
@@ -206,6 +169,15 @@ export const dashboard = {
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
     },
+    addPropertyFilter(type: string = 'Browser', value: string = 'Chrome'): void {
+        cy.get('.PropertyFilterButton').should('have.length', 0)
+        cy.get('[data-attr="property-filter-0"]').click()
+        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
+        cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true })
+        cy.get('.LemonInput').type(value)
+        cy.contains('.LemonButton__content', value).click({ force: true })
+        cy.get('button').contains('Apply and save dashboard').click()
+    },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
         cy.get('[data-attr="property-filter-0"]').click()
@@ -213,7 +185,10 @@ export const dashboard = {
         cy.get('[data-attr="prop-filter-event_properties-1"]').click({ force: true })
         cy.get('[data-attr="prop-val"]').click()
         cy.get('[data-attr="prop-val-0"]').click({ force: true })
+        // click .dashboard to blur
+        cy.get('.dashboard').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
+        cy.get('button').contains('Apply and save dashboard').click()
     },
 }
 

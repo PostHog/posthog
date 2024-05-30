@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
 
+
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
@@ -26,8 +26,10 @@ def _make_event_sequence(
     interval_days,
     period_event_counts,
     event="$pageview",
-    properties={},
+    properties=None,
 ):
+    if properties is None:
+        properties = {}
     for period_index, event_count in enumerate(period_event_counts):
         for i in range(event_count):
             _create_event(
@@ -51,12 +53,16 @@ def _create_cohort(**kwargs):
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query(self):
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         # satiesfies all conditions
@@ -216,10 +222,75 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
+                            "explicit_datetime": "-1w",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_performed_event_with_event_filters_and_explicit_date(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p2",
+            # rejected because explicit datetime is set to 3 days ago
+            timestamp=datetime.now() - timedelta(days=5),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": str(
+                                datetime.now() - timedelta(days=3)
+                            ),  # overrides time_value and time_interval
                             "time_value": 1,
                             "time_interval": "week",
                             "value": "performed_event",
                             "type": "behavioral",
+                            "event_filters": [
+                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                            ],
                         }
                     ],
                 }
@@ -281,6 +352,78 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_interval": "week",
                             "value": "performed_event_multiple",
                             "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_performed_event_multiple_with_event_filters(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"},
+                                {"key": "$filter_prop", "value": "some", "operator": "icontains", "type": "event"},
+                            ],
                         }
                     ],
                 }
@@ -895,12 +1038,16 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_person_properties_with_pushdowns(self):
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         # satiesfies all conditions
@@ -2073,12 +2220,16 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test", "email": "test@posthog.com"},
         )
 
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$pageview",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         _make_event_sequence(

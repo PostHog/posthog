@@ -4756,7 +4756,7 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
-        UNION ALL SELECT plus(avg(toInt64OrNull(nullIf(nullIf(events.`$session_id`, ''), 'null'))), 1000) AS total,
+        UNION ALL SELECT plus(avg(accurateCastOrNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), 'Int64')), 1000) AS total,
                          toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS date
         FROM events e
         WHERE team_id = 2
@@ -5112,14 +5112,14 @@
           FROM events
           WHERE team_id = 2
             AND event = '$pageview'
-            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -5137,14 +5137,14 @@
           FROM events
           WHERE team_id = 2
             AND event = '$pageview'
-            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily

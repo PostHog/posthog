@@ -29,9 +29,8 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
                 setTransitioning(true)
                 const transitioningTimeout = setTimeout(() => setTransitioning(false), transitionMs)
                 return () => clearTimeout(transitioningTimeout)
-            } else {
-                hasRenderedInitiallyRef.current = true
             }
+            hasRenderedInitiallyRef.current = true
         }
     }, [currentValue, containerWidth])
 

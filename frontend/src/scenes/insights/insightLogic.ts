@@ -52,7 +52,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
+import { extractObjectDiffKeys, getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -145,7 +145,8 @@ export const insightLogic = kea<insightLogicType>([
                     values.currentTeam?.test_account_filters_default_checked || false
                 ),
             {
-                loadInsight: async ({ shortId }) => {
+                loadInsight: async ({ shortId }, breakpoint) => {
+                    await breakpoint(100)
                     const response = await api.insights.loadInsight(shortId)
                     if (response?.results?.[0]) {
                         return response.results[0]
@@ -290,9 +291,8 @@ export const insightLogic = kea<insightLogicType>([
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
                     return { ...state, ...item }
-                } else {
-                    return state
                 }
+                return state
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
@@ -303,9 +303,8 @@ export const insightLogic = kea<insightLogicType>([
             [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
                 if (insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
-                } else {
-                    return state
                 }
+                return state
             },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
                 if (tile.insight?.id === state.id) {
@@ -480,37 +479,35 @@ export const insightLogic = kea<insightLogicType>([
 
                 if (insight.query) {
                     return { ...queryExportContext(insight.query, undefined, undefined, false), filename }
-                } else {
-                    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                        return {
-                            path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                filterTrendsClientSideParams(params)
-                            )}`,
-                            filename,
-                        }
-                    } else if (isRetentionFilter(filters)) {
-                        return {
-                            filename,
-                            path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                        }
-                    } else if (isFunnelsFilter(filters)) {
-                        return {
-                            filename,
-                            method: 'POST',
-                            path: `api/projects/${currentTeamId}/insights/funnel`,
-                            body: params,
-                        }
-                    } else if (isPathsFilter(filters)) {
-                        return {
-                            filename,
-                            method: 'POST',
-                            path: `api/projects/${currentTeamId}/insights/path`,
-                            body: params,
-                        }
-                    } else {
-                        return null
+                }
+                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (isRetentionFilter(filters)) {
+                    return {
+                        filename,
+                        path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
+                    }
+                } else if (isFunnelsFilter(filters)) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (isPathsFilter(filters)) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
                     }
                 }
+                return null
             },
         ],
         isUsingSessionAnalysis: [
@@ -714,19 +711,7 @@ export const insightLogic = kea<insightLogicType>([
                 return
             }
 
-            const insight = findInsightFromMountedLogic(
-                props.dashboardItemId as string | InsightShortId,
-                props.dashboardId
-            )
-            if (insight) {
-                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                if (insight?.result) {
-                    actions.reportInsightViewed(insight, insight.filters || {})
-                }
-                return
-            }
-
-            if (!props.doNotLoad) {
+            if (!props.doNotLoad && !props.cachedInsight) {
                 actions.loadInsight(props.dashboardItemId as InsightShortId)
             }
         },

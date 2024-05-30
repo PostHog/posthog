@@ -67,6 +67,7 @@ export const defaultSurveyFieldValues = {
                 scale: 10,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                buttonText: 'Submit',
             },
         ],
         appearance: {
@@ -118,6 +119,7 @@ export interface NewSurvey
         | 'archived'
         | 'appearance'
         | 'targeting_flag_filters'
+        | 'responses_limit'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -145,6 +147,7 @@ export const NEW_SURVEY: NewSurvey = {
     conditions: null,
     archived: false,
     appearance: defaultSurveyAppearance,
+    responses_limit: null,
 }
 
 export enum SurveyTemplateType {

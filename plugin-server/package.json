@@ -82,7 +82,7 @@
         "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
         "tail": "^2.2.6",
-        "uuid": "^8.3.2",
+        "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18"
     },
@@ -111,7 +111,7 @@
         "@types/redlock": "^4.0.1",
         "@types/snowflake-sdk": "^1.5.1",
         "@types/tar-stream": "^2.2.0",
-        "@types/uuid": "^8.3.0",
+        "@types/uuid": "^9.0.1",
         "@typescript-eslint/eslint-plugin": "^7.1.1",
         "@typescript-eslint/parser": "^7.1.1",
         "babel-eslint": "^10.1.0",

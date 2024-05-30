@@ -25,6 +25,7 @@ class Experiment(models.Model):
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.RESTRICT)
+    exposure_cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.SET_NULL, null=True)
     start_date: models.DateTimeField = models.DateTimeField(null=True)
     end_date: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional, cast
+from typing import Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -94,7 +94,7 @@ class PropertyOptimizer:
         elif isinstance(property_group.values[0], PropertyGroup):
             return all(
                 PropertyOptimizer.using_only_person_properties(group)
-                for group in cast(List[PropertyGroup], property_group.values)
+                for group in cast(list[PropertyGroup], property_group.values)
             )
 
         else:

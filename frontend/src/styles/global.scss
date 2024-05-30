@@ -226,40 +226,6 @@ input::-ms-clear {
 
 // Form & input styles
 
-.input-set {
-    padding-bottom: 1rem;
-    color: var(--default);
-
-    label {
-        font-size: 0.875rem;
-        font-weight: bold;
-        line-height: 1.25rem;
-    }
-
-    .caption {
-        font-size: 0.875rem;
-        line-height: 1.25rem;
-        color: var(--muted);
-    }
-
-    .ant-radio-button-wrapper {
-        // To properly handle label styles above
-        font-weight: normal !important;
-        line-height: 30px !important;
-    }
-
-    &.errored {
-        .caption {
-            color: var(--danger);
-        }
-
-        input[type='password'],
-        input[type='text'] {
-            border-color: var(--danger) !important;
-        }
-    }
-}
-
 .error-on-blur {
     &.errored:not(:focus) {
         border-color: var(--danger) !important;

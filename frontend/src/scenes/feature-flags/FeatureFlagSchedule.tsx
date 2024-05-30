@@ -1,5 +1,6 @@
 import {
     LemonButton,
+    LemonCalendarSelectInput,
     LemonCheckbox,
     LemonDivider,
     LemonSelect,
@@ -10,7 +11,6 @@ import {
     LemonTagType,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { DatePicker } from 'lib/components/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -98,9 +98,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         return { type: 'danger', text: 'Error' }
                     } else if (executed_at) {
                         return { type: 'completion', text: 'Complete' }
-                    } else {
-                        return { type: 'default', text: 'Scheduled' }
                     }
+                    return { type: 'default', text: 'Scheduled' }
                 }
                 const { type, text } = getStatus()
                 return (
@@ -158,21 +157,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         ]}
                     />
                 </div>
-                <div>
+                <div className="w-50">
                     <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
-                    <DatePicker
-                        disabledDate={(dateMarker) => {
-                            const now = new Date()
-                            return dateMarker.toDate().getTime() < now.getTime()
-                        }}
+                    <LemonCalendarSelectInput
                         value={scheduleDateMarker}
                         onChange={(value) => setScheduleDateMarker(value)}
-                        className="h-10 w-60"
-                        allowClear={false}
-                        showTime
-                        showSecond={false}
-                        format={DAYJS_FORMAT}
-                        showNow={false}
+                        placeholder="Select date"
+                        selectionPeriod="upcoming"
+                        granularity="minute"
                     />
                 </div>
             </div>

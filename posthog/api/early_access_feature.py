@@ -1,5 +1,3 @@
-from typing import Type
-
 from django.http import JsonResponse
 from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -221,7 +219,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST":
             return EarlyAccessFeatureSerializerCreateOnly
         else:

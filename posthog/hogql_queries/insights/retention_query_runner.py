@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Dict
+from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -22,6 +22,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    CachedRetentionQueryResponse,
     HogQLQueryModifiers,
     RetentionQueryResponse,
     IntervalType,
@@ -35,11 +36,12 @@ DEFAULT_TOTAL_INTERVALS = 11
 
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
-    query_type = RetentionQuery
+    response: RetentionQueryResponse
+    cached_response: CachedRetentionQueryResponse
 
     def __init__(
         self,
-        query: RetentionQuery | Dict[str, Any],
+        query: RetentionQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -340,7 +342,7 @@ class RetentionQueryRunner(QueryRunner):
             for first_interval in range(self.query_date_range.total_intervals)
         ]
 
-        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
         with self.timings.measure("retention_query"):

@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import Dict, Iterator, Optional, Tuple, Any
+from typing import Optional, Any
+from collections.abc import Iterator
 from dlt.common.typing import DictStrStr, TDataItems, TSecretValue
 from dlt.sources.helpers.requests import client
 
@@ -27,7 +28,7 @@ class ZendeskAPIClient:
     subdomain: str = ""
     url: str = ""
     headers: Optional[DictStrStr]
-    auth: Optional[Tuple[str, TSecretValue]]
+    auth: Optional[tuple[str, TSecretValue]]
 
     def __init__(self, credentials: TZendeskCredentials, url_prefix: Optional[str] = None) -> None:
         """
@@ -64,7 +65,7 @@ class ZendeskAPIClient:
         endpoint: str,
         data_point_name: str,
         pagination: PaginationType,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> Iterator[TDataItems]:
         """
         Makes a request to a paginated endpoint and returns a generator of data items per page.

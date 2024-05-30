@@ -5,9 +5,7 @@ import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
@@ -19,8 +17,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
@@ -87,23 +85,15 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, isTrends, query, isDataWarehouseSeries } = useValues(
+    const { insightData, trendsFilter, querySource, isDataWarehouseSeries, isHogQLInsight } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
     const showComparison = !!trendsFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
-
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
 
     return resultSeries ? (
         <div className="BoldNumber">
@@ -113,17 +103,19 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     // != is intentional to catch undefined too
                     showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries
                         ? () => {
-                              if (isTrendsQueryWithFeatureFlagOn) {
+                              if (isHogQLInsight) {
                                   openPersonsModal({
                                       title: resultSeries.label,
                                       query: {
                                           kind: NodeKind.InsightActorsQuery,
-                                          source: query.source,
+                                          source: querySource!,
+                                          includeRecordings: true,
                                       },
                                       additionalSelect: {
                                           value_at_data_point: 'event_count',
                                           matched_recordings: 'matched_recordings',
                                       },
+                                      orderBy: ['event_count DESC, actor_id DESC'],
                                   })
                               } else if (resultSeries.persons?.url) {
                                   openPersonsModal({
@@ -151,8 +143,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, isTrends, query } = useValues(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { insightData, querySource, isHogQLInsight } = useValues(insightVizDataLogic(insightProps))
 
     if (!insightData?.result) {
         return null
@@ -176,13 +167,6 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
             : percentageDiff < 0
             ? `Down ${percentage(-percentageDiff)} from`
             : 'No change from'
-
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
 
     return (
         <LemonRow
@@ -210,17 +194,18 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 ) : (
                     <Link
                         onClick={() => {
-                            if (isTrendsQueryWithFeatureFlagOn) {
+                            if (isHogQLInsight) {
                                 openPersonsModal({
                                     title: previousPeriodSeries.label,
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
-                                        source: query.source,
+                                        source: querySource!,
                                     },
                                     additionalSelect: {
                                         value_at_data_point: 'event_count',
                                         matched_recordings: 'matched_recordings',
                                     },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
                                 })
                             } else if (previousPeriodSeries.persons?.url) {
                                 openPersonsModal({
@@ -235,5 +220,26 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 )}
             </span>
         </LemonRow>
+    )
+}
+
+export function HogQLBoldNumber(): JSX.Element {
+    const { response, responseLoading } = useValues(dataVisualizationLogic)
+
+    const displayValue =
+        ((!response || responseLoading) && 'Loading...') ||
+        response?.[0]?.[0] ||
+        response?.results?.[0]?.[0] ||
+        response?.result?.[0]?.[0] ||
+        'Error'
+
+    return (
+        <div className="BoldNumber LemonTable HogQL">
+            <div className="BoldNumber__value">
+                <Textfit min={32} max={120}>
+                    {`${displayValue}`}
+                </Textfit>
+            </div>
+        </div>
     )
 }

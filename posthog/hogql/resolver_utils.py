@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from posthog import schema
 from posthog.hogql import ast
@@ -27,7 +27,7 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str, context: HogQLCo
         return None
 
 
-def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
+def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
     for scope in reversed(scopes):
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]

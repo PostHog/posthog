@@ -181,11 +181,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 registerNodeLogic: (state, { nodeId, nodeLogic }) => {
                     if (nodeId === null) {
                         return state
-                    } else {
-                        return {
-                            ...state,
-                            [nodeId]: nodeLogic,
-                        }
+                    }
+                    return {
+                        ...state,
+                        [nodeId]: nodeLogic,
                     }
                 },
                 unregisterNodeLogic: (state, { nodeId }) => {
@@ -290,9 +289,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (error.code === 'conflict') {
                             actions.showConflictWarning()
                             return null
-                        } else {
-                            throw error
                         }
+                        throw error
                     }
                 },
                 renameNotebook: async ({ title }) => {

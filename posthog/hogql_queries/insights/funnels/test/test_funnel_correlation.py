@@ -1,6 +1,7 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 import unittest
 
+from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -12,7 +13,6 @@ from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner impo
 from posthog.hogql_queries.insights.funnels.test.test_funnel_correlations_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -45,8 +45,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -77,7 +76,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
         return result, skewed_totals
 
-    def _get_actors_for_event(self, filters: Dict[str, Any], event_name: str, properties=None, success=True):
+    def _get_actors_for_event(self, filters: dict[str, Any], event_name: str, properties=None, success=True):
         serialized_actors = get_actors(
             filters,
             self.team,
@@ -87,7 +86,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         return [str(row[0]) for row in serialized_actors]
 
     def _get_actors_for_property(
-        self, filters: Dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
+        self, filters: dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
     ):
         funnelCorrelationPropertyValues = [
             (
@@ -496,8 +495,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             1,
         )
 
-    # :FIXME: This should also work with materialized columns
-    # @also_test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @also_test_with_materialized_columns(
+        event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
+    )
+    @freeze_time("2019-12-31")
     @snapshot_clickhouse_queries
     def test_basic_funnel_correlation_with_properties(self):
         filters = {

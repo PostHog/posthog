@@ -13,6 +13,7 @@ import {
 
 import {
     ActionsNode,
+    AnalyticsQueryResponseBase,
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
@@ -60,7 +61,10 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
+const reverseInsightMap: Record<
+    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
+    InsightNodeKind
+> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
@@ -92,10 +96,6 @@ export const legacyEntityToNode = (
     let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
-        id_field: 'id_field' in entity ? entity.id_field : undefined,
-        timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
-        distinct_id_field: 'distinct_id_field' in entity ? entity.distinct_id_field : undefined,
-        table_name: 'table_name' in entity ? entity.table_name : undefined,
     }
 
     if (isDataWarehouseFilter(entity)) {
@@ -105,7 +105,7 @@ export const legacyEntityToNode = (
             timestamp_field: entity.timestamp_field || undefined,
             distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
-        }
+        } as DataWarehouseNode
     }
 
     if (includeProperties) {
@@ -143,13 +143,12 @@ export const legacyEntityToNode = (
             id: entity.id,
             ...shared,
         }) as any
-    } else {
-        return objectCleanWithEmpty({
-            kind: NodeKind.EventsNode,
-            event: entity.id,
-            ...shared,
-        }) as any
     }
+    return objectCleanWithEmpty({
+        kind: NodeKind.EventsNode,
+        event: entity.id,
+        ...shared,
+    }) as any
 }
 
 export const exlusionEntityToNode = (
@@ -219,17 +218,15 @@ const processBool = (value: string | boolean | null | undefined): boolean | unde
         return value
     } else if (typeof value == 'string') {
         return strToBool(value)
-    } else {
-        return false
     }
+    return false
 }
 
 const strToBool = (value: any): boolean | undefined => {
     if (value == null) {
         return undefined
-    } else {
-        return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
     }
+    return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
@@ -244,7 +241,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
         kind: reverseInsightMap[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
@@ -391,6 +388,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
+        showMean: filters.show_mean,
     })
     // TODO: query.aggregation_group_type_index
 }
@@ -436,6 +434,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
 
 export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
+        showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
         showValuesOnSeries: filters.show_values_on_series,
     })

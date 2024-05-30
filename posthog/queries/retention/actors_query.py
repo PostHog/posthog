@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
@@ -19,7 +19,7 @@ class AppearanceRow:
     actor_id: str
     appearance_count: int
     # This is actually the number of days from first event to the current event.
-    appearances: List[float]
+    appearances: list[float]
 
 
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
@@ -98,7 +98,7 @@ def build_actor_activity_query(
     selected_interval: Optional[int] = None,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     retention_events_query=RetentionEventsQuery,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     from posthog.queries.retention import (
         build_returning_event_query,
         build_target_event_query,
@@ -150,7 +150,7 @@ def _build_actor_query(
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
     retention_events_query=RetentionEventsQuery,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     actor_activity_query, actor_activity_query_params = build_actor_activity_query(
         filter=filter,
         team=team,

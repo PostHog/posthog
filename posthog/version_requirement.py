@@ -1,5 +1,3 @@
-from typing import Tuple
-
 from semantic_version.base import SimpleSpec, Version
 
 from posthog import redis
@@ -24,7 +22,7 @@ class ServiceVersionRequirement:
                 f"The provided supported_version for service {service} is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
             )
 
-    def is_service_in_accepted_version(self) -> Tuple[bool, Version]:
+    def is_service_in_accepted_version(self) -> tuple[bool, Version]:
         service_version = self.get_service_version()
         return service_version in self.supported_version, service_version
 

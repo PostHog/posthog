@@ -1,5 +1,6 @@
-from typing import List, Optional, cast
+from typing import Optional, cast
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -33,6 +34,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     series: EventsNode | ActionsNode | DataWarehouseNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
+    limit_context: LimitContext
 
     def __init__(
         self,
@@ -42,6 +44,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         series: EventsNode | ActionsNode | DataWarehouseNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.query = trends_query
         self.team = team
@@ -49,13 +52,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.series = series
         self.timings = timings
         self.modifiers = modifiers
+        self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         breakdown = self._breakdown(is_actors_query=False)
 
         events_query: ast.SelectQuery | ast.SelectUnionQuery
 
-        if self._trends_display.should_aggregate_values():
+        if self._trends_display.is_total_value():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
             return events_query
         else:
@@ -69,32 +73,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return full_query
 
-    def build_actors_query(
-        self, time_frame: Optional[str] = None, breakdown_filter: Optional[str] = None
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
-
-        return parse_select(
-            """
-                SELECT
-                    actor_id,
-                    count() as event_count,
-                    groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
-                FROM {subquery}
-                GROUP BY actor_id
-            """,
-            placeholders={
-                "subquery": self._get_events_subquery(
-                    False,
-                    is_actors_query=True,
-                    breakdown=breakdown,
-                    breakdown_values_override=breakdown_filter,
-                    actors_query_time_frame=time_frame,
-                )
-            },
-        )
-
-    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
+    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> list[ast.SelectQuery]:
         if not breakdown.enabled or ignore_breakdowns:
             return [
                 cast(
@@ -173,13 +152,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
-        day_start = ast.Alias(
-            alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
-        )
-
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
@@ -190,18 +162,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         default_query = ast.SelectQuery(
             select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
-            select_from=ast.JoinExpr(table=self._table_expr, alias="e"),
+            select_from=ast.JoinExpr(
+                table=self._table_expr,
+                alias="e",
+                sample=(
+                    ast.SampleExpr(sample_value=self._sample_value())
+                    if not isinstance(self.series, DataWarehouseNode)
+                    else None
+                ),
+            ),
             where=events_filter,
+            group_by=[],
         )
-        if not isinstance(self.series, DataWarehouseNode):
-            assert default_query.select_from is not None
-            default_query.select_from.sample = ast.SampleExpr(
-                sample_value=self._sample_value(),
-            )
+        assert default_query.group_by is not None
 
-        default_query.group_by = []
+        day_start = ast.Alias(
+            alias="day_start",
+            expr=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
+            ),
+        )
 
-        if not self._trends_display.should_aggregate_values() and not is_actors_query:
+        if not self._trends_display.is_total_value():  # TODO: remove: and not is_actors_query
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
                 self.query.trendsFilter
@@ -213,17 +195,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             else:
                 default_query.group_by.append(ast.Field(chain=["day_start"]))
             default_query.select.append(day_start)
-
-        # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
-        if is_actors_query:
-            default_query.select = [
-                ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()),
-                ast.Field(chain=["e", "timestamp"]),
-                ast.Field(chain=["e", "uuid"]),
-                ast.Field(chain=["e", "$session_id"]),
-                ast.Field(chain=["e", "$window_id"]),
-            ]
-            default_query.group_by = []
 
         # No breakdowns and no complex series aggregation
         if (
@@ -239,25 +210,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 sample_value=self._sample_value(),
             )
 
-            if is_actors_query:
-                orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
-                )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
-            else:
-                orchestrator.events_query_builder.append_select(breakdown.column_expr())
-                orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+            orchestrator.events_query_builder.append_select(breakdown.column_expr())
+            orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
-                orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+            orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+            orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+            orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
 
             if (
-                self._aggregation_operation.should_aggregate_values
+                self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
-                and not is_actors_query
             ):
                 orchestrator.parent_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
@@ -266,7 +229,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 ),
                 breakdown.column_expr(),
             ]
@@ -276,39 +240,35 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             wrapper = self.session_duration_math_property_wrapper(default_query)
             assert wrapper.group_by is not None
 
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            if not self._trends_display.is_total_value():
                 default_query.select.append(day_start)
                 default_query.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
-            if is_actors_query:
-                default_query.select.append(ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()))
-                wrapper.select.append(ast.Field(chain=["actor_id"]))
-            else:
-                wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
+            wrapper.select.append(ast.Field(chain=["breakdown_value"]))
+            wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             return wrapper
         # Just breakdowns
         elif breakdown.enabled:
-            if not is_actors_query:
-                breakdown_expr = breakdown.column_expr()
-                default_query.select.append(breakdown_expr)
-                default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
+            breakdown_expr = breakdown.column_expr()
+            default_query.select.append(breakdown_expr)
+            default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 )
             ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
 
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
 
                 default_query.select.append(day_start)
@@ -317,26 +277,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
-            if is_actors_query:
-                default_query.select.append(ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()))
-                wrapper.select.append(ast.Field(chain=["actor_id"]))
-
             return wrapper
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
+            return self._aggregation_operation.get_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
-            )
-
-            if is_actors_query:
-                orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
-                )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
-
-            return orchestrator.build()
+            ).build()
 
         return default_query
 
@@ -441,7 +388,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query.group_by = []
         query.order_by = []
 
-        if not self._trends_display.should_aggregate_values():
+        if not self._trends_display.is_total_value():
             query.select.append(ast.Field(chain=["day_start"]))
             query.group_by.append(ast.Field(chain=["day_start"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
@@ -467,45 +414,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
-        filters: List[ast.Expr] = []
+        filters: list[ast.Expr] = []
 
         # Dates
-        if is_actors_query and actors_query_time_frame is not None:
-            actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
-            query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-            if self.query.dateRange and self.query.dateRange.explicitDate:
-                query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-                # exclude events before the query start
-                if query_from > actors_from:
-                    actors_from = query_from
-                # exclude events after the query end
-                if query_to < actors_to:
-                    actors_to = query_to
-            filters.extend(
-                [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.GtEq,
-                        right=ast.Constant(value=actors_from),
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.Lt,
-                        right=ast.Constant(value=actors_to),
-                    ),
-                ]
-            )
-        elif not self._aggregation_operation.requires_query_orchestration():
+        if not self._aggregation_operation.requires_query_orchestration():
+            date_range_placeholders = self.query_date_range.to_placeholders()
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}",
-                        placeholders=self.query_date_range.to_placeholders(),
+                        "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
                     ),
-                    parse_expr(
-                        "timestamp <= {date_to}",
-                        placeholders=self.query_date_range.to_placeholders(),
-                    ),
+                    parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
                 ]
             )
 
@@ -605,12 +524,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_values_override=breakdown_values_override,
             ),
             breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
+            limit_context=self.limit_context,
         )
 
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
         return AggregationOperations(
-            self.team, self.series, self.query_date_range, self._trends_display.should_aggregate_values()
+            self.team,
+            self.series,
+            self._trends_display.display_type,
+            self.query_date_range,
+            self._trends_display.is_total_value(),
         )
 
     @cached_property

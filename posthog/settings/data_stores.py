@@ -1,6 +1,5 @@
 import json
 import os
-from typing import List
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -10,17 +9,17 @@ from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
+DISABLE_SERVER_SIDE_CURSORS: bool = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 
 # Configuration for sqlcommenter
-SQLCOMMENTER_WITH_FRAMEWORK = False
+SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
+JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
 
 def postgres_config(host: str) -> dict:
@@ -57,20 +56,20 @@ def postgres_config(host: str) -> dict:
 
 
 if TEST or DEBUG:
-    PG_HOST = os.getenv("PGHOST", "localhost")
-    PG_USER = os.getenv("PGUSER", "posthog")
-    PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
-    PG_PORT = os.getenv("PGPORT", "5432")
-    PG_DATABASE = os.getenv("PGDATABASE", "posthog")
-    DATABASE_URL = os.getenv(
+    PG_HOST: str = os.getenv("PGHOST", "localhost")
+    PG_USER: str = os.getenv("PGUSER", "posthog")
+    PG_PASSWORD: str = os.getenv("PGPASSWORD", "posthog")
+    PG_PORT: str = os.getenv("PGPORT", "5432")
+    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog")
+    DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
     )
 else:
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
+    DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -126,30 +125,30 @@ READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB = "posthog_test"
+CLICKHOUSE_TEST_DB: str = "posthog_test"
 
-CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_OFFLINE_CLUSTER_HOST = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
-CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
-CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
-CLICKHOUSE_CLUSTER = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
-CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
-CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
-CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
+CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
+CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
+CLICKHOUSE_CA: str | None = os.getenv("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE: bool = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
+CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
+CLICKHOUSE_ENABLE_STORAGE_POLICY: bool = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
 
-CLICKHOUSE_CONN_POOL_MIN = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
-CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
+CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
+CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
-CLICKHOUSE_STABLE_HOST = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
+CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 # If enabled, some queries will use system.cluster table to query each shard
-CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
+CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
 try:
-    CLICKHOUSE_PER_TEAM_SETTINGS = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
+    CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
@@ -159,9 +158,11 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+CLICKHOUSE_HTTP_URL: str = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
-CLICKHOUSE_OFFLINE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_OFFLINE_CLUSTER_HOST}:{_clickhouse_http_port}/"
+CLICKHOUSE_OFFLINE_HTTP_URL: str = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_OFFLINE_CLUSTER_HOST}:{_clickhouse_http_port}/"
+)
 
 if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
@@ -169,11 +170,11 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
 
 
-READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
-READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
+READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
+READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
 
-def _parse_kafka_hosts(hosts_string: str) -> List[str]:
+def _parse_kafka_hosts(hosts_string: str) -> list[str]:
     hosts = []
     for host in hosts_string.split(","):
         if "://" in host:

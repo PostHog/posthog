@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
@@ -13,7 +13,6 @@ from .api import (
     authentication,
     billing,
     dashboard_collaborator,
-    debug_ch_queries,
     explicit_team_member,
     feature_flag_role_access,
     hooks,
@@ -36,7 +35,6 @@ def extend_api_router(
 ) -> None:
     root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
-    root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
@@ -92,7 +90,7 @@ admin_urlpatterns = (
 )
 
 
-urlpatterns: List[Any] = [
+urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     *admin_urlpatterns,

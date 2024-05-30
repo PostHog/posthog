@@ -30,7 +30,9 @@ import {
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
     identifierToHuman,
+    is12HoursOrLess,
     isExternalLink,
+    isLessThan2Days,
     isURL,
     median,
     midEllipsis,
@@ -259,6 +261,7 @@ describe('dateFilterToText()', () => {
         })
 
         it('handles various ranges', () => {
+            // 2012-03-02T11:38:49.321Z
             tk.freeze(new Date(1330688329321))
             expect(dateFilterToText('dStart', null, 'default', dateMapping, true)).toEqual('March 2, 2012')
             expect(dateFilterToText('2020-01-02', '2020-01-05', 'default', dateMapping, true)).toEqual(
@@ -272,7 +275,7 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
             expect(dateFilterToText('-1dStart', '-1dEnd', 'default', dateMapping, true)).toEqual('March 1, 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
-                'March 1 - March 31, 2012'
+                'February 1 - February 29, 2012'
             )
             expect(dateFilterToText('-180d', null, 'default', dateMapping, true)).toEqual(
                 'September 4, 2011 - March 2, 2012'
@@ -792,6 +795,46 @@ describe('range', () => {
 
     it('creates offset range', () => {
         expect(range(1, 5)).toEqual([1, 2, 3, 4])
+    })
+})
+
+describe('time ranges', () => {
+    it('is less than or equal to 12 hours', () => {
+        expect(is12HoursOrLess('-0h')).toBeTruthy()
+        expect(is12HoursOrLess('-1h')).toBeTruthy()
+        expect(is12HoursOrLess('-12h')).toBeTruthy()
+        expect(is12HoursOrLess('-13h')).toBeFalsy()
+
+        expect(is12HoursOrLess('-24h')).toBeFalsy()
+        expect(is12HoursOrLess('-30h')).toBeFalsy()
+        expect(is12HoursOrLess('-47h')).toBeFalsy()
+        expect(is12HoursOrLess('-111h')).toBeFalsy()
+
+        expect(is12HoursOrLess('-1.123h')).toBeFalsy()
+        expect(is12HoursOrLess('1.123h')).toBeFalsy()
+        expect(is12HoursOrLess('-ab1-13h')).toBeFalsy()
+        expect(is12HoursOrLess('-1d')).toBeFalsy()
+        expect(is12HoursOrLess('-1w')).toBeFalsy()
+        expect(is12HoursOrLess('-1h-2h')).toBeFalsy()
+    })
+
+    it('is less than 2 days', () => {
+        expect(isLessThan2Days('-0h')).toBeTruthy()
+        expect(isLessThan2Days('-1h')).toBeTruthy()
+        expect(isLessThan2Days('-12h')).toBeTruthy()
+        expect(isLessThan2Days('-24h')).toBeTruthy()
+        expect(isLessThan2Days('-30h')).toBeTruthy()
+        expect(isLessThan2Days('-47h')).toBeTruthy()
+
+        expect(isLessThan2Days('-48h')).toBeFalsy()
+        expect(isLessThan2Days('-49h')).toBeFalsy()
+        expect(isLessThan2Days('0h')).toBeFalsy()
+        expect(isLessThan2Days('1h')).toBeFalsy()
+        expect(isLessThan2Days('48h')).toBeFalsy()
+        expect(isLessThan2Days('-13.123h')).toBeFalsy()
+        expect(isLessThan2Days('13.123h')).toBeFalsy()
+        expect(isLessThan2Days('-ab1-13h')).toBeFalsy()
+        expect(isLessThan2Days('-1d-1h')).toBeFalsy()
     })
 })
 

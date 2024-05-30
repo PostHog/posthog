@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from enum import Enum
 import time
 import structlog
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, OperationalError
+from django.db import DatabaseError, IntegrityError, DataError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
@@ -110,7 +110,7 @@ class FlagsMatcherCache:
         self.failed_to_fetch_flags = False
 
     @cached_property
-    def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
+    def group_types_to_indexes(self) -> dict[GroupTypeName, GroupTypeIndex]:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
@@ -124,7 +124,7 @@ class FlagsMatcherCache:
             raise err
 
     @cached_property
-    def group_type_index_to_name(self) -> Dict[GroupTypeIndex, GroupTypeName]:
+    def group_type_index_to_name(self) -> dict[GroupTypeIndex, GroupTypeName]:
         return {value: key for key, value in self.group_types_to_indexes.items()}
 
 
@@ -133,16 +133,24 @@ class FeatureFlagMatcher:
 
     def __init__(
         self,
-        feature_flags: List[FeatureFlag],
+        feature_flags: list[FeatureFlag],
         distinct_id: str,
-        groups: Dict[GroupTypeName, str] = {},
+        groups: Optional[dict[GroupTypeName, str]] = None,
         cache: Optional[FlagsMatcherCache] = None,
-        hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, Union[str, int]] = {},
-        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+        hash_key_overrides: Optional[dict[str, str]] = None,
+        property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
+        group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
         skip_database_flags: bool = False,
-        cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     ):
+        if group_property_value_overrides is None:
+            group_property_value_overrides = {}
+        if property_value_overrides is None:
+            property_value_overrides = {}
+        if hash_key_overrides is None:
+            hash_key_overrides = {}
+        if groups is None:
+            groups = {}
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
@@ -223,7 +231,7 @@ class FeatureFlagMatcher:
             payload=None,
         )
 
-    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    def get_matches(self) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
@@ -279,7 +287,7 @@ class FeatureFlagMatcher:
         else:
             return None
 
-    def is_super_condition_match(self, feature_flag: FeatureFlag) -> Tuple[bool, bool, FeatureFlagMatchReason]:
+    def is_super_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, bool, FeatureFlagMatchReason]:
         # TODO: Right now super conditions with property overrides bork when the database is down,
         # because we're still going to the database in the line below. Ideally, we should not go to the database.
         # Don't skip test: test_super_condition_with_override_properties_doesnt_make_database_requests when this is fixed.
@@ -312,8 +320,8 @@ class FeatureFlagMatcher:
         return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
     def is_condition_match(
-        self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
-    ) -> Tuple[bool, FeatureFlagMatchReason]:
+        self, feature_flag: FeatureFlag, condition: dict, condition_index: int
+    ) -> tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
             properties = Filter(data=condition).property_groups.flat
@@ -329,7 +337,7 @@ class FeatureFlagMatcher:
                     )
                 condition_match = all(match_property(property, target_properties) for property in properties)
             else:
-                match_if_entity_doesnt_exist = check_pure_is_not_set_operator_condition(condition)
+                match_if_entity_doesnt_exist = check_pure_is_not_operator_condition(condition)
                 condition_match = self._condition_matches(
                     feature_flag,
                     condition_index,
@@ -397,12 +405,12 @@ class FeatureFlagMatcher:
         return lookup_table
 
     @cached_property
-    def query_conditions(self) -> Dict[str, bool]:
+    def query_conditions(self) -> dict[str, bool]:
         try:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
-                all_conditions: Dict = {}
+                all_conditions: dict = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=team_id,
@@ -410,7 +418,7 @@ class FeatureFlagMatcher:
                     persondistinctid__team_id=team_id,
                 )
                 basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(team_id=team_id)
-                group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
+                group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
                 # since the result will always be `false`.
@@ -423,9 +431,9 @@ class FeatureFlagMatcher:
                             [],
                         )
 
-                person_fields: List[str] = []
+                person_fields: list[str] = []
 
-                for existence_condition_key in self.has_pure_is_not_set_conditions:
+                for existence_condition_key in self.has_pure_is_not_conditions:
                     if existence_condition_key == PERSON_KEY:
                         person_exists = person_query.exists()
                         all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
@@ -615,7 +623,7 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
-            group_key = self.groups.get(group_type_name)  # type: ignore
+            group_key = self.groups.get(group_type_name)
             return group_key
 
     # This function takes a identifier and a feature flag key and returns a float between 0 and 1.
@@ -629,7 +637,7 @@ class FeatureFlagMatcher:
 
     def can_compute_locally(
         self,
-        properties: List[Property],
+        properties: list[Property],
         group_type_index: Optional[GroupTypeIndex] = None,
     ) -> bool:
         target_properties = self.property_value_overrides
@@ -659,11 +667,11 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
     @cached_property
-    def has_pure_is_not_set_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
+    def has_pure_is_not_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
         entity_to_condition_check: set[Literal["person"] | GroupTypeIndex] = set()
         for feature_flag in self.feature_flags:
             for condition in feature_flag.conditions:
-                if check_pure_is_not_set_operator_condition(condition):
+                if check_pure_is_not_operator_condition(condition):
                     if feature_flag.aggregation_group_type_index is not None:
                         entity_to_condition_check.add(feature_flag.aggregation_group_type_index)
                     else:
@@ -674,10 +682,10 @@ class FeatureFlagMatcher:
 
 def get_feature_flag_hash_key_overrides(
     team_id: int,
-    distinct_ids: List[str],
+    distinct_ids: list[str],
     using_database: str = "default",
-    person_id_to_distinct_id_mapping: Optional[Dict[int, str]] = None,
-) -> Dict[str, str]:
+    person_id_to_distinct_id_mapping: Optional[dict[int, str]] = None,
+) -> dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
@@ -708,15 +716,21 @@ def get_feature_flag_hash_key_overrides(
 
 # Return a Dict with all flags and their values
 def _get_all_feature_flags(
-    feature_flags: List[FeatureFlag],
+    feature_flags: list[FeatureFlag],
     team_id: int,
     distinct_id: str,
-    person_overrides: Optional[Dict[str, str]] = None,
-    groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    person_overrides: Optional[dict[str, str]] = None,
+    groups: Optional[dict[GroupTypeName, str]] = None,
+    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     cache = FlagsMatcherCache(team_id)
 
     if feature_flags:
@@ -738,11 +752,17 @@ def _get_all_feature_flags(
 def get_all_feature_flags(
     team_id: int,
     distinct_id: str,
-    groups: Dict[GroupTypeName, str] = {},
+    groups: Optional[dict[GroupTypeName, str]] = None,
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )
@@ -790,7 +810,8 @@ def get_all_feature_flags(
                     distinct_ids = [distinct_id, str(hash_key_override)]
                     query = """
                         WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                            distinct_id = ANY(%(distinct_ids)s)
                         ),
                         existing_overrides AS (
                             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -801,7 +822,7 @@ def get_all_feature_flags(
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": tuple(distinct_ids)},  # type: ignore
+                        {"team_id": team_id, "distinct_ids": distinct_ids},
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -886,7 +907,7 @@ def get_all_feature_flags(
     )
 
 
-def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> bool:
+def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], hash_key_override: str) -> bool:
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -902,7 +923,8 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        distinct_id = ANY(%(distinct_ids)s)
                     ),
                     existing_overrides AS (
                         SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -931,7 +953,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": tuple(distinct_ids),  # type: ignore
+                        "distinct_ids": distinct_ids,
                         "hash_key_override": hash_key_override,
                     },
                 )
@@ -959,19 +981,20 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     if reason == "unknown":
         capture_exception(err)
 
-    if isinstance(err, DatabaseError) and set_healthcheck:
+    # DataErrors are generally not because the db is down, but because of bad data.
+    # We don't want to set the healthcheck down for bad data.
+    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
         postgres_healthcheck.set_connection(False)
 
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
-    if isinstance(err, OperationalError):
+    if isinstance(err, DatabaseError):
         if "statement timeout" in str(err):
             reason = "timeout"
         elif "no more connections" in str(err):
             reason = "no_more_connections"
-    elif isinstance(err, DatabaseError):
-        if "Failed to fetch conditions" in str(err):
+        elif "Failed to fetch conditions" in str(err):
             reason = "flag_condition_retry"
         elif "Failed to fetch group" in str(err):
             reason = "group_mapping_retry"
@@ -983,7 +1006,7 @@ def parse_exception_for_error_message(err: Exception):
     return reason
 
 
-def key_and_field_for_property(property: Property) -> Tuple[str, str]:
+def key_and_field_for_property(property: Property) -> tuple[str, str]:
     column = "group_properties" if property.type == "group" else "properties"
     key = property.key
     sanitized_key = sanitize_property_key(key)
@@ -995,8 +1018,8 @@ def key_and_field_for_property(property: Property) -> Tuple[str, str]:
 
 
 def get_all_properties_with_math_operators(
-    properties: List[Property], cohorts_cache: Dict[int, CohortOrEmpty], team_id: int
-) -> List[Tuple[str, str]]:
+    properties: list[Property], cohorts_cache: dict[int, CohortOrEmpty], team_id: int
+) -> list[tuple[str, str]]:
     all_keys_and_fields = []
 
     for prop in properties:
@@ -1035,8 +1058,51 @@ def add_local_person_and_group_properties(distinct_id, groups, person_properties
     return all_person_properties, all_group_properties
 
 
-def check_pure_is_not_set_operator_condition(condition: dict) -> bool:
+def check_pure_is_not_operator_condition(condition: dict) -> bool:
     properties = condition.get("properties", [])
-    if properties and all(prop.get("operator") == "is_not_set" for prop in properties):
+    if properties and all(prop.get("operator") in ("is_not_set", "is_not") for prop in properties):
         return True
     return False
+
+
+def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -> bool:
+    # TRICKY: There are some cases where the regex is valid re2 syntax, but postgresql doesn't like it.
+    # This function tries to validate such cases. See `test_cant_create_flag_with_data_that_fails_to_query` for an example.
+    # It however doesn't catch all cases, like when the property doesn't exist on any person, which shortcircuits regex evaluation
+    # so it's not a guarantee that the query will work.
+
+    # This is a very rough simulation of the actual query that will be run.
+    # Only reason we do it this way is to catch any DB level errors that will bork at runtime
+    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # We also randomly query for 20 people sans distinct id to make sure the query is valid.
+
+    # TODO: Once we move to no DB level evaluation, can get rid of this.
+
+    group_type_index = feature_flag.aggregation_group_type_index
+
+    base_query: QuerySet = (
+        Person.objects.filter(team_id=team_id)
+        if group_type_index is None
+        else Group.objects.filter(team_id=team_id, group_type_index=group_type_index)
+    )
+    query_fields = []
+
+    for index, condition in enumerate(feature_flag.conditions):
+        key = f"flag_0_condition_{index}"
+        property_list = Filter(data=condition).property_groups.flat
+        expr = properties_to_Q(
+            team_id,
+            property_list,
+        )
+        base_query = base_query.annotate(
+            **{
+                key: ExpressionWrapper(
+                    expr if expr else RawSQL("true", []),
+                    output_field=BooleanField(),
+                ),
+            }
+        )
+        query_fields.append(key)
+
+    values = base_query.values(*query_fields)[:10]
+    return len(values) > 0

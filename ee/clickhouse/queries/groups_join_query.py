@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, Union
+from typing import Optional, Union
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Filter
@@ -9,7 +9,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class GroupsJoinQuery:
@@ -27,7 +27,7 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -35,10 +35,10 @@ class GroupsJoinQuery:
         self._join_key = join_key
         self._person_on_events_mode = person_on_events_mode
 
-    def get_join_query(self) -> Tuple[str, Dict]:
+    def get_join_query(self) -> tuple[str, dict]:
         join_queries, params = [], {}
 
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
             return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
@@ -63,7 +63,7 @@ class GroupsJoinQuery:
 
         return "\n".join(join_queries), params
 
-    def get_filter_query(self, group_type_index: GroupTypeIndex) -> Tuple[str, Dict]:
+    def get_filter_query(self, group_type_index: GroupTypeIndex) -> tuple[str, dict]:
         var = f"group_index_{group_type_index}"
         params = {
             "team_id": self._team_id,

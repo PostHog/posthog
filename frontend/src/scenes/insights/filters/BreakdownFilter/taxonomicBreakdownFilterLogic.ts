@@ -174,6 +174,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
             }
         },
+        setBreakdownLimit: async ({ value }, breakpoint) => {
+            await breakpoint(300)
+
+            props.updateBreakdownFilter?.({
+                breakdown_limit: value,
+            })
+        },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
             props.updateBreakdownFilter?.({
                 breakdown_normalize_url: normalizeBreakdownURL,

@@ -1,10 +1,11 @@
-from typing import Callable, List, Optional, Dict
+from typing import Optional
+from collections.abc import Callable
 
 
 def argmax_select(
     table_name: str,
-    select_fields: Dict[str, List[str | int]],
-    group_fields: List[str],
+    select_fields: dict[str, list[str | int]],
+    group_fields: list[str],
     argmax_field: str,
     deleted_field: Optional[str] = None,
 ):
@@ -14,14 +15,14 @@ def argmax_select(
         name="argMax", args=[field, ast.Field(chain=[table_name, argmax_field])]
     )
 
-    fields_to_group: List[ast.Expr] = []
-    fields_to_select: List[ast.Expr] = []
+    fields_to_group: list[ast.Expr] = []
+    fields_to_select: list[ast.Expr] = []
     for name, chain in select_fields.items():
         if name not in group_fields:
             fields_to_select.append(
                 ast.Alias(
                     alias=name,
-                    expr=argmax_version(ast.Field(chain=[table_name] + chain)),
+                    expr=argmax_version(ast.Field(chain=[table_name, *chain])),
                 )
             )
     for key in group_fields:

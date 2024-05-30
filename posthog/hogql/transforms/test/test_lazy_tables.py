@@ -7,6 +7,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.test.base import BaseTest
 from posthog.warehouse.models.join import DataWarehouseJoin
 
@@ -79,11 +80,15 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select("select count() from persons")
         assert printed == self.snapshot
 
-    def _print_select(self, select: str):
+    def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query = print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+            ),
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
@@ -128,4 +133,25 @@ class TestLazyJoins(BaseTest):
         ).save()
 
         printed = self._print_select("select events.event from persons")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_resolve_lazy_table_indirectly_referenced(self):
+        # Ensures that the override table is added as a join, even when it is
+        # only indirectly referenced in the query as part of the join constraint
+        # of a lazy join.
+        printed = self._print_select(
+            "select person.id from events",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_resolve_lazy_table_indirect_duplicate_references(self):
+        # Ensures that the override table is only joined one time, even when it
+        # is referenced via two different selected columns.
+        printed = self._print_select(
+            "select person_id, person.properties from events",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
+        )
         assert printed == self.snapshot

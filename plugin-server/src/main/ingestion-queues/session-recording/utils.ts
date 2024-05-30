@@ -7,11 +7,16 @@ import { Counter } from 'prom-client'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../utils/status'
-import { cloneObject } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+
+const counterKafkaMessageReceived = new Counter({
+    name: 'recording_blob_ingestion_kafka_message_received',
+    help: 'The number of messages we have received from Kafka',
+    labelNames: ['partition'],
+})
 
 const counterLibVersionWarning = new Counter({
     name: 'lib_version_warning_counter',
@@ -293,47 +298,64 @@ export const parseKafkaMessage = async (
     }
 }
 
-export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
+export const parseKafkaBatch = async (
     /**
-     * It can happen that a single batch contains all messages for the same session.
-     * A big perf win here is to group everything up front and then reduce the messages
-     * to a single message per session.
+     * Parses and validates a batch of Kafka messages, merges messages for the same session into a single
+     * IncomingRecordingMessage to amortize processing and computes per-partition statistics.
      */
-    const reducedMessages: Record<string, IncomingRecordingMessage> = {}
+    messages: Message[],
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
+    ingestionWarningProducer: KafkaProducerWrapper | undefined
+): Promise<ParsedBatch> => {
+    const lastMessageForPartition: Map<number, Message> = new Map()
+    const parsedSessions: Map<string, IncomingRecordingMessage> = new Map()
 
     for (const message of messages) {
-        const key = `${message.team_id}-${message.session_id}`
-        if (!reducedMessages[key]) {
-            reducedMessages[key] = cloneObject(message)
-        } else {
-            const existingMessage = reducedMessages[key]
-            for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
-                if (existingMessage.eventsByWindowId[windowId]) {
-                    existingMessage.eventsByWindowId[windowId].push(...events)
-                } else {
-                    existingMessage.eventsByWindowId[windowId] = events
-                }
-            }
-            existingMessage.metadata.rawSize += message.metadata.rawSize
+        const partition = message.partition
+        lastMessageForPartition.set(partition, message) // We can assume messages for a single partition are ordered
+        counterKafkaMessageReceived.inc({ partition })
 
-            // Update the events ranges
-            existingMessage.metadata.lowOffset = Math.min(
-                existingMessage.metadata.lowOffset,
-                message.metadata.lowOffset
-            )
-
-            existingMessage.metadata.highOffset = Math.max(
-                existingMessage.metadata.highOffset,
-                message.metadata.highOffset
-            )
-
-            // Update the events ranges
-            existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, message.eventsRange.start)
-            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, message.eventsRange.end)
+        const parsedMessage = await parseKafkaMessage(message, getTeamFn, ingestionWarningProducer)
+        if (!parsedMessage) {
+            continue
         }
+
+        const session_key = `${parsedMessage.team_id}:${parsedMessage.session_id}`
+        const existingMessage = parsedSessions.get(session_key)
+        if (existingMessage === undefined) {
+            // First message for this session key, store it and continue looping for more
+            parsedSessions.set(session_key, parsedMessage)
+            continue
+        }
+
+        for (const [windowId, events] of Object.entries(parsedMessage.eventsByWindowId)) {
+            if (existingMessage.eventsByWindowId[windowId]) {
+                existingMessage.eventsByWindowId[windowId].push(...events)
+            } else {
+                existingMessage.eventsByWindowId[windowId] = events
+            }
+        }
+        existingMessage.metadata.rawSize += parsedMessage.metadata.rawSize
+
+        // Update the events ranges
+        existingMessage.metadata.lowOffset = Math.min(
+            existingMessage.metadata.lowOffset,
+            parsedMessage.metadata.lowOffset
+        )
+        existingMessage.metadata.highOffset = Math.max(
+            existingMessage.metadata.highOffset,
+            parsedMessage.metadata.highOffset
+        )
+
+        // Update the events ranges
+        existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, parsedMessage.eventsRange.start)
+        existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, parsedMessage.eventsRange.end)
     }
 
-    return Object.values(reducedMessages)
+    return {
+        sessions: Array.from(parsedSessions.values()),
+        partitionStats: Array.from(lastMessageForPartition.values()), // Just cast the last message into the small BatchStats interface
+    }
 }
 
 export const convertForPersistence = (

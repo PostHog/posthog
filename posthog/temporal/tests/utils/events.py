@@ -1,4 +1,5 @@
 """Test utilities that deal with test event generation."""
+
 import datetime as dt
 import json
 import random
@@ -43,6 +44,7 @@ def generate_test_events(
     site_url: str | None = "",
     set_field: dict | None = None,
     set_once: dict | None = None,
+    start: int = 0,
 ):
     """Generate a list of events for testing."""
     _timestamp = random.choice(possible_datetimes)
@@ -76,7 +78,7 @@ def generate_test_events(
             "set": set_field,
             "set_once": set_once,
         }
-        for i in range(count)
+        for i in range(start, count + start)
     ]
 
     return events
@@ -137,6 +139,7 @@ async def generate_test_events_in_clickhouse(
     person_properties: dict | None = None,
     inserted_at: str | dt.datetime | None = "_timestamp",
     duplicate: bool = False,
+    batch_size: int = 10000,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the sharded_events table.
 
@@ -164,20 +167,27 @@ async def generate_test_events_in_clickhouse(
     possible_datetimes = list(date_range(start_time, end_time, dt.timedelta(minutes=1)))
 
     # Base events
-    events = generate_test_events(
-        count=count,
-        team_id=team_id,
-        possible_datetimes=possible_datetimes,
-        event_name=event_name,
-        properties=properties,
-        person_properties=person_properties,
-        inserted_at=inserted_at,
-    )
+    events: list[EventValues] = []
+    while len(events) < count:
+        events_to_insert = generate_test_events(
+            count=min(count - len(events), batch_size),
+            team_id=team_id,
+            possible_datetimes=possible_datetimes,
+            event_name=event_name,
+            properties=properties,
+            person_properties=person_properties,
+            inserted_at=inserted_at,
+            start=len(events),
+        )
 
-    # Add duplicates if required
-    duplicate_events = []
-    if duplicate is True:
-        duplicate_events = events
+        # Add duplicates if required
+        duplicate_events = []
+        if duplicate is True:
+            duplicate_events = events_to_insert
+
+        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events)
+
+        events.extend(events_to_insert)
 
     # Events outside original date range
     delta = end_time - start_time
@@ -206,7 +216,5 @@ async def generate_test_events_in_clickhouse(
         inserted_at=inserted_at,
     )
 
-    await insert_event_values_in_clickhouse(
-        client=client, events=events + events_outside_range + events_from_other_team + duplicate_events
-    )
+    await insert_event_values_in_clickhouse(client=client, events=events_outside_range + events_from_other_team)
     return (events, events_outside_range, events_from_other_team)

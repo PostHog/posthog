@@ -22,8 +22,10 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
+    [Scene.ReplayFilePlayback]: () => import('./session-recordings/file-playback/SessionRecordingFilePlaybackScene'),
     [Scene.PersonsManagement]: () => import('./persons-management/PersonsManagementScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
+    [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
     [Scene.Group]: () => import('./groups/Group'),
@@ -74,4 +76,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
+    [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
 }

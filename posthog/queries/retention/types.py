@@ -1,4 +1,4 @@
-from typing import NamedTuple, Tuple, Union
+from typing import NamedTuple, Union
 
-BreakdownValues = Tuple[Union[str, int], ...]
+BreakdownValues = tuple[Union[str, int], ...]
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))

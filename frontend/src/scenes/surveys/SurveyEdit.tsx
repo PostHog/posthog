@@ -2,6 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -19,6 +20,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -27,8 +29,9 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -110,16 +113,10 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            surveyType={survey.type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
+                                                        <SurveyAppearancePreview
+                                                            survey={survey}
+                                                            activePreview="survey"
+                                                            questionIndex={0}
                                                         />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -489,7 +486,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                 placeholder="ex: .className or #id"
                                                             />
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="Survey wait period">
+                                                        <LemonField.Pure
+                                                            label="Survey wait period"
+                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                        >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
@@ -510,24 +510,31 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Do not display this survey to users who have already
-                                                                seen a survey in the last
+                                                                Don't show to users who saw a survey within the last
                                                                 <LemonInput
                                                                     type="number"
-                                                                    size="small"
+                                                                    size="xsmall"
                                                                     min={0}
-                                                                    value={value?.seenSurveyWaitPeriodInDays}
+                                                                    value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
                                                                         if (val !== undefined && val > 0) {
                                                                             onChange({
                                                                                 ...value,
                                                                                 seenSurveyWaitPeriodInDays: val,
                                                                             })
+                                                                        } else {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: null,
+                                                                            })
                                                                         }
                                                                     }}
-                                                                    className="w-16"
+                                                                    className="w-12"
                                                                 />{' '}
-                                                                days.
+                                                                {value?.seenSurveyWaitPeriodInDays === 1
+                                                                    ? 'day'
+                                                                    : 'days'}
+                                                                .
                                                             </div>
                                                         </LemonField.Pure>
                                                     </>
@@ -597,11 +604,52 @@ export default function SurveyEdit(): JSX.Element {
                                 </LemonField.Pure>
                             ),
                         },
+                        {
+                            key: SurveyEditSection.CompletionConditions,
+                            header: 'Completion conditions',
+                            content: (
+                                <LemonField name="responses_limit">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex flex-row gap-2 items-center">
+                                                <LemonCheckbox
+                                                    checked={!!value}
+                                                    onChange={(checked) => {
+                                                        const newResponsesLimit = checked ? 100 : null
+                                                        onChange(newResponsesLimit)
+                                                    }}
+                                                />
+                                                Stop the survey once
+                                                <LemonInput
+                                                    type="number"
+                                                    data-attr="survey-responses-limit-input"
+                                                    size="small"
+                                                    min={1}
+                                                    value={value || NaN}
+                                                    onChange={(newValue) => {
+                                                        if (newValue && newValue > 0) {
+                                                            onChange(newValue)
+                                                        } else {
+                                                            onChange(null)
+                                                        }
+                                                    }}
+                                                    className="w-16"
+                                                />{' '}
+                                                responses are received.
+                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            </div>
+                                        )
+                                    }}
+                                </LemonField>
+                            ),
+                        },
                     ]}
                 />
             </div>
             <LemonDivider vertical />
-            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8">
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
                     activePreview={selectedQuestion || 0}
                     survey={survey}

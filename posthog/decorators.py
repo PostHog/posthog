@@ -1,6 +1,7 @@
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, Dict, List, TypeVar, Union, cast
+from typing import Any, TypeVar, Union, cast
+from collections.abc import Callable
 
 from django.urls import resolve
 from django.utils.timezone import now
@@ -25,7 +26,7 @@ class CacheType(str, Enum):
     PATHS = "Path"
 
 
-ResultPackage = Union[Dict[str, Any], List[Dict[str, Any]]]
+ResultPackage = Union[dict[str, Any], list[dict[str, Any]]]
 
 T = TypeVar("T", bound=ResultPackage)
 U = TypeVar("U", bound=GenericViewSet)

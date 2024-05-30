@@ -20,6 +20,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
     const { isNew, batchExportConfigForm, isBatchExportConfigFormSubmitting, batchExportConfigLoading } =
         useValues(logic)
     const { submitBatchExportConfigForm, cancelEditing } = useActions(logic)
+    const { user } = useValues(userLogic)
 
     return (
         <>
@@ -38,7 +39,27 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                         formKey="batchExportConfigForm"
                         className="space-y-4"
                     >
-                        <BatchExportsEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
+                        <BatchExportGeneralEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
+                        <div className="space-y-4 max-w-200 w-full ">
+                            <LemonDivider />
+                            <LemonField name="destination" label="Destination">
+                                <LemonSelect
+                                    options={[
+                                        { value: 'BigQuery', label: 'BigQuery' },
+                                        { value: 'Postgres', label: 'PostgreSQL' },
+                                        { value: 'Redshift', label: 'Redshift' },
+                                        { value: 'S3', label: 'S3' },
+                                        { value: 'Snowflake', label: 'Snowflake' },
+                                        ...(user?.is_impersonated ? [{ value: 'HTTP', label: 'HTTP' }] : []),
+                                    ]}
+                                />
+                            </LemonField>
+                        </div>
+                        {!batchExportConfigForm.destination ? (
+                            <p className="text-muted-alt italic">Select a destination to continue configuring</p>
+                        ) : (
+                            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
+                        )}
 
                         <div className="flex gap-4">
                             <LemonButton
@@ -66,7 +87,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
     )
 }
 
-export function BatchExportsEditFields({
+export function BatchExportGeneralEditFields({
     isNew,
     isPipeline = false,
     batchExportConfigForm,
@@ -76,7 +97,6 @@ export function BatchExportsEditFields({
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
 
     return (
@@ -136,10 +156,17 @@ export function BatchExportsEditFields({
                     )}
                 </div>
 
-                <LemonBanner type="info">
-                    This batch exporter will schedule regular batch exports at your indicated interval until the end
-                    date. Once you have configured your exporter, you can trigger a manual export for historic data.
-                </LemonBanner>
+                {isPipeline ? (
+                    <LemonBanner type="info">
+                        The export will be created in a paused state, once configured your exporter, you can trigger a
+                        manual export for historic data or start the continous export.
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="info">
+                        This batch exporter will schedule regular batch exports at your indicated interval until the end
+                        date. Once you have configured your exporter, you can trigger a manual export for historic data.
+                    </LemonBanner>
+                )}
 
                 {isNew && !isPipeline ? (
                     <LemonField name="paused">
@@ -161,25 +188,21 @@ export function BatchExportsEditFields({
                     </LemonField>
                 ) : null}
             </div>
+        </>
+    )
+}
 
-            <div className="space-y-4 max-w-200 w-full ">
-                <LemonDivider />
-                <LemonField name="destination" label="Destination">
-                    <LemonSelect
-                        options={[
-                            { value: 'BigQuery', label: 'BigQuery' },
-                            { value: 'Postgres', label: 'PostgreSQL' },
-                            { value: 'Redshift', label: 'Redshift' },
-                            { value: 'S3', label: 'S3' },
-                            { value: 'Snowflake', label: 'Snowflake' },
-                            ...(user?.is_impersonated ? [{ value: 'HTTP', label: 'HTTP' }] : []),
-                        ]}
-                    />
-                </LemonField>
-
-                {!batchExportConfigForm.destination ? (
-                    <p className="text-muted-alt italic">Select a destination to continue configuring</p>
-                ) : batchExportConfigForm.destination === 'S3' ? (
+export function BatchExportsEditFields({
+    isNew,
+    batchExportConfigForm,
+}: {
+    isNew: boolean
+    batchExportConfigForm: BatchExportConfigurationForm
+}): JSX.Element {
+    return (
+        <>
+            <div className="space-y-4 max-w-200">
+                {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
                             <LemonField name="bucket_name" label="Bucket" className="flex-1">
@@ -368,7 +391,7 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="port" label="Port">
-                            <LemonInput placeholder="5432" type="number" min="0" max="65535" />
+                            <LemonInput placeholder="5432" type="tel" min="0" max="65535" />
                         </LemonField>
 
                         <LemonField name="database" label="Database">

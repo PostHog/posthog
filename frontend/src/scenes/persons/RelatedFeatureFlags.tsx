@@ -154,7 +154,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        value="all"
+                        value={filters.type || 'all'}
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
@@ -180,7 +180,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        value="all"
+                        value={filters.reason || 'all'}
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
@@ -206,7 +206,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 { label: 'Disabled', value: 'false' },
                             ] as { label: string; value: string }[]
                         }
-                        value="all"
+                        value={filters.active || 'all'}
                         dropdownMaxContentWidth
                     />
                 </div>

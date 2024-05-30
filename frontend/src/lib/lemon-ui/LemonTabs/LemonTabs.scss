@@ -1,12 +1,18 @@
 .LemonTabs {
-    --lemon-tabs-margin-bottom: 1rem;
     --lemon-tabs-gap: 2rem;
+    --lemon-tabs-margin-bottom: 1rem;
     --lemon-tabs-content-padding: 0.75rem 0;
 
     position: relative;
     display: flex;
     flex-direction: column;
     align-self: stretch;
+
+    &--small {
+        --lemon-tabs-gap: 1rem;
+        --lemon-tabs-margin-bottom: 0.5rem;
+        --lemon-tabs-content-padding: 0.375rem 0;
+    }
 
     .Navigation3000__scene > &:first-child,
     .Navigation3000__scene > :first-child > &:first-child {

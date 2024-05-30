@@ -1,6 +1,5 @@
 import json
 from datetime import timedelta
-from typing import Dict, List
 
 from django.test import override_settings
 from freezegun import freeze_time
@@ -17,7 +16,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-expected_autocapture_data_response_results: List[Dict] = [
+expected_autocapture_data_response_results: list[dict] = [
     {
         "count": 3,
         "hash": None,
@@ -78,7 +77,7 @@ expected_autocapture_data_response_results: List[Dict] = [
     },
 ]
 
-expected_rage_click_data_response_results: List[Dict] = [
+expected_rage_click_data_response_results: list[dict] = [
     {
         "count": 1,
         "hash": None,

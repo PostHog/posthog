@@ -11,6 +11,10 @@ trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
+export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
+export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+
 
 # We need to run as --user root so that nginx unit can proxy the control socket for stats
 # However each application is run as "nobody"

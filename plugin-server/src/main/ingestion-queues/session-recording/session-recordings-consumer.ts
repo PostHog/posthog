@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import {
@@ -36,9 +36,8 @@ import {
     bufferFileDir,
     getPartitionsForTopic,
     now,
-    parseKafkaMessage,
+    parseKafkaBatch,
     queryWatermarkOffsets,
-    reduceRecordingMessages,
 } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -103,12 +102,6 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: BUCKETS_KB_WRITTEN,
 })
 
-const counterKafkaMessageReceived = new Counter({
-    name: 'recording_blob_ingestion_kafka_message_received',
-    help: 'The number of messages we have received from Kafka',
-    labelNames: ['partition'],
-})
-
 const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
     name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
     help: 'The number of times we skipped committing due to a potentially blocking session',
@@ -118,6 +111,12 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
+})
+
+export const sessionInfoSummary = new Summary({
+    name: 'recording_blob_ingestion_session_info_bytes',
+    help: 'Size of aggregated session information being processed',
+    percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
 })
 
 type PartitionMetrics = {
@@ -183,6 +182,7 @@ export class SessionRecordingIngester {
             this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                globalServerConfig.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
                 24 * 3600, // One day,
                 CAPTURE_OVERFLOW_REDIS_KEY,
                 captureRedis
@@ -273,7 +273,11 @@ export class SessionRecordingIngester {
         const { partition, highOffset } = event.metadata
         const isDebug = this.debugPartition === partition
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+                ...event.metadata,
+                team_id,
+                session_id,
+            })
         }
 
         function dropEvent(dropCause: string) {
@@ -320,6 +324,8 @@ export class SessionRecordingIngester {
             )
         }
 
+        sessionInfoSummary.observe(event.metadata.rawSize)
+
         await Promise.allSettled([
             this.sessions[key]?.add(event),
             this.overflowDetection?.observe(session_id, event.metadata.rawSize, event.metadata.timestamp),
@@ -334,52 +340,35 @@ export class SessionRecordingIngester {
         })
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            logExecutionTime: true,
+            sendTimeoutGuardToSentry: false,
             func: async () => {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                let recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[]
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const parsedMessages: IncomingRecordingMessage[] = []
-                        for (const message of messages) {
-                            const { partition, offset, timestamp } = message
-
-                            this.partitionMetrics[partition] = this.partitionMetrics[partition] || {}
-                            const metrics = this.partitionMetrics[partition]
-
-                            // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                            metrics.lastMessageOffset = offset
-                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                            metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
-
-                            counterKafkaMessageReceived.inc({ partition })
-
-                            const recordingMessage = await parseKafkaMessage(
-                                message,
-                                (token) =>
-                                    this.teamsRefresher.get().then((teams) => ({
-                                        teamId: teams[token]?.teamId || null,
-                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                    })),
-                                this.sharedClusterProducerWrapper
-                            )
-
-                            if (recordingMessage) {
-                                parsedMessages.push(recordingMessage)
+                        const { sessions, partitionStats } = await parseKafkaBatch(
+                            messages,
+                            (token) =>
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                })),
+                            this.sharedClusterProducerWrapper
+                        )
+                        recordingMessages = sessions
+                        for (const partitionStat of partitionStats) {
+                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                            metrics.lastMessageOffset = partitionStat.offset
+                            if (partitionStat.timestamp) {
+                                // Could be empty on Kafka versions before KIP-32
+                                metrics.lastMessageTimestamp = partitionStat.timestamp
                             }
+                            this.partitionMetrics[partitionStat.partition] = metrics
                         }
-
-                        recordingMessages = reduceRecordingMessages(parsedMessages)
-
-                        // TODO: Track metric for how many messages we reduced
-                        status.info('🔁', `blob_ingester_consumer - reduced batch`, {
-                            originalSize: messages.length,
-                            reducedSize: recordingMessages.length,
-                        })
                     },
                 })
                 heartbeat()
@@ -662,7 +651,6 @@ export class SessionRecordingIngester {
         const startTime = Date.now()
         await runInstrumentedFunction({
             statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            logExecutionTime: true,
             timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
             func: async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {

@@ -1,18 +1,18 @@
 from datetime import timedelta
-from typing import Dict, List, Literal, Tuple, Union
+from typing import Union
 
 from posthog.cache_utils import cache_for
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 
 ColumnName = str
 
-TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
+TablesWithMaterializedColumns = Union[TableWithProperties]
 
 
 @cache_for(timedelta(minutes=15))
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
-) -> Dict[Tuple[PropertyName, TableColumn], ColumnName]:
+) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
     return {}
 
 
@@ -28,7 +28,7 @@ def materialize(
 
 def backfill_materialized_columns(
     table: TableWithProperties,
-    properties: List[Tuple[PropertyName, TableColumn]],
+    properties: list[tuple[PropertyName, TableColumn]],
     backfill_period: timedelta,
     test_settings=None,
 ) -> None:

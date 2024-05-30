@@ -1,12 +1,13 @@
-from typing import Any, Dict, List
+from typing import Any
 from flaky import flaky
 
 
 from ee.api.test.base import APILicensedTest
+from posthog.models.signals import mute_selected_signals
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
-DEFAULT_JOURNEYS_FOR_PAYLOAD: Dict[str, List[Dict[str, Any]]] = {
+DEFAULT_JOURNEYS_FOR_PAYLOAD: dict[str, list[dict[str, Any]]] = {
     # For a trend pageview metric
     "person1": [
         {
@@ -180,33 +181,35 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
             self.team,
         )
 
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            DEFAULT_EXPERIMENT_CREATION_PAYLOAD,
-        )
+        # :KLUDGE: Avoid calling sync_insight_caching_state which messes with snapshots
+        with mute_selected_signals():
+            # generates the FF which should result in the above events^
+            creation_response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                DEFAULT_EXPERIMENT_CREATION_PAYLOAD,
+            )
 
-        id = creation_response.json()["id"]
+            id = creation_response.json()["id"]
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
-        self.assertEqual(200, response.status_code)
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
+            self.assertEqual(200, response.status_code)
 
-        response_data = response.json()["result"]
+            response_data = response.json()["result"]
 
-        self.assertEqual(len(response_data["result"].items()), 2)
+            self.assertEqual(len(response_data["result"].items()), 2)
 
-        self.assertEqual(response_data["result"]["control"], 3)
-        self.assertEqual(response_data["result"]["test"], 1)
+            self.assertEqual(response_data["result"]["control"], 3)
+            self.assertEqual(response_data["result"]["test"], 1)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
-        self.assertEqual(200, response.status_code)
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
+            self.assertEqual(200, response.status_code)
 
-        response_data = response.json()["result"]
+            response_data = response.json()["result"]
 
-        self.assertEqual(len(response_data["result"].items()), 2)
+            self.assertEqual(len(response_data["result"].items()), 2)
 
-        self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
+            self.assertAlmostEqual(response_data["result"]["control"], 1)
+            self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
 
     def test_basic_secondary_metric_results_cached(self):
         journeys_for(

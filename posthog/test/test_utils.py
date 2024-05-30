@@ -434,7 +434,7 @@ class TestShouldRefresh(TestCase):
     def test_refresh_requested_by_client_with_data_true(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": True}  # type: ignore
-        self.assertTrue(refresh_requested_by_client((drf_request)))
+        self.assertTrue(refresh_requested_by_client(drf_request))
 
     def test_should_not_refresh_with_data_false(self):
         drf_request = Request(HttpRequest())

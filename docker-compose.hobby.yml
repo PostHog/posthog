@@ -76,13 +76,14 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
-            RECORDINGS_INGESTER_URL: http://plugins:6738
+            OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_ENABLED: true
         depends_on:
             - db
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
 
     plugins:
         extends:
@@ -98,7 +99,7 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
 
     caddy:
         image: caddy:2.6.1
@@ -108,15 +109,20 @@ services:
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - caddy-data:/data
+            - caddy-config:/config
         depends_on:
             - web
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         restart: on-failure
         volumes:
-            - object_storage:/data
+            - objectstorage:/data
+        ports:
+            - '19000:19000'
+            - '19001:19001'
 
     asyncmigrationscheck:
         extends:
@@ -140,6 +146,10 @@ services:
             - 7233:7233
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
@@ -173,13 +183,15 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
             - temporal
 
 volumes:
     zookeeper-data:
     zookeeper-datalog:
     zookeeper-logs:
-    object_storage:
+    objectstorage:
     postgres-data:
     clickhouse-data:
+    caddy-data:
+    caddy-config:

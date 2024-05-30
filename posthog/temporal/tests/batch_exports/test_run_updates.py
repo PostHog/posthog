@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 from asgiref.sync import sync_to_async
 
+from posthog.batch_exports.service import disable_and_delete_export, sync_batch_export
 from posthog.models import (
     BatchExport,
     BatchExportDestination,
@@ -63,12 +64,17 @@ def destination(team):
 @pytest.fixture
 def batch_export(destination, team):
     """A test BatchExport."""
-    batch_export = BatchExport.objects.create(name="test export", team=team, destination=destination, interval="hour")
+    batch_export = BatchExport.objects.create(
+        name="test export", team=team, destination=destination, interval="hour", paused=False
+    )
 
     batch_export.save()
 
+    sync_batch_export(batch_export, created=True)
+
     yield batch_export
 
+    disable_and_delete_export(batch_export)
     batch_export.delete()
 
 
@@ -125,6 +131,7 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
 
     finish_inputs = FinishBatchExportRunInputs(
         id=str(run_id),
+        batch_export_id=str(batch_export.id),
         status="Completed",
         team_id=inputs.team_id,
     )
@@ -135,3 +142,78 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
     assert run is not None
     assert run.status == "Completed"
     assert run.records_total_count == records_total_count
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(activity_environment, team, batch_export):
+    """Test if 'finish_batch_export_run' will pause a batch export upon reaching failure_threshold."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+
+    inputs = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=start.isoformat(),
+        data_interval_end=end.isoformat(),
+    )
+
+    batch_export_id = str(batch_export.id)
+    failure_threshold = 10
+
+    for run_number in range(1, failure_threshold * 2):
+        run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
+
+        finish_inputs = FinishBatchExportRunInputs(
+            id=str(run_id),
+            batch_export_id=batch_export_id,
+            status=BatchExportRun.Status.FAILED,
+            team_id=inputs.team_id,
+            latest_error="Oh No!",
+            failure_threshold=failure_threshold,
+        )
+
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+        await sync_to_async(batch_export.refresh_from_db)()
+
+        if run_number >= failure_threshold:
+            assert batch_export.paused is True
+        else:
+            assert batch_export.paused is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_never_pauses_with_small_check_window(activity_environment, team, batch_export):
+    """Test if 'finish_batch_export_run' will never pause a batch export with a small check window."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+
+    inputs = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=start.isoformat(),
+        data_interval_end=end.isoformat(),
+    )
+
+    batch_export_id = str(batch_export.id)
+    failure_threshold = 1
+
+    run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=batch_export_id,
+        status=BatchExportRun.Status.FAILED,
+        team_id=inputs.team_id,
+        latest_error="Oh No!",
+        failure_threshold=failure_threshold,
+        failure_check_window=failure_threshold - 1,
+    )
+
+    with pytest.raises(ValueError):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    await sync_to_async(batch_export.refresh_from_db)()
+
+    assert batch_export.paused is False

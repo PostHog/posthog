@@ -2,6 +2,7 @@ import './Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
@@ -15,6 +16,7 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightTyp
 
 import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
+import { NoResultsEmptyState } from './ExperimentView/components'
 import { getExperimentInsightColour } from './utils'
 
 interface ExperimentResultProps {
@@ -32,7 +34,6 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         conversionRateForVariant,
         getIndexForVariant,
         areTrendResultsConfusing,
-        experimentResultCalculationError,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
@@ -240,27 +241,21 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                     />
                 </div>
             ) : (
-                experiment.start_date && (
+                experiment.start_date &&
+                !targetResultsLoading && (
                     <>
-                        <div className="no-experiment-results p-4">
-                            {!targetResultsLoading && (
-                                <div className="text-center">
-                                    <div className="mb-4">
-                                        <b>
-                                            There are no results for this{' '}
-                                            {isSecondaryMetric ? 'secondary metric' : 'experiment'} yet.
-                                        </b>
-                                    </div>
-                                    {!!experimentResultCalculationError && (
-                                        <div className="text-sm mb-2">{experimentResultCalculationError}</div>
-                                    )}
-                                    <div className="text-sm ">
-                                        Wait a bit longer for your users to be exposed to the experiment. Double check
-                                        your feature flag implementation if you're still not seeing results.
-                                    </div>
+                        {isSecondaryMetric ? (
+                            <div className="bg-bg-light pt-6 pb-8 text-muted">
+                                <div className="flex flex-col items-center mx-auto">
+                                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                                    <h2 className="text-xl font-semibold leading-tight">
+                                        There are no results for this metric yet
+                                    </h2>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        ) : (
+                            <NoResultsEmptyState />
+                        )}
                     </>
                 )
             )}

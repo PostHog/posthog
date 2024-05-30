@@ -20,7 +20,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -72,9 +72,8 @@ const getValue = (
         return 'All events'
     } else if (filter.type === 'actions') {
         return typeof value === 'string' ? parseInt(value) : value || undefined
-    } else {
-        return value === null ? null : value || undefined
     }
+    return value === null ? null : value || undefined
 }
 
 export interface ActionFilterRowProps {
@@ -158,7 +157,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { externalTablesMap } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
@@ -390,11 +389,13 @@ export function ActionFilterRow({
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    TaxonomicFilterGroupType.Sessions,
+                                                    TaxonomicFilterGroupType.SessionProperties,
                                                 ]}
                                                 schemaColumns={
                                                     filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                                        ? externalTablesMap[filter.name]?.columns
+                                                        ? Object.values(
+                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          )
                                                         : []
                                                 }
                                                 value={mathProperty}
@@ -500,7 +501,7 @@ export function ActionFilterRow({
                         }
                         schemaColumns={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? externalTablesMap[filter.name]?.columns
+                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
                     />

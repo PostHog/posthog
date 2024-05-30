@@ -1,11 +1,9 @@
-import hashlib
 import json
-from typing import Any
-from unittest.mock import patch
-
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
+from typing import Any
+from unittest.mock import patch
 
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
@@ -68,26 +66,26 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(event2_data["properties"]["distinct_id"], "id2")
 
         # Make sure we're producing data correctly in the way the plugin server expects
-        self.assertEquals(type(kafka_produce_call1["data"]["distinct_id"]), str)
-        self.assertEquals(type(kafka_produce_call2["data"]["distinct_id"]), str)
+        self.assertEqual(type(kafka_produce_call1["data"]["distinct_id"]), str)
+        self.assertEqual(type(kafka_produce_call2["data"]["distinct_id"]), str)
 
         self.assertIn(type(kafka_produce_call1["data"]["ip"]), [str, type(None)])
         self.assertIn(type(kafka_produce_call2["data"]["ip"]), [str, type(None)])
 
-        self.assertEquals(type(kafka_produce_call1["data"]["site_url"]), str)
-        self.assertEquals(type(kafka_produce_call2["data"]["site_url"]), str)
+        self.assertEqual(type(kafka_produce_call1["data"]["site_url"]), str)
+        self.assertEqual(type(kafka_produce_call2["data"]["site_url"]), str)
 
-        self.assertEquals(type(kafka_produce_call1["data"]["token"]), str)
-        self.assertEquals(type(kafka_produce_call2["data"]["token"]), str)
+        self.assertEqual(type(kafka_produce_call1["data"]["token"]), str)
+        self.assertEqual(type(kafka_produce_call2["data"]["token"]), str)
 
-        self.assertEquals(type(kafka_produce_call1["data"]["sent_at"]), str)
-        self.assertEquals(type(kafka_produce_call2["data"]["sent_at"]), str)
+        self.assertEqual(type(kafka_produce_call1["data"]["sent_at"]), str)
+        self.assertEqual(type(kafka_produce_call2["data"]["sent_at"]), str)
 
-        self.assertEquals(type(event1_data["properties"]), dict)
-        self.assertEquals(type(event2_data["properties"]), dict)
+        self.assertEqual(type(event1_data["properties"]), dict)
+        self.assertEqual(type(event2_data["properties"]), dict)
 
-        self.assertEquals(type(kafka_produce_call1["data"]["uuid"]), str)
-        self.assertEquals(type(kafka_produce_call2["data"]["uuid"]), str)
+        self.assertEqual(type(kafka_produce_call1["data"]["uuid"]), str)
+        self.assertEqual(type(kafka_produce_call2["data"]["uuid"]), str)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_with_uuid_in_payload(self, kafka_produce):
@@ -176,7 +174,7 @@ class TestCaptureAPI(APIBaseTest):
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
         self.assertEqual(
             kafka_produce_call["key"],
-            hashlib.sha256(default_partition_key.encode()).hexdigest(),
+            default_partition_key,
         )
 
         # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None

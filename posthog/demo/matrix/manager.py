@@ -1,7 +1,7 @@
 import datetime as dt
 import json
 from time import sleep
-from typing import Any, Dict, List, Literal, Optional, Tuple, cast
+from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.core import exceptions
@@ -20,8 +20,6 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.utils import UUIDT
 
 from .matrix import Matrix
@@ -55,13 +53,13 @@ class MatrixManager:
         password: Optional[str] = None,
         is_staff: bool = False,
         disallow_collision: bool = False,
-    ) -> Tuple[Organization, Team, User]:
+    ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
             if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
-            organization_kwargs: Dict[str, Any] = {"name": organization_name}
+            organization_kwargs: dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
             with transaction.atomic():
@@ -188,15 +186,17 @@ class MatrixManager:
 
     @classmethod
     def _erase_master_team_data(cls):
-        AsyncEventDeletion().process(
-            [
-                AsyncDeletion(
-                    team_id=cls.MASTER_TEAM_ID,
-                    key=cls.MASTER_TEAM_ID,
-                    deletion_type=DeletionType.Team,
-                )
-            ]
-        )
+        # 2024-05-23 note from Tim:
+        # this was absolutely thrashing throughput on clickhouse. Please don't re-enable
+        # AsyncEventDeletion().process(
+        #     [
+        #         AsyncDeletion(
+        #             team_id=cls.MASTER_TEAM_ID,
+        #             key=cls.MASTER_TEAM_ID,
+        #             deletion_type=DeletionType.Team,
+        #         )
+        #     ]
+        # )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
@@ -238,10 +238,9 @@ class MatrixManager:
         clickhouse_persons = query_with_columns(
             SELECT_PERSONS_OF_TEAM,
             list_params,
-            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
-            {"id": "uuid"},
+            columns_to_rename={"id": "uuid"},
         )
-        bulk_persons: Dict[str, Person] = {}
+        bulk_persons: dict[str, Person] = {}
         for row in clickhouse_persons:
             properties = json.loads(row.pop("properties", "{}"))
             bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
@@ -317,7 +316,7 @@ class MatrixManager:
             self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
-    def _save_past_sim_events(team: Team, events: List[SimEvent]):
+    def _save_past_sim_events(team: Team, events: list[SimEvent]):
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
@@ -346,7 +345,7 @@ class MatrixManager:
             )
 
     @staticmethod
-    def _save_future_sim_events(team: Team, events: List[SimEvent]):
+    def _save_future_sim_events(team: Team, events: list[SimEvent]):
         """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
 
         # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
@@ -356,7 +355,7 @@ class MatrixManager:
         team: Team,
         type_index: Literal[0, 1, 2, 3, 4],
         key: str,
-        properties: Dict[str, Any],
+        properties: dict[str, Any],
         timestamp: dt.datetime,
     ):
         from posthog.models.group.util import raw_create_group_ch

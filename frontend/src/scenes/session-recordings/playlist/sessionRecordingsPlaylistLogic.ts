@@ -4,18 +4,20 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
-    AnyPropertyFilter,
     DurationType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -77,7 +79,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     properties: [],
     events: [],
     actions: [],
-    date_from: '-7d',
+    date_from: '-3d',
     date_to: null,
     console_logs: [],
     console_search_query: '',
@@ -90,59 +92,6 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
-}
-
-export const defaultPageviewPropertyEntityFilter = (
-    filters: RecordingFilters,
-    property: string,
-    value?: string
-): Partial<RecordingFilters> => {
-    const existingPageview = filters.events?.find(({ name }) => name === '$pageview')
-    const eventEntityFilters = filters.events ?? []
-    const propToAdd = value
-        ? {
-              key: property,
-              value: [value],
-              operator: PropertyOperator.Exact,
-              type: 'event',
-          }
-        : {
-              key: property,
-              value: PropertyOperator.IsNotSet,
-              operator: PropertyOperator.IsNotSet,
-              type: 'event',
-          }
-
-    // If pageview exists, add property to the first pageview event
-    if (existingPageview) {
-        return {
-            events: eventEntityFilters.map((eventFilter) =>
-                eventFilter.order === existingPageview.order
-                    ? {
-                          ...eventFilter,
-                          properties: [
-                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
-                                  []),
-                              propToAdd,
-                          ],
-                      }
-                    : eventFilter
-            ),
-        }
-    } else {
-        return {
-            events: [
-                ...eventEntityFilters,
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: eventEntityFilters.length,
-                    properties: [propToAdd],
-                },
-            ],
-        }
-    }
 }
 
 const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
@@ -169,6 +118,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+    currentTab?: ReplayTabs
 }
 
 export interface SessionSummaryResponse {
@@ -215,6 +165,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -268,6 +219,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
+                        hog_ql_filtering: values.useHogQLFiltering,
+                    }
+
+                    if (values.artificialLag && !params.date_to) {
+                        // values.artificalLag is a number of seconds to delay the recordings by
+                        // convert it to an absolute UTC timestamp as the relative date parsing in the backend
+                        // can't cope with seconds as a relative date
+                        const absoluteLag = now().subtract(values.artificialLag, 'second')
+                        params['date_to'] = absoluteLag.toISOString()
                     }
 
                     if (values.orderBy === 'start_time') {
@@ -295,7 +255,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs)
+                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
 
                     breakpoint()
 
@@ -386,10 +346,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         advancedFilters: [
             props.advancedFilters ?? getDefaultFilters(props.personUUID),
             {
-                setAdvancedFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
+                setAdvancedFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
                 resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
@@ -442,9 +404,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ...s,
                                 viewed: true,
                             }
-                        } else {
-                            return { ...s }
                         }
+                        return { ...s }
                     }),
 
                 summarizeSessionSuccess: (state, { sessionSummary }) => {
@@ -455,9 +416,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                       ...s,
                                       summary: sessionSummary.content,
                                   }
-                              } else {
-                                  return s
                               }
+                              return s
                           })
                         : state
                 },
@@ -478,6 +438,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        isRecordingsListCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
             },
         ],
     })),
@@ -531,6 +498,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        artificialLag: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                const lag = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_ARTIFICIAL_LAG]
+                // lag needs to match `\d+` when present it is a number of seconds delay
+                // relative_date parsing in the backend can't cope with seconds
+                // so it will be converted to an absolute date when added to API call
+                return typeof lag === 'string' && /^\d+$/.test(lag) ? Number.parseInt(lag) : null
+            },
+        ],
+        useHogQLFiltering: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],
+        ],
+
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
         filters: [
@@ -560,22 +542,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
-                } else {
-                    if (!hasEvents) {
-                        return { matchType: 'none' }
-                    }
+                }
+                if (!hasEvents) {
+                    return { matchType: 'none' }
+                }
 
-                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
-                        return {
-                            matchType: 'name',
-                            eventNames: simpleEventsFilters,
-                        }
-                    } else {
-                        return {
-                            matchType: 'backend',
-                            filters,
-                        }
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                    return {
+                        matchType: 'name',
+                        eventNames: simpleEventsFilters,
                     }
+                }
+                return {
+                    matchType: 'backend',
+                    filters,
                 }
             },
         ],
@@ -583,11 +563,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
             (selectedRecordingId, recordings, autoPlay): SessionRecordingId | undefined => {
-                return selectedRecordingId
-                    ? recordings.find((rec) => rec.id === selectedRecordingId)?.id || selectedRecordingId
-                    : autoPlay
-                    ? recordings[0]?.id
-                    : undefined
+                return selectedRecordingId ? selectedRecordingId : autoPlay ? recordings[0]?.id : undefined
             },
         ],
 

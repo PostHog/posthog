@@ -1,9 +1,12 @@
 import threading
 from datetime import timedelta
 from functools import wraps
-from typing import no_type_check
+from typing import no_type_check, Any
 
+import orjson
+from rest_framework.utils.encoders import JSONEncoder
 from django.utils.timezone import now
+from django_redis.serializers.base import BaseSerializer
 
 from posthog.settings import TEST
 
@@ -61,3 +64,12 @@ def instance_memoize(callback):
         return memo[args]
 
     return _inner
+
+
+class OrjsonJsonSerializer(BaseSerializer):
+    def dumps(self, value: Any) -> bytes:
+        option = orjson.OPT_UTC_Z
+        return orjson.dumps(value, default=JSONEncoder().default, option=option)
+
+    def loads(self, value: bytes) -> Any:
+        return orjson.loads(value)

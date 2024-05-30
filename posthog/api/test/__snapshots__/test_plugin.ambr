@@ -19,15 +19,16 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.1
@@ -53,24 +54,10 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.10
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_plugin"
-  WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global"
-         OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -126,10 +113,10 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
-  LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 100
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -149,15 +136,42 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."available_features"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.13
@@ -183,45 +197,19 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.14
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
   '''
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 1
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -232,10 +220,10 @@
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -291,10 +279,10 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
-  LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 100
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -314,15 +302,42 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."available_features"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.19
@@ -348,7 +363,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.2
@@ -374,12 +389,60 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.20
   '''
-  SELECT "posthog_organization"."id",
+  SELECT 1 AS "a"
+  FROM "posthog_organizationmembership"
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 2)
+  LIMIT 1
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_plugin"
+  WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (NOT U0."deleted"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
+  '''
+  SELECT "posthog_plugin"."id",
+         "posthog_plugin"."organization_id",
+         "posthog_plugin"."plugin_type",
+         "posthog_plugin"."is_global",
+         "posthog_plugin"."is_preinstalled",
+         "posthog_plugin"."is_stateless",
+         "posthog_plugin"."name",
+         "posthog_plugin"."description",
+         "posthog_plugin"."url",
+         "posthog_plugin"."icon",
+         "posthog_plugin"."config_schema",
+         "posthog_plugin"."tag",
+         "posthog_plugin"."archive",
+         "posthog_plugin"."latest_tag",
+         "posthog_plugin"."latest_tag_checked_at",
+         "posthog_plugin"."capabilities",
+         "posthog_plugin"."metrics",
+         "posthog_plugin"."public_jobs",
+         "posthog_plugin"."error",
+         "posthog_plugin"."from_json",
+         "posthog_plugin"."from_web",
+         "posthog_plugin"."source",
+         "posthog_plugin"."created_at",
+         "posthog_plugin"."updated_at",
+         "posthog_plugin"."log_level",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."created_at",
@@ -398,24 +461,8 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_organizationmembership"
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
-  '''
-  SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
+  INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
@@ -423,7 +470,8 @@
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  LIMIT 100
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
@@ -482,7 +530,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
-  LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 100
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.3
@@ -491,21 +539,10 @@
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.4
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.5
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -516,10 +553,10 @@
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.6
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.5
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -539,15 +576,42 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.6
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."available_features"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.7
@@ -573,41 +637,29 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.8
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.9
   '''
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+  LIMIT 1
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.9
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_plugin"
+  WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (NOT U0."deleted"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---

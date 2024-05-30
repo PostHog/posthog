@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 from posthog.schema import HogQLQueryModifiers
 
-PERSON_OVERRIDES_FIELDS: Dict[str, FieldOrTable] = {
+PERSON_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "old_person_id": StringDatabaseField(name="old_person_id"),
     "override_person_id": StringDatabaseField(name="override_person_id"),
@@ -24,7 +24,7 @@ PERSON_OVERRIDES_FIELDS: Dict[str, FieldOrTable] = {
 }
 
 
-def select_from_person_overrides_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_person_overrides_table(requested_fields: dict[str, list[str | int]]):
     return argmax_select(
         table_name="raw_person_overrides",
         select_fields=requested_fields,
@@ -36,7 +36,7 @@ def select_from_person_overrides_table(requested_fields: Dict[str, List[str | in
 def join_with_person_overrides_table(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, Any],
+    requested_fields: dict[str, Any],
     context: HogQLContext,
     node: SelectQuery,
 ):
@@ -53,13 +53,14 @@ def join_with_person_overrides_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "event_person_id"]),
             right=ast.Field(chain=[to_table, "old_person_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
 
 class RawPersonOverridesTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **PERSON_OVERRIDES_FIELDS,
         "version": IntegerDatabaseField(name="version"),
     }
@@ -72,9 +73,9 @@ class RawPersonOverridesTable(Table):
 
 
 class PersonOverridesTable(Table):
-    fields: Dict[str, FieldOrTable] = PERSON_OVERRIDES_FIELDS
+    fields: dict[str, FieldOrTable] = PERSON_OVERRIDES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_person_overrides_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

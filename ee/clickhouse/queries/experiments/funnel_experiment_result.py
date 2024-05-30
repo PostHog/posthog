@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple, Type
+import json
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
@@ -11,7 +12,7 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.constants import ExperimentSignificanceCode
+from posthog.constants import ExperimentSignificanceCode, ExperimentNoResultsErrorKeys
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -55,7 +56,7 @@ class ClickhouseFunnelExperimentResult:
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
-        funnel_class: Type[ClickhouseFunnel] = ClickhouseFunnel,
+        funnel_class: type[ClickhouseFunnel] = ClickhouseFunnel,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
@@ -147,9 +148,9 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def calculate_results(
         control_variant: Variant,
-        test_variants: List[Variant],
-        priors: Tuple[int, int] = (1, 1),
-    ) -> List[Probability]:
+        test_variants: list[Variant],
+        priors: tuple[int, int] = (1, 1),
+    ) -> list[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
 
@@ -185,9 +186,9 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant,
-        test_variants: List[Variant],
-        probabilities: List[Probability],
-    ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        test_variants: list[Variant],
+        probabilities: list[Probability],
+    ) -> tuple[ExperimentSignificanceCode, Probability]:
         def get_conversion_rate(variant: Variant):
             return variant.success_count / (variant.success_count + variant.failure_count)
 
@@ -225,7 +226,7 @@ class ClickhouseFunnelExperimentResult:
         return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
 
 
-def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:
+def calculate_expected_loss(target_variant: Variant, variants: list[Variant]) -> float:
     """
     Calculates expected loss in conversion rate for a given variant.
     Loss calculation comes from VWO's SmartStats technical paper:
@@ -267,7 +268,7 @@ def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) ->
     return loss / simulations_count
 
 
-def simulate_winning_variant_for_conversion(target_variant: Variant, variants: List[Variant]) -> Probability:
+def simulate_winning_variant_for_conversion(target_variant: Variant, variants: list[Variant]) -> Probability:
     random_sampler = default_rng()
     prior_success = 1
     prior_failure = 1
@@ -299,7 +300,7 @@ def simulate_winning_variant_for_conversion(target_variant: Variant, variants: L
     return winnings / simulations_count
 
 
-def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[Probability]:
+def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[Probability]:
     """
     Calculates the probability of winning for each variant.
     """
@@ -320,39 +321,42 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
 
 
 def validate_event_variants(funnel_results, variants):
-    if not funnel_results or not funnel_results[0]:
-        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+    errors = {
+        ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+        ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+    }
 
+    if not funnel_results or not funnel_results[0]:
+        raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+    errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
+
+    # Funnels: the first step must be present for *any* results to show up
     eventsWithOrderZero = []
     for eventArr in funnel_results:
         for event in eventArr:
             if event.get("order") == 0:
                 eventsWithOrderZero.append(event)
 
-    missing_variants = []
-
     # Check if "control" is present
-    control_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant == "control":
-            control_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not control_found:
-        missing_variants.append("control")
 
     # Check if at least one of the test variants is present
     test_variants = [variant for variant in variants if variant != "control"]
-    test_variant_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant in test_variants:
-            test_variant_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not test_variant_found:
-        missing_variants.extend(test_variants)
 
-    if not len(missing_variants) == 0:
-        missing_variants_str = ", ".join(missing_variants)
-        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
-        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")
+    has_errors = any(errors.values())
+    if has_errors:
+        raise ValidationError(detail=json.dumps(errors))

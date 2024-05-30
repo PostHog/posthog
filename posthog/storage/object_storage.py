@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, Union, List, Dict
+from typing import Optional, Union
 
 import structlog
 from boto3 import client
@@ -26,7 +26,7 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
     @abc.abstractmethod
@@ -38,11 +38,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+    def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
 
     @abc.abstractmethod
-    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
 
     @abc.abstractmethod
@@ -60,7 +60,7 @@ class UnavailableStorage(ObjectStorageClient):
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         pass
 
-    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
     def read(self, bucket: str, key: str) -> Optional[str]:
@@ -69,10 +69,10 @@ class UnavailableStorage(ObjectStorageClient):
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         pass
 
-    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+    def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -103,7 +103,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         try:
             s3_response = self.aws_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
             if s3_response.get("Contents"):
@@ -143,7 +143,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
-    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+    def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         try:
             self.aws_client.put_object_tagging(
                 Bucket=bucket,
@@ -155,7 +155,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("tag failed") from e
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         s3_response = {}
         try:
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
@@ -218,7 +218,7 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: Union[str, bytes], extras: Dict | None = None) -> None:
+def write(file_name: str, content: Union[str, bytes], extras: dict | None = None) -> None:
     return object_storage_client().write(
         bucket=settings.OBJECT_STORAGE_BUCKET,
         key=file_name,
@@ -227,7 +227,7 @@ def write(file_name: str, content: Union[str, bytes], extras: Dict | None = None
     )
 
 
-def tag(file_name: str, tags: Dict[str, str]) -> None:
+def tag(file_name: str, tags: dict[str, str]) -> None:
     return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
@@ -239,7 +239,7 @@ def read_bytes(file_name: str) -> Optional[bytes]:
     return object_storage_client().read_bytes(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def list_objects(prefix: str) -> Optional[List[str]]:
+def list_objects(prefix: str) -> Optional[list[str]]:
     return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 

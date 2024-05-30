@@ -1,5 +1,3 @@
-from typing import List
-
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
@@ -57,7 +55,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         return formatted_query
 
     def _get_partition_cols(self, level_index: int, max_steps: int):
-        cols: List[str] = []
+        cols: list[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:

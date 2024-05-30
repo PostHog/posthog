@@ -56,16 +56,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }),
             ['response', 'responseLoading'],
         ],
-        actions: [
-            dataNodeLogic({
-                cachedResults: props.cachedResults,
-                key: props.key,
-                query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
-            }),
-            ['loadDataSuccess'],
-        ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
     actions({
@@ -84,29 +74,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
     }),
     reducers({
-        columns: [
-            [] as Column[],
-            {
-                loadDataSuccess: (_state, { response }) => {
-                    if (!response) {
-                        return []
-                    }
-
-                    const columns: string[] = response['columns'] ?? []
-                    const types: string[][] = response['types'] ?? []
-
-                    return columns.map((column, index) => {
-                        const type = types[index]?.[1]
-                        return {
-                            name: column,
-                            type,
-                            label: `${column} - ${type}`,
-                            dataIndex: index,
-                        }
-                    })
-                },
-            },
-        ],
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
@@ -170,6 +137,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
     }),
     selectors({
+        columns: [
+            (s) => [s.response],
+            (response): Column[] => {
+                if (!response) {
+                    return []
+                }
+
+                const columns: string[] = response['columns'] ?? []
+                const types: string[][] = response['types'] ?? []
+
+                return columns.map((column, index) => {
+                    const type = types[index]?.[1]
+                    return {
+                        name: column,
+                        type,
+                        label: `${column} - ${type}`,
+                        dataIndex: index,
+                    }
+                })
+            },
+        ],
         query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [
             (state, props) => [state.insightMode, props.insightLogicProps],
@@ -209,7 +197,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return ySeries
                     .map((name): AxisSeries<number> | null => {
@@ -259,7 +247,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 const column = columns.find((n) => n.name === xSeries)
                 if (!column) {
@@ -309,6 +297,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     }),
     subscriptions(({ props, actions, values }) => ({
         columns: (value: { name: string; type: string }[], oldValue: { name: string; type: string }[]) => {
+            // If response is cleared, then don't update any internal values
+            if (!values.response || !values.response.results) {
+                return
+            }
+
             if (oldValue && oldValue.length) {
                 if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
                     actions.clearAxis()

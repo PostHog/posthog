@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -181,7 +181,8 @@ interface SchemaTableProps {
 }
 
 const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
-    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
+    const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
         <LemonTable
@@ -191,7 +192,22 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     title: 'Schema Name',
                     key: 'name',
                     render: function RenderName(_, schema) {
-                        return schema.name
+                        return <span>{schema.name}</span>
+                    },
+                },
+                {
+                    title: 'Refresh Type',
+                    key: 'incremental',
+                    render: function RenderIncremental(_, schema) {
+                        return schema.incremental ? (
+                            <Tooltip title="Each run will only pull data that has since been added" placement="top">
+                                <LemonTag type="primary">Incremental</LemonTag>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title="Each run will pull all data from the source" placement="top">
+                                <LemonTag type="default">Full Refresh</LemonTag>
+                            </Tooltip>
+                        )
                     },
                 },
                 {
@@ -220,8 +236,11 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                     kind: NodeKind.HogQLQuery,
                                     // TODO: Use `hogql` tag?
                                     query: `SELECT ${schema.table.columns
-                                        .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                        .map(({ key }) => key)} FROM ${
+                                        .filter(
+                                            ({ table, fields, chain, schema_valid }) =>
+                                                !table && !fields && !chain && schema_valid
+                                        )
+                                        .map(({ name }) => name)} FROM ${
                                         schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
                                     } LIMIT 100`,
                                 },
@@ -231,9 +250,19 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                     <code>{schema.table.name}</code>
                                 </Link>
                             )
-                        } else {
-                            return <div>Not yet synced</div>
                         }
+                        return <div>Not yet synced</div>
+                    },
+                },
+                {
+                    title: 'Status',
+                    key: 'status',
+                    render: function RenderStatus(_, schema) {
+                        if (!schema.status) {
+                            return null
+                        }
+
+                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                     },
                 },
                 {
@@ -252,6 +281,55 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     key: 'rows_synced',
                     render: function Render(_, schema) {
                         return schema.table?.row_count ?? ''
+                    },
+                },
+                {
+                    key: 'actions',
+                    width: 0,
+                    render: function RenderActions(_, schema) {
+                        if (schemaReloadingById[schema.id]) {
+                            return (
+                                <div>
+                                    <Spinner />
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <div className="flex flex-row justify-end">
+                                <div>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    key={`reload-data-warehouse-schema-${schema.id}`}
+                                                    onClick={() => {
+                                                        reloadSchema(schema)
+                                                    }}
+                                                >
+                                                    Reload
+                                                </LemonButton>
+                                                {schema.incremental && (
+                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            key={`resync-data-warehouse-schema-${schema.id}`}
+                                                            onClick={() => {
+                                                                resyncSchema(schema)
+                                                            }}
+                                                            status="danger"
+                                                        >
+                                                            Resync
+                                                        </LemonButton>
+                                                    </Tooltip>
+                                                )}
+                                            </>
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        )
                     },
                 },
             ]}

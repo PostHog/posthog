@@ -1,6 +1,6 @@
 from datetime import timedelta
 from os.path import abspath, dirname, join
-from typing import Dict, Generator, List, Tuple
+from collections.abc import Generator
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -27,7 +27,7 @@ SLOW_AFTER = relativedelta(hours=6)
 CLICKHOUSE_FLAMEGRAPH_EXECUTABLE = abspath(join(dirname(__file__), "bin", "clickhouse-flamegraph"))
 FLAMEGRAPH_PL = abspath(join(dirname(__file__), "bin", "flamegraph.pl"))
 
-SystemStatusRow = Dict
+SystemStatusRow = dict
 
 
 def system_status() -> Generator[SystemStatusRow, None, None]:
@@ -179,7 +179,7 @@ def is_alive() -> bool:
         return False
 
 
-def dead_letter_queue_ratio() -> Tuple[bool, int]:
+def dead_letter_queue_ratio() -> tuple[bool, int]:
     dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
 
     total_events_ingested_last_day = sync_execute(
@@ -199,14 +199,14 @@ def dead_letter_queue_ratio_ok_cached() -> bool:
     return dead_letter_queue_ratio()[0]
 
 
-def get_clickhouse_running_queries() -> List[Dict]:
+def get_clickhouse_running_queries() -> list[dict]:
     return query_with_columns(
         "SELECT elapsed as duration, query, * FROM system.processes ORDER BY duration DESC",
         columns_to_remove=["address", "initial_address", "elapsed"],
     )
 
 
-def get_clickhouse_slow_log() -> List[Dict]:
+def get_clickhouse_slow_log() -> list[dict]:
     return query_with_columns(
         f"""
             SELECT query_duration_ms as duration, query, *

@@ -2,7 +2,6 @@
 # Needs to be first to set up django environment
 from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
-from typing import List, Tuple
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
     get_materialized_columns,
@@ -21,7 +20,7 @@ from posthog.queries.session_recordings.session_recording_list import (
 )
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
-from posthog.models import Action, ActionStep, Cohort, Team, Organization
+from posthog.models import Action, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -29,7 +28,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
+MATERIALIZED_PROPERTIES: list[tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
     ("events", "$current_url"),
     ("events", "$event_type"),
@@ -279,16 +278,22 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url_materialized(self):
-        action = Action.objects.create(team=self.team, name="docs view")
-        ActionStep.objects.create(action=action, event="$pageview", url="docs", url_matching="contains")
+        action = Action.objects.create(
+            team=self.team,
+            name="docs view",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         Trends().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url(self):
-        action = Action.objects.create(team=self.team, name="docs view")
-        ActionStep.objects.create(action=action, event="$pageview", url="docs", url_matching="contains")
+        action = Action.objects.create(
+            team=self.team,
+            name="docs view",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         with no_materialized_columns():
@@ -296,16 +301,20 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_with_person_filters_materialized(self):
-        action = Action.objects.create(team=self.team, name=".com-users page views")
-        ActionStep.objects.create(
-            action=action,
-            event="$pageview",
-            properties=[
+        action = Action.objects.create(
+            team=self.team,
+            name=".com-users page views",
+            steps_json=[
                 {
-                    "key": "email",
-                    "operator": "icontains",
-                    "value": ".com",
-                    "type": "person",
+                    "event": "$pageview",
+                    "properties": [
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "value": ".com",
+                            "type": "person",
+                        }
+                    ],
                 }
             ],
         )
@@ -315,16 +324,20 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_with_person_filters(self):
-        action = Action.objects.create(team=self.team, name=".com-users page views")
-        ActionStep.objects.create(
-            action=action,
-            event="$pageview",
-            properties=[
+        action = Action.objects.create(
+            team=self.team,
+            name=".com-users page views",
+            steps_json=[
                 {
-                    "key": "email",
-                    "operator": "icontains",
-                    "value": ".com",
-                    "type": "person",
+                    "event": "$pageview",
+                    "properties": [
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "value": ".com",
+                            "type": "person",
+                        }
+                    ],
                 }
             ],
         )

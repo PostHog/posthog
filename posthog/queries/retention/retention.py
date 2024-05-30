@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -14,7 +14,7 @@ from posthog.queries.retention.retention_events_query import RetentionEventsQuer
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class Retention:
@@ -24,7 +24,7 @@ class Retention:
     def __init__(self, base_uri="/"):
         self._base_uri = base_uri
 
-    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> list[dict[str, Any]]:
         filter.team = team
         retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
         if filter.breakdowns:
@@ -34,7 +34,7 @@ class Retention:
 
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team
-    ) -> Dict[CohortKey, Dict[str, Any]]:
+    ) -> dict[CohortKey, dict[str, Any]]:
         actor_query, actor_query_params = build_actor_activity_query(
             filter=filter, team=team, retention_events_query=self.event_query
         )
@@ -77,7 +77,7 @@ class Retention:
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
-    def process_breakdown_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter):
+    def process_breakdown_table_result(self, resultset: dict[CohortKey, dict[str, Any]], filter: RetentionFilter):
         result = [
             {
                 "values": [
@@ -101,7 +101,7 @@ class Retention:
 
     def process_table_result(
         self,
-        resultset: Dict[CohortKey, Dict[str, Any]],
+        resultset: dict[CohortKey, dict[str, Any]],
         filter: RetentionFilter,
         team: Team,
     ):
@@ -140,7 +140,7 @@ class Retention:
 
         return result
 
-    def actors_in_period(self, filter: RetentionFilter, team: Team) -> Tuple[list, int]:
+    def actors_in_period(self, filter: RetentionFilter, team: Team) -> tuple[list, int]:
         """
         Creates a response of the form
 
@@ -166,9 +166,9 @@ def build_returning_event_query(
     filter: RetentionFilter,
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
-    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+    person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     retention_events_query=RetentionEventsQuery,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     returning_event_query_templated, returning_event_params = retention_events_query(
         filter=filter.shallow_clone({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
@@ -184,9 +184,9 @@ def build_target_event_query(
     filter: RetentionFilter,
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
-    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+    person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     retention_events_query=RetentionEventsQuery,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     target_event_query_templated, target_event_params = retention_events_query(
         filter=filter,
         team=team,

@@ -136,6 +136,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
+    [Scene.ReplayFilePlayback]: {
+        projectBased: true,
+        name: 'File playback',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -157,6 +163,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
+    [Scene.PipelineNodeNew]: {
+        projectBased: true,
+        name: 'Pipeline new step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.Pipeline]: {
         projectBased: true,
@@ -387,6 +399,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Move to PostHog Cloud',
         hideProjectNotice: true,
     },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+        hideProjectNotice: true,
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -436,6 +453,7 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
+    '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -494,11 +512,14 @@ export const routes: Record<string, Scene> = {
         acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),
+    [urls.replayFilePlayback()]: Scene.ReplayFilePlayback,
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
@@ -567,4 +588,5 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
+    [urls.heatmaps()]: Scene.Heatmaps,
 }

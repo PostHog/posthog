@@ -1,10 +1,11 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import structlog
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
+from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -35,7 +36,6 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
-from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +49,7 @@ def log_playlist_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -101,7 +101,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
+    def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
         team = self.context["get_team"]()
 
@@ -128,7 +128,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
         return playlist
 
-    def update(self, instance: SessionRecordingPlaylist, validated_data: Dict, **kwargs) -> SessionRecordingPlaylist:
+    def update(self, instance: SessionRecordingPlaylist, validated_data: dict, **kwargs) -> SessionRecordingPlaylist:
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
         except SessionRecordingPlaylist.DoesNotExist:
@@ -171,9 +171,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted insights can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)

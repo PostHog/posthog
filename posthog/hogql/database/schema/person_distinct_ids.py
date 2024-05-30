@@ -1,4 +1,3 @@
-from typing import Dict, List
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -27,7 +26,7 @@ PERSON_DISTINCT_IDS_FIELDS = {
 }
 
 
-def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_person_distinct_ids_table(requested_fields: dict[str, list[str | int]]):
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
@@ -43,7 +42,7 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str |
 def join_with_person_distinct_ids_table(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, List[str]],
+    requested_fields: dict[str, list[str]],
     context: HogQLContext,
     node: SelectQuery,
 ):
@@ -59,13 +58,14 @@ def join_with_person_distinct_ids_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "distinct_id"]),
             right=ast.Field(chain=[to_table, "distinct_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
 
 class RawPersonDistinctIdsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **PERSON_DISTINCT_IDS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted"),
         "version": IntegerDatabaseField(name="version"),
@@ -79,9 +79,9 @@ class RawPersonDistinctIdsTable(Table):
 
 
 class PersonDistinctIdsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
+    fields: dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_person_distinct_ids_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

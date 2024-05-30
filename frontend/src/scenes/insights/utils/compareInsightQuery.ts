@@ -58,6 +58,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             layout: undefined,
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
+            showMean: undefined,
         }
 
         if (isInsightQueryWithSeries(cleanedQuery)) {

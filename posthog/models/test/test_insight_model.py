@@ -1,7 +1,7 @@
 from django.db.utils import IntegrityError
 
 from posthog.models import Dashboard, Insight, Team
-from posthog.models.insight import generate_insight_cache_key
+from posthog.models.insight import generate_insight_filters_hash
 from posthog.test.base import BaseTest
 
 
@@ -76,8 +76,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={})
 
-        filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
-        filters_hash_with_absent_date_from = generate_insight_cache_key(insight, dashboard)
+        filters_hash_no_dashboard = generate_insight_filters_hash(insight, None)
+        filters_hash_with_absent_date_from = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_no_dashboard == filters_hash_with_absent_date_from
 
@@ -85,8 +85,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": None})
 
-        filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
-        filters_hash_with_null_date_from = generate_insight_cache_key(insight, dashboard)
+        filters_hash_no_dashboard = generate_insight_filters_hash(insight, None)
+        filters_hash_with_null_date_from = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_no_dashboard == filters_hash_with_null_date_from
 
@@ -94,29 +94,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-90d"})
 
-        filters_hash_one = generate_insight_cache_key(insight, None)
-        filters_hash_two = generate_insight_cache_key(insight, dashboard)
-
-        assert filters_hash_one != filters_hash_two
-
-    def test_query_hash_matches_same_query_source(self) -> None:
-        insight_with_query_at_top_level = Insight.objects.create(team=self.team, query={"kind": "EventsQuery"})
-        insight_with_query_in_source = Insight.objects.create(
-            team=self.team,
-            query={"kind": "DataTable", "source": {"kind": "EventsQuery"}},
-        )
-
-        filters_hash_one = generate_insight_cache_key(insight_with_query_at_top_level, None)
-        filters_hash_two = generate_insight_cache_key(insight_with_query_in_source, None)
-
-        assert filters_hash_one == filters_hash_two
-
-    def test_query_hash_varies_with_query_content(self) -> None:
-        insight_one = Insight.objects.create(team=self.team, query={"kind": "EventsQuery"})
-        insight_two = Insight.objects.create(team=self.team, query={"kind": "EventsQuery", "anything": "else"})
-
-        filters_hash_one = generate_insight_cache_key(insight_one, None)
-        filters_hash_two = generate_insight_cache_key(insight_two, None)
+        filters_hash_one = generate_insight_filters_hash(insight, None)
+        filters_hash_two = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_one != filters_hash_two
 
@@ -146,10 +125,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-14d",
                         "date_to": "-7d",
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
+                    }
                 },
             ),
             (
@@ -186,23 +162,13 @@ class TestInsightModel(BaseTest):
                 # test that if no filters are set then none are outputted
                 {},
                 {},
-                {
-                    "dateRange": {
-                        "date_from": None,
-                        "date_to": None,
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
-                },
+                {},
             ),
             (
                 # test that properties from the query are used when there are no dashboard properties
                 {"properties": [browser_equals_firefox]},
                 {},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
-                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
             ),
@@ -211,7 +177,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
                 },
@@ -221,7 +187,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },
@@ -245,29 +211,7 @@ class TestInsightModel(BaseTest):
             )
             dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
 
-            data = query_insight.dashboard_query(dashboard)
+            data = query_insight.get_effective_query(dashboard=dashboard)
             assert data
             actual = data["source"]["filters"]
             assert expected_filters == actual
-
-    def test_query_hash_varies_with_dashboard_filters(self) -> None:
-        query = {
-            "kind": "DataTableNode",
-            "source": {
-                "filters": {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
-                "kind": "HogQLQuery",
-                "modifiers": None,
-                "query": "select * from events where {filters}",
-                "response": None,
-                "values": None,
-            },
-        }
-        dashboard_filters = {"date_from": "-4d", "date_to": "-3d"}
-
-        query_insight = Insight.objects.create(team=self.team, query=query)
-        dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
-
-        hash_sans_dashboard = generate_insight_cache_key(query_insight, None)
-        hash_with_dashboard = generate_insight_cache_key(query_insight, dashboard)
-
-        assert hash_sans_dashboard != hash_with_dashboard

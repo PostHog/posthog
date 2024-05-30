@@ -21,7 +21,6 @@
 
 import argparse
 import sys
-from typing import List
 
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
@@ -192,7 +191,7 @@ def handle(**options):
             print("Polling for messages")  # noqa: T201
             messages_by_topic = consumer.poll(timeout_ms=timeout_ms)
 
-            futures: List[FutureRecordMetadata] = []
+            futures: list[FutureRecordMetadata] = []
 
             if not messages_by_topic:
                 break

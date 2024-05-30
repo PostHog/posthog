@@ -1,4 +1,3 @@
-from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +20,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight
     asset: ExportedAsset
-    tiles: List[DashboardTile]
+    tiles: list[DashboardTile]
 
     def setUp(self) -> None:
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)

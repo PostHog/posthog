@@ -49,7 +49,7 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
                 correlationScore: number
                 correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
             } => {
-                if (!correlationDetails) {
+                if (!correlationDetails || steps.length === 0) {
                     return {
                         truePositive: 0,
                         falsePositive: 0,

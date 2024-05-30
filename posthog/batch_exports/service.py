@@ -26,6 +26,7 @@ from posthog.batch_exports.models import (
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
+    a_pause_schedule,
     create_schedule,
     delete_schedule,
     pause_schedule,
@@ -227,10 +228,13 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
+def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
+
+    Returns:
+        `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
         batch_export = BatchExport.objects.get(id=batch_export_id)
@@ -238,7 +242,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportIdError(batch_export_id)
 
     if batch_export.paused is True:
-        return
+        return False
 
     try:
         pause_schedule(temporal, schedule_id=batch_export_id, note=note)
@@ -248,6 +252,36 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
     batch_export.paused = True
     batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
     batch_export.save()
+
+    return True
+
+
+async def apause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
+    """Pause this BatchExport.
+
+    We pass the call to the underlying Temporal Schedule.
+
+    Returns:
+        `True` if the batch export was paused, `False` if it was already paused.
+    """
+    try:
+        batch_export = await BatchExport.objects.aget(id=batch_export_id)
+    except BatchExport.DoesNotExist:
+        raise BatchExportIdError(batch_export_id)
+
+    if batch_export.paused is True:
+        return False
+
+    try:
+        await a_pause_schedule(temporal, schedule_id=batch_export_id, note=note)
+    except Exception as exc:
+        raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
+
+    batch_export.paused = True
+    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
+    await batch_export.asave()
+
+    return True
 
 
 def unpause_batch_export(
@@ -312,9 +346,8 @@ def disable_and_delete_export(instance: BatchExport):
 
     instance.save()
 
-    for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
-        if backfill.status == BatchExportBackfill.Status.RUNNING:
-            cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+    for backfill in running_backfills_for_batch_export(instance.id):
+        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
@@ -328,16 +361,25 @@ def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
             raise BatchExportServiceRPCError() from e
 
 
-@async_to_sync
-async def cancel_running_batch_export_backfill(temporal: Client, workflow_id: str) -> None:
+def running_backfills_for_batch_export(batch_export_id: UUID):
+    """Return an iterator over running batch export backfills."""
+    return BatchExportBackfill.objects.filter(
+        batch_export_id=batch_export_id, status=BatchExportBackfill.Status.RUNNING
+    ).select_related("batch_export")
+
+
+async def cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
     """Delete a running BatchExportBackfill.
 
     A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
     Schedule that we are backfilling, we should also clean-up any Workflows that are
     still running.
     """
-    handle = temporal.get_workflow_handle(workflow_id=workflow_id)
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     await handle.cancel()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    await batch_export_backfill.asave()
 
 
 @dataclass
@@ -442,6 +484,36 @@ def create_batch_export_run(
     return run
 
 
+async def acreate_batch_export_run(
+    batch_export_id: UUID,
+    data_interval_start: str,
+    data_interval_end: str,
+    status: str = BatchExportRun.Status.STARTING,
+    records_total_count: int | None = None,
+) -> BatchExportRun:
+    """Create a BatchExportRun after a Temporal Workflow execution.
+
+    In a first approach, this method is intended to be called only by Temporal Workflows,
+    as only the Workflows themselves can know when they start.
+
+    Args:
+        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
+        data_interval_start: The start of the period of data exported in this BatchExportRun.
+        data_interval_end: The end of the period of data exported in this BatchExportRun.
+        status: The initial status for the created BatchExportRun.
+    """
+    run = BatchExportRun(
+        batch_export_id=batch_export_id,
+        status=status,
+        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+        data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        records_total_count=records_total_count,
+    )
+    await run.asave()
+
+    return run
+
+
 def update_batch_export_run(
     run_id: UUID,
     **kwargs,
@@ -463,6 +535,59 @@ def update_batch_export_run(
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
     return model.get()
+
+
+async def aupdate_batch_export_run(
+    run_id: UUID,
+    **kwargs,
+) -> BatchExportRun:
+    """Update the BatchExportRun with given run_id and provided **kwargs.
+
+    Arguments:
+        run_id: The id of the BatchExportRun to update.
+    """
+    model = BatchExportRun.objects.filter(id=run_id)
+    update_at = dt.datetime.now()
+
+    updated = await model.aupdate(
+        **kwargs,
+        last_updated_at=update_at,
+    )
+
+    if not updated:
+        raise ValueError(f"BatchExportRun with id {run_id} not found.")
+
+    return await model.aget()
+
+
+def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
+    """Count failed batch export runs in the 'last_n' runs."""
+    count_of_failures = (
+        BatchExportRun.objects.filter(
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            .order_by("-last_updated_at")
+            .values("id")[:last_n]
+        )
+        .filter(status=BatchExportRun.Status.FAILED)
+        .count()
+    )
+
+    return count_of_failures
+
+
+async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
+    """Count failed batch export runs in the 'last_n' runs."""
+    count_of_failures = (
+        await BatchExportRun.objects.filter(
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            .order_by("-last_updated_at")
+            .values("id")[:last_n]
+        )
+        .filter(status=BatchExportRun.Status.FAILED)
+        .acount()
+    )
+
+    return count_of_failures
 
 
 def sync_batch_export(batch_export: BatchExport, created: bool):
@@ -538,6 +663,35 @@ def create_batch_export_backfill(
     return backfill
 
 
+async def acreate_batch_export_backfill(
+    batch_export_id: UUID,
+    team_id: int,
+    start_at: str,
+    end_at: str | None,
+    status: str = BatchExportRun.Status.RUNNING,
+) -> BatchExportBackfill:
+    """Create a BatchExportBackfill.
+
+
+    Args:
+        batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
+        team_id: The id of the Team the BatchExportBackfill to create belongs to.
+        start_at: The start of the period to backfill in this BatchExportBackfill.
+        end_at: The end of the period to backfill in this BatchExportBackfill.
+        status: The initial status for the created BatchExportBackfill.
+    """
+    backfill = BatchExportBackfill(
+        batch_export_id=batch_export_id,
+        status=status,
+        start_at=dt.datetime.fromisoformat(start_at),
+        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
+        team_id=team_id,
+    )
+    await backfill.asave()
+
+    return backfill
+
+
 def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
     """Update the status of an BatchExportBackfill with given id.
 
@@ -552,3 +706,19 @@ def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> Batch
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return model.get()
+
+
+async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
+    """Update the status of an BatchExportBackfill with given id.
+
+    Arguments:
+        id: The id of the BatchExportBackfill to update.
+        status: The new status to assign to the BatchExportBackfill.
+    """
+    model = BatchExportBackfill.objects.filter(id=backfill_id)
+    updated = await model.aupdate(status=status)
+
+    if not updated:
+        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
+
+    return await model.aget()

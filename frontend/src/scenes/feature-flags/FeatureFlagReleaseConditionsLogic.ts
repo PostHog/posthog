@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 
@@ -310,11 +311,3 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         }
     }),
 ])
-
-function isEmptyProperty(property: AnyPropertyFilter): boolean {
-    return (
-        property.value === null ||
-        property.value === undefined ||
-        (Array.isArray(property.value) && property.value.length === 0)
-    )
-}

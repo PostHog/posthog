@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from string import ascii_lowercase
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
+from collections.abc import Callable
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -30,7 +31,7 @@ from posthog.test.test_journeys import journeys_for
 class FunnelStepResult:
     name: str
     count: int
-    breakdown: Union[List[str], str]
+    breakdown: Union[list[str], str]
     average_conversion_time: Optional[float] = None
     median_conversion_time: Optional[float] = None
     type: Literal["events", "actions"] = "events"
@@ -51,8 +52,8 @@ def funnel_breakdown_test_factory(
 
             return [val["id"] for val in serialized_result]
 
-        def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
-            def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+        def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
+            def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
                 return {
                     "action_id": step.name if step.type == "events" else step.action_id,
                     "name": step.name,
@@ -490,11 +491,6 @@ def funnel_breakdown_test_factory(
                         "timestamp": datetime(2020, 1, 1, 13),
                         "properties": {"$browser": "Chrome"},
                     },
-                    {
-                        "event": "buy",
-                        "timestamp": datetime(2020, 1, 1, 15),
-                        "properties": {"$browser": "Chrome"},
-                    },
                 ],
                 "person2": [
                     {
@@ -504,6 +500,11 @@ def funnel_breakdown_test_factory(
                     },
                     {
                         "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 16),
                         "properties": {"$browser": "Safari"},
                     },
@@ -545,10 +546,16 @@ def funnel_breakdown_test_factory(
                         name="play movie",
                         breakdown=["Safari"],
                         count=1,
-                        average_conversion_time=7200.0,
-                        median_conversion_time=7200.0,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
                     ),
-                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Safari"],
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                        count=1,
+                    ),
                 ],
             )
 
@@ -575,9 +582,7 @@ def funnel_breakdown_test_factory(
                     FunnelStepResult(
                         name="buy",
                         breakdown=["Other"],
-                        count=1,
-                        average_conversion_time=7200.0,
-                        median_conversion_time=7200.0,
+                        count=0,
                     ),
                 ],
             )
@@ -2661,9 +2666,7 @@ def funnel_breakdown_test_factory(
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(FunnelPerson):
-    funnel_order_type = FunnelOrderType.ORDERED
-
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
@@ -2695,8 +2698,8 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 properties={"industry": "random"},
             )
 
-        def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
-            def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+        def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
+            def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
                 return {
                     "action_id": step.name if step.type == "events" else step.action_id,
                     "name": step.name,
@@ -2784,6 +2787,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
 
             query = cast(FunnelsQuery, filter_to_query(filters))
@@ -2905,6 +2909,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "aggregation_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
 
             query = cast(FunnelsQuery, filter_to_query(filters))
@@ -3017,6 +3022,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "aggregation_group_type_index": 0,
+                "funnel_order_type": funnel_order_type,
             }
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 query = cast(FunnelsQuery, filter_to_query(filters))
@@ -3067,11 +3073,11 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
     return TestFunnelBreakdownGroup
 
 
-def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
+def sort_breakdown_funnel_results(results: list[dict[int, Any]]):
     return sorted(results, key=lambda r: r[0]["breakdown_value"])
 
 
-def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
+def assert_funnel_results_equal(left: list[dict[str, Any]], right: list[dict[str, Any]]):
     """
     Helper to be able to compare two funnel results, but exclude people urls
     from the comparison, as these include:
@@ -3081,7 +3087,7 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
         2. contain timestamps which are not stable across runs
     """
 
-    def _filter(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [{**step, "converted_people_url": None, "dropped_people_url": None} for step in steps]
 
     assert len(left) == len(right)
@@ -3094,7 +3100,7 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
                 assert item[key] == other[key]
             except AssertionError as e:
                 e.args += (
-                    f"failed comparing ${key}",
-                    f'Got "{item[key]}" and "{other[key]}"',
+                    f"failed comparing '{key}' on step {index}",
+                    f'Got "{item[key]}", expected "{other[key]}"',
                 )
                 raise

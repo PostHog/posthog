@@ -1,11 +1,8 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,39 +46,21 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab, node, nodeLoading } = useValues(pipelineNodeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
+    const { currentTab } = useValues(pipelineNodeLogic)
 
     if (!stage) {
-        return <NotFound object="pipeline app stage" />
-    }
-
-    if (nodeLoading) {
-        return <Spinner />
-    }
-
-    if (id === 'new') {
-        // If it's new we don't want to show any tabs
-        return <PipelineNodeConfiguration />
-    }
-
-    if (!node) {
-        return <NotFound object={stage} />
+        return <NotFound object="pipeline stage" />
     }
 
     const tabToContent: Record<PipelineNodeTab, JSX.Element> = {
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics pluginConfigId={id as number} />,
+        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics id={id} />,
         [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
         [PipelineNodeTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
 
     return (
-        <div className="pipeline-app-scene">
+        <>
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
@@ -95,6 +74,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                         } as LemonTab<PipelineNodeTab>)
                 )}
             />
-        </div>
+        </>
     )
 }

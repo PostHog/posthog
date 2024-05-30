@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any, Type
+from typing import Optional, Any
 from django.db.models import Q
 import structlog
 from django.db import transaction
@@ -58,7 +58,7 @@ def log_notebook_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
 
@@ -118,7 +118,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
         ]
 
-    def create(self, validated_data: Dict, *args, **kwargs) -> Notebook:
+    def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
 
@@ -141,7 +141,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         return notebook
 
-    def update(self, instance: Notebook, validated_data: Dict, **kwargs) -> Notebook:
+    def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
@@ -240,12 +240,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
     filterset_fields = ["short_id"]
     lookup_field = "short_id"
 
-    def get_serializer_class(self) -> Type[BaseSerializer]:
+    def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted notebooks can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
@@ -253,7 +251,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-            queryset = self._filter_request(self.request, queryset)
+            queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)
         if order:
@@ -263,7 +261,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
         for key in filters:
@@ -298,8 +296,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
 
                     if target:
                         # the JSONB query requires a specific structure
-                        basic_structure = List[Dict[str, Any]]
-                        nested_structure = basic_structure | List[Dict[str, basic_structure]]
+                        basic_structure = list[dict[str, Any]]
+                        nested_structure = basic_structure | list[dict[str, basic_structure]]
 
                         presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
 

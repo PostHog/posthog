@@ -1,6 +1,6 @@
 import dataclasses
 from collections import defaultdict
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -35,8 +35,8 @@ class Paths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
-    _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
+    _extra_event_fields: list[ColumnName]
+    _extra_event_properties: list[PropertyName]
 
     def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
         self._filter = filter
@@ -50,8 +50,8 @@ class Paths:
         }
         self._funnel_filter = funnel_filter
 
-        self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
+        self._extra_event_fields: list[ColumnName] = []
+        self._extra_event_properties: list[PropertyName] = []
         if self._filter.include_recordings:
             self._extra_event_fields = ["uuid", "timestamp"]
             self._extra_event_properties = ["$session_id", "$window_id"]
@@ -93,7 +93,7 @@ class Paths:
             )
         return resp
 
-    def _exec_query(self) -> List[Tuple]:
+    def _exec_query(self) -> list[tuple]:
         query = self.get_query()
         return insight_sync_execute(
             query,
@@ -225,7 +225,7 @@ class Paths:
         return "", {}
 
     # Implemented in /ee
-    def get_edge_weight_clause(self) -> Tuple[str, Dict]:
+    def get_edge_weight_clause(self) -> tuple[str, dict]:
         return "", {}
 
     # Implemented in /ee
@@ -240,8 +240,8 @@ class Paths:
         return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
 
     # Implemented in /ee
-    def get_target_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, Union[str, None]] = {
+    def get_target_clause(self) -> tuple[str, dict]:
+        params: dict[str, Union[str, None]] = {
             "target_point": None,
             "secondary_target_point": None,
         }
@@ -276,7 +276,7 @@ class Paths:
         return "arraySlice"
 
     # Implemented in /ee
-    def get_filtered_path_ordering(self) -> Tuple[str, ...]:
+    def get_filtered_path_ordering(self) -> tuple[str, ...]:
         fields_to_include = ["filtered_path", "filtered_timings"] + [
             f"filtered_{field}s" for field in self.extra_event_fields_and_properties
         ]

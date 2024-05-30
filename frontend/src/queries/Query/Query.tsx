@@ -1,35 +1,37 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
+import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
-    isDataNode,
     isDataTableNode,
     isDataVisualizationNode,
+    isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
     isWebOverviewQuery,
 } from '../utils'
 
-export interface QueryProps<T extends Node = QuerySchema | Node> {
+export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */
     uniqueKey?: string | number
     /** The query to render */
-    query: T | string | null
+    query: Q | string | null
     /** Set this if you're controlling the query parameter */
-    setQuery?: (query: T) => void
+    setQuery?: (query: Q) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
@@ -38,10 +40,12 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     cachedResults?: AnyResponseType
     /** Disable any changes to the query */
     readOnly?: boolean
+    /** Show a stale overlay */
+    stale?: boolean
 }
 
-export function Query(props: QueryProps): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
+export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -54,6 +58,9 @@ export function Query(props: QueryProps): JSX.Element | null {
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
+
+    const uniqueKey =
+        props.uniqueKey ?? (props.context?.insightProps && insightVizDataNodeKey(props.context.insightProps))
 
     if (query === null) {
         return null
@@ -72,40 +79,48 @@ export function Query(props: QueryProps): JSX.Element | null {
         component = (
             <DataTable
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: DataTableNode) => void) | undefined}
                 context={queryContext}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isDataVisualizationNode(query)) {
         component = (
             <DataTableVisualization
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: DataVisualizationNode) => void) | undefined}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
                 context={queryContext}
             />
         )
-    } else if (isDataNode(query)) {
-        component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: InsightVizNode) => void) | undefined}
                 context={queryContext}
                 readOnly={readOnly}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isHogQuery(query)) {
+        component = (
+            <HogDebug
+                query={query}
+                setQuery={setQuery as undefined | ((query: any) => void)}
+                queryKey={String(uniqueKey)}
+            />
+        )
+    } else {
+        component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {
@@ -124,6 +139,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                             </div>
                         </>
                     ) : null}
+                    {stale && <SpinnerOverlay mode="editing" />}
                     {component}
                 </>
             </ErrorBoundary>

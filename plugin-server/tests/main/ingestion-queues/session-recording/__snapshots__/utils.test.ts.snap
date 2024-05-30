@@ -1,104 +1,173 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[` 1`] = `
+exports[`session-recording utils parseKafkaBatch can parse and reduce a batch of messages 1`] = `
 Array [
   Object {
-    "distinct_id": "1",
+    "distinct_id": "c3936f0b-875f-4992-8e8a-26499d1f3a0a",
     "eventsByWindowId": Object {
-      "window_1": Array [
+      "b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea": Array [
         Object {
           "data": Object {},
-          "timestamp": 1,
-          "type": 1,
+          "timestamp": 123,
+          "type": 6,
         },
         Object {
           "data": Object {},
-          "timestamp": 2,
-          "type": 2,
+          "timestamp": 438,
+          "type": 6,
         },
       ],
-      "window_2": Array [
+      "c74d85fa-ccbb-43ba-981c-5e7d17f211de": Array [
         Object {
           "data": Object {},
-          "timestamp": 3,
-          "type": 3,
+          "timestamp": 433,
+          "type": 6,
         },
       ],
     },
     "eventsRange": Object {
-      "end": 3,
-      "start": 1,
+      "end": 438,
+      "start": 123,
     },
     "metadata": Object {
-      "highOffset": 3,
-      "lowOffset": 1,
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 235,
+      "lowOffset": 232,
       "partition": 1,
-      "rawSize": 12,
-      "timestamp": 1,
+      "rawSize": 13,
+      "timestamp": 100,
       "topic": "the_topic",
     },
-    "session_id": "1",
-    "snapshot_source": null,
+    "session_id": "e38da031-6341-4db8-ab00-af04f91f9962",
+    "snapshot_source": undefined,
     "team_id": 1,
   },
   Object {
-    "distinct_id": "1",
+    "distinct_id": "207f0e52-f265-4932-86e5-cec62844d990",
     "eventsByWindowId": Object {
-      "window_1": Array [
+      "0bbe7878-6516-46b2-80cf-e387839d7313": Array [
         Object {
           "data": Object {},
-          "timestamp": 4,
-          "type": 4,
+          "timestamp": 222,
+          "type": 6,
         },
       ],
     },
     "eventsRange": Object {
-      "end": 4,
-      "start": 4,
+      "end": 222,
+      "start": 222,
     },
     "metadata": Object {
-      "highOffset": 4,
-      "lowOffset": 4,
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 233,
+      "lowOffset": 233,
       "partition": 1,
       "rawSize": 30,
-      "timestamp": 4,
+      "timestamp": 101,
       "topic": "the_topic",
     },
-    "session_id": "1",
-    "snapshot_source": null,
-    "team_id": 2,
+    "session_id": "1fc12a30-5a0f-4af8-808a-328423acf0c4",
+    "snapshot_source": undefined,
+    "team_id": 1,
   },
   Object {
-    "distinct_id": "1",
+    "distinct_id": "9696eba5-4f24-4f06-957b-10f98e26f2a9",
     "eventsByWindowId": Object {
-      "window_1": Array [
+      "1260fae8-08b5-4e5f-bea1-b8abd6250b70": Array [
         Object {
           "data": Object {},
-          "timestamp": 5,
-          "type": 5,
+          "timestamp": 432,
+          "type": 6,
         },
       ],
     },
     "eventsRange": Object {
-      "end": 5,
-      "start": 5,
+      "end": 432,
+      "start": 432,
     },
     "metadata": Object {
-      "highOffset": 5,
-      "lowOffset": 5,
-      "partition": 1,
-      "rawSize": 31,
-      "timestamp": 5,
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 500,
+      "lowOffset": 500,
+      "partition": 2,
+      "rawSize": 100,
+      "timestamp": 98,
       "topic": "the_topic",
     },
-    "session_id": "2",
-    "snapshot_source": null,
+    "session_id": "cb91c812-98d0-4d5f-ae88-ffb68b7f51d3",
+    "snapshot_source": undefined,
     "team_id": 1,
   },
 ]
 `;
 
-exports[`session-recording utils parsing the message can parse a message correctly 1`] = `
+exports[`session-recording utils parseKafkaBatch does not merge sessions for different teams 1`] = `
+Array [
+  Object {
+    "distinct_id": "c3936f0b-875f-4992-8e8a-26499d1f3a0a",
+    "eventsByWindowId": Object {
+      "b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 123,
+          "type": 6,
+        },
+        Object {
+          "data": Object {},
+          "timestamp": 124,
+          "type": 6,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 124,
+      "start": 123,
+    },
+    "metadata": Object {
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 233,
+      "lowOffset": 232,
+      "partition": 1,
+      "rawSize": 9,
+      "timestamp": 100,
+      "topic": "the_topic",
+    },
+    "session_id": "e38da031-6341-4db8-ab00-af04f91f9962",
+    "snapshot_source": undefined,
+    "team_id": 9,
+  },
+  Object {
+    "distinct_id": "c3936f0b-875f-4992-8e8a-26499d1f3a0a",
+    "eventsByWindowId": Object {
+      "b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 127,
+          "type": 6,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 127,
+      "start": 127,
+    },
+    "metadata": Object {
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 234,
+      "lowOffset": 234,
+      "partition": 1,
+      "rawSize": 20,
+      "timestamp": 103,
+      "topic": "the_topic",
+    },
+    "session_id": "e38da031-6341-4db8-ab00-af04f91f9962",
+    "snapshot_source": undefined,
+    "team_id": 13,
+  },
+]
+`;
+
+exports[`session-recording utils parseKafkaMessage can parse a message correctly 1`] = `
 Object {
   "distinct_id": "my-distinct-id",
   "eventsByWindowId": Object {

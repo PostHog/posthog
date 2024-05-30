@@ -20,7 +20,6 @@
                 "--scheduler",
                 "redbeat.RedBeatScheduler",
                 "--without-heartbeat",
-                "--without-gossip",
                 "--without-mingle",
                 "--pool=solo",
                 "-Ofair",
@@ -73,7 +72,7 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "RECORDINGS_INGESTER_URL": "http://localhost:6738"
+                "CLOUD_DEPLOYMENT": "dev"
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",

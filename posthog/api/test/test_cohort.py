@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -131,7 +131,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -140,10 +140,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
-            assert len(response.json()["results"]) == 2
+            assert len(response.json()["results"]) == 3
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
@@ -350,9 +355,7 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
-    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+    def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -694,6 +697,84 @@ email@example.org,
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(2, len(response.json()["results"]))
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_calculating_with_new_cohort_event_filters(self, patch_capture):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            properties={"$filter_prop": "something"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(days=12),
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                                "event_filters": [
+                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                                ],
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(1, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query(self, patch_capture):
@@ -1410,11 +1491,11 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
 
-def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

@@ -14,6 +14,7 @@ import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
+import { experimentLogic } from './experimentLogic'
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 
 const DEFAULT_DURATION = 14
@@ -32,12 +33,18 @@ export interface SecondaryMetricForm {
 
 const defaultFormValuesGenerator: (
     aggregationType?: number,
-    disableAddEventToDefault?: boolean
-) => SecondaryMetricForm = (aggregationType, disableAddEventToDefault) => {
+    disableAddEventToDefault?: boolean,
+    cohortIdToFilter?: number
+) => SecondaryMetricForm = (aggregationType, disableAddEventToDefault, cohortIdToFilter) => {
     const groupAggregation =
         aggregationType !== undefined ? { math: 'unique_group', math_group_type_index: aggregationType } : {}
 
-    const eventAddition = disableAddEventToDefault ? {} : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
+    const cohortFilter = cohortIdToFilter
+        ? { properties: [{ key: 'id', type: 'cohort', value: cohortIdToFilter }] }
+        : {}
+    const eventAddition = disableAddEventToDefault
+        ? {}
+        : { events: [{ ...getDefaultEvent(), ...groupAggregation, ...cohortFilter }] }
 
     return {
         name: '',
@@ -52,9 +59,9 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
     key((props) => `${props.experimentId || 'new'}-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
-    connect(() => ({
+    connect((props: SecondaryMetricsProps) => ({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], experimentLogic({ experimentId: props.experimentId }), ['experiment']],
         actions: [
             insightDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['setQuery'],
@@ -130,9 +137,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             },
         ],
     })),
-    forms(({ props }) => ({
+    forms(({ props, values }) => ({
         secondaryMetricModal: {
-            defaults: defaultFormValuesGenerator(props.defaultAggregationType),
+            defaults: defaultFormValuesGenerator(
+                props.defaultAggregationType,
+                false,
+                values.experiment?.exposure_cohort
+            ),
             errors: () => ({}),
             submit: async () => {
                 // We don't use the form submit anymore
@@ -142,7 +153,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     listeners(({ props, actions, values }) => ({
         openModalToCreateSecondaryMetric: () => {
             actions.resetSecondaryMetricModal()
-            actions.setPreviewInsight(defaultFormValuesGenerator(props.defaultAggregationType).filters)
+            actions.setPreviewInsight(
+                defaultFormValuesGenerator(props.defaultAggregationType, false, values.experiment?.exposure_cohort)
+                    .filters
+            )
         },
         openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricIdx }) => {
             actions.setSecondaryMetricModalValue('name', name)

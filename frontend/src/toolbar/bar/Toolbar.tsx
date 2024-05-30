@@ -4,6 +4,7 @@ import {
     IconBolt,
     IconCursorClick,
     IconDay,
+    IconLive,
     IconLogomark,
     IconNight,
     IconQuestion,
@@ -20,6 +21,7 @@ import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -54,7 +56,7 @@ function MoreMenu(): JSX.Element {
                     hedgehogMode
                         ? {
                               icon: <IconFlare />,
-                              label: 'Hedgehog accessories',
+                              label: 'Hedgehog options',
                               onClick: () => {
                                   setVisibleMenu('hedgehog')
                               },
@@ -98,6 +100,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ActionsToolbarMenu />
     ) : visibleMenu === 'hedgehog' ? (
         <HedgehogMenu />
+    ) : visibleMenu === 'debugger' ? (
+        <EventDebugMenu />
     ) : null
 
     useEffect(() => {
@@ -137,9 +141,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     )
 }
 
-export function Toolbar(): JSX.Element {
+export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
@@ -160,8 +164,15 @@ export function Toolbar(): JSX.Element {
         if (userIntent === 'add-action' || userIntent === 'edit-action') {
             setVisibleMenu('actions')
         }
+
+        if (userIntent === 'heatmaps') {
+            setVisibleMenu('heatmap')
+        }
     }, [userIntent])
 
+    if (isEmbeddedInApp) {
+        return null
+    }
     return (
         <>
             <ToolbarInfoMenu />
@@ -203,6 +214,9 @@ export function Toolbar(): JSX.Element {
                         </ToolbarButton>
                         <ToolbarButton menuId="flags" title="Feature flags">
                             <IconToggle />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="debugger" title="Event debugger">
+                            <IconLive />
                         </ToolbarButton>
                     </>
                 ) : (

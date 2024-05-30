@@ -31,6 +31,7 @@ export function TimezoneConfig(): JSX.Element {
                 loading={currentTeamLoading}
                 disabled={currentTeamLoading}
                 value={[currentTeam.timezone]}
+                popoverClassName="z-[1000]"
                 onChange={([newTimezone]): void => {
                     // This is a string for a single-mode select, but typing is poor
                     if (!preflight?.available_timezones) {

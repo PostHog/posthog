@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
 
@@ -54,6 +54,81 @@ from posthog.test.base import (
 from posthog.utils import get_machine_id, get_previous_day
 
 logger = structlog.get_logger(__name__)
+
+
+def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
+    # recordings in period  - 5 sessions
+    for i in range(1, 6):
+        session_id = str(i)
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+    if include_mobile_replay:
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id="a-single-mobile-recording",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+            snapshot_source="mobile",
+        )
+
+    # recordings out of period  - 11 sessions
+    for i in range(1, 11):
+        id1 = str(i + 10)
+        timestamp1 = now() - relativedelta(hours=48)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=id1,
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp1,
+            last_timestamp=timestamp1,
+        )
+        # we maybe also include a single mobile recording out of period
+        if i == 1 and include_mobile_replay:
+            produce_replay_summary(
+                team_id=team_id,
+                session_id=f"{id1}-mobile",
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp1,
+                last_timestamp=timestamp1,
+                snapshot_source="mobile",
+            )
+
+    # ensure there is a recording that starts before the period and ends during the period
+    # report is going to be for "yesterday" relative to the test so...
+    start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
+    session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
+    timestamp2 = start_of_day - relativedelta(hours=1)
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=timestamp2,
+        last_timestamp=timestamp2,
+    )
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=start_of_day,
+        last_timestamp=start_of_day,
+    )
+    timestamp3 = start_of_day + relativedelta(hours=1)
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=timestamp3,
+        last_timestamp=timestamp3,
+    )
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -232,59 +307,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     team=self.org_1_team_2,
                 )
 
-            # recordings in period  - 5 sessions with 5 snapshots each
-            for i in range(1, 6):
-                for _ in range(0, 5):
-                    session_id = str(i)
-                    timestamp = now() - relativedelta(hours=12)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=session_id,
-                        distinct_id=distinct_id,
-                        first_timestamp=timestamp,
-                        last_timestamp=timestamp,
-                    )
+            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
 
-            # recordings out of period  - 5 sessions with 5 snapshots each
-            for i in range(1, 11):
-                for _ in range(0, 5):
-                    id1 = str(i + 10)
-                    timestamp1 = now() - relativedelta(hours=48)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=id1,
-                        distinct_id=distinct_id,
-                        first_timestamp=timestamp1,
-                        last_timestamp=timestamp1,
-                    )
-
-            # ensure there is a recording that starts before the period and ends during the period
-            # report is going to be for "yesterday" relative to the test so...
-            start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
-            session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
-            timestamp2 = start_of_day - relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=timestamp2,
-                last_timestamp=timestamp2,
-            )
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=start_of_day,
-                last_timestamp=start_of_day,
-            )
-            timestamp3 = start_of_day + relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=timestamp3,
-                last_timestamp=timestamp3,
-            )
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -312,17 +336,35 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
+            _create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$propertyless_event",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+                person_mode="propertyless",
+            )
+            _create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$propertyless_event",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+                person_mode="force_upgrade",
+            )
 
             flush_persons_and_events()
 
-    def _select_report_by_org_id(self, org_id: str, reports: List[Dict]) -> Dict:
-        return [report for report in reports if report["organization_id"] == org_id][0]
+    def _select_report_by_org_id(self, org_id: str, reports: list[dict]) -> dict:
+        return next(report for report in reports if report["organization_id"] == org_id)
 
     def _create_plugin(self, name: str, enabled: bool) -> None:
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
         PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
 
-    def _test_usage_report(self) -> List[dict]:
+    def _test_usage_report(self) -> list[dict]:
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data()
             self._create_plugin("Installed but not enabled", False)
@@ -367,14 +409,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 55,
-                    "event_count_in_period": 22,
-                    # TODO: enhanced_persons: modify this test so that there are fewer of these events than the base
-                    "enhanced_persons_event_count_in_period": 22,
-                    "event_count_in_month": 42,
+                    "event_count_lifetime": 57,
+                    "event_count_in_period": 24,
+                    "enhanced_persons_event_count_in_period": 23,
+                    "event_count_in_month": 44,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
+                    "mobile_recording_count_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -411,13 +453,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 44,
-                            "event_count_in_period": 12,
-                            "enhanced_persons_event_count_in_period": 12,
-                            "event_count_in_month": 32,
+                            "event_count_lifetime": 46,
+                            "event_count_in_period": 14,
+                            "enhanced_persons_event_count_in_period": 13,
+                            "event_count_in_month": 34,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
+                            "mobile_recording_count_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -455,6 +498,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
                             "recording_count_total": 16,
+                            "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -515,6 +559,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
                     "recording_count_total": 0,
+                    "mobile_recording_count_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -558,6 +603,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
+                            "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -648,6 +694,41 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
+
+
+@freeze_time("2022-01-09T00:01:00Z")
+class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def test_usage_report_replay(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=False)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
+        assert report.recording_count_in_period == 5
+        assert report.recording_count_total == 16
+
+        assert report.mobile_recording_count_in_period == 0
+
+    def test_usage_report_replay_with_mobile(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=True)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        # we don't split mobile recordings out of the total since that field is not used
+        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 18}
+        assert report.recording_count_total == 18
+
+        # but we do split them out of the daily usage since that field is used
+        assert report.recording_count_in_period == 5
+        assert report.mobile_recording_count_in_period == 1
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):

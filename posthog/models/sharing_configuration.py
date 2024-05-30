@@ -1,5 +1,5 @@
 import secrets
-from typing import List, cast
+from typing import cast
 
 from django.db import models
 
@@ -48,7 +48,7 @@ class SharingConfiguration(models.Model):
 
         return False
 
-    def get_connected_insight_ids(self) -> List[int]:
+    def get_connected_insight_ids(self) -> list[int]:
         if self.insight:
             if self.insight.deleted:
                 return []

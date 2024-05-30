@@ -44,7 +44,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
     connect((props: InsightLogicProps) => ({
         values: [
             funnelCorrelationLogic(props),
-            ['apiParams', 'aggregationGroupTypeIndex', 'querySource', 'hogQLInsightsFunnelsFlagEnabled'],
+            ['apiParams', 'aggregationGroupTypeIndex', 'querySource', 'isHogQLInsight'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             groupPropertiesModel,
@@ -75,7 +75,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                     await breakpoint(100)
 
                     try {
-                        if (values.hogQLInsightsFunnelsFlagEnabled) {
+                        if (values.isHogQLInsight) {
                             const actorsQuery: FunnelsActorsQuery = {
                                 kind: NodeKind.FunnelsActorsQuery,
                                 source: values.querySource!,
@@ -94,22 +94,21 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                                     result_type: FunnelCorrelationResultsType.Events,
                                 })) as FunnelCorrelation[],
                             }
-                        } else {
-                            const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                                await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                                    ...values.apiParams,
-                                    funnel_correlation_type: 'properties',
-                                    funnel_correlation_names: targetProperties,
-                                    funnel_correlation_exclude_names: values.excludedPropertyNames,
-                                })
-                            ).result?.events
+                        }
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'properties',
+                                funnel_correlation_names: targetProperties,
+                                funnel_correlation_exclude_names: values.excludedPropertyNames,
+                            })
+                        ).result?.events
 
-                            return {
-                                events: results.map((result) => ({
-                                    ...result,
-                                    result_type: FunnelCorrelationResultsType.Properties,
-                                })),
-                            }
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            })),
                         }
                     } catch (error) {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })

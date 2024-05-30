@@ -617,6 +617,9 @@
                 "id": {
                     "type": "number"
                 },
+                "loop": {
+                    "type": "boolean"
+                },
                 "muted": {
                     "type": "boolean"
                 },

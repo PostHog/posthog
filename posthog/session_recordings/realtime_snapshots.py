@@ -1,6 +1,6 @@
 import json
 from time import sleep
-from typing import Dict, List, Optional
+from typing import Optional
 
 import structlog
 from prometheus_client import Counter
@@ -54,7 +54,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
         raise e
 
 
-def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[List[Dict]]:
+def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
     try:
         redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
         key = get_key(team_id, session_id)
@@ -85,8 +85,10 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
             snapshots = []
 
             for s in encoded_snapshots:
+                # s[0] is the content
+                # s[1] is the time the content was written to redis
                 for line in s[0].splitlines():
-                    snapshots.append(json.loads(line))
+                    snapshots.append(line.decode("utf8"))
 
             REALTIME_SUBSCRIPTIONS_LOADED_COUNTER.labels(attempt_count=attempt_count).inc()
             return snapshots

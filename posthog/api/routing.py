@@ -1,6 +1,7 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
+from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -50,7 +51,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
-    filter_rewrite_rules: Dict[str, str] = {}
+    filter_rewrite_rules: dict[str, str] = {}
 
     authentication_classes = []
     permission_classes = []
@@ -60,9 +61,38 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
 
+    def __init_subclass__(cls, **kwargs):
+        """
+        This class plays a crucial role in ensuring common permissions, authentication and filtering.
+        As such, we use this clever little trick to ensure that the user of it doesn't accidentally override the important methods.
+        """
+        super().__init_subclass__(**kwargs)
+        protected_methods = {
+            "get_queryset": "Use safely_get_queryset instead",
+            "get_object": "Use safely_get_object instead",
+            "get_permissions": "Add additional 'permission_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead",
+            "get_authenticators": "Add additional 'authentication_classes' via the class attribute instead",
+        }
+
+        for method, message in protected_methods.items():
+            if method in cls.__dict__:
+                raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+    def dangerously_get_permissions(self):
+        """
+        WARNING: This should be used very carefully. It is only for endpoints with very specific permission needs.
+        If you want to add to the defaults simply set `permission_classes` instead.
+        """
+        raise NotImplementedError()
+
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
+        try:
+            return self.dangerously_get_permissions()
+        except NotImplementedError:
+            pass
+
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return [SharingTokenPermission()]
 
@@ -97,9 +127,68 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         return [auth() for auth in authentication_classes]
 
-    def get_queryset(self):
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        """
+        We don't want to ever allow overriding the get_queryset as the filtering is an important security aspect.
+        Instead we provide this method to override and provide additional queryset filtering.
+        """
+        raise NotImplementedError()
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        """
+        WARNING: This should be used very carefully. It bypasses all common filtering logic such as team and org filtering.
+        It is so named to make it clear that this should be checked whenever changes to access control logic changes.
+        """
+        raise NotImplementedError()
+
+    def get_queryset(self) -> QuerySet:
+        try:
+            return self.dangerously_get_queryset()
+        except NotImplementedError:
+            pass
+
         queryset = super().get_queryset()
-        return self.filter_queryset_by_parents_lookups(queryset)
+        # First of all make sure we do the custom filters before applying our own
+        try:
+            queryset = self.safely_get_queryset(queryset)
+        except NotImplementedError:
+            pass
+
+        return self._filter_queryset_by_parents_lookups(queryset)
+
+    def dangerously_get_object(self) -> Any:
+        """
+        WARNING: This should be used very carefully. It bypasses common security access control checks.
+        """
+        raise NotImplementedError()
+
+    def safely_get_object(self, queryset: QuerySet) -> Any:
+        raise NotImplementedError()
+
+    def get_object(self):
+        """
+        We don't want to allow generic overriding of get_object as under the hood it does
+        check_object_permissions which if not called is a security issue
+        """
+
+        try:
+            return self.dangerously_get_object()
+        except NotImplementedError:
+            pass
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        try:
+            obj = self.safely_get_object(queryset)
+            if not obj:
+                raise NotFound()
+        except NotImplementedError:
+            return super().get_object()
+
+        # Ensure we always check permissions
+        self.check_object_permissions(self.request, obj)
+
+        return obj
 
     @property
     def is_team_view(self):
@@ -155,7 +244,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except Organization.DoesNotExist:
             raise NotFound(detail="Organization not found.")
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def _filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():
@@ -170,7 +259,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
 
     @cached_property
-    def parents_query_dict(self) -> Dict[str, Any]:
+    def parents_query_dict(self) -> dict[str, Any]:
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
@@ -213,7 +302,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 result[query_lookup] = query_value
         return result
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         serializer_context = super().get_serializer_context() if hasattr(super(), "get_serializer_context") else {}
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)

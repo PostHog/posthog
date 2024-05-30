@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import Optional, TypedDict, Union, Literal
 
-SnapshotData = Dict
+SnapshotData = dict
 WindowId = Optional[str]
 
 
@@ -22,7 +22,7 @@ class SessionRecordingEventSummary(TypedDict):
     timestamp: int
     type: int
     # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
-    data: Dict[str, Union[int, str]]
+    data: dict[str, Union[int, str]]
 
 
 # NOTE: MatchingSessionRecordingEvent is a minimal version of full events that is used to display events matching a filter on the frontend
@@ -35,7 +35,7 @@ class MatchingSessionRecordingEvent(TypedDict):
 
 class DecompressedRecordingData(TypedDict):
     has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
+    snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
 class RecordingMetadata(TypedDict):
@@ -51,13 +51,14 @@ class RecordingMetadata(TypedDict):
     first_url: str
     duration: int
     active_seconds: int
+    snapshot_source: Literal["web", "mobile"]
 
 
 class RecordingMatchingEvents(TypedDict):
-    events: List[MatchingSessionRecordingEvent]
+    events: list[MatchingSessionRecordingEvent]
 
 
 class PersistedRecordingV1(TypedDict):
     version: str  # "2022-12-22"
-    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
+    snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
     distinct_id: str

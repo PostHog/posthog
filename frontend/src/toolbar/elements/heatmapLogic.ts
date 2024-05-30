@@ -1,19 +1,31 @@
+import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
+import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import {
+    CountedHTMLElement,
+    ElementsEventType,
+    HeatmapElement,
+    HeatmapRequestType,
+    HeatmapResponseType,
+} from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
+
+export const SCROLL_DEPTH_JS_VERSION = [1, 99]
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -21,10 +33,42 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     results: [],
 }
 
+export type CommonFilters = {
+    date_from?: string
+    date_to?: string
+}
+
+export type HeatmapFilters = {
+    enabled: boolean
+    type?: string
+    viewportAccuracy?: number
+    aggregation?: HeatmapRequestType['aggregation']
+}
+
+export type HeatmapJsDataPoint = {
+    x: number
+    y: number
+    value: number
+}
+
+export type HeatmapJsData = {
+    data: HeatmapJsDataPoint[]
+    max: number
+    min: number
+}
+export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
+
+export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
+    { value: 'default', label: 'Default (multicolor)' },
+    { value: 'red', label: 'Red (monocolor)' },
+    { value: 'green', label: 'Green (monocolor)' },
+    { value: 'blue', label: 'Blue (monocolor)' },
+]
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
-        values: [currentPageLogic, ['href', 'wildcardHref']],
+        values: [currentPageLogic, ['href', 'wildcardHref'], toolbarConfigLogic, ['posthog']],
         actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
     }),
     actions({
@@ -33,12 +77,29 @@ export const heatmapLogic = kea<heatmapLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
-        setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
+        setCommonFilters: (filters: CommonFilters) => ({ filters }),
+        setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
+        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
+        toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
+
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
+        loadHeatmap: (type: string) => ({
+            type,
+        }),
+        loadAllEnabled: (delayMs: number = 0) => ({ delayMs }),
+        maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
+        maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
+        fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
+        setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
+        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
+        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
     }),
+    windowValues(() => ({
+        windowWidth: (window: Window) => window.innerWidth,
+        windowHeight: (window: Window) => window.innerHeight,
+    })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         canLoadMoreElementStats: [
@@ -56,31 +117,57 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 getElementStatsFailure: () => false,
             },
         ],
-        heatmapLoading: [
-            false,
-            {
-                getElementStats: () => true,
-                getElementStatsSuccess: () => false,
-                getElementStatsFailure: () => false,
-                resetElementStats: () => false,
-            },
-        ],
-        showHeatmapTooltip: [
-            false,
-            {
-                setShowHeatmapTooltip: (_, { showHeatmapTooltip }) => showHeatmapTooltip,
-            },
-        ],
         shiftPressed: [
             false,
             {
                 setShiftPressed: (_, { shiftPressed }) => shiftPressed,
             },
         ],
-        heatmapFilter: [
-            {} as Partial<FilterType>,
+        commonFilters: [
+            {} as CommonFilters,
             {
-                setHeatmapFilter: (_, { filter }) => filter,
+                setCommonFilters: (_, { filters }) => filters,
+            },
+        ],
+        heatmapFilters: [
+            {
+                enabled: true,
+                type: 'click',
+                viewportAccuracy: 0.9,
+                aggregation: 'total_count',
+            } as HeatmapFilters,
+            { persist: true },
+            {
+                setHeatmapFilters: (_, { filters }) => filters,
+                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        clickmapsEnabled: [
+            true,
+            { persist: true },
+            {
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+            },
+        ],
+        heatmapScrollY: [
+            0,
+            {
+                setHeatmapScrollY: (_, { scrollY }) => scrollY,
+            },
+        ],
+
+        heatmapFixedPositionMode: [
+            'fixed' as HeatmapFixedPositionMode,
+            {
+                setHeatmapFixedPositionMode: (_, { mode }) => mode,
+            },
+        ],
+
+        heatmapColorPalette: [
+            'default' as string | null,
+            { persist: true },
+            {
+                setHeatmapColorPalette: (_, { Palette }) => Palette,
             },
         ],
     }),
@@ -110,7 +197,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                           type: PropertyFilterType.Event,
                                       },
                             ],
-                            ...values.heatmapFilter,
+                            date_from: values.commonFilters.date_from,
+                            date_to: values.commonFilters.date_to,
                         }
 
                         defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
@@ -137,10 +225,55 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        results: [
+                            // if url is present we are paginating and merge results, otherwise we only use the new results
+                            ...(url ? values.elementStats?.results || [] : []),
+                            ...(paginatedResults.results || []),
+                        ],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
+                },
+            },
+        ],
+
+        rawHeatmap: [
+            null as HeatmapResponseType | null,
+            {
+                loadHeatmap: async () => {
+                    const { href, wildcardHref } = values
+                    const { date_from, date_to } = values.commonFilters
+                    const { type, aggregation } = values.heatmapFilters
+                    const urlExact = wildcardHref === href ? href : undefined
+                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
+                    const response = await toolbarFetch(
+                        `/api/heatmap/${encodeParams(
+                            {
+                                type,
+                                date_from,
+                                date_to,
+                                url_exact: urlExact,
+                                url_pattern: urlRegex,
+                                viewport_width_min: values.viewportRange.min,
+                                viewport_width_max: values.viewportRange.max,
+                                aggregation,
+                            },
+                            '?'
+                        )}`,
+                        'GET'
+                    )
+
+                    if (response.status === 403) {
+                        toolbarConfigLogic.actions.authenticate()
+                    }
+
+                    if (response.status !== 200) {
+                        throw new Error('API error')
+                    }
+
+                    return await response.json()
                 },
             },
         ],
@@ -148,18 +281,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     selectors(({ cache }) => ({
         dateRange: [
-            (s) => [s.heatmapFilter],
-            (heatmapFilter: Partial<FilterType>) => {
-                return dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')
+            (s) => [s.commonFilters],
+            (commonFilters: Partial<FilterType>) => {
+                return dateFilterToText(commonFilters.date_from, commonFilters.date_to, 'Last 7 days')
             },
         ],
         elements: [
-            (selectors) => [
-                selectors.elementStats,
-                toolbarConfigLogic.selectors.dataAttributes,
-                selectors.href,
-                selectors.matchLinksByHref,
-            ],
+            (s) => [s.elementStats, toolbarConfigLogic.selectors.dataAttributes, s.href, s.matchLinksByHref],
             (elementStats, dataAttributes, href, matchLinksByHref) => {
                 cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
                 cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
@@ -240,8 +368,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         countedElements: [
-            (selectors) => [selectors.elements, toolbarConfigLogic.selectors.dataAttributes],
-            (elements, dataAttributes) => {
+            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled],
+            (elements, dataAttributes, clickmapsEnabled) => {
+                if (!clickmapsEnabled) {
+                    return []
+                }
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
                 ;(elements || []).forEach((countedElement) => {
                     const trimmedElement = trimElement(countedElement.element)
@@ -273,22 +404,225 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
         ],
-        elementCount: [(selectors) => [selectors.countedElements], (countedElements) => countedElements.length],
+        elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
         clickCount: [
-            (selectors) => [selectors.countedElements],
+            (s) => [s.countedElements],
             (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
         ],
         highestClickCount: [
-            (selectors) => [selectors.countedElements],
+            (s) => [s.countedElements],
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
+
+        heatmapElements: [
+            (s) => [s.rawHeatmap],
+            (rawHeatmap): HeatmapElement[] => {
+                if (!rawHeatmap) {
+                    return []
+                }
+
+                const elements: HeatmapElement[] = []
+
+                rawHeatmap?.results.forEach((element) => {
+                    if ('scroll_depth_bucket' in element) {
+                        elements.push({
+                            count: element.cumulative_count,
+                            xPercentage: 0,
+                            targetFixed: false,
+                            y: element.scroll_depth_bucket,
+                        })
+                    } else {
+                        elements.push({
+                            count: element.count,
+                            xPercentage: element.pointer_relative_x,
+                            targetFixed: element.pointer_target_fixed,
+                            y: element.pointer_y,
+                        })
+                    }
+                })
+
+                return elements
+            },
+        ],
+
+        viewportRange: [
+            (s) => [s.heatmapFilters, s.windowWidth],
+            (heatmapFilters, windowWidth): { max: number; min: number } => {
+                const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
+                const extraPixels = windowWidth - windowWidth * viewportAccuracy
+
+                const minWidth = Math.max(0, windowWidth - extraPixels)
+                const maxWidth = windowWidth + extraPixels
+
+                return {
+                    min: Math.round(minWidth),
+                    max: Math.round(maxWidth),
+                }
+            },
+        ],
+
+        scrollDepthPosthogJsError: [
+            (s) => [s.posthog],
+            (posthog: PostHog): 'version' | 'disabled' | null => {
+                const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
+                const majorMinorVersion = posthogVersion.split('.')
+                const majorVersion = parseInt(majorMinorVersion[0], 10)
+                const minorVersion = parseInt(majorMinorVersion[1], 10)
+
+                if (!(posthog as any)?.scrollManager?.scrollY) {
+                    return 'version'
+                }
+
+                const isSupported =
+                    majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
+                    (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
+                const isDisabled = posthog?.config.disable_scroll_properties
+
+                return !isSupported ? 'version' : isDisabled ? 'disabled' : null
+            },
+        ],
+
+        heatmapJsData: [
+            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
+            (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {
+                // We want to account for all the fixed position elements, the scroll of the context and the browser width
+                const data = heatmapElements.reduce((acc, element) => {
+                    if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
+                        return acc
+                    }
+
+                    const y = Math.round(
+                        element.targetFixed && heatmapFixedPositionMode === 'fixed'
+                            ? element.y
+                            : element.y - heatmapScrollY
+                    )
+                    const x = Math.round(element.xPercentage * windowWidth)
+
+                    return [...acc, { x, y, value: element.count }]
+                }, [] as HeatmapJsDataPoint[])
+
+                // Max is the highest value in the data set we have
+                const max = data.reduce((max, { value }) => Math.max(max, value), 0)
+
+                // TODO: Group based on some sensible resolutions (we can then use this for a hover state to show more detail)
+
+                return {
+                    min: 0,
+                    max,
+                    data,
+                }
+            },
+        ],
+    })),
+
+    subscriptions(({ actions }) => ({
+        viewportRange: () => {
+            actions.maybeLoadHeatmap(500)
+        },
+    })),
+
+    listeners(({ actions, values }) => ({
+        fetchHeatmapApi: async () => {
+            const { href, wildcardHref } = values
+            const { date_from, date_to } = values.commonFilters
+            const { type, aggregation } = values.heatmapFilters
+            const urlExact = wildcardHref === href ? href : undefined
+            const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+
+            // toolbar fetch collapses queryparams but this URL has multiple with the same name
+            const response = await toolbarFetch(
+                `/api/heatmap/${encodeParams(
+                    {
+                        type,
+                        date_from,
+                        date_to,
+                        url_exact: urlExact,
+                        url_pattern: urlRegex,
+                        viewport_width_min: values.viewportRange.min,
+                        viewport_width_max: values.viewportRange.max,
+                        aggregation,
+                    },
+                    '?'
+                )}`,
+                'GET'
+            )
+
+            if (response.status === 403) {
+                toolbarConfigLogic.actions.authenticate()
+            }
+
+            if (response.status !== 200) {
+                throw new Error('API error')
+            }
+
+            return await response.json()
+        },
+        enableHeatmap: () => {
+            actions.loadAllEnabled()
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
+        },
+        disableHeatmap: () => {
+            actions.resetElementStats()
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        loadAllEnabled: async ({ delayMs }, breakpoint) => {
+            await breakpoint(delayMs)
+
+            actions.maybeLoadHeatmap()
+            actions.maybeLoadClickmap()
+        },
+        maybeLoadClickmap: async ({ delayMs }, breakpoint) => {
+            await breakpoint(delayMs)
+            if (values.heatmapEnabled && values.clickmapsEnabled) {
+                actions.getElementStats()
+            }
+        },
+
+        maybeLoadHeatmap: async ({ delayMs }, breakpoint) => {
+            await breakpoint(delayMs)
+            if (values.heatmapEnabled) {
+                if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
+                    actions.loadHeatmap(values.heatmapFilters.type)
+                }
+            }
+        },
+
+        setHref: () => {
+            actions.loadAllEnabled()
+        },
+        setWildcardHref: () => {
+            actions.loadAllEnabled(1000)
+        },
+        setCommonFilters: () => {
+            actions.loadAllEnabled(200)
+        },
+
+        // Only trigger element stats loading if clickmaps are enabled
+        toggleClickmapsEnabled: () => {
+            if (values.clickmapsEnabled) {
+                actions.getElementStats()
+            }
+        },
+
+        loadMoreElementStats: () => {
+            if (values.elementStats?.next) {
+                actions.getElementStats(values.elementStats.next)
+            }
+        },
+
+        patchHeatmapFilters: ({ filters }) => {
+            if (filters.type) {
+                // Clear the heatmap if the type changes
+                actions.loadHeatmapSuccess({ results: [] })
+            }
+            actions.maybeLoadHeatmap(200)
+        },
     })),
 
     afterMount(({ actions, values, cache }) => {
-        if (values.heatmapEnabled) {
-            actions.getElementStats()
-        }
+        actions.loadAllEnabled()
         cache.keyDownListener = (event: KeyboardEvent) => {
             if (event.shiftKey && !values.shiftPressed) {
                 actions.setShiftPressed(true)
@@ -301,53 +635,18 @@ export const heatmapLogic = kea<heatmapLogicType>([
         }
         window.addEventListener('keydown', cache.keyDownListener)
         window.addEventListener('keyup', cache.keyUpListener)
+
+        cache.scrollCheckTimer = setInterval(() => {
+            const scrollY = (values.posthog as any)?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        }, 100)
     }),
 
     beforeUnmount(({ cache }) => {
         window.removeEventListener('keydown', cache.keyDownListener)
         window.removeEventListener('keyup', cache.keyUpListener)
+        clearInterval(cache.scrollCheckTimer)
     }),
-
-    listeners(({ actions, values }) => ({
-        loadMoreElementStats: () => {
-            if (values.elementStats?.next) {
-                actions.getElementStats(values.elementStats.next)
-            }
-        },
-        setHref: () => {
-            if (values.heatmapEnabled) {
-                actions.resetElementStats()
-                actions.getElementStats()
-            }
-        },
-        setWildcardHref: async (_, breakpoint) => {
-            await breakpoint(100)
-            if (values.heatmapEnabled) {
-                actions.resetElementStats()
-                actions.getElementStats()
-            }
-        },
-        enableHeatmap: () => {
-            actions.getElementStats()
-            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
-        },
-        disableHeatmap: () => {
-            actions.resetElementStats()
-            actions.setShowHeatmapTooltip(false)
-            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
-        },
-        getElementStatsSuccess: () => {
-            actions.setShowHeatmapTooltip(true)
-        },
-        setShowHeatmapTooltip: async ({ showHeatmapTooltip }, breakpoint) => {
-            if (showHeatmapTooltip) {
-                await breakpoint(1000)
-                actions.setShowHeatmapTooltip(false)
-            }
-        },
-        setHeatmapFilter: () => {
-            actions.resetElementStats()
-            actions.getElementStats()
-        },
-    })),
 ])

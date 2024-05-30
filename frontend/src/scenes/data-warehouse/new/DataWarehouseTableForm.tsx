@@ -1,18 +1,58 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { ManualLinkProvider, sourceWizardLogic } from './sourceWizardLogic'
+
+const ProviderMappings: Record<
+    ManualLinkProvider,
+    {
+        fileUrlPatternPlaceholder: string
+        accessKeyPlaceholder: string
+        accessKeyLabel: string
+        accessSecretLabel: string
+    }
+> = {
+    aws: {
+        fileUrlPatternPlaceholder: 'eg: https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
+        accessKeyPlaceholder: 'eg: AKIAIOSFODNN7EXAMPLE',
+        accessKeyLabel: 'Access key',
+        accessSecretLabel: 'Access secret',
+    },
+    'google-cloud': {
+        fileUrlPatternPlaceholder: 'eg: https://storage.googleapis.com/your-org/airbyte/stripe/invoices/*.pqt',
+        accessKeyPlaceholder: 'eg: GOOGTS7C7FUP3AIRVEXAMPLE',
+        accessKeyLabel: 'Access ID',
+        accessSecretLabel: 'Secret',
+    },
+    'cloudflare-r2': {
+        fileUrlPatternPlaceholder: 'eg: https://your-account-id.r2.cloudflarestorage.com/airbyte/stripe/invoices/*.pqt',
+        accessKeyPlaceholder: 'eg: AKIAIOSFODNN7EXAMPLE',
+        accessKeyLabel: 'Access key',
+        accessSecretLabel: 'Access secret',
+    },
+}
 
 export function DatawarehouseTableForm(): JSX.Element {
+    const { manualLinkingProvider } = useValues(sourceWizardLogic)
+
+    const provider = manualLinkingProvider ?? 'aws'
+
     return (
-        <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
+        <Form
+            formKey="table"
+            logic={dataWarehouseTableLogic}
+            className="space-y-4"
+            enableFormOnSubmit
+            autoComplete="off"
+        >
             <div className="flex flex-col gap-2 max-w-160">
-                <LemonField name="name" label="Table Name">
+                <LemonField name="name" label="Table name">
                     <LemonInput
                         data-attr="table-name"
                         className="ph-ignore-input"
-                        autoFocus
                         placeholder="Examples: stripe_invoice, hubspot_contacts, users"
                         autoComplete="off"
                         autoCapitalize="off"
@@ -25,8 +65,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                     <LemonInput
                         data-attr="table-name"
                         className="ph-ignore-input"
-                        autoFocus
-                        placeholder="eg: https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt"
+                        placeholder={ProviderMappings[provider].fileUrlPatternPlaceholder}
                         autoComplete="off"
                         autoCapitalize="off"
                         autoCorrect="off"
@@ -36,7 +75,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                 <div className="text-muted text-xs mb-4">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
-                <LemonField name="format" label="File format" className="w-max">
+                <LemonField name="format" label="File format" className="w-max mb-4">
                     <LemonSelect
                         data-attr="table-format"
                         options={[
@@ -46,23 +85,21 @@ export function DatawarehouseTableForm(): JSX.Element {
                         ]}
                     />
                 </LemonField>
-                <LemonField name={['credential', 'access_key']} label="Access Key">
+                <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
                     <LemonInput
                         data-attr="access-key"
                         className="ph-ignore-input"
-                        autoFocus
-                        placeholder="eg: AKIAIOSFODNN7EXAMPLE"
+                        placeholder={ProviderMappings[provider].accessKeyPlaceholder}
                         autoComplete="off"
                         autoCapitalize="off"
                         autoCorrect="off"
                         spellCheck={false}
                     />
                 </LemonField>
-                <LemonField name={['credential', 'access_secret']} label="Access Secret">
+                <LemonField name={['credential', 'access_secret']} label={ProviderMappings[provider].accessSecretLabel}>
                     <LemonInput
                         data-attr="access-secret"
                         className="ph-ignore-input"
-                        autoFocus
                         type="password"
                         placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
                         autoComplete="off"
@@ -71,6 +108,14 @@ export function DatawarehouseTableForm(): JSX.Element {
                         spellCheck={false}
                     />
                 </LemonField>
+                {provider === 'google-cloud' && (
+                    <div className="text-muted text-xs">
+                        We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
+                        <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
+                            here
+                        </Link>
+                    </div>
+                )}
             </div>
         </Form>
     )

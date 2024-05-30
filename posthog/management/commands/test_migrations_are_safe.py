@@ -1,6 +1,6 @@
 import re
 import sys
-from typing import List, Optional
+from typing import Optional
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -20,7 +20,7 @@ def _get_table(search_string: str, operation_sql: str) -> Optional[str]:
 def validate_migration_sql(sql) -> bool:
     new_tables = _get_new_tables(sql)
     operations = sql.split("\n")
-    tables_created_so_far: List[str] = []
+    tables_created_so_far: list[str] = []
     for operation_sql in operations:
         # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
         table_being_altered: Optional[str] = (
@@ -73,7 +73,7 @@ def validate_migration_sql(sql) -> bool:
             )  # Ignore for brand-new tables
         ):
             print(
-                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables. For an example of how to do this safely see 0412_pluginconfig_match_action.py \nSource: `{operation_sql}`"
             )
             return True
         if (
@@ -82,7 +82,7 @@ def validate_migration_sql(sql) -> bool:
             and _get_table(" ON", operation_sql) not in new_tables
         ):
             print(
-                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. Please add this index CONCURRENTLY instead.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. Please add this index CONCURRENTLY instead. For an example of how to do this safely see 0412_pluginconfig_match_action.py \nSource: `{operation_sql}`"
             )
             return True
 

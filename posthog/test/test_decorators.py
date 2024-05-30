@@ -4,7 +4,6 @@ from posthog.decorators import cached_by_filters, is_stale_filter
 
 from django.core.cache import cache
 
-from rest_framework.test import APIRequestFactory
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
 from posthog.models.filters.filter import Filter
@@ -14,8 +13,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
-
-factory = APIRequestFactory()
 
 
 class DummyViewSet(GenericViewSet):
@@ -28,11 +25,12 @@ class DummyViewSet(GenericViewSet):
         return {"result": "bla"}
 
 
+router.register(r"dummy", DummyViewSet, "dummy")
+
+
 class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
         cache.clear()
-
-        router.register(r"dummy", DummyViewSet, "dummy")
 
         super().setUp()
 

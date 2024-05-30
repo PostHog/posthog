@@ -10,9 +10,10 @@ class TrendsDisplay:
         if display_type:
             self.display_type = display_type
         else:
-            self.display_type = ChartDisplayType.ActionsAreaGraph
+            self.display_type = ChartDisplayType.ActionsLineGraph
 
-    def should_aggregate_values(self) -> bool:
+    # No time range
+    def is_total_value(self) -> bool:
         return (
             self.display_type == ChartDisplayType.BoldNumber
             or self.display_type == ChartDisplayType.ActionsPie
@@ -50,7 +51,7 @@ class TrendsDisplay:
     def modify_outer_query(
         self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery, dates_queries: ast.SelectUnionQuery
     ) -> ast.SelectQuery:
-        if not self.should_aggregate_values():
+        if not self.is_total_value():
             return outer_query
 
         return ast.SelectQuery(

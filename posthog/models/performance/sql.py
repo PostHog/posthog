@@ -1,4 +1,5 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
+
 from posthog import settings
 from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS_WITH_PARTITION,

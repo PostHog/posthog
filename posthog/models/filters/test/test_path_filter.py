@@ -18,7 +18,7 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        self.assertEquals(
+        self.assertEqual(
             filter.to_dict(),
             filter.to_dict()
             | {
@@ -51,7 +51,7 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        self.assertEquals(
+        self.assertEqual(
             filter.to_dict(),
             filter.to_dict()
             | {

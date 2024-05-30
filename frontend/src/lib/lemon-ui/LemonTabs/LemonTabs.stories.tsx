@@ -50,5 +50,8 @@ const Template: StoryFn<typeof LemonTabsComponent> = (props) => {
     return <LemonTabsComponent {...props} activeKey={activeKey} onChange={(newValue) => setActiveKey(newValue)} />
 }
 
-export const LemonTabs: Story = Template.bind({})
-LemonTabs.args = {}
+export const Default: Story = Template.bind({})
+Default.args = {}
+
+export const Small: Story = Template.bind({})
+Small.args = { size: 'small' }

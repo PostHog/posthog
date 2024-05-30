@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Sequence, Set, Tuple
+from typing import Any
+from collections.abc import Sequence
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
@@ -16,17 +17,17 @@ def get_entity_filtering_params(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
     deep_filtering: bool = False,
-) -> Tuple[Dict, Dict]:
+) -> tuple[dict, dict]:
     """Return SQL condition for filtering events by allowed entities (events/actions).
 
     Events matching _at least one_ entity are included. If no entities are provided, _all_ events are included."""
     if not allowed_entities:
         return {}, {}
 
-    params: Dict[str, Any] = {}
-    entity_clauses: List[str] = []
-    action_ids_already_included: Set[int] = set()  # Avoid duplicating action conditions
-    events_already_included: Set[str] = set()  # Avoid duplicating event conditions
+    params: dict[str, Any] = {}
+    entity_clauses: list[str] = []
+    action_ids_already_included: set[int] = set()  # Avoid duplicating action conditions
+    events_already_included: set[str] = set()  # Avoid duplicating event conditions
     for entity in allowed_entities:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             if entity.id in action_ids_already_included or entity.id is None:

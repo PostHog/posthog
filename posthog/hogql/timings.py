@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Dict, List
 from contextlib import contextmanager
 
 from sentry_sdk import start_span
@@ -11,10 +10,10 @@ from posthog.schema import QueryTiming
 @dataclass
 class HogQLTimings:
     # Completed time in seconds for different parts of the HogQL query
-    timings: Dict[str, float] = field(default_factory=dict)
+    timings: dict[str, float] = field(default_factory=dict)
 
     # Used for housekeeping
-    _timing_starts: Dict[str, float] = field(default_factory=dict)
+    _timing_starts: dict[str, float] = field(default_factory=dict)
     _timing_pointer: str = "."
 
     def __post_init__(self):
@@ -37,11 +36,11 @@ class HogQLTimings:
             if span:
                 span.set_tag("duration_seconds", duration)
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         timings = {**self.timings}
         for key, start in reversed(self._timing_starts.items()):
             timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
         return timings
 
-    def to_list(self) -> List[QueryTiming]:
+    def to_list(self) -> list[QueryTiming]:
         return [QueryTiming(k=key, t=time) for key, time in self.to_dict().items()]

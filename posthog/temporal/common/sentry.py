@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, Optional, Type, Union
+from typing import Any, Optional, Union
 
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -83,5 +83,5 @@ class SentryInterceptor(Interceptor):
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
-    ) -> Optional[Type[WorkflowInboundInterceptor]]:
+    ) -> Optional[type[WorkflowInboundInterceptor]]:
         return _SentryWorkflowInterceptor

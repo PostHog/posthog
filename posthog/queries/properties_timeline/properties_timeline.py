@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Any, Dict, List, Set, TypedDict, Union, cast
+from typing import Any, TypedDict, Union, cast
 
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
@@ -18,13 +18,13 @@ from .properties_timeline_event_query import PropertiesTimelineEventQuery
 
 class PropertiesTimelinePoint(TypedDict):
     timestamp: str
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
     relevant_event_count: int
 
 
 class PropertiesTimelineResult(TypedDict):
-    points: List[PropertiesTimelinePoint]
-    crucial_property_keys: List[str]
+    points: list[PropertiesTimelinePoint]
+    crucial_property_keys: list[str]
     effective_date_from: str
     effective_date_to: str
 
@@ -56,7 +56,7 @@ WHERE timestamp IS NOT NULL /* Remove sentinel row */
 
 
 class PropertiesTimeline:
-    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> Set[str]:
+    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> set[str]:
         is_filter_relevant = lambda property_type, property_group_type_index: (
             (property_type == "person")
             if filter.aggregation_group_type_index is None
@@ -76,7 +76,7 @@ class PropertiesTimeline:
 
         if filter.breakdown and filter.breakdown_type == "person":
             if isinstance(filter.breakdown, list):
-                crucial_property_keys.update(cast(List[str], filter.breakdown))
+                crucial_property_keys.update(cast(list[str], filter.breakdown))
             else:
                 crucial_property_keys.add(filter.breakdown)
 

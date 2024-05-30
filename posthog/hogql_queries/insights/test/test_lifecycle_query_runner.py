@@ -23,7 +23,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models import Action, ActionStep, Cohort
+from posthog.models import Action, Cohort
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -31,9 +31,546 @@ def create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
     return action
+
+
+class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def _create_events(self, data, event="$pageview"):
+        person_result = []
+        for id, timestamps_and_groups in data:
+            with freeze_time(timestamps_and_groups[0][0]):
+                person_result.append(
+                    _create_person(
+                        team_id=self.team.pk,
+                        distinct_ids=[id],
+                        properties={
+                            "name": id,
+                            **({"email": "test@posthog.com"} if id == "p1" else {}),
+                        },
+                    )
+                )
+            for timestamp, groups in timestamps_and_groups:
+                # not sure this is right, this maybe should put groups in directly?
+                _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp, properties=groups)
+        flush_persons_and_events()
+        return person_result
+
+    def _create_query_runner(self, date_from, date_to, interval, aggregation_group_type_index) -> LifecycleQueryRunner:
+        series = [EventsNode(event="$pageview")]
+        query = LifecycleQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=interval,
+            series=series,
+            aggregation_group_type_index=aggregation_group_type_index,
+        )
+        return LifecycleQueryRunner(team=self.team, query=query)
+
+    def _run_lifecycle_query(self, date_from, date_to, interval, aggregation_group_type_index):
+        return self._create_query_runner(date_from, date_to, interval, aggregation_group_type_index).calculate()
+
+    def test_lifecycle_query_group_0(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        ("2020-01-11T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-13T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-15T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-17T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-19T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2020-01-09T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+                ("p3", [("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"})]),
+                (
+                    "p4",
+                    [
+                        ("2020-01-15T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-18T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+            ]
+        )
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self._run_lifecycle_query(date_from, date_to, IntervalType.day, 0)
+
+        statuses = [res["status"] for res in response.results]
+        self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
+
+        self.assertEqual(
+            [
+                {
+                    "count": 1.0,
+                    "data": [
+                        1.0,  # 9th, p2
+                        0.0,
+                        0.0,  # 11th, p1
+                        0.0,  # 12th, p3
+                        0.0,
+                        0.0,
+                        0.0,  # 15th, p4
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - new",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "new",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": 4.0,
+                    "data": [
+                        0.0,  # 9th
+                        0.0,  # 10th
+                        0.0,  # 11th
+                        1.0,  # 12th, p1 / p2
+                        1.0,  # 13th, p1
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,  # 18th, p4
+                        1.0,  # 19th, p1
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - returning",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "returning",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": 3.0,
+                    "data": [
+                        0.0,
+                        0.0,
+                        1.0,  # 11th, p1
+                        0.0,  # 12th
+                        0.0,
+                        0.0,
+                        1.0,  # 15th, p1
+                        0.0,
+                        1.0,  # 17th, p1
+                        0.0,
+                        0.0,  # 19th
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - resurrecting",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "resurrecting",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": -3.0,
+                    "data": [
+                        0.0,
+                        -1.0,  # 10th
+                        0.0,
+                        0.0,
+                        0.0,  # 13th
+                        -1.0,  # 14th
+                        0.0,
+                        -1.0,  # 16th
+                        0.0,
+                        0.0,  # 18th
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - dormant",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "dormant",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+            ],
+            response.results,
+        )
+
+    def test_lifecycle_query_group_1(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        ("2020-01-11T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-13T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-15T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-17T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-19T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2020-01-09T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+                ("p3", [("2020-01-12T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"})]),
+                (
+                    "p4",
+                    [
+                        ("2020-01-13T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-16T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:2"}),
+                        ("2020-01-18T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                    ],
+                ),
+            ]
+        )
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self._run_lifecycle_query(date_from, date_to, IntervalType.day, 1)
+
+        statuses = [res["status"] for res in response.results]
+        self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
+
+        self.assertEqual(
+            [
+                {
+                    "count": 1.0,
+                    "data": [
+                        1.0,  # 9th, c1
+                        0.0,
+                        0.0,  # 11th,
+                        0.0,  # 12th, c2
+                        0.0,
+                        0.0,
+                        0.0,  # 15th
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - new",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "new",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": 6.0,
+                    "data": [
+                        0.0,  # 9th
+                        0.0,  # 10th
+                        0.0,  # 11th
+                        1.0,  # 12th
+                        2.0,  # 13th, c1/c2
+                        0.0,
+                        0.0,
+                        1.0,  # 16th , c2
+                        1.0,
+                        0.0,  # 18th,
+                        1.0,  # 19th, c1
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - returning",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "returning",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": 4.0,
+                    "data": [
+                        0.0,
+                        0.0,
+                        1.0,  # 11th, c1
+                        1.0,  # 12th
+                        0.0,
+                        0.0,
+                        1.0,  # 15th, c2
+                        0.0,
+                        0.0,  # 17th
+                        1.0,  # 18th, c1
+                        0.0,  # 19th
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - resurrecting",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "resurrecting",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+                {
+                    "count": -4.0,
+                    "data": [
+                        0.0,
+                        -1.0,  # 10th, c1
+                        0.0,
+                        0.0,
+                        0.0,  # 13th
+                        -2.0,  # 14th, c1, c2
+                        0.0,
+                        0.0,  # 16th
+                        0.0,
+                        -1.0,  # 18th, c2
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": "$pageview - dormant",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "dormant",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
+                },
+            ],
+            response.results,
+        )
 
 
 class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -99,6 +636,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p4", ["2020-01-15T12:00:00Z"]),
             ]
         )
+        flush_persons_and_events()
 
     def _create_query_runner(self, date_from, date_to, interval) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
@@ -115,7 +653,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query="""
                 SELECT
-                start_of_period, count(DISTINCT person_id) AS counts, status
+                start_of_period, count(DISTINCT actor_id) AS counts, status
                 FROM {events_query}
                 GROUP BY start_of_period, status
             """,

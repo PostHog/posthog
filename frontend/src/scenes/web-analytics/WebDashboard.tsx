@@ -1,4 +1,4 @@
-import { IconExpand45 } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -6,8 +6,10 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { isNotNil } from 'lib/utils'
-import React from 'react'
+import React, { useState } from 'react'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
     QueryTile,
@@ -66,16 +68,15 @@ const Tiles = (): JSX.Element => {
                     return <QueryTileItem key={i} tile={tile} />
                 } else if ('tabs' in tile) {
                     return <TabsTileItem key={i} tile={tile} />
-                } else {
-                    return null
                 }
+                return null
             })}
         </div>
     )
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
-    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect } = tile
+    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect, docs } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
@@ -116,6 +117,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
+            {docs && <LearnMorePopover docsURL={docs.docsUrl} title={docs.title} description={docs.description} />}
             <WebQuery
                 query={query}
                 insightProps={insightProps}
@@ -160,6 +162,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 canOpenModal: !!tab.canOpenModal,
                 canOpenInsight: !!tab.canOpenInsight,
                 query: tab.query,
+                docs: tab.docs,
             }))}
             tileId={tile.tileId}
             openModal={openModal}
@@ -187,6 +190,13 @@ export const WebTabs = ({
         canOpenModal: boolean
         canOpenInsight: boolean
         query: QuerySchema
+        docs:
+            | {
+                  docsUrl: PostHogComDocsURL
+                  title: string
+                  description: string
+              }
+            | undefined
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
@@ -223,7 +233,16 @@ export const WebTabs = ({
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
-                <h2 className="flex-1 m-0">{activeTab?.title}</h2>
+                <h2 className="flex-1 m-0 flex flex-row">
+                    {activeTab?.title}
+                    {activeTab?.docs && (
+                        <LearnMorePopover
+                            docsURL={activeTab.docs.docsUrl}
+                            title={activeTab.docs.title}
+                            description={activeTab.docs.description}
+                        />
+                    )}
+                </h2>
 
                 {tabs.length > 3 ? (
                     <LemonSelect
@@ -246,6 +265,50 @@ export const WebTabs = ({
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
+    )
+}
+
+export interface LearnMorePopoverProps {
+    docsURL: PostHogComDocsURL
+    title: string
+    description: string
+}
+
+export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
+    const [isOpen, setIsOpen] = useState(false)
+
+    return (
+        <Popover
+            visible={isOpen}
+            onClickOutside={() => setIsOpen(false)}
+            overlay={
+                <div className="p-4">
+                    <div className="flex flex-row w-full">
+                        <h2 className="flex-1">{title}</h2>
+                        <LemonButton
+                            targetBlank
+                            type="tertiary"
+                            onClick={() => setIsOpen(false)}
+                            size="xsmall"
+                            icon={<IconX />}
+                        />
+                    </div>
+                    <p className="text-sm text-gray-700">{description}</p>
+                    <div className="flex justify-end mt-4">
+                        <LemonButton
+                            to={docsURL}
+                            onClick={() => setIsOpen(false)}
+                            targetBlank={true}
+                            sideIcon={<IconOpenSidebar />}
+                        >
+                            Learn more
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} />
+        </Popover>
     )
 }
 

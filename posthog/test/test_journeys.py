@@ -3,7 +3,7 @@ from hashlib import md5
 import json
 from datetime import datetime
 import os
-from typing import Any, Dict, List
+from typing import Any
 from uuid import UUID, uuid4
 
 from django.utils import timezone
@@ -15,10 +15,10 @@ from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
-    events_by_person: Dict[str, List[Dict[str, Any]]],
+    events_by_person: dict[str, list[dict[str, Any]]],
     team: Team,
     create_people: bool = True,
-) -> Dict[str, Person]:
+) -> dict[str, Person]:
     """
     Helper for creating specific events for a team.
 
@@ -115,11 +115,11 @@ def journeys_for(
     return people
 
 
-def _create_all_events_raw(all_events: List[Dict]):
+def _create_all_events_raw(all_events: list[dict]):
     parsed = ""
     for event in all_events:
         timestamp = timezone.now()
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "properties": {},
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "person_id": str(uuid4()),
@@ -162,7 +162,7 @@ def _create_all_events_raw(all_events: List[Dict]):
     )
 
 
-def create_all_events(all_events: List[dict]):
+def create_all_events(all_events: list[dict]):
     for event in all_events:
         _create_event(**event)
 
@@ -175,15 +175,15 @@ class InMemoryEvent:
     distinct_id: str
     team: Team
     timestamp: str
-    properties: Dict
+    properties: dict
     person_id: str
     person_created_at: datetime
-    person_properties: Dict
-    group0_properties: Dict
-    group1_properties: Dict
-    group2_properties: Dict
-    group3_properties: Dict
-    group4_properties: Dict
+    person_properties: dict
+    group0_properties: dict
+    group1_properties: dict
+    group2_properties: dict
+    group3_properties: dict
+    group4_properties: dict
     group0_created_at: datetime
     group1_created_at: datetime
     group2_created_at: datetime
@@ -191,7 +191,7 @@ class InMemoryEvent:
     group4_created_at: datetime
 
 
-def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
+def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
     (person, _) = Person.objects.update_or_create(
         persondistinctid__distinct_id__in=distinct_ids,
         persondistinctid__team_id=team_id,

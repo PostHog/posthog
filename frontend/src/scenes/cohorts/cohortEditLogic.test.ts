@@ -17,6 +17,7 @@ import {
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
     FilterLogicalOperator,
+    PropertyFilterType,
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
@@ -83,9 +84,6 @@ describe('cohortEditLogic', () => {
         })
             .toFinishAllListeners()
             .toDispatchActions(['setCohort', 'deleteCohort', router.actionCreators.push(urls.cohorts())])
-            .toMatchValues({
-                cohort: mockCohort,
-            })
         expect(api.update).toBeCalledTimes(1)
     })
 
@@ -431,6 +429,86 @@ describe('cohortEditLogic', () => {
             expect(api.update).toBeCalledTimes(0)
         })
 
+        it('do not save on partial event filters', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    filters: {
+                        properties: {
+                            id: '39777',
+                            type: FilterLogicalOperator.Or,
+                            values: [
+                                {
+                                    id: '70427',
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            explicit_datetime: '-14d',
+                                            key: 'dashboard date range changed',
+                                            event_filters: [
+                                                {
+                                                    key: '$browser',
+                                                    value: null,
+                                                    type: PropertyFilterType.Event,
+                                                    operator: PropertyOperator.Exact,
+                                                },
+                                            ],
+                                        },
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: '1',
+                                            time_interval: TimeUnitType.Day,
+                                            key: '$rageclick',
+                                            negation: true,
+                                            event_filters: [
+                                                {
+                                                    key: '$browser',
+                                                    value: null,
+                                                    type: PropertyFilterType.Event,
+                                                    operator: PropertyOperator.Exact,
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.actions.submitCohort()
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+                .toMatchValues({
+                    cohortErrors: partial({
+                        filters: {
+                            properties: {
+                                values: [
+                                    {
+                                        values: [
+                                            {
+                                                event_filters: 'Event filters cannot be empty.',
+                                                id: 'Event filters cannot be empty.',
+                                            },
+                                            {
+                                                event_filters: 'Event filters cannot be empty.',
+                                                id: 'Event filters cannot be empty.',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    }),
+                })
+            expect(api.update).toBeCalledTimes(0)
+        })
+
         describe('empty input errors', () => {
             Object.entries(ROWS).forEach(([key, row]) => {
                 it(`${key} row missing all required fields`, async () => {
@@ -475,7 +553,10 @@ describe('cohortEditLogic', () => {
                                                     partial(
                                                         Object.fromEntries(
                                                             row.fields
-                                                                .filter(({ fieldKey }) => !!fieldKey)
+                                                                .filter(
+                                                                    ({ fieldKey }) =>
+                                                                        !!fieldKey && fieldKey !== 'event_filters'
+                                                                ) // event_filters are optional
                                                                 .map(({ fieldKey, type }) => [
                                                                     fieldKey,
                                                                     CRITERIA_VALIDATIONS[type](undefined),
@@ -530,6 +611,16 @@ describe('cohortEditLogic', () => {
         })
 
         it('duplicate group', async () => {
+            const expectedGroupValue = partial({
+                ...mockCohort.filters.properties.values[0],
+                values: [
+                    {
+                        ...(mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter).values[0],
+                        explicit_datetime: '-30d',
+                    },
+                ],
+            }) // Backwards compatible processing adds explicit_datetime
+
             await expectLogic(logic, () => {
                 logic.actions.duplicateFilter(0)
             })
@@ -538,10 +629,7 @@ describe('cohortEditLogic', () => {
                     cohort: partial({
                         filters: {
                             properties: partial({
-                                values: [
-                                    partial(mockCohort.filters.properties.values[0]),
-                                    partial(mockCohort.filters.properties.values[0]),
-                                ],
+                                values: [expectedGroupValue, expectedGroupValue],
                             }),
                         },
                     }),
@@ -574,7 +662,17 @@ describe('cohortEditLogic', () => {
                         filters: {
                             properties: partial({
                                 values: [
-                                    partial(mockCohort.filters.properties.values[0]),
+                                    partial({
+                                        ...mockCohort.filters.properties.values[0],
+                                        values: [
+                                            {
+                                                ...(
+                                                    mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter
+                                                ).values[0],
+                                                explicit_datetime: '-30d',
+                                            },
+                                        ],
+                                    }), // Backwards compatible processing adds explicit_datetime
                                     partial({
                                         type: FilterLogicalOperator.Or,
                                         values: [NEW_CRITERIA],

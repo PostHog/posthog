@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import structlog
 from celery import shared_task
@@ -53,7 +53,7 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
+def calculate_cohort_from_list(cohort_id: int, items: list[str]) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
 
@@ -62,7 +62,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any]) -> None:
+def insert_cohort_from_insight_filter(cohort_id: int, filter_data: dict[str, Any]) -> None:
     from posthog.api.cohort import (
         insert_cohort_actors_into_ch,
         insert_cohort_people_into_pg,

@@ -569,12 +569,12 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
                         query_parameters={"query": query_command, "table": mutation.table},
                     )
 
-                    mutations_in_progress, total_mutations = parse_mutation_counts(response)
+                    mutations_in_progress, _ = parse_mutation_counts(response)
 
-                    if mutations_in_progress == 0 and total_mutations > 0:
+                    if mutations_in_progress == 0:
                         break
 
-                    activity.logger.info("Still waiting for mutatio %s", inputs.name)
+                    activity.logger.info("Still waiting for mutation %s", inputs.name)
 
                     await asyncio.sleep(5)
 

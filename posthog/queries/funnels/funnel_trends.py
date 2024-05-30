@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import groupby
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -147,7 +147,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         return query
 
-    def get_steps_reached_conditions(self) -> Tuple[str, str, str]:
+    def get_steps_reached_conditions(self) -> tuple[str, str, str]:
         # How many steps must have been done to count for the denominator of a funnel trends data point
         from_step = self._filter.funnel_from_step or 0
         # How many steps must have been done to count for the numerator of a funnel trends data point
@@ -180,7 +180,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
             if breakdown_clause:
                 if isinstance(period_row[-1], str) or (
-                    isinstance(period_row[-1], List) and all(isinstance(item, str) for item in period_row[-1])
+                    isinstance(period_row[-1], list) and all(isinstance(item, str) for item in period_row[-1])
                 ):
                     serialized_result.update({"breakdown_value": (period_row[-1])})
                 else:

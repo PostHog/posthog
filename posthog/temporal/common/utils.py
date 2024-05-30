@@ -103,7 +103,7 @@ HeartbeatType = typing.TypeVar("HeartbeatType", bound=HeartbeatDetails)
 
 
 async def should_resume_from_activity_heartbeat(
-    activity, heartbeat_type: typing.Type[HeartbeatType], logger
+    activity, heartbeat_type: type[HeartbeatType], logger
 ) -> tuple[bool, HeartbeatType | None]:
     """Check if a batch export should resume from an activity's heartbeat details.
 

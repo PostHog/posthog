@@ -62,7 +62,7 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
 
-    const [tab, setSurveyTab] = useState(SurveysTabs.Active)
+    const [tab, setSurveyTab] = useState(filters.archived ? SurveysTabs.Archived : SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
     return (
@@ -368,7 +368,7 @@ export function StatusTag({ survey }: { survey: Survey }): JSX.Element {
     } as Record<ProgressStatus, LemonTagType>
     const status = getSurveyStatus(survey)
     return (
-        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
+        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }} data-attr="status">
             {status.toUpperCase()}
         </LemonTag>
     )

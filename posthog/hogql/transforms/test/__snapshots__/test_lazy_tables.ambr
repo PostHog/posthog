@@ -4,11 +4,9 @@
   
   SELECT cohort_people__new_person.id AS id 
   FROM (
-  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id, cohortpeople.person_id AS cohort_people___person_id 
+  SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE equals(cohortpeople.team_id, 420) 
-  GROUP BY person_id, cohort_id, cohort_people___person_id 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN (
+  WHERE and(equals(cohortpeople.team_id, 420), false)) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, id AS cohort_people__new_person___id 
   FROM (
   SELECT person.id AS id 
@@ -42,11 +40,9 @@
   
   SELECT cohort_people__new_person.id AS id 
   FROM (
-  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id, cohortpeople.person_id AS cohort_people___person_id 
+  SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE equals(cohortpeople.team_id, 420) 
-  GROUP BY person_id, cohort_id, cohort_people___person_id 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN (
+  WHERE and(equals(cohortpeople.team_id, 420), false)) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, persons.properties___email AS cohort_people__new_person___properties___email 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 
@@ -90,6 +86,46 @@
   SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, events__pdi.person_id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 10
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirect_duplicate_references
+  '''
+  
+  SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events__person.properties AS properties 
+  FROM events INNER JOIN (
+  SELECT argMax(person.properties, person.version) AS properties, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirectly_referenced
+  '''
+  
+  SELECT events__person.id AS id 
+  FROM events LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS events__override ON equals(events.distinct_id, events__override.distinct_id) INNER JOIN (
+  SELECT person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables

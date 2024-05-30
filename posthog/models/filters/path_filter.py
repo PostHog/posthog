@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from rest_framework.request import Request
 
@@ -76,7 +76,7 @@ class PathFilter(
 ):
     def __init__(
         self,
-        data: Optional[Dict[str, Any]] = None,
+        data: Optional[dict[str, Any]] = None,
         request: Optional[Request] = None,
         **kwargs,
     ) -> None:

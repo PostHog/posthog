@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
@@ -9,6 +9,8 @@ from django.utils.timezone import now
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -66,24 +68,24 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
-cacheable_query_kinds = [
-    "EventsQuery",
-    "HogQLQuery",
-    "TimeToSeeDataSessionsQuery",
-    "TimeToSeeDataQuery",
-]
-
-
 def insight_can_be_cached(insight: Optional[Insight]) -> bool:
     if insight is None:
         return False
 
-    cacheable_filter_based_insight = len(insight.filters) > 0
-    cacheable_query_based_insight = insight.query is not None and (
-        insight.query.get("kind", None) in cacheable_query_kinds
-        or insight.query.get("source", {}).get("kind") in cacheable_query_kinds
-    )
-    return cacheable_filter_based_insight or cacheable_query_based_insight
+    if insight.filters:
+        return True
+
+    if not insight.query:
+        return False
+
+    if get_query_runner_or_none(insight.query, insight.team) is not None:
+        return True
+
+    if source := insight.query.get("source"):
+        if get_query_runner_or_none(source, insight.team) is not None:
+            return True
+
+    return False
 
 
 def sync_insight_cache_states():
@@ -110,7 +112,7 @@ def sync_insight_cache_states():
         _execute_insert(batch)
 
 
-def upsert(
+def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     team: Team,
     target: Union[DashboardTile, Insight],
     lazy_loader: Optional[LazyLoader] = None,
@@ -121,21 +123,26 @@ def upsert(
     if cache_key is None:  # Non-cachable model
         return None
 
-    target_age = calculate_target_age(team, target, lazy_loader)
-    target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
-
-    model = InsightCachingState(
-        team_id=team.pk,
-        insight=target if isinstance(target, Insight) else target.insight,
-        dashboard_tile=target if isinstance(target, DashboardTile) else None,
-        cache_key=cache_key,
-        target_cache_age_seconds=target_cache_age_seconds,
-    )
-    if execute:
-        _execute_insert([model])
+    insight = target if isinstance(target, Insight) else target.insight
+    if insight is None:
         return None
-    else:
-        return model
+
+    with flagged_conversion_to_query_based(insight):
+        target_age = calculate_target_age(team, target, lazy_loader)
+        target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
+
+        model = InsightCachingState(
+            team_id=team.pk,
+            insight=insight,
+            dashboard_tile=target if isinstance(target, DashboardTile) else None,
+            cache_key=cache_key,
+            target_cache_age_seconds=target_cache_age_seconds,
+        )
+        if execute:
+            _execute_insert([model])
+            return None
+        else:
+            return model
 
 
 def sync_insight_caching_state(
@@ -232,10 +239,10 @@ def _iterate_large_queryset(queryset, page_size):
         yield page.object_list
 
 
-def _execute_insert(states: List[Optional[InsightCachingState]]):
+def _execute_insert(states: list[Optional[InsightCachingState]]):
     from django.db import connection
 
-    models: List[InsightCachingState] = list(filter(None, states))
+    models: list[InsightCachingState] = list(filter(None, states))
     if len(models) == 0:
         return
 

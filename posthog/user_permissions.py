@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
@@ -32,10 +32,10 @@ class UserPermissions:
         self.user = user
         self._current_team = team
 
-        self._tiles: Optional[List[DashboardTile]] = None
-        self._team_permissions: Dict[int, UserTeamPermissions] = {}
-        self._dashboard_permissions: Dict[int, UserDashboardPermissions] = {}
-        self._insight_permissions: Dict[int, UserInsightPermissions] = {}
+        self._tiles: Optional[list[DashboardTile]] = None
+        self._team_permissions: dict[int, UserTeamPermissions] = {}
+        self._dashboard_permissions: dict[int, UserDashboardPermissions] = {}
+        self._insight_permissions: dict[int, UserInsightPermissions] = {}
 
     @cached_property
     def current_team(self) -> "UserTeamPermissions":
@@ -68,7 +68,7 @@ class UserPermissions:
         return self._insight_permissions[insight.pk]
 
     @cached_property
-    def team_ids_visible_for_user(self) -> List[int]:
+    def team_ids_visible_for_user(self) -> list[int]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
             "pk", "organization_id", "access_control"
         )
@@ -86,16 +86,16 @@ class UserPermissions:
         return self.organizations.get(organization_id)
 
     @cached_property
-    def organizations(self) -> Dict[UUID, Organization]:
+    def organizations(self) -> dict[UUID, Organization]:
         return {member.organization_id: member.organization for member in self.organization_memberships.values()}
 
     @cached_property
-    def organization_memberships(self) -> Dict[UUID, OrganizationMembership]:
+    def organization_memberships(self) -> dict[UUID, OrganizationMembership]:
         memberships = OrganizationMembership.objects.filter(user=self.user).select_related("organization")
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
-    def explicit_team_memberships(self) -> Dict[int, Any]:
+    def explicit_team_memberships(self) -> dict[int, Any]:
         try:
             from ee.models import ExplicitTeamMembership
         except ImportError:
@@ -107,7 +107,7 @@ class UserPermissions:
         return {membership.team_id: membership.level for membership in memberships}
 
     @cached_property
-    def dashboard_privileges(self) -> Dict[int, Dashboard.PrivilegeLevel]:
+    def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
         try:
             from ee.models import DashboardPrivilege
 
@@ -116,14 +116,14 @@ class UserPermissions:
         except ImportError:
             return {}
 
-    def set_preloaded_dashboard_tiles(self, tiles: List[DashboardTile]):
+    def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
         """
         Allows for speeding up insight-related permissions code
         """
         self._tiles = tiles
 
     @cached_property
-    def preloaded_insight_dashboards(self) -> Optional[List[Dashboard]]:
+    def preloaded_insight_dashboards(self) -> Optional[list[Dashboard]]:
         if self._tiles is None:
             return None
 

@@ -30,23 +30,26 @@ const StepInfo = (): JSX.Element => {
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
-                    <LemonField name="name" label="Name" help="Set an internal name for this experiment">
-                        <LemonInput placeholder="Pricing page conversion" />
+                    <LemonField name="name" label="Name">
+                        <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                     </LemonField>
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
-                        help="Experiments use a feature flag to trigger which elements to show/hide based on rollout conditions. You'll use this key in your code."
+                        help="Each experiment is backed by a feature flag. You'll use this key in your code."
                     >
-                        <LemonInput placeholder="pricing-page-conversion" />
+                        <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
                     </LemonField>
                     <LemonField name="description" label="Description">
-                        <LemonTextArea placeholder="The goal of this experiment is ..." />
+                        <LemonTextArea
+                            placeholder="The goal of this experiment is ..."
+                            data-attr="experiment-description"
+                        />
                     </LemonField>
                 </div>
                 <div className="mt-10">
-                    <h3>Variants</h3>
-                    <div>Add up to 9 variants to test against your control.</div>
+                    <h3 className="mb-1">Variants</h3>
+                    <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
                     <LemonDivider />
                     <div className="grid grid-cols-2 gap-4 max-w-160">
                         <div className="max-w-60">
@@ -132,7 +135,12 @@ const StepInfo = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-            <LemonButton className="mt-2" type="primary" onClick={() => moveToNextFormStep()}>
+            <LemonButton
+                className="mt-2"
+                type="primary"
+                data-attr="continue-experiment-creation"
+                onClick={() => moveToNextFormStep()}
+            >
                 Continue
             </LemonButton>
         </div>
@@ -140,8 +148,7 @@ const StepInfo = (): JSX.Element => {
 }
 
 const StepGoal = (): JSX.Element => {
-    const { experiment, exposureAndSampleSize, experimentInsightType, groupTypes, aggregationLabel } =
-        useValues(experimentLogic)
+    const { experiment, experimentInsightType, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
 
     // insightLogic
@@ -156,10 +163,10 @@ const StepGoal = (): JSX.Element => {
             <div className="space-y-8">
                 {groupTypes.size > 0 && (
                     <div>
-                        <h3>Participant type</h3>
-                        <div>
-                            This sets default aggregation type for all metrics and feature flags. You can change this at
-                            any time by updating the metric or feature flag.
+                        <h3 className="mb-1">Participant type</h3>
+                        <div className="text-xs text-muted">
+                            The type on which to aggregate metrics. You can change this at any time during the
+                            experiment.
                         </div>
                         <LemonDivider />
                         <LemonRadio
@@ -192,7 +199,7 @@ const StepGoal = (): JSX.Element => {
                 <div>
                     <h3 className="mb-1">Goal type</h3>
                     <div className="text-xs text-muted font-medium tracking-normal">
-                        You can always adjust your experiment goal later
+                        You can change this at any time during the experiment.
                     </div>
                     <LemonDivider />
                     <LemonRadio
@@ -223,7 +230,7 @@ const StepGoal = (): JSX.Element => {
                                     <div className="translate-y-2">
                                         <div>Trend</div>
                                         <div className="text-xs text-muted">
-                                            Track a cumulative total count of a specific event or action
+                                            Track the total count of a specific event or action.
                                         </div>
                                     </div>
                                 ),
@@ -232,11 +239,11 @@ const StepGoal = (): JSX.Element => {
                     />
                 </div>
                 <div>
-                    <h3>Goal criteria</h3>
-                    <div>
+                    <h3 className="mb-1">Goal criteria</h3>
+                    <div className="text-xs text-muted">
                         {experimentInsightType === InsightType.FUNNELS
-                            ? "Create the funnel where you'd like to see an increased conversion rate."
-                            : 'Create a trend goal to track change in a single metric.'}
+                            ? 'Create the funnel you want to measure.'
+                            : 'Select a single metric to track.'}
                     </div>
                     <LemonDivider />
                     <div className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light">
@@ -255,10 +262,8 @@ const StepGoal = (): JSX.Element => {
             <LemonButton
                 className="mt-2"
                 type="primary"
-                onClick={() => {
-                    const { exposure, sampleSize } = exposureAndSampleSize
-                    createExperiment(true, exposure, sampleSize)
-                }}
+                data-attr="save-experiment"
+                onClick={() => createExperiment(true)}
             >
                 Save as draft
             </LemonButton>

@@ -25,7 +25,7 @@ export function Paths(): JSX.Element {
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
+    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
         pathsDataLogic(insightProps)
     )
 
@@ -51,7 +51,7 @@ export function Paths(): JSX.Element {
     }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
 
     if (insightDataError) {
-        return <InsightErrorState excludeDetail />
+        return <InsightErrorState query={insightQuery} excludeDetail />
     }
 
     return (

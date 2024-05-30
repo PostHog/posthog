@@ -468,11 +468,10 @@ export const parseBreakdownValue = (
     const components = item.split('::')
     if (components.length === 1) {
         return { breakdown: components[0], breakdown_value: '' }
-    } else {
-        return {
-            breakdown: components[0],
-            breakdown_value: components[1],
-        }
+    }
+    return {
+        breakdown: components[0],
+        breakdown_value: components[1],
     }
 }
 
@@ -502,18 +501,17 @@ export const parseEventAndProperty = (
                     value: [propertyValue as string],
                 })),
         }
-    } else {
-        return {
-            name: components[0],
-            properties: [
-                {
-                    key: components[1],
-                    operator: PropertyOperator.Exact,
-                    value: components[2],
-                    type: PropertyFilterType.Event,
-                },
-            ],
-        }
+    }
+    return {
+        name: components[0],
+        properties: [
+            {
+                key: components[1],
+                operator: PropertyOperator.Exact,
+                value: components[2],
+                type: PropertyFilterType.Event,
+            },
+        ],
     }
 }
 
@@ -538,11 +536,10 @@ export const parseDisplayNameForCorrelation = (
             event: '$autocapture',
         })
         return { first_value, second_value }
-    } else {
-        // FunnelCorrelationResultsType.EventWithProperties
-        // Events here come in the form of event::property::value
-        return { first_value: values[1], second_value: values[2] }
     }
+    // FunnelCorrelationResultsType.EventWithProperties
+    // Events here come in the form of event::property::value
+    return { first_value: values[1], second_value: values[2] }
 }
 
 export const appendToCorrelationConfig = (

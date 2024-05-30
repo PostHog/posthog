@@ -33,6 +33,6 @@ class TestLatestMigrations(TestCase):
     def _get_latest_migration_from_manifest(django_app: str) -> str:
         root = pathlib.Path().resolve()
         manifest = pathlib.Path(f"{root}/latest_migrations.manifest").read_text()
-        posthog_latest_migration = [line for line in manifest.splitlines() if line.startswith(f"{django_app}: ")][0]
+        posthog_latest_migration = next(line for line in manifest.splitlines() if line.startswith(f"{django_app}: "))
 
         return posthog_latest_migration.replace(f"{django_app}: ", "")

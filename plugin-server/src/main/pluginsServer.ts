@@ -19,7 +19,10 @@ import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
+import { ActionManager } from '../worker/ingestion/action-manager'
+import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
@@ -39,7 +42,6 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { SessionRecordingIngesterV3 } from './ingestion-queues/session-recording/session-recordings-consumer-v3'
 import { setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
@@ -384,15 +386,22 @@ export async function startPluginsServer(
                     serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
                 )
 
+            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
+            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
+
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    postgres: postgres,
-                    kafka: kafka,
-                    teamManager: teamManager,
-                    organizationManager: organizationManager,
-                    serverConfig: serverConfig,
-                    rustyHook: rustyHook,
-                    appMetrics: appMetrics,
+                    postgres,
+                    kafka,
+                    teamManager,
+                    organizationManager,
+                    serverConfig,
+                    rustyHook,
+                    appMetrics,
+                    actionMatcher,
+                    actionManager,
+                    groupTypeManager,
                 })
 
             stopWebhooksHandlerConsumer = webhooksStopConsumer
@@ -411,8 +420,11 @@ export async function startPluginsServer(
                         hub.pluginSchedule = await loadPluginSchedule(piscina)
                     }
                 },
-                'reset-available-features-cache': async (message) => {
-                    await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+                'reset-available-product-features-cache': async (message) => {
+                    await piscina?.broadcastTask({
+                        task: 'resetAvailableProductFeaturesCache',
+                        args: JSON.parse(message),
+                    })
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
@@ -479,27 +491,6 @@ export async function startPluginsServer(
                 stopSessionRecordingBlobOverflowConsumer = () => ingester.stop()
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
-            }
-        }
-
-        if (capabilities.sessionRecordingV3Ingestion) {
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
-                throw new Error("Can't start session recording ingestion without object storage")
-            }
-            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngesterV3(serverConfig, postgres, s3)
-            await ingester.start()
-
-            const batchConsumer = ingester.batchConsumer
-
-            if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
-                shutdownOnConsumerExit(batchConsumer)
-                healthChecks['session-recordings-ingestion'] = () => ingester.isHealthy() ?? false
             }
         }
 

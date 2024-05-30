@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Union
 
 from freezegun import freeze_time
 
@@ -62,7 +62,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return WebOverviewQueryRunner(team=self.team, query=query)
 
     def test_sample_rate_cache_key_is_same_across_subclasses(self):
-        properties: List[Union[EventPropertyFilter, PersonPropertyFilter]] = [
+        properties: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
             EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
             PersonPropertyFilter(key="$initial_utm_source", value="google", operator=PropertyOperator.is_not),
         ]
@@ -75,10 +75,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(stats_key, overview_key)
 
     def test_sample_rate_cache_key_is_same_with_different_properties(self):
-        properties_a: List[Union[EventPropertyFilter, PersonPropertyFilter]] = [
+        properties_a: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
             EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
         ]
-        properties_b: List[Union[EventPropertyFilter, PersonPropertyFilter]] = [
+        properties_b: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
             EventPropertyFilter(key="$current_url", value="/b", operator=PropertyOperator.is_not),
         ]
         date_from = "2023-12-08"
@@ -90,7 +90,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(key_a, key_b)
 
     def test_sample_rate_cache_key_changes_with_date_range(self):
-        properties: List[Union[EventPropertyFilter, PersonPropertyFilter]] = [
+        properties: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
             EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
         ]
         date_from_a = "2023-12-08"
@@ -100,7 +100,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         key_a = self._create_web_stats_table_query(date_from_a, date_to, properties)._sample_rate_cache_key()
         key_b = self._create_web_stats_table_query(date_from_b, date_to, properties)._sample_rate_cache_key()
 
-        self.assertNotEquals(key_a, key_b)
+        self.assertNotEqual(key_a, key_b)
 
     def test_sample_rate_from_count(self):
         self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(0))

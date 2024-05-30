@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
+from collections.abc import Callable
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr, UnknownType
@@ -90,11 +91,11 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str | int]
+    chain: list[str | int]
 
 
 class Table(FieldOrTable):
-    fields: Dict[str, FieldOrTable]
+    fields: dict[str, FieldOrTable]
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
@@ -112,12 +113,12 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
-        asterisk: Dict[str, FieldOrTable] = {}
+        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+        asterisk: dict[str, FieldOrTable] = {}
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
@@ -134,10 +135,10 @@ class Table(FieldOrTable):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
+    join_function: Callable[[str, str, dict[str, Any], "HogQLContext", "SelectQuery"], Any]
     join_table: Table | str
-    from_field: List[str | int]
-    to_field: Optional[List[str | int]] = None
+    from_field: list[str | int]
+    to_field: Optional[list[str | int]] = None
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
@@ -157,7 +158,7 @@ class LazyTable(Table):
     model_config = ConfigDict(extra="forbid")
 
     def lazy_select(
-        self, requested_fields: Dict[str, List[str | int]], context: "HogQLContext", node: "SelectQuery"
+        self, requested_fields: dict[str, list[str | int]], context: "HogQLContext", node: "SelectQuery"
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 

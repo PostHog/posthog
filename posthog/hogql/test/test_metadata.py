@@ -278,7 +278,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_valid_view_nested_view(self):
-        self.client.post(
+        saved_query_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
@@ -290,6 +290,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         metadata = self._select("select event AS event FROM event_view")
+
+        self.assertEqual(saved_query_response.status_code, 201, saved_query_response.json())
         self.assertEqual(
             metadata.dict(),
             metadata.dict()

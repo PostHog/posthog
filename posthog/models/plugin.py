@@ -3,7 +3,7 @@ import json
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -52,13 +52,13 @@ def raise_if_plugin_installed(url: str, organization_id: str):
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
-def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict[str, Any]:
+def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> dict[str, Any]:
     """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
-    plugin_json: Optional[Dict[str, Any]]
+    plugin_json: Optional[dict[str, Any]]
     if url.startswith("file:"):
         plugin_path = url[5:]
         plugin_json_path = os.path.join(plugin_path, "plugin.json")
-        plugin_json = cast(Optional[Dict[str, Any]], load_json_file(plugin_json_path))
+        plugin_json = cast(Optional[dict[str, Any]], load_json_file(plugin_json_path))
         if not plugin_json:
             raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
         validated_data["plugin_type"] = "local"
@@ -81,7 +81,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
-                Optional[Dict[str, Any]],
+                Optional[dict[str, Any]],
                 get_file_from_archive(validated_data["archive"], "plugin.json"),
             )
             if not plugin_json:
@@ -124,7 +124,7 @@ class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:
             kwargs["organization_id"] = kwargs["organization"].id
-        plugin_json: Optional[Dict[str, Any]] = None
+        plugin_json: Optional[dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
@@ -197,10 +197,15 @@ class Plugin(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
+    # Some plugins are private, only certain organizations should be able to access them
+    # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
+    # Sometimes we want to test out new plugins by only enabling them for certain organizations at first
+    has_private_access = models.ManyToManyField(Organization)
+
     objects: PluginManager = PluginManager()
 
-    def get_default_config(self) -> Dict[str, Any]:
-        config: Dict[str, Any] = {}
+    def get_default_config(self) -> dict[str, Any]:
+        config: dict[str, Any] = {}
         config_schema = self.config_schema
         if isinstance(config_schema, dict):
             for key, config_entry in config_schema.items():
@@ -247,8 +252,20 @@ class PluginConfig(models.Model):
     # Used in the frontend
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
-    # Used in the frontend to hide pluginConfgis that user deleted
+    # Used in the frontend to hide pluginConfigs that user deleted
     deleted: models.BooleanField = models.BooleanField(default=False, null=True)
+
+    # If set we will filter the plugin triggers for this event
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
+
+    # DEPRECATED - this never actually got used - filters is the way to go
+    match_action = models.ForeignKey(
+        "posthog.Action",
+        on_delete=models.SET_NULL,
+        related_name="plugin_configs",
+        blank=True,
+        null=True,
+    )
 
 
 class PluginAttachment(models.Model):
@@ -291,8 +308,8 @@ class PluginLogEntryType(str, Enum):
 
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
-        self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
-    ) -> Tuple[
+        self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
+    ) -> tuple[
         "PluginSourceFile",
         Optional["PluginSourceFile"],
         Optional["PluginSourceFile"],
@@ -421,10 +438,12 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
-    type_filter: List[PluginLogEntryType] = [],
-) -> List[PluginLogEntry]:
-    clickhouse_where_parts: List[str] = []
-    clickhouse_kwargs: Dict[str, Any] = {}
+    type_filter: Optional[list[PluginLogEntryType]] = None,
+) -> list[PluginLogEntry]:
+    if type_filter is None:
+        type_filter = []
+    clickhouse_where_parts: list[str] = []
+    clickhouse_kwargs: dict[str, Any] = {}
     if team_id is not None:
         clickhouse_where_parts.append("team_id = %(team_id)s")
         clickhouse_kwargs["team_id"] = team_id
@@ -450,7 +469,7 @@ def fetch_plugin_log_entries(
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
-def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str, Any], *, is_staff: bool):
+def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str, Any], *, is_staff: bool):
     if not plugin.public_jobs:
         raise ValidationError("Plugin has no public jobs")
     if job_type not in plugin.public_jobs:

@@ -12,6 +12,7 @@ interface FunctionInstrumentation<T> {
     timeoutContext?: () => Record<string, any>
     teamId?: number
     logExecutionTime?: boolean
+    sendTimeoutGuardToSentry?: boolean
 }
 
 const logTime = (startTime: number, statsKey: string, error?: any) => {
@@ -30,8 +31,14 @@ export async function runInstrumentedFunction<T>({
     statsKey,
     teamId,
     logExecutionTime = false,
+    sendTimeoutGuardToSentry = true,
 }: FunctionInstrumentation<T>): Promise<T> {
-    const t = timeoutGuard(timeoutMessage ?? `Timeout warning for '${statsKey}'!`, timeoutContext, timeout)
+    const t = timeoutGuard(
+        timeoutMessage ?? `Timeout warning for '${statsKey}'!`,
+        timeoutContext,
+        timeout,
+        sendTimeoutGuardToSentry
+    )
     const startTime = performance.now()
     const end = instrumentedFunctionDuration.startTimer({
         function: statsKey,

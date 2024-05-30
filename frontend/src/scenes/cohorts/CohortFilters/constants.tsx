@@ -2,8 +2,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
+    CohortEventFiltersField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
+    CohortRelativeAndExactTimeField,
     CohortSelectorField,
     CohortTaxonomicField,
     CohortTextField,
@@ -12,9 +14,11 @@ import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
+    CohortEventFiltersFieldProps,
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
+    CohortRelativeAndExactTimeFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
     FieldOptionsType,
@@ -342,18 +346,17 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
+            },
+            {
                 type: FilterType.Text,
-                defaultValue: 'in the last',
+                defaultValue: 'after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -374,18 +377,17 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
+            },
+            {
                 type: FilterType.Text,
-                defaultValue: 'in the last',
+                defaultValue: 'after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -406,6 +408,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
+            },
+            {
                 fieldKey: 'operator',
                 type: FilterType.EventsAndActionsMathOperator,
                 defaultValue: PropertyOperator.Exact,
@@ -417,17 +423,12 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Text,
-                defaultValue: 'times in the last',
+                defaultValue: 'times after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -568,7 +569,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
-                type: FilterType.EventProperties,
+                type: FilterType.PersonProperties,
             },
             {
                 fieldKey: 'operator',
@@ -588,7 +589,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
-                type: FilterType.EventProperties,
+                type: FilterType.PersonProperties,
             },
             {
                 fieldKey: 'operator',
@@ -823,6 +824,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
 }
 
+export const COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME = Object.entries(ROWS)
+    .filter(([_, row]) => row.fields.some((field) => field.type === FilterType.RelativeAndExactTime))
+    .map(([eventType, _]) => eventType)
+
 // Building blocks of a row
 export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
     [FilterType.Behavioral]: function _renderField(p) {
@@ -877,7 +882,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             />
         )
     },
-    [FilterType.EventProperties]: function _renderField(p) {
+    [FilterType.PersonProperties]: function _renderField(p) {
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
@@ -885,6 +890,9 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 placeholder="Choose person property"
             />
         )
+    },
+    [FilterType.EventFilters]: function _renderField(p) {
+        return <CohortEventFiltersField {...(p as CohortEventFiltersFieldProps)} />
     },
     [FilterType.PersonPropertyValues]: function _renderField(p) {
         return p.criteria['operator'] &&
@@ -913,6 +921,9 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             />
         )
     },
+    [FilterType.RelativeAndExactTime]: function _renderField(p) {
+        return <CohortRelativeAndExactTimeField {...(p as CohortRelativeAndExactTimeFieldProps)} />
+    },
     [FilterType.EventType]: function _renderField() {
         return <></>
     },
@@ -926,7 +937,8 @@ export const CRITERIA_VALIDATIONS: Record<
     (d: string | number | null | undefined) => CohortClientErrors | undefined
 > = {
     [FilterType.EventsAndActions]: () => CohortClientErrors.EmptyEventsAndActions,
-    [FilterType.EventProperties]: () => CohortClientErrors.EmptyEventProperties,
+    [FilterType.EventFilters]: () => CohortClientErrors.EmptyEventFilters,
+    [FilterType.PersonProperties]: () => CohortClientErrors.EmptyPersonProperties,
     [FilterType.PersonPropertyValues]: () => CohortClientErrors.EmptyPersonPropertyValues,
     [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
     [FilterType.Number]: (d) => (Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber),
@@ -934,6 +946,7 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.TimeUnit]: () => CohortClientErrors.EmptyTimeUnit,
     [FilterType.MathOperator]: () => CohortClientErrors.EmptyMathOperator,
     [FilterType.EventsAndActionsMathOperator]: () => CohortClientErrors.EmptyMathOperator,
+    [FilterType.RelativeAndExactTime]: () => CohortClientErrors.EmptyRelativeAndExactTime,
     [FilterType.CohortId]: () => CohortClientErrors.EmptyCohortId,
     [FilterType.CohortValues]: () => CohortClientErrors.EmptyCohortValues,
     [FilterType.Value]: () => CohortClientErrors.EmptyValue,
@@ -952,8 +965,7 @@ export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,
     event_type: TaxonomicFilterGroupType.Events,
-    time_value: '30',
-    time_interval: TimeUnitType.Day,
+    explicit_datetime: '-30d',
 }
 
 export const NEW_CRITERIA_GROUP: CohortCriteriaGroupFilter = {

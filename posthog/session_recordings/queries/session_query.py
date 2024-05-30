@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, Union
+from typing import Optional, Union
 
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -29,7 +29,7 @@ class SessionQuery:
         self._team = team
         self._session_id_alias = session_id_alias
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self) -> tuple[str, dict]:
         params = {"team_id": self._team.pk}
 
         query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=False)

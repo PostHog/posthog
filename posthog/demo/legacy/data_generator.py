@@ -1,4 +1,3 @@
-from typing import Dict, List
 from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
@@ -13,9 +12,9 @@ class DataGenerator:
         self.team = team
         self.n_days = n_days
         self.n_people = n_people
-        self.events: List[Dict] = []
-        self.snapshots: List[Dict] = []
-        self.distinct_ids: List[str] = []
+        self.events: list[dict] = []
+        self.snapshots: list[dict] = []
+        self.distinct_ids: list[str] = []
 
     def create(self, dashboards=True):
         self.create_missing_events_and_properties()

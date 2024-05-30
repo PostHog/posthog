@@ -1,6 +1,7 @@
 import itertools
 from collections import OrderedDict
-from typing import Any, Dict, Generator
+from typing import Any
+from collections.abc import Generator
 
 from more_itertools import unique_everseen
 from rest_framework_csv.renderers import CSVRenderer
@@ -28,7 +29,7 @@ class OrderedCsvRenderer(
         # Get the set of all unique headers, and sort them.
         unique_fields = list(unique_everseen(itertools.chain(*(item.keys() for item in data))))
 
-        ordered_fields: Dict[str, Any] = OrderedDict()
+        ordered_fields: dict[str, Any] = OrderedDict()
         for item in unique_fields:
             field = item.split(".")
             field = field[0]

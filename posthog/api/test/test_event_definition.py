@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import ANY, patch
 from uuid import uuid4
 
@@ -20,7 +20,7 @@ from posthog.test.base import APIBaseTest
 class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
-    EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
+    EXPECTED_EVENT_DEFINITIONS: list[dict[str, Any]] = [
         {"name": "installed_app"},
         {"name": "rated_app"},
         {"name": "purchase"},
@@ -54,7 +54,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_EVENT_DEFINITIONS))
 
         for item in self.EXPECTED_EVENT_DEFINITIONS:
-            response_item: Dict[str, Any] = next(
+            response_item: dict[str, Any] = next(
                 (_i for _i in response.json()["results"] if _i["name"] == item["name"]),
                 {},
             )
@@ -199,7 +199,7 @@ class EventData:
     team_id: int
     distinct_id: str
     timestamp: datetime
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
 
 
 def capture_event(event: EventData):
@@ -222,7 +222,7 @@ def capture_event(event: EventData):
     )
 
 
-def create_event_definitions(event_definition: Dict, team_id: int) -> EventDefinition:
+def create_event_definitions(event_definition: dict, team_id: int) -> EventDefinition:
     """
     Create event definition for a team.
     """

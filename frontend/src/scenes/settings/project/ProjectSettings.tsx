@@ -6,11 +6,13 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { JSSnippet } from 'lib/components/JSSnippet'
+import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -90,6 +92,7 @@ export function ProjectVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { preflight } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
     const region = preflight?.region
 
     const openDialog = (): void => {
@@ -150,6 +153,17 @@ export function ProjectVariables(): JSX.Element {
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
                     <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
+                </div>
+            ) : null}
+            {region && user ? (
+                <div className="flex-1 max-w-full">
+                    <h3 id="debug-info" className="min-w-[25rem]">
+                        Debug information
+                    </h3>
+                    <p>Include this snippet when opening a Feature request or Bug report on GitHub.</p>
+                    <CodeSnippet compact thing="debug info">
+                        {getPublicSupportSnippet(region, user)}
+                    </CodeSnippet>
                 </div>
             ) : null}
         </div>

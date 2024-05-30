@@ -3,9 +3,9 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
@@ -371,11 +371,11 @@ export const elementsLogic = kea<elementsLogicType>([
     }),
     listeners(({ actions }) => ({
         enableInspect: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
         },
         disableInspect: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
             const inspectForAction =
@@ -401,7 +401,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }
 
-            posthog.capture('toolbar selected HTML element', {
+            toolbarPosthogJS.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase(),
                 element_type: (element as HTMLInputElement)?.type,
                 has_href: !!(element as HTMLAnchorElement)?.href,

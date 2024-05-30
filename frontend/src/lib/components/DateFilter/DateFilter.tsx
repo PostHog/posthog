@@ -22,6 +22,7 @@ import { DateMappingOption, PropertyOperator } from '~/types'
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
+import { DateOption } from './rollingDateRangeFilterLogic'
 
 export interface DateFilterProps {
     showCustom?: boolean
@@ -30,6 +31,7 @@ export interface DateFilterProps {
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
+    disabledReason?: string
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
@@ -41,6 +43,7 @@ interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
+    allowedRollingDateOptions?: DateOption[]
 }
 
 export function DateFilter({
@@ -48,6 +51,7 @@ export function DateFilter({
     showRollingRangePicker = true,
     className,
     disabled,
+    disabledReason,
     makeLabel,
     onChange,
     dateFrom,
@@ -58,6 +62,7 @@ export function DateFilter({
     dropdownPlacement = 'bottom-start',
     max,
     isFixedDateMode = false,
+    allowedRollingDateOptions,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -183,7 +188,11 @@ export function DateFilter({
                             ref: rollingDateRangeRef,
                         }}
                         max={max}
-                        allowedDateOptions={isFixedDateMode ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
+                        allowedDateOptions={
+                            isFixedDateMode && !allowedRollingDateOptions
+                                ? ['hours', 'days', 'weeks', 'months', 'years']
+                                : allowedRollingDateOptions
+                        }
                         fullWidth
                     />
                 )}
@@ -211,6 +220,7 @@ export function DateFilter({
             id="daterange_selector"
             onClick={isVisible ? close : open}
             disabled={disabled}
+            disabledReason={disabledReason}
             className={clsx('text-nowrap', className)}
             size={size ?? 'small'}
             type="secondary"

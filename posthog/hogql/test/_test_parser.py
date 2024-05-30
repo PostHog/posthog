@@ -1,4 +1,4 @@
-from typing import Literal, cast, Optional, Dict
+from typing import Literal, cast, Optional
 
 import math
 
@@ -20,10 +20,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
-        def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
 
         def test_numbers(self):
@@ -790,7 +790,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -804,7 +804,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -818,12 +818,26 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                             next_join=ast.JoinExpr(
                                 join_type="RIGHT ANY JOIN",
                                 table=ast.Field(chain=["events3"]),
-                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2)),
+                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2), constraint_type="ON"),
                             ),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events JOIN events2 USING 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events2"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
                         ),
                     ),
                 ),
@@ -863,7 +877,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["pdi", "distinct_id"]),
                                     right=ast.Field(chain=["e", "distinct_id"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                             next_join=ast.JoinExpr(
                                 join_type="LEFT JOIN",
@@ -874,7 +889,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                         op=ast.CompareOperationOp.Eq,
                                         left=ast.Field(chain=["p", "id"]),
                                         right=ast.Field(chain=["pdi", "person_id"]),
-                                    )
+                                    ),
+                                    constraint_type="ON",
                                 ),
                             ),
                         ),

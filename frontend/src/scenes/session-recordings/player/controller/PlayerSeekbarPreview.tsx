@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
-import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { PlayerFrame } from '../PlayerFrame'
@@ -28,7 +28,7 @@ const PlayerSeekbarPreviewFrame = ({
 }: { percentage: number; isVisible: boolean } & Omit<
     PlayerSeekbarPreviewProps,
     'seekBarRef' | 'activeMs'
->): JSX.Element => {
+>): JSX.Element | null => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const seekPlayerLogicProps: SessionRecordingPlayerLogicProps = {
@@ -66,7 +66,7 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
+function _PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
@@ -125,3 +125,5 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: Pla
         </div>
     )
 }
+
+export const PlayerSeekbarPreview = memo(_PlayerSeekbarPreview)

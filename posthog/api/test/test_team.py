@@ -1,21 +1,21 @@
 import json
 import uuid
-from typing import List, cast, Dict, Optional, Any
+from typing import Any, Optional
 from unittest import mock
-from unittest.mock import MagicMock, call, patch, ANY
+from unittest.mock import ANY, MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.http import HttpResponse
+from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
-from posthog.models import EarlyAccessFeature, ActivityLog
+from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -23,21 +23,22 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
-    def _assert_activity_log(self, expected: List[Dict], team_id: Optional[int] = None) -> None:
+    def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
         if not team_id:
             team_id = self.team.pk
 
         starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
-    def _assert_organization_activity_log(self, expected: List[Dict]) -> None:
+    def _assert_organization_activity_log(self, expected: list[dict]) -> None:
         starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_activity_log_is_empty(self) -> None:
@@ -95,7 +96,9 @@ class TestTeamAPI(APIBaseTest):
 
     @patch("posthog.api.team.get_geoip_properties")
     def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
-        self.organization.available_features = cast(List[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
+        ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -186,47 +189,6 @@ class TestTeamAPI(APIBaseTest):
                                 "after": "Europe/Lisbon",
                                 "before": "UTC",
                                 "field": "timezone",
-                                "type": "Team",
-                            },
-                        ],
-                        "name": "Default project",
-                        "short_id": None,
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "item_id": str(self.team.pk),
-                    "scope": "Team",
-                    "user": {
-                        "email": "user1@posthog.com",
-                        "first_name": "",
-                    },
-                },
-            ]
-        )
-
-    @freeze_time("2022-02-08")
-    def test_activity_log_tracks_extra_settings(self):
-        self._assert_activity_log_is_empty()
-
-        response = self.client.patch("/api/projects/@current/", {"extra_settings": {"poe_v2_enabled": True}})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_data = response.json()
-        self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["extra_settings"], {"poe_v2_enabled": True})
-
-        self._assert_activity_log(
-            [
-                {
-                    "activity": "updated",
-                    "created_at": "2022-02-08T00:00:00Z",
-                    "detail": {
-                        "changes": [
-                            {
-                                "action": "created",
-                                "after": {"poe_v2_enabled": True},
-                                "before": None,
-                                "field": "extra_settings",
                                 "type": "Team",
                             },
                         ],
@@ -544,6 +506,7 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["primary_dashboard"], None)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_update_timezone_remove_cache(self):
         # Seed cache with some insights
         self.client.post(
@@ -565,6 +528,38 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
         self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
+        # Verify cache was deleted
+        self.assertEqual(cache.get(response["filters_hash"]), None)
+
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
+    def test_update_modifiers_remove_cache(self):
+        self.client.patch(
+            f"/api/projects/{self.team.id}/",
+            {"modifiers": {"personsOnEventsMode": "person_id_no_override_properties_on_events"}},
+        )
+        # Seed cache with some insights
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
+        ).json()
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "user signed up"}])},
+        )
+
+        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/",
+            {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+        )
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
@@ -1080,7 +1075,7 @@ class TestTeamAPI(APIBaseTest):
         # and the existing second level nesting is not preserved
         self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
-    def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
+    def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
         get_response = self.client.get("/api/projects/@current/")
         assert get_response.status_code == status.HTTP_200_OK, get_response.json()
         assert get_response.json()["session_replay_config"] == expected
@@ -1088,7 +1083,7 @@ class TestTeamAPI(APIBaseTest):
         return get_response
 
     def _patch_session_replay_config(
-        self, config: Dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
     ) -> HttpResponse:
         patch_response = self.client.patch(
             "/api/projects/@current/",
@@ -1098,13 +1093,13 @@ class TestTeamAPI(APIBaseTest):
 
         return patch_response
 
-    def _assert_linked_flag_config(self, expected_config: Dict | None) -> HttpResponse:
+    def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
         response = self.client.get("/api/projects/@current/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["session_recording_linked_flag"] == expected_config
         return response
 
-    def _patch_linked_flag_config(self, config: Dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
+    def _patch_linked_flag_config(self, config: dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
         response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": config})
         assert response.status_code == expected_status, response.json()
         return response

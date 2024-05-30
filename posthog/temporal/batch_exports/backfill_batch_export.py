@@ -5,13 +5,13 @@ import datetime as dt
 import json
 import typing
 
-from asgiref.sync import sync_to_async
 import temporalio
 import temporalio.activity
 import temporalio.client
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
+from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from posthog.batch_exports.models import BatchExportBackfill

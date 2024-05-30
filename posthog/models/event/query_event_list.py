@@ -1,5 +1,5 @@
 from datetime import timedelta, datetime, time
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -29,10 +29,10 @@ def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
 
 
 def parse_request_params(
-    conditions: Dict[str, Union[None, str, List[str]]], team: Team, tzinfo: ZoneInfo
-) -> Tuple[str, Dict]:
+    conditions: dict[str, Union[None, str, list[str]]], team: Team, tzinfo: ZoneInfo
+) -> tuple[str, dict]:
     result = ""
-    params: Dict[str, Union[str, List[str]]] = {}
+    params: dict[str, Union[str, list[str]]] = {}
     for k, v in conditions.items():
         if not isinstance(v, str):
             continue
@@ -58,13 +58,13 @@ def parse_request_params(
 def query_events_list(
     filter: Filter,
     team: Team,
-    request_get_query_dict: Dict,
-    order_by: List[str],
+    request_get_query_dict: dict,
+    order_by: list[str],
     action_id: Optional[str],
     unbounded_date_from: bool = False,
     limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
-) -> List:
+) -> list:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
@@ -116,9 +116,9 @@ def query_events_list(
     if action_id:
         try:
             action = Action.objects.get(pk=action_id, team_id=team.pk)
+            if not action.steps:
+                return []
         except Action.DoesNotExist:
-            return []
-        if action.steps.count() == 0:
             return []
 
         action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)

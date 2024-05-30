@@ -26,6 +26,7 @@ interface FilterRowProps {
     onRemove: (index: number) => void
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
+    disabledReason?: string
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -42,6 +43,7 @@ export const FilterRow = React.memo(function FilterRow({
     onRemove,
     orFiltering,
     errorMessage,
+    disabledReason,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -92,8 +94,9 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClick={() => setOpen(!open)}
                                 onClose={() => onRemove(index)}
                                 item={item}
+                                disabledReason={disabledReason}
                             />
-                        ) : (
+                        ) : !disabledReason ? (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
                                 className="new-prop-filter"
@@ -105,7 +108,7 @@ export const FilterRow = React.memo(function FilterRow({
                             >
                                 {label}
                             </LemonButton>
-                        )}
+                        ) : undefined}
                     </Popover>
                 )}
                 {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}

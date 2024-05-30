@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
@@ -55,11 +55,10 @@ jobs:
     chunks:
         needs: changes
         name: Cypress preparation
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
-
         steps:
             - name: Check out
               uses: actions/checkout@v3
@@ -70,7 +69,7 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -94,7 +93,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [chunks, changes, container]
         permissions:
@@ -115,9 +114,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -219,7 +216,7 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.1.0
+              uses: iFaxity/wait-on-action@v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true
@@ -279,7 +276,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         needs: [cypress]
         if: needs.changes.outputs.shouldTriggerCypress == 'true'
         steps:
@@ -306,6 +303,7 @@ jobs:
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

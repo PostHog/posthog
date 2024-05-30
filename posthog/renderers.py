@@ -1,10 +1,8 @@
-from typing import Dict
-
 import orjson
 from rest_framework.renderers import JSONRenderer
 from rest_framework.utils.encoders import JSONEncoder
 
-CleaningMarker = bool | Dict[int, "CleaningMarker"]
+CleaningMarker = bool | dict[int, "CleaningMarker"]
 
 
 class SafeJSONRenderer(JSONRenderer):

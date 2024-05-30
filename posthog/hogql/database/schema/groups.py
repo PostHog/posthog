@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -24,7 +24,7 @@ GROUPS_TABLE_FIELDS = {
 }
 
 
-def select_from_groups_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     return argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
@@ -37,7 +37,7 @@ def join_with_group_n_table(group_index: int):
     def join_with_group_table(
         from_table: str,
         to_table: str,
-        requested_fields: Dict[str, Any],
+        requested_fields: dict[str, Any],
         context: HogQLContext,
         node: SelectQuery,
     ):
@@ -61,7 +61,8 @@ def join_with_group_n_table(group_index: int):
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=[from_table, f"$group_{group_index}"]),
                 right=ast.Field(chain=[to_table, "key"]),
-            )
+            ),
+            constraint_type="ON",
         )
 
         return join_expr
@@ -70,7 +71,7 @@ def join_with_group_n_table(group_index: int):
 
 
 class RawGroupsTable(Table):
-    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "groups"
@@ -80,9 +81,9 @@ class RawGroupsTable(Table):
 
 
 class GroupsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

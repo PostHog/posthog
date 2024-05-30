@@ -25,6 +25,8 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     connection_id: models.CharField = models.CharField(max_length=400)
     destination_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    # `status` is deprecated in favour of external_data_schema.status
     status: models.CharField = models.CharField(max_length=400)
     source_type: models.CharField = models.CharField(max_length=128, choices=Type.choices)
     job_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(

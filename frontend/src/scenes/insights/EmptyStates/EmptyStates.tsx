@@ -6,12 +6,20 @@ import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,11 +29,12 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, Node } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightDataLogic } from '../insightDataLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -68,64 +77,175 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
         </Tooltip>
     )
 }
+function humanFileSize(size: number): string {
+    const i = size == 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024))
+    return (+(size / Math.pow(1024, i))).toFixed(2) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
+}
 
-export function InsightTimeoutState({
-    isLoading,
+export function InsightLoadingStateWithLoadingBar({
     queryId,
     insightProps,
 }: {
-    isLoading: boolean
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { openSupportForm } = useActions(supportLogic)
+    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
+
+    const [rowsRead, setRowsRead] = useState(0)
+    const [bytesRead, setBytesRead] = useState(0)
+    const [secondsElapsed, setSecondsElapsed] = useState(0)
+
+    useEffect(() => {
+        const status = insightPollResponse?.status?.query_progress
+        const previousStatus = insightPollResponse?.previousStatus?.query_progress
+        setRowsRead(previousStatus?.rows_read || 0)
+        setBytesRead(previousStatus?.bytes_read || 0)
+        const interval = setInterval(() => {
+            setRowsRead((rowsRead) => {
+                const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
+                return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
+            })
+            setBytesRead((bytesRead) => {
+                const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
+                return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
+            })
+            setSecondsElapsed(() => {
+                return dayjs().diff(dayjs(insightPollResponse?.status?.start_time), 'milliseconds')
+            })
+        }, 100)
+
+        return () => clearInterval(interval)
+    }, [insightPollResponse])
+    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+
+    const cpuUtilization =
+        (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (insightPollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                {!isLoading ? (
-                    <>
-                        <div className="illustration-main">
-                            <IconErrorOutline />
-                        </div>
-                        <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
-                    </>
-                ) : (
-                    <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
-                )}
+                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
+                <LoadingBar />
+                <p className="mx-auto text-center text-xs">
+                    {rowsRead > 0 && bytesRead > 0 && (
+                        <>
+                            {humanFriendlyNumber(rowsRead || 0, 0)} rows
+                            <br />
+                            {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
+                            <br />
+                            CPU {humanFriendlyNumber(cpuUtilization, 0)}%
+                        </>
+                    )}
+                </p>
                 <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
                     <p className="text-xs m-0 leading-5">
-                        {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
+                        {suggestedSamplingPercentage && !samplingPercentage ? (
                             <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
                                 <SamplingLink insightProps={insightProps} />.
                             </span>
-                        ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
+                        ) : suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
                                 <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
                                 removing breakdowns.
                             </>
-                        ) : isLoading ? (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
                         ) : (
-                            <>
-                                Sometimes this happens. Try refreshing the page, reducing the date range, or removing
-                                breakdowns. If you're still having issues,{' '}
-                                <Link
-                                    onClick={() => {
-                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                    }}
-                                >
-                                    let us know
-                                </Link>
-                                .
-                            </>
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
                         )}
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+export function InsightLoadingState({
+    queryId,
+    insightProps,
+}: {
+    queryId?: string | null
+    insightProps: InsightLogicProps
+}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
+    if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
+        return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
+    }
+
+    return (
+        <div className="insight-empty-state warning">
+            <Animation type={AnimationType.LaptopHog} />
+            <div className="empty-state-inner">
+                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
+                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs m-0 leading-5">
+                        {suggestedSamplingPercentage && !samplingPercentage ? (
+                            <span data-attr="insight-loading-waiting-message">
+                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
+                                <SamplingLink insightProps={insightProps} />.
+                            </span>
+                        ) : suggestedSamplingPercentage && samplingPercentage ? (
+                            <>
+                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
+                                removing breakdowns.
+                            </>
+                        ) : (
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                        )}
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
+
+    return (
+        <div className="insight-empty-state warning">
+            <div className="empty-state-inner">
+                <>
+                    <div className="illustration-main">
+                        <IconErrorOutline />
+                    </div>
+                    <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
+                </>
+                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs m-0 leading-5">
+                        <>
+                            Sometimes this happens. Try refreshing the page, reducing the date range, or removing
+                            breakdowns. If you're still having issues,{' '}
+                            <Link
+                                onClick={() => {
+                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                                }}
+                            >
+                                let us know
+                            </Link>
+                            .
+                        </>
                     </p>
                 </div>
                 {queryId ? (
@@ -139,10 +259,11 @@ export function InsightTimeoutState({
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    query?: Record<string, any> | Node | null
     queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, query, queryId }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -181,6 +302,18 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                     </div>
                 )}
                 {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {query && (
+                    <LemonButton
+                        data-attr="insight-error-query"
+                        targetBlank
+                        size="small"
+                        type="secondary"
+                        to={urls.debugQuery(query)}
+                        className="mt-4"
+                    >
+                        Open in query debugger
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -243,7 +376,13 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
+export function InsightValidationError({
+    detail,
+    query,
+}: {
+    detail: string
+    query?: Record<string, any> | null
+}): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -256,6 +395,19 @@ export function InsightValidationError({ detail }: { detail: string }): JSX.Elem
                     {/* but rather that it's something with the definition of the query itself */}
                 </h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
+                {query ? (
+                    <p className="text-center text-balance">
+                        <LemonButton
+                            data-attr="insight-error-query"
+                            targetBlank
+                            size="small"
+                            type="secondary"
+                            to={urls.debugQuery(query)}
+                        >
+                            Open in query debugger
+                        </LemonButton>
+                    </p>
+                ) : null}
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
                         <Link

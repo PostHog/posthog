@@ -20,17 +20,18 @@ from posthog.schema import (
     HogQLQueryResponse,
     StickinessQuery,
     TrendsQuery,
+    FunnelsQuery,
+    LifecycleQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
 
 class InsightActorsQueryRunner(QueryRunner):
     query: InsightActorsQueryNode
-    query_type = InsightActorsQueryNode  # type: ignore
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
@@ -40,7 +41,8 @@ class InsightActorsQueryRunner(QueryRunner):
                 time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
-                compare=query.compare,
+                compare_value=query.compare,
+                include_recordings=query.includeRecordings,
             )
         elif isinstance(self.source_runner, FunnelsQueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
@@ -83,6 +85,16 @@ class InsightActorsQueryRunner(QueryRunner):
             assert isinstance(self.query, FunnelCorrelationActorsQuery)
             assert isinstance(self.query.source, FunnelCorrelationQuery)
             return self.query.source.source.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query, FunnelsActorsQuery)
+            assert isinstance(self.query.source, FunnelsQuery)
+            return self.query.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, LifecycleQueryRunner):
+            # Lifecycle Query uses a plain InsightActorsQuery
+            assert isinstance(self.query.source, LifecycleQuery)
+            return self.query.source.aggregation_group_type_index
 
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)

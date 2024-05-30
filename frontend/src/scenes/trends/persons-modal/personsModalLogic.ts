@@ -19,6 +19,7 @@ import {
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
+    insightActorsQueryOptionsResponseKeys,
     NodeKind,
 } from '~/queries/schema'
 import {
@@ -136,25 +137,24 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 group[field] = result[additionalFieldIndices[index]]
                                             })
                                             return group
-                                        } else {
-                                            const person: PersonActorType = {
-                                                type: 'person',
-                                                id: result[0].id,
-                                                uuid: result[0].id,
-                                                distinct_ids: result[0].distinct_ids,
-                                                is_identified: result[0].is_identified,
-                                                properties: result[0].properties,
-                                                created_at: result[0].created_at,
-                                                matched_recordings: [],
-                                                value_at_data_point: null,
-                                            }
-
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                person[field] = result[additionalFieldIndices[index]]
-                                            })
-
-                                            return person
                                         }
+                                        const person: PersonActorType = {
+                                            type: 'person',
+                                            id: result[0].id,
+                                            uuid: result[0].id,
+                                            distinct_ids: result[0].distinct_ids,
+                                            is_identified: result[0].is_identified,
+                                            properties: result[0].properties,
+                                            created_at: result[0].created_at,
+                                            matched_recordings: [],
+                                            value_at_data_point: null,
+                                        }
+
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                            person[field] = result[additionalFieldIndices[index]]
+                                        })
+
+                                        return person
                                     }),
                                 },
                             ],
@@ -182,7 +182,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         source: query,
                     }
                     const response = await performQuery(optionsQuery)
-                    return response
+
+                    return Object.fromEntries(
+                        Object.entries(response).filter(([key, _]) =>
+                            insightActorsQueryOptionsResponseKeys.includes(key)
+                        )
+                    )
                 },
             },
         ],

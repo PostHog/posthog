@@ -43,9 +43,8 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
         return query.stickinessFilter?.display
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.display
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getCompare = (query: InsightQueryNode): boolean | undefined => {
@@ -53,41 +52,36 @@ export const getCompare = (query: InsightQueryNode): boolean | undefined => {
         return query.stickinessFilter?.compare
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.compare
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getFormula = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formula
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.interval
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdownFilter
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
@@ -95,37 +89,35 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLegend
-    } else {
-        return undefined
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showLegend
     }
+    return undefined
 }
 
-export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefined => {
+export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showValuesOnSeries
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showValuesOnSeries
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showPercentStackView
-    } else {
-        return undefined
     }
+    return undefined
 }
 
 export const getCachedResults = (

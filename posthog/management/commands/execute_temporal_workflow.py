@@ -99,7 +99,7 @@ class Command(BaseCommand):
         retry_policy = RetryPolicy(maximum_attempts=int(options["max_attempts"]))
 
         try:
-            workflow = [workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name)][0]
+            workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
         except IndexError:
             raise ValueError(f"No workflow with name '{workflow_name}'")
         except AttributeError:

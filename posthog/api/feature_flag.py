@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
@@ -46,6 +46,7 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -145,12 +146,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             and feature_flag.aggregation_group_type_index is None
         )
 
-    def get_features(self, feature_flag: FeatureFlag) -> Dict:
+    def get_features(self, feature_flag: FeatureFlag) -> dict:
         from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
-    def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
+    def get_surveys(self, feature_flag: FeatureFlag) -> dict:
         from posthog.api.survey import SurveyAPISerializer
 
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
@@ -241,6 +242,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                             detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
+                # make sure regex and icontains properties have string values
+                if prop.operator in ["regex", "icontains", "not_regex", "not_icontains"] and not isinstance(
+                    prop.value, str
+                ):
+                    raise serializers.ValidationError(
+                        detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
+                    )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
@@ -255,7 +264,18 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         return filters
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+    def check_flag_evaluation(self, data):
+        # TODO: Once we move to no DB level evaluation, can get rid of this.
+
+        temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
+
+        try:
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id)
+        except Exception:
+            raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
+
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -281,6 +301,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             raise exceptions.ValidationError(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
+
+        self.check_flag_evaluation(validated_data)
+
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
@@ -291,7 +314,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         return instance
 
-    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+    def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
@@ -379,9 +402,7 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)
@@ -394,7 +415,12 @@ class FeatureFlagViewSet(
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags))
+            survey_internal_targeting_flags = Survey.objects.filter(
+                team=self.team, internal_targeting_flag__isnull=False
+            ).values_list("internal_targeting_flag_id", flat=True)
+            queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
+                Q(id__in=survey_internal_targeting_flags)
+            )
 
         return queryset.select_related("created_by").order_by("-created_at")
 
@@ -488,13 +514,11 @@ class FeatureFlagViewSet(
             feature_flags, many=True, context=self.get_serializer_context()
         ).data
         return Response(
-            (
-                {
-                    "feature_flag": feature_flag,
-                    "value": matches.get(feature_flag["key"], False),
-                }
-                for feature_flag in all_serialized_flags
-            )
+            {
+                "feature_flag": feature_flag,
+                "value": matches.get(feature_flag["key"], False),
+            }
+            for feature_flag in all_serialized_flags
         )
 
     @action(
@@ -508,7 +532,7 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {

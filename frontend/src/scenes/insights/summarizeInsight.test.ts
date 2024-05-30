@@ -477,6 +477,27 @@ describe('summarizing insights', () => {
                 )
             ).toEqual('User lifecycle based on Rageclick')
         })
+
+        it('summarizes a Lifecycle insight on a different group', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.LIFECYCLE,
+                        events: [
+                            {
+                                id: '$rageclick',
+                                name: '$rageclick',
+                                type: 'event',
+                                order: 1,
+                            },
+                        ],
+                        aggregation_group_type_index: 0,
+                    },
+                    summaryContext
+                )
+            ).toEqual('Organization lifecycle based on Rageclick')
+        })
     })
 
     describe('summariseInsightQuery()', () => {
@@ -882,6 +903,28 @@ describe('summarizing insights', () => {
             )
 
             expect(result).toEqual('User lifecycle based on Rageclick')
+        })
+
+        it('summarizes a Lifecycle insight with groups', () => {
+            const query: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$rageclick',
+                        name: '$rageclick',
+                    },
+                ],
+                aggregation_group_type_index: 0,
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                summaryContext
+            )
+
+            expect(result).toEqual('Organization lifecycle based on Rageclick')
         })
     })
 

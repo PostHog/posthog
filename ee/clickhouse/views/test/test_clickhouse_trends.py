@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.case import skip
 from unittest.mock import ANY
 
@@ -284,6 +284,10 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "math_property": None,
                         "math_group_type_index": ANY,
                         "properties": {},
+                        "distinct_id_field": None,
+                        "id_field": None,
+                        "timestamp_field": None,
+                        "table_name": None,
                     },
                     "label": "$pageview",
                     "count": 6.0,
@@ -420,20 +424,20 @@ class TrendsRequest:
     insight: Optional[str] = None
     display: Optional[str] = None
     compare: Optional[bool] = None
-    events: List[Dict[str, Any]] = field(default_factory=list)
-    properties: List[Dict[str, Any]] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
+    properties: list[dict[str, Any]] = field(default_factory=list)
     smoothing_intervals: Optional[int] = 1
     refresh: Optional[bool] = False
 
 
 @dataclass
 class TrendsRequestBreakdown(TrendsRequest):
-    breakdown: Optional[Union[List[int], str]] = None
+    breakdown: Optional[Union[list[int], str]] = None
     breakdown_type: Optional[str] = None
 
 
 def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "date_from": request.date_from,
         "date_to": request.date_to,
         "interval": request.interval,
@@ -471,7 +475,7 @@ class NormalizedTrendResult:
 
 def get_trends_time_series_ok(
     client: Client, request: TrendsRequest, team: Team, with_order: bool = False
-) -> Dict[str, Dict[str, NormalizedTrendResult]]:
+) -> dict[str, dict[str, NormalizedTrendResult]]:
     data = get_trends_ok(client=client, request=request, team=team)
     res = {}
     for item in data["result"]:
@@ -491,7 +495,7 @@ def get_trends_time_series_ok(
     return res
 
 
-def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) -> Dict[str, NormalizedTrendResult]:
+def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) -> dict[str, NormalizedTrendResult]:
     data = get_trends_ok(client=client, request=request, team=team)
     res = {}
     for item in data["result"]:

@@ -8,9 +8,8 @@ import { CollisionDetection, DroppableContainer, UniqueIdentifier } from '@dnd-k
 export const verticalSortableListCollisionDetection: CollisionDetection = (args) => {
     if (args.collisionRect.top < (args.active.rect.current?.initial?.top ?? 0)) {
         return highestDroppableContainerMajorityCovered(args)
-    } else {
-        return lowestDroppableContainerMajorityCovered(args)
     }
+    return lowestDroppableContainerMajorityCovered(args)
 }
 
 // Look for the first (/ furthest up / highest) droppable container that is at least

@@ -1,10 +1,10 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast, Literal
+from typing import Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
@@ -55,10 +56,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types(
-    node: ast.Expr,
+    node: ast.Expr | ast.SelectQuery,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    scopes: Optional[List[ast.SelectQueryType]] = None,
+    scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
@@ -66,7 +67,7 @@ def resolve_types(
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.aliases: List[str] = []
+        self.aliases: list[str] = []
 
     def visit_alias(self, node: ast.Alias):
         self.aliases.append(node.alias)
@@ -80,11 +81,11 @@ class Resolver(CloningVisitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
-        scopes: Optional[List[ast.SelectQueryType]] = None,
+        scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.scopes: list[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
         self.dialect = dialect
@@ -101,8 +102,18 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        # all expressions combined by UNION ALL can use CTEs from the first expression
+        # so we put these CTEs to the scope
+        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        if default_ctes:
+            self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
+
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+
+        if default_ctes:
+            self.scopes.pop()
+
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -214,7 +225,7 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
@@ -300,10 +311,15 @@ class Resolver(CloningVisitor):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
+
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
+
             scope.tables[table_alias] = node_type
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
-            node = cast(ast.JoinExpr, clone_expr(node))
             node.type = node_type
             node.table = cast(ast.Field, clone_expr(node.table))
             node.table.type = node_table_type
@@ -320,7 +336,8 @@ class Resolver(CloningVisitor):
             if is_global:
                 node.next_join.join_type = "GLOBAL JOIN"
 
-            node.constraint = self.visit(node.constraint)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
@@ -331,6 +348,9 @@ class Resolver(CloningVisitor):
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = super().visit(node.table)
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
@@ -355,7 +375,8 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
-            node.constraint = self.visit(node.constraint)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             return node
@@ -405,19 +426,21 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+        if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "matchesAction":
+                return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
-        arg_types: List[ast.ConstantType] = []
+        arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
                 arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
-        param_types: Optional[List[ast.ConstantType]] = None
+        param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
             for i, param in enumerate(node.params):
@@ -494,7 +517,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         type: Optional[ast.Type] = None
-        name = node.chain[0]
+        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
@@ -508,7 +531,7 @@ class Resolver(CloningVisitor):
             if table_count > 1:
                 raise QueryError("Cannot use '*' without table name when there are multiple tables in the query")
             table_type = (
-                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else next(iter(scope.tables.values()))
             )
             type = ast.AsteriskType(table_type=table_type)
 
@@ -531,10 +554,18 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
-            raise QueryError(f"Unable to resolve field: {name}")
+            if self.dialect == "clickhouse":
+                raise QueryError(f"Unable to resolve field: {name}")
+            else:
+                type = ast.UnresolvedFieldType(name=name)
+                self.context.add_error(
+                    start=node.start,
+                    end=node.end,
+                    message=f"Unable to resolve field: {name}",
+                )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
-        field_name = node.chain[-1]
+        field_name = str(node.chain[-1])
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
@@ -553,7 +584,7 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            loop_type = loop_type.get_child(next_chain, self.context)
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -562,7 +593,7 @@ class Resolver(CloningVisitor):
             # only swap out expression fields in ClickHouse
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
-                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
                 new_node = self.visit(new_node)
                 return new_node
 
@@ -581,7 +612,7 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
-            property_alias = "__".join(node.type.chain)
+            property_alias = "__".join(str(s) for s in node.type.chain)
             return ast.Alias(
                 alias=property_alias,
                 expr=node,

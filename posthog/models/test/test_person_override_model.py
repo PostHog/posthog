@@ -399,7 +399,7 @@ def test_person_override_allows_duplicate_override_person_id(team, oldest_event)
 
 @contextlib.contextmanager
 def create_connection(alias=DEFAULT_DB_ALIAS):
-    connection = ConnectionHandler().create_connection(alias)  # type: ignore
+    connection = ConnectionHandler().create_connection(alias)
     try:
         with connection.cursor() as cursor:
             cursor.execute("SET lock_timeout TO '10s'")

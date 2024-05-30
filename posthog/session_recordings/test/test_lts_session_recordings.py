@@ -1,12 +1,12 @@
 import uuid
-from typing import List
-from unittest.mock import patch, MagicMock, call, Mock
+from unittest.mock import patch, MagicMock, call
 
 from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.test import setup_stream_from
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
@@ -32,7 +32,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             # this mock simulates a recording whose blob storage has been deleted by TTL
             # but which has been stored in LTS blob storage
             if path == lts_storage_path:
@@ -88,7 +88,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "1234-5678"
 
-        def list_objects_func(_path: str) -> List[str]:
+        def list_objects_func(_path: str) -> list[str]:
             return []
 
         mock_list_objects.side_effect = list_objects_func
@@ -125,7 +125,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.requests.get")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_loaded(
@@ -138,7 +138,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             # this mock simulates a recording whose blob storage has been deleted by TTL
             # but which has been stored in LTS blob storage
             if path == lts_storage_path:
@@ -151,14 +151,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_list_objects.side_effect = list_objects_func
         mock_get_presigned_url.return_value = "https://example.com"
-
-        mock_response = Mock()
-        mock_response.raise_for_status.return_value = None
-        mock_response.raw = "the file contents"
-
-        # Set up the mock to work as a context manager
-        mock_requests.return_value.__enter__.return_value = mock_response
-        mock_requests.return_value.__exit__.return_value = None
 
         SessionRecording.objects.create(
             team=self.team,
@@ -183,13 +175,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             call(f"{lts_storage_path}/1-2", expiration=60),
         ]
 
-        assert response_data == "the file contents"
+        assert response_data == "Example content"
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.requests.get")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.tag")
     @patch("posthog.session_recordings.session_recording_api.object_storage.write")
     @patch("posthog.session_recordings.session_recording_api.object_storage.read")
@@ -208,20 +200,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "1234-5678"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             return []
 
         mock_list_objects.side_effect = list_objects_func
         mock_get_presigned_url.return_value = "https://example.com"
         mock_read.return_value = legacy_compressed_original
-
-        mock_response = Mock()
-        mock_response.raise_for_status.return_value = None
-        mock_response.raw = "the file contents"
-
-        # Set up the mock to work as a context manager
-        mock_requests.return_value.__enter__.return_value = mock_response
-        mock_requests.return_value.__exit__.return_value = None
 
         with mute_selected_signals():
             SessionRecording.objects.create(
@@ -262,4 +246,4 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # and the mock content is returned
         response_data = response.content.decode("utf-8")
-        assert response_data == "the file contents"
+        assert response_data == "Example content"

@@ -1,18 +1,20 @@
-from typing import Any, List, Dict
+from typing import Any
 
 from rest_framework import filters, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.models import User
+from posthog.schema import DatabaseSerializedFieldType
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
+from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -26,7 +28,7 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_secret": {"write_only": "True"}}
+        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
 
 
 class TableSerializer(serializers.ModelSerializer):
@@ -53,12 +55,32 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        if database.has_table(table.name):
+            fields = database.get_table(table.name).fields
+        else:
+            fields = table.hogql_definition().fields
+
+        serializes_fields = serialize_fields(
+            fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.columns
+        )
+
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in serializes_fields
+        ]
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -80,6 +102,11 @@ class TableSerializer(serializers.ModelSerializer):
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+
+        for column in table.columns.keys():
+            table.columns[column]["valid"] = table.validate_column_type(column)
+        table.save()
+
         return table
 
 
@@ -91,12 +118,26 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "columns", "row_count"]
         read_only_fields = ["id", "name", "columns", "row_count"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        database = self.context.get("database", None)
+        team_id = self.context.get("team_id", None)
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
+
+        fields = serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -111,25 +152,16 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
+        context["team_id"] = self.team_id
         return context
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by", "externaldataschema_set")
-                .order_by(self.ordering)
-            )
-
+    def safely_get_queryset(self, queryset):
         return (
-            self.queryset.filter(team_id=self.team_id)
+            queryset.filter(team_id=self.team_id)
+            .exclude(deleted=True)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -140,3 +172,52 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        updates = request.data.get("updates", None)
+        if updates is None:
+            return response.Response(status=status.HTTP_200_OK)
+
+        table: DataWarehouseTable = self.get_object()
+        if table.external_data_source is not None:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
+            )
+
+        columns = table.columns
+        column_keys: list[str] = columns.keys()
+        for key in updates.keys():
+            if key not in column_keys:
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": f"Column {key} does not exist on table"}
+                )
+
+        for key, value in updates.items():
+            try:
+                DatabaseSerializedFieldType[value]
+            except:
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Can not parse type {value} for column {key} - type does not exist"},
+                )
+
+            current_value = columns[key]
+            # If the column is in the "old" style, convert it to the new
+            if isinstance(current_value, str):
+                columns[key] = {}
+
+            columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
+            columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+
+        table.columns = columns
+        table.save()
+
+        # Have to update the `valid` value separately to the `columns` value as the columns are required in the `ast.S3Table` class when querying ClickHouse
+        for key in updates.keys():
+            columns[key]["valid"] = table.validate_column_type(key)
+
+        table.columns = columns
+        table.save()
+
+        return response.Response(status=status.HTTP_200_OK)

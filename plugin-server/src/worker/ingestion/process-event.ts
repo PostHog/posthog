@@ -11,6 +11,7 @@ import {
     Hub,
     ISOTimestamp,
     Person,
+    PersonMode,
     PreIngestionEvent,
     RawClickHouseEvent,
     Team,
@@ -23,7 +24,7 @@ import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
-import { GroupTypeManager } from './group-type-manager'
+import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
@@ -57,7 +58,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
         this.propertyDefinitionsManager = new PropertyDefinitionsManager(
             this.teamManager,
             this.groupTypeManager,
@@ -188,7 +189,7 @@ export class EventsProcessor {
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
         const res: GroupId[] = []
-        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+        for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
             const key = `$group_${groupTypeIndex}`
             if (key in properties) {
                 res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
@@ -231,13 +232,20 @@ export class EventsProcessor {
         } else {
             // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
             // and tests demand this for now.
-            for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
                 const key = `$group_${groupTypeIndex}`
                 delete properties[key]
             }
         }
 
         // TODO: Remove Redis caching for person that's not used anymore
+
+        let personMode: PersonMode = 'full'
+        if (person.force_upgrade) {
+            personMode = 'force_upgrade'
+        } else if (!processPerson) {
+            personMode = 'propertyless'
+        }
 
         const rawEvent: RawClickHouseEvent = {
             uuid,
@@ -251,7 +259,7 @@ export class EventsProcessor {
             person_id: person.uuid,
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
-            person_mode: processPerson ? 'full' : 'propertyless',
+            person_mode: personMode,
             ...groupsColumns,
         }
 

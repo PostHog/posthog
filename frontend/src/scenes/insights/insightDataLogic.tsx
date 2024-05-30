@@ -61,6 +61,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
+                'pollResponse as insightPollResponse',
+                'queryId',
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
@@ -108,6 +110,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
+        isHogQLInsight: [
+            (s) => [s.featureFlags, s.query],
+            (featureFlags, query) => {
+                return (
+                    isInsightVizNode(query) &&
+                    (!!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
+                        (isTrendsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) ||
+                        (isFunnelsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]) ||
+                        (isRetentionQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) ||
+                        (isPathsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]) ||
+                        (isStickinessQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) ||
+                        (isLifecycleQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]))
+                )
+            },
+        ],
+
         query: [
             (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
             (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
@@ -132,8 +150,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight, s.featureFlags],
-            (query, insight, featureFlags) => {
+            (s) => [s.query, s.insight, s.isHogQLInsight],
+            (query, insight, isHogQLInsight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -145,18 +163,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     sourceQuery = query.source
                 }
 
-                const maintainLegacy = !(
-                    featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] && isLifecycleQuery(sourceQuery)) ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS] && isPathsQuery(sourceQuery)) ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION] && isRetentionQuery(sourceQuery)) ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] && isTrendsQuery(sourceQuery)) ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] && isStickinessQuery(sourceQuery)) ||
-                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS] && isFunnelsQuery(sourceQuery))
-                )
-
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined, maintainLegacy),
+                    ...queryExportContext(sourceQuery, undefined, undefined, !isHogQLInsight),
                     filename,
                 } as ExportContext
             },
@@ -167,28 +175,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (isQueryBasedInsight, query, insight, savedInsight, currentTeam) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
-                } else {
-                    const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
-
-                    let savedFilters: Partial<FilterType>
-                    if (savedInsight.filters) {
-                        savedFilters = savedInsight.filters
-                    } else {
-                        savedFilters = queryNodeToFilter(
-                            insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
-                        )
-                        setTestAccountFilterForNewInsight(
-                            savedFilters,
-                            currentTeam?.test_account_filters_default_checked
-                        )
-                    }
-
-                    return !compareFilters(
-                        currentFilters,
-                        savedFilters,
-                        currentTeam?.test_account_filters_default_checked
-                    )
                 }
+                const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
+
+                let savedFilters: Partial<FilterType>
+                if (savedInsight.filters) {
+                    savedFilters = savedInsight.filters
+                } else {
+                    savedFilters = queryNodeToFilter(
+                        insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+                    )
+                    setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
+                }
+
+                return !compareFilters(currentFilters, savedFilters, currentTeam?.test_account_filters_default_checked)
             },
         ],
 

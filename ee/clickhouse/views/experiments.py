@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from collections.abc import Callable
 
 from django.utils.timezone import now
 from rest_framework import serializers, viewsets
@@ -18,6 +19,7 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
     ClickhouseTrendExperimentResult,
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -28,7 +30,7 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
-EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
+EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
 
 
 def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
@@ -150,6 +152,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "end_date",
             "feature_flag_key",
             "feature_flag",
+            "exposure_cohort",
             "parameters",
             "secondary_metrics",
             "filters",
@@ -164,6 +167,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "feature_flag",
+            "exposure_cohort",
         ]
 
     def validate_parameters(self, value):
@@ -282,11 +286,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.all()
+    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()
     ordering = "-created_at"
-
-    def get_queryset(self):
-        return super().get_queryset().prefetch_related("feature_flag", "created_by")
 
     # ******************************************
     # /projects/:id/experiments/:experiment_id/results
@@ -353,3 +354,89 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         warning = requires_flag_warning(filter, self.team)
 
         return Response({"result": warning})
+
+    @action(methods=["POST"], detail=True)
+    def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        experiment = self.get_object()
+        flag = getattr(experiment, "feature_flag", None)
+        if not flag:
+            raise ValidationError("Experiment does not have a feature flag")
+
+        if not experiment.start_date:
+            raise ValidationError("Experiment does not have a start date")
+
+        if experiment.exposure_cohort:
+            raise ValidationError("Experiment already has an exposure cohort")
+
+        exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
+        exposure_filter = None
+        if exposure_filter_data:
+            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+
+        target_entity: int | str = "$feature_flag_called"
+        target_entity_type = "events"
+        target_filters = [
+            {
+                "key": "$feature_flag",
+                "value": [flag.key],
+                "operator": "exact",
+                "type": "event",
+            }
+        ]
+
+        if exposure_filter:
+            entity = exposure_filter.entities[0]
+            if entity.id:
+                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
+                target_entity = entity.id
+                if entity.type == "actions":
+                    try:
+                        target_entity = int(target_entity)
+                    except ValueError:
+                        raise ValidationError("Invalid action ID")
+
+                target_filters = [
+                    prop.to_dict()
+                    for prop in entity.property_groups.flat
+                    if prop.type in ("event", "feature", "element", "hogql")
+                ]
+
+        cohort_serializer = CohortSerializer(
+            data={
+                "is_static": False,
+                "name": f'Users exposed to experiment "{experiment.name}"',
+                "is_calculating": True,
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "key": target_entity,
+                                        "negation": False,
+                                        "event_type": target_entity_type,
+                                        "event_filters": target_filters,
+                                        "explicit_datetime": experiment.start_date.isoformat(),
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            context={
+                "request": request,
+                "team": self.team,
+                "team_id": self.team_id,
+            },
+        )
+
+        cohort_serializer.is_valid(raise_exception=True)
+        cohort = cohort_serializer.save()
+        experiment.exposure_cohort = cohort
+        experiment.save(update_fields=["exposure_cohort"])
+        return Response({"cohort": cohort_serializer.data}, status=201)

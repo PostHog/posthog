@@ -1,14 +1,20 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { forms } from 'kea-forms'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceCreatePayload, ExternalDataSourceSyncSchema, SourceConfig } from '~/types'
+import {
+    Breadcrumb,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSourceSyncSchema,
+    SourceConfig,
+    SourceFieldConfig,
+} from '~/types'
 
-import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -97,7 +103,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 label: 'Password',
                 type: 'password',
                 required: true,
-                placeholder: 'password',
+                placeholder: '',
             },
             {
                 name: 'schema',
@@ -105,6 +111,77 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: 'public',
+            },
+            {
+                name: 'ssh-tunnel',
+                label: 'Use SSH tunnel?',
+                type: 'switch-group',
+                default: false,
+                fields: [
+                    {
+                        name: 'host',
+                        label: 'Tunnel host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                    {
+                        name: 'port',
+                        label: 'Tunnel port',
+                        type: 'number',
+                        required: true,
+                        placeholder: '22',
+                    },
+                    {
+                        type: 'select',
+                        name: 'auth_type',
+                        label: 'Authentication type',
+                        required: true,
+                        defaultValue: 'password',
+                        options: [
+                            {
+                                label: 'Password',
+                                value: 'password',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'password',
+                                        label: 'Tunnel password',
+                                        type: 'password',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Key pair',
+                                value: 'keypair',
+                                fields: [
+                                    {
+                                        name: 'private_key',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
+                                        name: 'passphrase',
+                                        label: 'Tunnel passphrase',
+                                        type: 'password',
+                                        required: false,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
             },
         ],
     },
@@ -134,13 +211,56 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             {
                 name: 'email_address',
                 label: 'Zendesk Email Address',
-                type: 'text',
+                type: 'email',
                 required: true,
                 placeholder: '',
             },
         ],
     },
 }
+
+export const buildKeaFormDefaultFromSourceDetails = (
+    sourceDetails: Record<string, SourceConfig>
+): Record<string, any> => {
+    const fieldDefaults = (field: SourceFieldConfig, obj: Record<string, any>): void => {
+        if (field.type === 'switch-group') {
+            obj[field.name] = {}
+            obj[field.name]['enabled'] = field.default
+            field.fields.forEach((f) => fieldDefaults(f, obj[field.name]))
+            return
+        }
+
+        if (field.type === 'select') {
+            const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+            if (hasOptionFields) {
+                obj[field.name] = {}
+                obj[field.name]['selection'] = field.defaultValue
+                field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj[field.name]))
+            } else {
+                obj[field.name] = field.defaultValue
+            }
+            return
+        }
+
+        // All other types
+        obj[field.name] = ''
+    }
+
+    const sourceDetailsKeys = Object.keys(sourceDetails)
+    const formDefault = sourceDetailsKeys.reduce(
+        (defaults, cur) => {
+            const fields = sourceDetails[cur].fields
+            fields.forEach((f) => fieldDefaults(f, defaults['payload']))
+
+            return defaults
+        },
+        { prefix: '', payload: {} } as Record<string, any>
+    )
+
+    return formDefault
+}
+
+export type ManualLinkProvider = 'aws' | 'google-cloud' | 'cloudflare-r2'
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
@@ -153,13 +273,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
-        selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setSourceId: (id: string) => ({ sourceId: id }),
         closeWizard: true,
+        cancelWizard: true,
+        setStep: (step: number) => ({ step }),
+        getDatabaseSchemas: true,
+        setManualLinkingProvider: (provider: ManualLinkProvider) => ({ provider }),
     }),
     connect({
         values: [
@@ -170,9 +294,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
+        actions: [
+            dataWarehouseTableLogic,
+            ['resetTable', 'createTableSuccess'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
+        manualLinkingProvider: [
+            null as ManualLinkProvider | null,
+            {
+                setManualLinkingProvider: (_, { provider }) => provider,
+            },
+        ],
         selectedConnector: [
             null as SourceConfig | null,
             {
@@ -191,16 +326,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onNext: (state) => state + 1,
                 onBack: (state) => state - 1,
                 onClear: () => 1,
+                setStep: (_, { step }) => step,
             },
         ],
         databaseSchema: [
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                selectSchema: (state, { schema }) => {
+                toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     const newSchema = state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? !s.should_sync : s.should_sync,
+                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                     return newSchema
                 },
@@ -239,6 +375,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -246,8 +383,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId],
-            (currentStep, allSources, sourceId): boolean => {
+            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId, s.isManualLinkingSelected],
+            (currentStep, allSources, sourceId, isManualLinkingSelected): boolean => {
+                if (isManualLinkingSelected && currentStep == 2) {
+                    return false
+                }
+
                 const source = allSources?.results.find((n) => n.id === sourceId)
 
                 if (currentStep === 4) {
@@ -264,8 +405,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep],
-            (currentStep): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected],
+            (currentStep, isManualLinkingSelected): string => {
+                if (currentStep === 3 && isManualLinkingSelected) {
+                    return 'Link'
+                }
+
                 if (currentStep === 3) {
                     return 'Import'
                 }
@@ -369,8 +514,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        onBack: () => {
+            if (values.currentStep <= 1) {
+                actions.onClear()
+            }
+        },
         onClear: () => {
             actions.selectConnector(null)
+            actions.resetSourceConnectionDetails()
             actions.clearSource()
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
@@ -383,14 +534,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
-            if (values.currentStep === 2) {
-                if (values.selectedConnector?.name) {
-                    const logic = sourceFormLogic({ sourceConfig: values.selectedConnector })
-                    logic.actions.submitSourceConnectionDetails()
-                } else {
-                    // Used for manual S3 file links
-                    dataWarehouseTableLogic.actions.submitTable()
-                }
+            if (values.currentStep === 2 && values.selectedConnector?.name) {
+                actions.submitSourceConnectionDetails()
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
@@ -403,16 +548,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
+            } else if (values.currentStep === 3 && values.isManualLinkFormVisible) {
+                dataWarehouseTableLogic.actions.submitTable()
             }
 
             if (values.currentStep === 4) {
                 actions.closeWizard()
             }
         },
-        closeWizard: () => {
+        createTableSuccess: () => {
+            actions.onClear()
             actions.clearSource()
             actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
+        },
+        closeWizard: () => {
+            actions.onClear()
+            actions.clearSource()
+            actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
             router.actions.push(urls.dataWarehouseSettings())
+        },
+        cancelWizard: () => {
+            actions.onClear()
+            actions.setStep(1)
+            actions.loadSources(null)
         },
         createSource: async () => {
             if (values.selectedConnector === null) {
@@ -426,6 +586,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 lemonToast.success('New Data Resource Created')
                 actions.setSourceId(id)
+                actions.resetSourceConnectionDetails()
+                actions.loadSources(null)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
@@ -433,5 +595,164 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(false)
             }
         },
+        handleRedirect: async ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'hubspot': {
+                    actions.updateSource({
+                        source_type: 'Hubspot',
+                        payload: {
+                            code: searchParams.code,
+                            redirect_uri: getHubspotRedirectUri(),
+                        },
+                    })
+                    return
+                }
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
+        },
+        submitSourceConnectionDetailsSuccess: () => {
+            actions.getDatabaseSchemas()
+        },
+        getDatabaseSchemas: async () => {
+            if (!values.selectedConnector) {
+                return
+            }
+
+            actions.setIsLoading(true)
+
+            try {
+                const schemas = await api.externalDataSources.database_schema(
+                    values.selectedConnector.name,
+                    values.source.payload ?? {}
+                )
+                actions.setDatabaseSchemas(schemas)
+                actions.onNext()
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
+            }
+
+            actions.setIsLoading(false)
+        },
+        setManualLinkingProvider: () => {
+            actions.onNext()
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
+            if (kind === 'hubspot') {
+                router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
+            }
+        },
+        '/data-warehouse/new': (_, searchParams) => {
+            if (searchParams.kind == 'hubspot' && searchParams.code) {
+                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                actions.handleRedirect(searchParams.kind, {
+                    code: searchParams.code,
+                })
+                actions.setStep(2)
+            }
+        },
+    })),
+    forms(({ actions, values }) => ({
+        sourceConnectionDetails: {
+            defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
+            errors: (sourceValues) => {
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+            },
+            submit: async (sourceValues) => {
+                if (values.selectedConnector) {
+                    const payload = {
+                        ...sourceValues,
+                        source_type: values.selectedConnector.name,
+                    }
+                    actions.setIsLoading(true)
+
+                    try {
+                        await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+
+                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+
+                        // Only store the keys of the source type we're using
+                        actions.updateSource({
+                            ...payload,
+                            payload: {
+                                source_type: values.selectedConnector.name,
+                                ...payloadKeys.reduce((acc, cur) => {
+                                    acc[cur] = payload['payload'][cur]
+                                    return acc
+                                }, {} as Record<string, any>),
+                            },
+                        })
+
+                        actions.setIsLoading(false)
+                    } catch (e: any) {
+                        if (e?.data?.message) {
+                            actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                        }
+                        actions.setIsLoading(false)
+
+                        throw e
+                    }
+                }
+            },
+        },
     })),
 ])
+
+export const getErrorsForFields = (
+    fields: SourceFieldConfig[],
+    values: { prefix: string; payload: Record<string, any> } | undefined
+): Record<string, any> => {
+    const errors: Record<string, any> = {
+        payload: {},
+    }
+
+    // Prefix errors
+    if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
+        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    }
+
+    // Payload errors
+    const validateField = (
+        field: SourceFieldConfig,
+        valueObj: Record<string, any>,
+        errorsObj: Record<string, any>
+    ): void => {
+        if (field.type === 'switch-group') {
+            if (valueObj[field.name]?.['enabled']) {
+                errorsObj[field.name] = {}
+                field.fields.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
+            }
+
+            return
+        }
+
+        if (field.type === 'select') {
+            const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+            if (!hasOptionFields) {
+                if (field.required && !valueObj[field.name]) {
+                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                }
+            } else {
+                errorsObj[field.name] = {}
+                const selection = valueObj[field.name]['selection']
+                field.options
+                    .find((n) => n.value === selection)
+                    ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
+            }
+            return
+        }
+
+        // All other types
+        if (field.required && !valueObj[field.name]) {
+            errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
+        }
+    }
+
+    for (const field of fields) {
+        validateField(field, values?.payload ?? {}, errors['payload'])
+    }
+
+    return errors
+}

@@ -27,7 +27,7 @@ const Template: StoryFn<typeof CohortTaxonomicField> = (props: CohortTaxonomicFi
         props.taxonomicGroupTypes[0] === TaxonomicFilterGroupType.Events &&
         props.taxonomicGroupTypes[1] === TaxonomicFilterGroupType.Actions
             ? FilterType.EventsAndActions
-            : FilterType.EventProperties
+            : FilterType.PersonProperties
     return renderField[type]({
         ...props,
         criteria: {

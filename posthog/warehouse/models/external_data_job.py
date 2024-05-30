@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Prefetch
 from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
@@ -16,6 +17,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline: models.ForeignKey = models.ForeignKey("posthog.ExternalDataSource", on_delete=models.CASCADE)
+    schema: models.ForeignKey = models.ForeignKey(
+        "posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True
+    )
     status: models.CharField = models.CharField(max_length=400)
     rows_synced: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
     latest_error: models.TextField = models.TextField(
@@ -28,6 +32,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     @property
     def folder_path(self) -> str:
+        if self.schema and self.schema.is_incremental:
+            return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema.pk)}".lower().replace("-", "_")
+
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
 
     def url_pattern_by_schema(self, schema: str) -> str:
@@ -40,7 +47,11 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
 @database_sync_to_async
 def get_external_data_job(job_id: UUID) -> ExternalDataJob:
-    return ExternalDataJob.objects.prefetch_related("pipeline").get(pk=job_id)
+    from posthog.warehouse.models import ExternalDataSchema
+
+    return ExternalDataJob.objects.prefetch_related(
+        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+    ).get(pk=job_id)
 
 
 @database_sync_to_async

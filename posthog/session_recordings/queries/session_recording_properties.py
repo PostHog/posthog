@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Tuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from posthog.client import sync_execute
 from posthog.models.event.util import parse_properties
@@ -14,12 +14,12 @@ class EventFiltersSQL(NamedTuple):
     aggregate_select_clause: str
     aggregate_having_clause: str
     where_conditions: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
 
 
 class SessionRecordingProperties(EventQuery):
     _filter: SessionRecordingsFilter
-    _session_ids: List[str]
+    _session_ids: list[str]
 
     SESSION_RECORDING_PROPERTIES_ALLOWLIST = {
         "$os",
@@ -47,7 +47,7 @@ class SessionRecordingProperties(EventQuery):
              GROUP BY session_id
     """
 
-    def __init__(self, team: "Team", session_ids: List[str], filter: SessionRecordingsFilter):
+    def __init__(self, team: "Team", session_ids: list[str], filter: SessionRecordingsFilter):
         super().__init__(team=team, filter=filter)
         self._session_ids = sorted(session_ids)  # Sort for stable queries
 
@@ -56,7 +56,7 @@ class SessionRecordingProperties(EventQuery):
 
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -67,11 +67,11 @@ class SessionRecordingProperties(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
-    def format_session_recording_id_filters(self) -> Tuple[str, Dict]:
+    def format_session_recording_id_filters(self) -> tuple[str, dict]:
         where_conditions = "AND session_id IN %(session_ids)s"
         return where_conditions, {"session_ids": self._session_ids}
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         base_params = {"team_id": self._team_id}
         (
             events_timestamp_clause,
@@ -90,7 +90,7 @@ class SessionRecordingProperties(EventQuery):
             {**base_params, **events_timestamp_params, **session_ids_params},
         )
 
-    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: list[Any]) -> list[dict[str, Any]]:
         return [
             {
                 "session_id": row[0],
@@ -99,7 +99,7 @@ class SessionRecordingProperties(EventQuery):
             for row in results
         ]
 
-    def run(self) -> List:
+    def run(self) -> list:
         query, query_params = self.get_query()
         query_results = sync_execute(query, query_params)
         session_recording_properties = self._data_to_return(query_results)

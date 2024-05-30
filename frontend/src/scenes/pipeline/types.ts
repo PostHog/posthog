@@ -1,6 +1,6 @@
 import {
     BatchExportConfiguration,
-    BatchExportDestination as BatchExportService,
+    BatchExportService,
     PipelineStage,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -23,14 +23,15 @@ interface PipelineNodeBase {
 
 // Split by backend
 
-export interface PluginBasedStepBase extends PipelineNodeBase {
+export interface PluginBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.Plugin
     id: number
     plugin: PluginType
     config: Record<string, any>
 }
+
 /** NOTE: Batch exports are only used in Destinations, but we're making this a bit more abstract for clearer types. */
-export interface BatchExportBasedStep extends PipelineNodeBase {
+export interface BatchExportBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.BatchExport
     /** UUID */
     id: string
@@ -38,43 +39,37 @@ export interface BatchExportBasedStep extends PipelineNodeBase {
     interval: BatchExportConfiguration['interval']
 }
 
-// Stage: Filters
-
-export interface Filter extends PluginBasedStepBase {
-    stage: PipelineStage.Filter
-}
-
 // Stage: Transformations
 
-export interface Transformation extends PluginBasedStepBase {
+export interface Transformation extends PluginBasedNode {
     stage: PipelineStage.Transformation
     order: number
 }
 
 // Stage: Destinations
 
-export interface WebhookDestination extends PluginBasedStepBase {
+export interface WebhookDestination extends PluginBasedNode {
     stage: PipelineStage.Destination
     interval: 'realtime'
 }
-export interface BatchExportDestination extends BatchExportBasedStep {
+export interface BatchExportDestination extends BatchExportBasedNode {
     stage: PipelineStage.Destination
 }
 export type Destination = BatchExportDestination | WebhookDestination
 
 // Legacy: Site apps
-export interface SiteApp extends PluginBasedStepBase {
+export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
 }
 
 // Legacy: Import apps
-export interface ImportApp extends PluginBasedStepBase {
+export interface ImportApp extends PluginBasedNode {
     stage: PipelineStage.ImportApp
 }
 
 // Final
 
-export type PipelineNode = Filter | Transformation | Destination | SiteApp | ImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
 
 // Utils
 
@@ -87,9 +82,7 @@ function isPluginConfig(
 export function convertToPipelineNode<S extends PipelineStage>(
     candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration,
     stage: S
-): S extends PipelineStage.Filter
-    ? Filter
-    : S extends PipelineStage.Transformation
+): S extends PipelineStage.Transformation
     ? Transformation
     : S extends PipelineStage.Destination
     ? Destination
@@ -100,10 +93,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
     : never {
     let node: PipelineNode
     if (isPluginConfig(candidate)) {
-        const almostNode: Omit<
-            Filter | Transformation | WebhookDestination | SiteApp | ImportApp,
-            'frequency' | 'order'
-        > = {
+        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,
@@ -127,13 +117,11 @@ export function convertToPipelineNode<S extends PipelineStage>(
                 stage,
                 interval: 'realtime',
             }
-        } else if (stage === PipelineStage.SiteApp || stage === PipelineStage.ImportApp) {
+        } else {
             node = {
                 ...almostNode,
                 stage,
             }
-        } else {
-            node = almostNode as Filter
         }
     } else {
         node = {

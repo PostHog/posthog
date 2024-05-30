@@ -287,7 +287,7 @@ describe('postgres parity', () => {
 
         // add 'anotherOne' to person
 
-        await hub.db.addDistinctId(postgresPerson, 'anotherOne')
+        await hub.db.addDistinctId(postgresPerson, 'anotherOne', 0)
 
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 2)
 

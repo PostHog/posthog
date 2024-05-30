@@ -45,7 +45,7 @@ describe('taxonomicFilterLogic', () => {
                 TaxonomicFilterGroupType.Events,
                 TaxonomicFilterGroupType.Actions,
                 TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.Sessions,
+                TaxonomicFilterGroupType.SessionProperties,
             ],
         }
         logic = taxonomicFilterLogic(logicProps)
@@ -62,7 +62,7 @@ describe('taxonomicFilterLogic', () => {
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Events }),
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Actions }),
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Elements }),
-            infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Sessions }),
+            infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.SessionProperties }),
         ])
         expect(
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Cohorts }).isMounted()
@@ -76,7 +76,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 1,
                 },
             })
             .toDispatchActions(['infiniteListResultsReceived'])
@@ -87,7 +87,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 1,
                 },
             })
     })
@@ -110,7 +110,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 4,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.Sessions]: 0,
+                    [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
 
@@ -127,7 +127,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 1,
-                    [TaxonomicFilterGroupType.Sessions]: 0,
+                    [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
 
@@ -144,7 +144,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.Sessions]: 0,
+                    [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
 
@@ -161,13 +161,13 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 1,
                 },
             })
 
         // move right, skipping Actions
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Sessions,
+            activeTab: TaxonomicFilterGroupType.SessionProperties,
         })
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Events,
@@ -181,7 +181,7 @@ describe('taxonomicFilterLogic', () => {
             activeTab: TaxonomicFilterGroupType.Events,
         })
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Sessions,
+            activeTab: TaxonomicFilterGroupType.SessionProperties,
         })
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Elements,
@@ -201,7 +201,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 4,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.Sessions]: 0,
+                    [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
     })

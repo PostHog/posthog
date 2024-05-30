@@ -3,7 +3,6 @@ import './ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
 import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
-import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -87,11 +86,7 @@ export function ExportedInsight({
                     })}
                 >
                     {query ? (
-                        insight.result ? (
-                            <Query query={query} cachedResults={insight.result} readOnly />
-                        ) : (
-                            <QueriesUnsupportedHere />
-                        )
+                        <Query query={query} cachedResults={insight} readOnly />
                     ) : (
                         <FilterBasedCardContent insight={insight as any} insightProps={insightLogicProps} />
                     )}

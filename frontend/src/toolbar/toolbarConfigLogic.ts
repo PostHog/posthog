@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { posthog } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
@@ -51,17 +51,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: () => {
-            posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
+            toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
             window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
         },
         logout: () => {
-            posthog.capture('toolbar logout')
+            toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
-            posthog.capture('toolbar token expired')
+            toolbarPosthogJS.capture('toolbar token expired')
             console.warn('PostHog Toolbar API token expired. Clearing session.')
             if (values.props.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
@@ -87,12 +87,14 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     afterMount(({ props, values }) => {
         if (props.instrument) {
             const distinctId = props.distinctId
+
+            void toolbarPosthogJS.optIn()
+
             if (distinctId) {
-                posthog.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
+                toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
             }
-            posthog.optIn()
         }
-        posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
+        toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
 ])
 

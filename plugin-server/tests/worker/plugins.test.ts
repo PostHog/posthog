@@ -44,11 +44,9 @@ describe('plugins', () => {
     })
 
     test('setupPlugins and runProcessEvent', async () => {
-        // Use a Plugin URL that is skipped for "personless" ($process_person=false) events.
-        const plugin = { ...plugin60, url: 'https://github.com/posthog/first-event-today' }
-        getPluginRows.mockReturnValueOnce([plugin])
+        getPluginRows.mockReturnValueOnce([{ ...plugin60 }])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        getPluginConfigRows.mockReturnValueOnce([{ ...pluginConfig39, plugin: plugin }])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
 
         await setupPlugins(hub)
         const { plugins, pluginConfigs } = hub
@@ -69,7 +67,7 @@ describe('plugins', () => {
         expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
         expect(pluginConfig.plugin).toEqual({
-            ...plugin,
+            ...plugin60,
             capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
         })
 
@@ -97,7 +95,7 @@ describe('plugins', () => {
             [
                 60,
                 {
-                    ...plugin,
+                    ...plugin60,
                     capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
                 },
             ],
@@ -114,13 +112,6 @@ describe('plugins', () => {
         const returnedEvent = await runProcessEvent(hub, event)
         expect(event.properties!['processed']).toEqual(true)
         expect(returnedEvent!.properties!['processed']).toEqual(true)
-
-        // Personless event skips the plugin
-        const personlessEvent = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        const runDeprecatedPlugins = false
-        const returnedPersonlessEvent = await runProcessEvent(hub, personlessEvent, runDeprecatedPlugins)
-        expect(personlessEvent.properties!['processed']).toEqual(undefined)
-        expect(returnedPersonlessEvent!.properties!['processed']).toEqual(undefined)
     })
 
     test('stateless plugins', async () => {
@@ -181,7 +172,6 @@ describe('plugins', () => {
         const returnedEvent = await runProcessEvent(hub, event)
 
         expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
-            '$plugins_deferred',
             '$plugins_failed',
             '$plugins_succeeded',
             'attachments',
@@ -287,7 +277,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: ['test-maxmind-plugin (39)'],
                 $plugins_succeeded: [],
-                $plugins_deferred: [],
             },
             team_id: 2,
         }
@@ -329,7 +318,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: ['test-maxmind-plugin (39)'],
                 $plugins_succeeded: [],
-                $plugins_deferred: [],
             },
         }
         expect(returnedEvent).toEqual(expectedReturnEvent)
@@ -363,41 +351,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: [],
                 $plugins_succeeded: ['test-maxmind-plugin (39)'],
-                $plugins_deferred: [],
-            },
-        }
-        expect(returnedEvent).toEqual(expectedReturnEvent)
-    })
-
-    test('events have property $plugins_deferred set to the plugins that run after processEvent', async () => {
-        // silence some spam
-        console.log = jest.fn()
-        console.error = jest.fn()
-
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            function onEvent (event) {
-                return event
-            }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
-
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        const returnedEvent = await runProcessEvent(hub, { ...event })
-
-        const expectedReturnEvent = {
-            ...event,
-            properties: {
-                $plugins_failed: [],
-                $plugins_succeeded: [],
-                $plugins_deferred: ['test-maxmind-plugin (39)'],
             },
         }
         expect(returnedEvent).toEqual(expectedReturnEvent)

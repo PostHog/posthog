@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
-from typing import List, Literal, Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -14,9 +14,9 @@ from posthog.hogql.constants import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
-    HOGQL_AGGREGATIONS,
-    HOGQL_POSTHOG_FUNCTIONS,
-    find_clickhouse_function,
+    find_hogql_aggregation,
+    find_hogql_posthog_function,
+    find_hogql_function,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
@@ -41,8 +41,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -74,7 +73,7 @@ def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -93,7 +92,7 @@ def prepare_ast_for_printing(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
@@ -131,7 +130,7 @@ def print_prepared_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -159,13 +158,13 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[AST]] = None,
+        stack: Optional[list[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
         self._indent = -1
@@ -236,7 +235,7 @@ class _Printer(Visitor):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
-                    where = ast.And(exprs=[extra_where] + where.exprs)
+                    where = ast.And(exprs=[extra_where, *where.exprs])
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
@@ -453,7 +452,7 @@ class _Printer(Visitor):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            join_strings.append(f"ON {self.visit(node.constraint)}")
+            join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
@@ -725,7 +724,7 @@ class _Printer(Visitor):
                     op=op,
                 )
             )
-        elif func_meta := HOGQL_AGGREGATIONS.get(node.name):
+        elif func_meta := find_hogql_aggregation(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -747,7 +746,7 @@ class _Printer(Visitor):
 
             # check that we're not running inside another aggregate
             for stack_node in self.stack:
-                if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
+                if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
@@ -759,7 +758,7 @@ class _Printer(Visitor):
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
             return f"{func_meta.clickhouse_name}{params_part}{args_part}"
 
-        elif func_meta := find_clickhouse_function(node.name):
+        elif func_meta := find_hogql_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
@@ -774,7 +773,7 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: List[str] = []
+                    args: list[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
@@ -784,7 +783,7 @@ class _Printer(Visitor):
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
-                    args: List[str] = []
+                    args = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
@@ -805,6 +804,9 @@ class _Printer(Visitor):
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
                     args = [self.visit(arg) for arg in node.args]
+
+                if func_meta.suffix_args:
+                    args += [self.visit(arg) for arg in func_meta.suffix_args]
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -856,8 +858,8 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
+        elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
@@ -954,7 +956,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -978,7 +980,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1003,7 +1005,7 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        args: List[str] = []
+        args: list[str] = []
 
         if self.context.modifiers.materializationMode != "disabled":
             # find a materialized property for the first part of the chain
@@ -1028,10 +1030,12 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
-                    materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                    materialized_column = self._get_materialized_column(
+                        "events", str(type.chain[0]), "person_properties"
+                    )
                 else:
-                    materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                    materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
                 if materialized_column:
                     materialized_property_sql = self._print_identifier(materialized_column)
 
@@ -1089,11 +1093,16 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
+    def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
+        if self.dialect == "clickhouse":
+            raise QueryError(f"Unable to resolve field: {type.name}")
+        return self._print_identifier(type.name)
+
     def visit_unknown(self, node: AST):
         raise ImpossibleASTError(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
-        strings: List[str] = []
+        strings: list[str] = []
         if node.partition_by is not None:
             if len(node.partition_by) == 0:
                 raise ImpossibleASTError("PARTITION BY must have at least one argument")
@@ -1167,8 +1176,8 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
-    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
@@ -1208,7 +1217,7 @@ class _Printer(Visitor):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, (int, float, str)):
+            if not isinstance(value, int | float | str):
                 raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")

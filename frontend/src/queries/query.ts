@@ -19,7 +19,7 @@ import {
 import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,
@@ -40,10 +40,10 @@ import {
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
-const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
+const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
-export function queryExportContext<N extends DataNode = DataNode>(
+export function queryExportContext<N extends DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -89,30 +89,43 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
-    } else {
-        return { source: query }
     }
+    return { source: query }
 }
 
-const SYNC_ONLY_QUERY_KINDS = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete'] satisfies NodeKind[keyof NodeKind][]
+const SYNC_ONLY_QUERY_KINDS = [
+    'HogQuery',
+    'HogQLMetadata',
+    'EventsQuery',
+    'HogQLAutocomplete',
+    'DatabaseSchemaQuery',
+] satisfies NodeKind[keyof NodeKind][]
 
 /**
  * Execute a query node and return the response, use async query if enabled
  */
-async function executeQuery<N extends DataNode = DataNode>(
+async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
+    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
+
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
-    if (!isAsyncQuery || !response.query_async) {
+    if (!response.query_async) {
+        // Executed query synchronously
         return response
+    }
+    if (response.complete || response.error) {
+        // Async query returned immediately
+        return response.results
     }
 
     const pollStart = performance.now()
@@ -122,22 +135,26 @@ async function executeQuery<N extends DataNode = DataNode>(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = await api.queryStatus.get(response.id)
+        const statusResponse = await api.queryStatus.get(response.id, showProgress)
 
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results
+        }
+        if (setPollResponse) {
+            setPollResponse(statusResponse)
         }
     }
     throw new Error('Query timed out')
 }
 
 // Return data for a given query
-export async function query<N extends DataNode = DataNode>(
+export async function query<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string
+    legacyUrl?: string,
+    setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -360,13 +377,13 @@ export async function query<N extends DataNode = DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
                 }
             } else {
                 response = await fetchLegacyInsights()
             }
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
@@ -411,9 +428,8 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
         return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
     } else if (isPathsFilter(filters)) {
         return `api/projects/${currentTeamId}/insights/path${refresh ? '?refresh=true' : ''}`
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export function legacyInsightQueryData({
@@ -464,9 +480,8 @@ export function legacyInsightQueryExportContext({
             method: 'POST',
             body: filters,
         }
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export async function legacyInsightQuery({

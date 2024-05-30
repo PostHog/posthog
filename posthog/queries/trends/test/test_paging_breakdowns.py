@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from freezegun import freeze_time
 
@@ -38,7 +38,9 @@ class TestPagingBreakdowns(APIBaseTest):
                 create_people=True,
             )
 
-    def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
+    def _run(self, extra: Optional[dict] = None, run_at: Optional[str] = None):
+        if extra is None:
+            extra = {}
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(

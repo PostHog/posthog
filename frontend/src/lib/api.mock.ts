@@ -1,4 +1,5 @@
 import apiReal from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
@@ -76,6 +77,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
+    heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
@@ -98,7 +100,6 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
-    available_features: [],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
@@ -119,7 +120,6 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    email_opt_in: true,
     notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
@@ -129,6 +129,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
@@ -180,6 +181,7 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
+    level: OrganizationMembershipLevel.Member,
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [

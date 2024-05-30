@@ -12,7 +12,7 @@ export type ResizerProps = ResizerLogicProps & {
 
 export function Resizer(props: ResizerProps): JSX.Element {
     const logic = resizerLogic(props)
-    const { isResizeInProgress } = useValues(logic)
+    const { isResizeInProgress, isVertical } = useValues(logic)
     const { beginResize } = useActions(logic)
 
     // The same logic can be used by multiple resizers
@@ -38,7 +38,7 @@ export function Resizer(props: ResizerProps): JSX.Element {
             onMouseDown={(e) => {
                 if (e.button === 0) {
                     setIsSelected(true)
-                    beginResize(e.pageX)
+                    beginResize(isVertical ? e.pageX : e.pageY)
                 }
             }}
         >

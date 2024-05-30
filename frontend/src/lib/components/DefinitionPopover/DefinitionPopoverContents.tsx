@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { IconInfo, IconLock } from '@posthog/icons'
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -16,46 +16,16 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
-
-function TaxonomyIntroductionSection(): JSX.Element {
-    const Lock = (): JSX.Element => (
-        <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
-            <Tooltip title="Viewing ingestion data requires a premium license">
-                <IconLock className="mr-1 text-warning text-xl shrink-0" />
-            </Tooltip>
-        </div>
-    )
-
-    return (
-        <>
-            <DefinitionPopover.Grid cols={2}>
-                <DefinitionPopover.Card title="First seen" value={<Lock />} />
-                <DefinitionPopover.Card title="Last seen" value={<Lock />} />
-            </DefinitionPopover.Grid>
-            <DefinitionPopover.Section>
-                <Link
-                    to="https://posthog.com/docs/user-guides/data-management"
-                    target="_blank"
-                    data-attr="taxonomy-learn-more"
-                    className="mt-2 font-semibold"
-                >
-                    Learn more about Data Management
-                </Link>
-            </DefinitionPopover.Section>
-        </>
-    )
-}
 
 export function VerifiedDefinitionCheckbox({
     verified,
@@ -108,6 +78,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isCohort,
         isDataWarehouse,
         isProperty,
+        hasSentAs,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -161,27 +132,28 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return (
             <>
                 {sharedComponents}
-                {hasTaxonomyFeatures ? (
-                    <DefinitionPopover.Grid cols={2}>
-                        <DefinitionPopover.Card
-                            title="First seen"
-                            value={_definition.created_at && <TZLabel time={_definition.created_at} />}
-                        />
-                        <DefinitionPopover.Card
-                            title="Last seen"
-                            value={_definition.last_seen_at && <TZLabel time={_definition.last_seen_at} />}
-                        />
-                    </DefinitionPopover.Grid>
-                ) : (
-                    <TaxonomyIntroductionSection />
-                )}
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Section>
+                <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card
-                        title="Sent as"
-                        value={<span className="font-mono text-xs">{_definition.name}</span>}
+                        title="First seen"
+                        value={_definition.created_at && <TZLabel time={_definition.created_at} />}
                     />
-                </DefinitionPopover.Section>
+                    <DefinitionPopover.Card
+                        title="Last seen"
+                        value={_definition.last_seen_at && <TZLabel time={_definition.last_seen_at} />}
+                    />
+                </DefinitionPopover.Grid>
+
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Sent as"
+                                value={<span className="font-mono text-xs">{_definition.name}</span>}
+                            />
+                        </DefinitionPopover.Section>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -209,17 +181,21 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="Sent as"
-                        value={
-                            <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                            </span>
-                        }
-                    />
-                </DefinitionPopover.Grid>
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Sent as"
+                                value={
+                                    <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
+                                        {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -282,10 +258,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         )
     }
     if (isDataWarehouse) {
-        const _definition = definition as DataWarehouseTableType
-        const columnOptions = _definition.columns.map((column) => ({
-            label: column.key + ' (' + column.type + ')',
-            value: column.key,
+        const _definition = definition as DataWarehouseTableForInsight
+        const columnOptions = Object.values(_definition.fields).map((column) => ({
+            label: column.name + ' (' + column.type + ')',
+            value: column.name,
         }))
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
 

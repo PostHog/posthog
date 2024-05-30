@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -40,7 +40,7 @@ class CommentSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data)
 
-    def update(self, instance: Comment, validated_data: Dict, **kwargs) -> Comment:
+    def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
         request = self.context["request"]
 
         with transaction.atomic():
@@ -71,8 +71,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     # TODO: Update when fully released
     scope_object = "INTERNAL"
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         if params.get("user"):

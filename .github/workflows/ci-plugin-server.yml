@@ -24,7 +24,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run plugin server checks
@@ -54,7 +54,7 @@ jobs:
         name: Code quality
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -63,9 +63,7 @@ jobs:
             - uses: actions/checkout@v3
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: actions/setup-node@v4
@@ -85,7 +83,7 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -139,9 +137,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.plugin-server == 'true'
@@ -180,7 +176,7 @@ jobs:
         name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -230,9 +226,7 @@ jobs:
                   uv pip install --system -r requirements.txt
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: actions/setup-node@v4

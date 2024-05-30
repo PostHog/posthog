@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Callable, cast
+from typing import Optional, cast
+from collections.abc import Callable
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -11,6 +12,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    CachedHogQLQueryResponse,
     HogQLQuery,
     HogQLQueryResponse,
     DashboardFilter,
@@ -21,12 +23,13 @@ from posthog.schema import (
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
-    query_type = HogQLQuery
+    response: HogQLQueryResponse
+    cached_response: CachedHogQLQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
             self.timings = HogQLTimings()
-        values = (
+        values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
@@ -60,7 +63,6 @@ class HogQLQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
-            explain=bool(self.query.explain),
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
@@ -72,15 +74,14 @@ class HogQLQueryRunner(QueryRunner):
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> HogQLQuery:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()
-        self.query.filters.dateRange = self.query.filters.dateRange or DateRange()
 
         if dashboard_filter.date_to or dashboard_filter.date_from:
+            if self.query.filters.dateRange is None:
+                self.query.filters.dateRange = DateRange()
             self.query.filters.dateRange.date_to = dashboard_filter.date_to
             self.query.filters.dateRange.date_from = dashboard_filter.date_from
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
-
-        return self.query

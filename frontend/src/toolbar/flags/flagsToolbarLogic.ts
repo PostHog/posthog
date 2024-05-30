@@ -5,8 +5,8 @@ import { encodeParams } from 'kea-router'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
 
-import { posthog as posthogJS } from '~/toolbar/posthog'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
@@ -119,7 +119,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             const clientPostHog = values.posthog
             if (clientPostHog) {
                 clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
-                posthogJS.capture('toolbar feature flag overridden')
+                toolbarPosthogJS.capture('toolbar feature flag overridden')
                 actions.checkLocalOverrides()
                 clientPostHog.featureFlags.reloadFeatureFlags()
             }
@@ -134,7 +134,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 } else {
                     clientPostHog.featureFlags.override(false)
                 }
-                posthogJS.capture('toolbar feature flag override removed')
+                toolbarPosthogJS.capture('toolbar feature flag override removed')
                 actions.checkLocalOverrides()
                 clientPostHog.featureFlags.reloadFeatureFlags()
             }

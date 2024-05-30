@@ -1,12 +1,16 @@
-from typing import Dict, Set, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DateTimeDatabaseField
+from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
+    BooleanDatabaseField,
+)
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
+from posthog.hogql.database.s3_table import S3Table
 
 
 def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -56,15 +60,6 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
             {f"{group_id}_{name}": property_type for name, property_type in group_property_values if property_type}
         )
 
-    # swap them out
-    if (
-        len(event_properties) == 0
-        and len(person_properties) == 0
-        and len(group_properties) == 0
-        and not property_finder.found_timestamps
-    ):
-        return node
-
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     property_swapper = PropertySwapper(
         timezone=timezone,
@@ -81,9 +76,9 @@ class PropertyFinder(TraversingVisitor):
 
     def __init__(self, context: HogQLContext):
         super().__init__()
-        self.person_properties: Set[str] = set()
-        self.event_properties: Set[str] = set()
-        self.group_properties: Dict[int, Set[str]] = {}
+        self.person_properties: set[str] = set()
+        self.event_properties: set[str] = set()
+        self.group_properties: dict[int, set[str]] = {}
         self.found_timestamps = False
         self.context = context
 
@@ -123,9 +118,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: Dict[str, str],
-        person_properties: Dict[str, str],
-        group_properties: Dict[str, str],
+        event_properties: dict[str, str],
+        person_properties: dict[str, str],
+        group_properties: dict[str, str],
         context: HogQLContext,
     ):
         super().__init__(clear_types=False)
@@ -147,6 +142,20 @@ class PropertySwapper(CloningVisitor):
                         return_type=ast.DateTimeType(),
                     ),
                 )
+
+            if isinstance(node.type.table_type, ast.LazyJoinType) and isinstance(
+                node.type.table_type.lazy_join.join_table, S3Table
+            ):
+                field = node.chain[-1]
+                field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
+                prop_type = "String"
+
+                if isinstance(field_type, DateTimeDatabaseField):
+                    prop_type = "DateTime"
+                if isinstance(field_type, BooleanDatabaseField):
+                    prop_type = "Boolean"
+
+                return self._field_type_to_property_call(node, prop_type)
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
@@ -200,6 +209,9 @@ class PropertySwapper(CloningVisitor):
         field_type = "Float" if posthog_field_type == "Numeric" else posthog_field_type or "String"
         self._add_property_notice(node, property_type, field_type)
 
+        return self._field_type_to_property_call(node, field_type)
+
+    def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
             return ast.Call(name="toDateTime", args=[node])
         if field_type == "Float":
@@ -224,10 +236,10 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)

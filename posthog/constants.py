@@ -16,7 +16,6 @@ class AvailableFeature(str, Enum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    TEAM_COLLABORATION = "team_collaboration"
     ADVANCED_PERMISSIONS = "advanced_permissions"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
@@ -34,6 +33,8 @@ class AvailableFeature(str, Enum):
     SURVEYS_STYLING = "surveys_styling"
     SURVEYS_TEXT_HTML = "surveys_text_html"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
+    AUTOMATIC_PROVISIONING = "automatic_provisioning"
+    MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -262,6 +263,14 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentNoResultsErrorKeys(str, Enum):
+    NO_EVENTS = "no-events"
+    NO_FLAG_INFO = "no-flag-info"
+    NO_CONTROL_VARIANT = "no-control-variant"
+    NO_TEST_VARIANT = "no-test-variant"
+    NO_RESULTS = "no-results"
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -281,9 +290,6 @@ class BreakdownAttributionType(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
-BREAKDOWN_VALUES_LIMIT = 25
-BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
-CSV_EXPORT_LIMIT = 10000
 
 
 class EventDefinitionType(str, Enum):
@@ -303,5 +309,6 @@ class FlagRequestType(str, Enum):
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]

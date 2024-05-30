@@ -164,6 +164,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
+            } else if (insightId && !values.insight?.result) {
+                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },
     })),
@@ -176,7 +178,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters, q }, // hash params
-            { method, initial } // "location changed" event payload
+            { method, initial }, // "location changed" event payload
+            { searchParams: previousSearchParams } // previous location
         ) => {
             const insightMode =
                 mode === 'subscriptions'
@@ -196,6 +199,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 currentScene.activeSceneLogic?.values.mode === insightMode
             ) {
                 // If nothing about the scene has changed, don't do anything
+                return
+            }
+
+            if (previousSearchParams['event-correlation_page'] !== searchParams['event-correlation_page']) {
+                // If a lemon table pagination param has changed, don't do anything
                 return
             }
 

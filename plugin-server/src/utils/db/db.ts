@@ -25,9 +25,8 @@ import {
     Group,
     GroupKey,
     GroupTypeIndex,
-    GroupTypeToColumnIndex,
+    InternalPerson,
     OrganizationMembershipLevel,
-    Person,
     PersonDistinctId,
     Plugin,
     PluginConfig,
@@ -156,9 +155,6 @@ export class DB {
     kafkaProducer: KafkaProducerWrapper
     /** ClickHouse used for syncing Postgres and ClickHouse person data. */
     clickhouse: ClickHouse
-
-    /** How many unique group types to allow per team */
-    MAX_GROUP_TYPES_PER_TEAM = 5
 
     /** Default log level for plugins that don't specify it */
     pluginsDefaultLogLevel: PluginLogLevel
@@ -550,7 +546,7 @@ export class DB {
         }
     }
 
-    private toPerson(row: RawPerson): Person {
+    private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
             created_at: DateTime.fromISO(row.created_at).toUTC(),
@@ -558,9 +554,9 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
+    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {
+    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
             SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
@@ -595,8 +591,12 @@ export class DB {
     public async fetchPerson(
         teamId: number,
         distinctId: string,
-        options: { forUpdate?: boolean } = {}
-    ): Promise<Person | undefined> {
+        options: { forUpdate?: boolean; useReadReplica?: boolean } = {}
+    ): Promise<InternalPerson | undefined> {
+        if (options.forUpdate && options.useReadReplica) {
+            throw new Error("can't enable both forUpdate and useReadReplica in db::fetchPerson")
+        }
+
         let queryString = `SELECT
                 posthog_person.id,
                 posthog_person.uuid,
@@ -621,7 +621,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
             values,
             'fetchPerson'
@@ -641,10 +641,10 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[]
-    ): Promise<Person> {
+        distinctIds?: string[],
+        version = 0
+    ): Promise<InternalPerson> {
         distinctIds ||= []
-        const version = 0 // We're creating the person now!
 
         const { rows } = await this.postgres.query<RawPerson>(
             PostgresUse.COMMON_WRITE,
@@ -713,10 +713,10 @@ export class DB {
 
     // Currently in use, but there are various problems with this function
     public async updatePersonDeprecated(
-        person: Person,
-        update: Partial<Person>,
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
         tx?: TransactionClient
-    ): Promise<[Person, ProducerRecord[]]> {
+    ): Promise<[InternalPerson, ProducerRecord[]]> {
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
@@ -770,7 +770,7 @@ export class DB {
         return [updatedPerson, kafkaMessages]
     }
 
-    public async deletePerson(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
@@ -789,10 +789,13 @@ export class DB {
 
     // PersonDistinctId
     // testutil
-    public async fetchDistinctIds(person: Person, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(person: InternalPerson, database?: Database.Postgres): Promise<PersonDistinctId[]>
     public async fetchDistinctIds(
-        person: Person,
+        person: InternalPerson,
+        database: Database.ClickHouse
+    ): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(
+        person: InternalPerson,
         database: Database = Database.Postgres
     ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
@@ -821,33 +824,36 @@ export class DB {
         }
     }
 
-    public async fetchDistinctIdValues(person: Person, database: Database = Database.Postgres): Promise<string[]> {
+    public async fetchDistinctIdValues(
+        person: InternalPerson,
+        database: Database = Database.Postgres
+    ): Promise<string[]> {
         const personDistinctIds = await this.fetchDistinctIds(person, database as any)
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
+    public async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<void> {
+        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version)
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         }
     }
 
     public async addDistinctIdPooled(
-        person: Person,
+        person: InternalPerson,
         distinctId: string,
+        version: number,
         tx?: TransactionClient
     ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
-            [distinctId, person.id, person.team_id],
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
+            [distinctId, person.id, person.team_id, version],
             'addDistinctIdPooled'
         )
 
-        const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        const version = Number(versionStr || 0)
+        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         const messages = [
             {
                 topic: KAFKA_PERSON_DISTINCT_ID,
@@ -867,7 +873,11 @@ export class DB {
         return messages
     }
 
-    public async moveDistinctIds(source: Person, target: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -955,7 +965,7 @@ export class DB {
 
     public async addPersonToCohort(
         cohortId: number,
-        personId: Person['id'],
+        personId: InternalPerson['id'],
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
@@ -969,8 +979,8 @@ export class DB {
 
     public async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
-        sourcePersonID: Person['id'],
-        targetPersonID: Person['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
         tx?: TransactionClient
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
@@ -1243,58 +1253,6 @@ export class DB {
             [id, user_id, label, secure_value, created_at.toISOString()],
             'createPersonalApiKey'
         )
-    }
-
-    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
-            [teamId],
-            'fetchGroupTypes'
-        )
-
-        const result: GroupTypeToColumnIndex = {}
-
-        for (const row of rows) {
-            result[row.group_type] = row.group_type_index
-        }
-
-        return result
-    }
-
-    public async insertGroupType(
-        teamId: TeamId,
-        groupType: string,
-        index: number
-    ): Promise<[GroupTypeIndex | null, boolean]> {
-        if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
-            return [null, false]
-        }
-
-        const insertGroupTypeResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `
-            WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-                VALUES ($1, $2, $3)
-                ON CONFLICT DO NOTHING
-                RETURNING group_type_index
-            )
-            SELECT group_type_index, 1 AS is_insert  FROM insert_result
-            UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
-            `,
-            [teamId, groupType, index],
-            'insertGroupType'
-        )
-
-        if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, groupType, index + 1)
-        }
-
-        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
-
-        return [group_type_index, is_insert === 1]
     }
 
     public async fetchGroup(

@@ -1,6 +1,6 @@
 import datetime as dt
-from unittest import mock
 import uuid
+from unittest import mock
 
 import pytest
 import pytest_asyncio
@@ -10,6 +10,7 @@ import temporalio.common
 import temporalio.exceptions
 import temporalio.testing
 import temporalio.worker
+from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from posthog.temporal.batch_exports.backfill_batch_export import (
@@ -21,11 +22,15 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
     get_schedule_frequency,
     wait_for_schedule_backfill_in_range,
 )
+from posthog.temporal.tests.utils.datetimes import date_range
+from posthog.temporal.tests.utils.events import (
+    generate_test_events_in_clickhouse,
+)
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
-    afetch_batch_export_backfills,
     afetch_batch_export,
+    afetch_batch_export_backfills,
 )
 
 pytestmark = [pytest.mark.asyncio]
@@ -354,3 +359,96 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
     assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
     assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
+
+
+@pytest_asyncio.fixture
+async def failing_s3_batch_export(ateam, temporal_client):
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "this-bucket-doesn't-exist",
+            "region": "us-east-1",
+            "prefix": "/",
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+        },
+    }
+
+    failing_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "every 5 minutes",
+    }
+
+    batch_export = await acreate_batch_export(
+        team_id=ateam.pk,
+        # I don't know what is mypy's problem with all these parameters.
+        # The types are correct, the values are hardcoded just above.
+        name=failing_batch_export_data["name"],  # type: ignore
+        destination_data=failing_batch_export_data["destination"],  # type: ignore
+        interval=failing_batch_export_data["interval"],  # type: ignore
+    )
+
+    yield batch_export
+
+    await adelete_batch_export(batch_export, temporal_client)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
+    temporal_worker, failing_s3_batch_export, temporal_client, ateam, clickhouse_client
+):
+    """Test BackfillBatchExportWorkflow will be cancelled on repeated failures."""
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.timezone.utc)
+
+    # We need some data otherwise the S3 batch export will not fail as it short-circuits.
+    for d in date_range(start_at, end_at, dt.timedelta(minutes=5)):
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=start_at,
+            end_time=end_at,
+            count=10,
+            inserted_at=d,
+        )
+
+    inputs = BackfillBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(failing_s3_batch_export.id),
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        buffer_limit=2,
+        wait_delay=1.0,
+    )
+
+    # Need to recreate the specific ID the app would use when triggering a backfill
+    start_at_str = start_at.strftime("%Y-%m-%dT%H:%M:%S")
+    end_at_str = end_at.strftime("%Y-%m-%dT%H:%M:%S")
+    backfill_id = f"{failing_s3_batch_export.id}-Backfill-{start_at_str}-{end_at_str}"
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=backfill_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(minutes=2),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+
+    with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
+        await handle.result()
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, temporalio.exceptions.CancelledError)
+
+    await sync_to_async(failing_s3_batch_export.refresh_from_db)()
+    assert failing_s3_batch_export.paused is True
+
+    backfills = await afetch_batch_export_backfills(batch_export_id=failing_s3_batch_export.id)
+
+    assert len(backfills) == 1, "Expected one backfill to have been created"
+
+    backfill = backfills.pop()
+    assert backfill.status == "Cancelled"

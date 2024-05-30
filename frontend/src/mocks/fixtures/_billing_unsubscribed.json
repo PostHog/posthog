@@ -484,14 +484,6 @@
                             "note": null
                         },
                         {
-                            "key": "team_collaboration",
-                            "name": "Tags & text cards",
-                            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
                             "key": "ingestion_taxonomy",
                             "name": "Ingestion taxonomy",
                             "description": "Ingestion taxonomy",

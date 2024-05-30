@@ -58,7 +58,12 @@ describe('funnelCorrelationDetailsLogic', () => {
         const builtDataNodeLogic = dataNodeLogic({
             key: insightVizDataNodeKey(defaultProps),
             query: {} as DataNode,
-            cachedResults: { result: funnelResults },
+            cachedResults: {
+                result: funnelResults,
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+            },
         })
         builtDataNodeLogic.mount()
 

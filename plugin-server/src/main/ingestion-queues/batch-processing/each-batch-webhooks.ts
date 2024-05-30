@@ -2,10 +2,12 @@ import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
+import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
+import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
-import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { GroupTypeToColumnIndex, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -61,12 +63,14 @@ export async function eachBatchWebhooksHandlers(
     payload: EachBatchPayload,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
-    concurrency: number
+    concurrency: number,
+    groupTypeManager: GroupTypeManager,
+    organizationManager: OrganizationManager
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
-        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon),
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, groupTypeManager, organizationManager),
         concurrency,
         'webhooks'
     )
@@ -139,20 +143,23 @@ export async function eachBatchHandlerHelper(
 export async function eachMessageWebhooksHandlers(
     clickHouseEvent: RawClickHouseEvent,
     actionMatcher: ActionMatcher,
-    hookCannon: HookCommander
+    hookCannon: HookCommander,
+    groupTypeManager: GroupTypeManager,
+    organizationManager: OrganizationManager
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
         // exit early if no webhooks nor resthooks
         return
     }
-    const event = convertToIngestionEvent(clickHouseEvent)
 
-    // TODO: previously onEvent and Webhooks were executed in the same process,
-    // and onEvent would call convertToProcessedPluginEvent, which ends up
-    // mutating the `event` that is passed in. To ensure that we have the same
-    // behaviour we run this here, but we should probably refactor this to
-    // ensure that we don't mutate the event.
-    convertToProcessedPluginEvent(event)
+    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+
+    if (await organizationManager.hasAvailableFeature(clickHouseEvent.team_id, 'group_analytics')) {
+        // If the organization has group analytics enabled then we enrich the event with group data
+        groupTypes = await groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
+    }
+
+    const event = convertToPostIngestionEvent(clickHouseEvent, groupTypes)
 
     await runInstrumentedFunction({
         func: () => runWebhooks(actionMatcher, hookCannon, event),

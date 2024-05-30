@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,10 +10,11 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateMiniButton } from './PayGateMiniButton'
+import { PayGateMiniButtonVariant } from './PayGateMiniButtonVariant'
 import { payGateMiniLogic } from './payGateMiniLogic'
 
 export interface PayGateMiniProps {
@@ -61,6 +62,15 @@ export function PayGateMini({
         }
     }, [gateVariant])
 
+    const handleCtaClick = (): void => {
+        hideUpgradeModal()
+        posthog.capture('pay gate CTA clicked', {
+            product_key: productWithFeature?.type,
+            feature: feature,
+            gate_variant: gateVariant,
+        })
+    }
+
     if (billingLoading) {
         return null
     }
@@ -69,85 +79,65 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' &&
-        // we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page
-        !isAddonProduct ? (
-        gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
-            <div
-                className={clsx(
-                    className,
-                    background && 'bg-side border border-border',
-                    'PayGateMini rounded flex flex-col items-center p-4 text-center'
-                )}
+    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
+        return (
+            <PayGateContent
+                className={className}
+                background={background}
+                featureInfo={featureInfo}
+                featureAvailableOnOrg={featureAvailableOnOrg}
+                gateVariant={gateVariant}
+                productWithFeature={productWithFeature}
+                isGrandfathered={isGrandfathered}
+                isAddonProduct={isAddonProduct}
             >
-                <div className="flex text-4xl text-warning">
-                    {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
-                </div>
-                <h3>{featureInfo.name}</h3>
-                {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
-                    <div>
-                        <p>
-                            You've reached your usage limit for{' '}
-                            <Tooltip title={featureInfo.description}>
-                                <span>
-                                    <b>{featureInfo.name}</b>
-                                    <IconInfo className="ml-0.5 text-muted" />
-                                </span>
-                            </Tooltip>
-                            .
-                        </p>
-                        <p className="border border-border bg-side rounded p-4">
-                            <b>Your current plan limit:</b>{' '}
-                            <span>
-                                {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
-                            </span>
-                        </p>
-                        <p>
-                            Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
-                        </p>
-                    </div>
+                {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
+                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
+                    <PayGateMiniButton
+                        product={productWithFeature}
+                        featureInfo={featureInfo}
+                        gateVariant={gateVariant}
+                    />
                 ) : (
-                    <>
-                        <p>{featureInfo.description}</p>
-                        <p>
-                            {gateVariant === 'move-to-cloud' ? (
-                                <>This feature is only available on PostHog Cloud.</>
-                            ) : isAddonProduct ? (
-                                <>
-                                    Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
-                                </>
-                            ) : (
-                                <>
-                                    Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-                                </>
-                            )}
-                        </p>
-                    </>
+                    <PayGateMiniButtonVariant
+                        gateVariant={gateVariant}
+                        productWithFeature={productWithFeature}
+                        featureInfo={featureInfo}
+                        onCtaClick={handleCtaClick}
+                        billing={billing}
+                    />
                 )}
-                {isGrandfathered && (
-                    <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
-                        <IconInfo className="text-muted text-2xl" />
-                        <p className="text-muted mb-0">
-                            Your plan does not include this feature, but previously set settings may remain. Please
-                            upgrade your plan to regain access.
-                        </p>
-                    </div>
-                )}
-                {featureInfo.docsUrl && (
-                    <div className="mb-4">
-                        <>
-                            <Link to={featureInfo.docsUrl} target="_blank">
-                                Learn more in PostHog Docs.
-                            </Link>
-                        </>
-                    </div>
-                )}
-                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
-            </div>
-        ) : (
-            <div className={className}>{children}</div>
+            </PayGateContent>
         )
-    ) : gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
+    }
+
+    return <div className={className}>{children}</div>
+}
+
+interface PayGateContentProps {
+    className?: string
+    background: boolean
+    featureInfo: BillingV2FeatureType
+    featureAvailableOnOrg?: BillingV2FeatureType | null
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type
+    isGrandfathered?: boolean
+    isAddonProduct?: boolean
+    children: React.ReactNode
+}
+
+function PayGateContent({
+    className,
+    background,
+    featureInfo,
+    featureAvailableOnOrg,
+    gateVariant,
+    productWithFeature,
+    isGrandfathered,
+    isAddonProduct,
+    children,
+}: PayGateContentProps): JSX.Element {
+    return (
         <div
             className={clsx(
                 className,
@@ -159,95 +149,99 @@ export function PayGateMini({
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h3>{featureInfo.name}</h3>
-            {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
-                <div>
-                    <p>
-                        You've reached your usage limit for{' '}
-                        <Tooltip title={featureInfo.description}>
-                            <span>
-                                <b>{featureInfo.name}</b>
-                                <IconInfo className="ml-0.5 text-muted" />
-                            </span>
-                        </Tooltip>
-                        .
-                    </p>
-                    <p className="border border-border bg-side rounded p-4">
-                        <b>Your current plan limit:</b>{' '}
-                        <span>
-                            {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
-                        </span>
-                    </p>
-                    <p>
-                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
-                    </p>
-                </div>
-            ) : (
-                <>
-                    <p>{featureInfo.description}</p>
-                    <p>
-                        {gateVariant === 'move-to-cloud' ? (
-                            <>This feature is only available on PostHog Cloud.</>
-                        ) : isAddonProduct ? (
-                            <>
-                                Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
-                            </>
-                        ) : (
-                            <>
-                                Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-                            </>
-                        )}
-                    </p>
-                </>
+            {renderUsageLimitMessage(
+                featureAvailableOnOrg,
+                gateVariant,
+                featureInfo,
+                productWithFeature,
+                isAddonProduct
             )}
-            {isGrandfathered && (
-                <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
-                    <IconInfo className="text-muted text-2xl" />
-                    <p className="text-muted mb-0">
-                        Your plan does not include this feature, but previously set settings may remain. Please upgrade
-                        your plan to regain access.
-                    </p>
-                </div>
-            )}
-            {featureInfo.docsUrl && (
-                <div className="mb-4">
-                    <>
-                        <Link to={featureInfo.docsUrl} target="_blank">
-                            Learn more in PostHog Docs.
-                        </Link>
-                    </>
-                </div>
-            )}
-            <LemonButton
-                to={
-                    gateVariant === 'add-card'
-                        ? `/organization/billing?products=${productWithFeature.type}`
-                        : gateVariant === 'contact-sales'
-                        ? `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
-                        : gateVariant === 'move-to-cloud'
-                        ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
-                        : undefined
-                }
-                type="primary"
-                center
-                onClick={() => {
-                    hideUpgradeModal()
-                    posthog.capture('pay gate CTA clicked', {
-                        product_key: productWithFeature?.type,
-                        feature: feature,
-                        gate_variant: gateVariant,
-                    })
-                }}
-            >
-                {gateVariant === 'add-card'
-                    ? billing?.has_active_subscription
-                        ? `Upgrade ${productWithFeature?.name}`
-                        : 'Subscribe now'
-                    : gateVariant === 'contact-sales'
-                    ? 'Contact sales'
-                    : 'Move to PostHog Cloud'}
-            </LemonButton>
+            {isGrandfathered && <GrandfatheredMessage />}
+            {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
+            {children}
         </div>
-    ) : (
-        <div className={className}>{children}</div>
+    )
+}
+
+const renderUsageLimitMessage = (
+    featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    featureInfo: BillingV2FeatureType,
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean
+): JSX.Element => {
+    if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
+        return (
+            <div>
+                <p>
+                    You've reached your usage limit for{' '}
+                    <Tooltip title={featureInfo.description}>
+                        <span>
+                            <b>{featureInfo.name}</b>
+                            <IconInfo className="ml-0.5 text-muted" />
+                        </span>
+                    </Tooltip>
+                    .
+                </p>
+                <p className="border border-border bg-side rounded p-4">
+                    <b>Your current plan limit:</b>{' '}
+                    <span>
+                        {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                    </span>
+                </p>
+                <p>
+                    Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                </p>
+            </div>
+        )
+    }
+    return (
+        <>
+            <p>{featureInfo.description}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+        </>
+    )
+}
+
+const renderGateVariantMessage = (
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean
+): JSX.Element => {
+    if (gateVariant === 'move-to-cloud') {
+        return <>This feature is only available on PostHog Cloud.</>
+    } else if (isAddonProduct) {
+        return (
+            <>
+                Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+            </>
+        )
+    }
+    return (
+        <>
+            Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+        </>
+    )
+}
+
+const GrandfatheredMessage = (): JSX.Element => {
+    return (
+        <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+            <IconInfo className="text-muted text-2xl" />
+            <p className="text-muted mb-0">
+                Your plan does not include this feature, but previously set settings may remain. Please upgrade your
+                plan to regain access.
+            </p>
+        </div>
+    )
+}
+
+const DocsLink = ({ url }: { url: string }): JSX.Element => {
+    return (
+        <div className="mb-4">
+            <Link to={url} target="_blank">
+                Learn more in PostHog Docs.
+            </Link>
+        </div>
     )
 }

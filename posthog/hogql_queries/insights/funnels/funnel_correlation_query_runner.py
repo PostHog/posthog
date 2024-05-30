@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import timedelta
-from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, cast
+from typing import Literal, Optional, Any, TypedDict, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
@@ -33,6 +33,7 @@ from posthog.schema import (
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
+    CachedFunnelCorrelationResponse,
     FunnelCorrelationResult,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
@@ -86,7 +87,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
-    query_type = FunnelCorrelationQuery
+    response: FunnelCorrelationResponse
+    cached_response: CachedFunnelCorrelationResponse
+
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
@@ -95,7 +98,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def __init__(
         self,
-        query: FunnelCorrelationQuery | Dict[str, Any],
+        query: FunnelCorrelationQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -132,7 +135,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         # Used for generating the funnel persons cte
         funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
         assert isinstance(
-            funnel_order_actor_class, (FunnelActors, FunnelStrictActors, FunnelUnorderedActors)
+            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
@@ -207,7 +210,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for us to calculate the odds ratio.
         """
         if not self.funnels_query.series:
-            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
+            return FunnelCorrelationResponse(
+                results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
+            )
 
         events, skewed_totals, hogql, response = self._calculate()
 
@@ -223,9 +228,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hasMore=response.hasMore,
             limit=response.limit,
             offset=response.offset,
+            modifiers=self.modifiers,
         )
 
-    def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
@@ -242,9 +248,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [result for result in response.results if result[0] == self.TOTAL_IDENTIFIER][
-            0
-        ]
+        _, success_total, failure_total = next(
+            result for result in response.results if result[0] == self.TOTAL_IDENTIFIER
+        )
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -820,12 +826,12 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             props_str = ", ".join(props)
             return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
 
-    def _get_funnel_step_names(self) -> List[str]:
-        events: Set[str] = set()
+    def _get_funnel_step_names(self) -> list[str]:
+        events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
                 action = Action.objects.get(pk=int(entity.id), team=self.context.team)
-                events.update(action.get_step_events())
+                events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:
                     events.add(entity.event)
@@ -835,8 +841,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return sorted(events)
 
     @property
-    def properties_to_include(self) -> List[str]:
-        props_to_include: List[str] = []
+    def properties_to_include(self) -> list[str]:
+        props_to_include: list[str] = []
         # TODO: implement or remove
         # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
         #     assert self.query.funnelCorrelationNames is not None

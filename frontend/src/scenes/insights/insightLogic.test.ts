@@ -11,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -19,7 +18,6 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
-    AvailableFeature,
     BreakdownType,
     DashboardTile,
     DashboardType,
@@ -112,7 +110,6 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(async () => {
-        useAvailableFeatures([AvailableFeature.TEAM_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],
@@ -609,17 +606,6 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
-        const verifyItLoadsFromALogic = async (
-            logicUnderTest: ReturnType<typeof insightLogic.build>,
-            partialExpectedInsight: Partial<InsightModel>
-        ): Promise<void> =>
-            expectLogic(logicUnderTest)
-                .toDispatchActions(['setInsight'])
-                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
-                .toMatchValues({
-                    insight: partial(partialExpectedInsight),
-                })
-
         const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
@@ -629,52 +615,30 @@ describe('insightLogic', () => {
                     }),
                 })
 
-        it('loads from the dashboardLogic when in dashboard context', async () => {
+        it('loads from the api when coming from dashboard context', async () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
-            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
 
             // 2. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
             logic.mount()
 
-            // 3. verify it didn't make any API calls
-            await verifyItLoadsFromALogic(logic, {
-                id: 42,
-                result: 'result!',
-                filters: { insight: InsightType.TRENDS, interval: 'month' },
-            })
+            await verifyItLoadsFromTheAPI(logic)
         })
 
         it('does not load from the dashboardLogic when not in that dashboard context', async () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
-            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
 
             // 2. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 1 })
             logic.mount()
 
             await verifyItLoadsFromTheAPI(logic)
-        })
-
-        it('loads from the savedInsightLogic when not in a dashboard context', async () => {
-            // 1. open saved insights
-            router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic.mount()
-
-            // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
-
-            // 3. mount the insight
-            logic = insightLogic({ dashboardItemId: Insight42 })
-            logic.mount()
-
-            await verifyItLoadsFromALogic(logic, {
-                short_id: '42' as InsightShortId,
-            })
         })
 
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {

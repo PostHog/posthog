@@ -155,11 +155,13 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: () => {
+        setFilters: async (_, breakpoint) => {
+            await breakpoint(500)
             actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
                     values.propertyDefinitions.current,
                     {
+                        offset: 0,
                         search: values.filters.property,
                         type: values.filters.type,
                         group_type_index: values.filters.group_type_index,
@@ -200,9 +202,12 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     })),
     urlToAction(({ actions, values }) => ({
         [urls.propertyDefinitions()]: (_, searchParams) => {
+            if (values.propertyDefinitionsLoading) {
+                return
+            }
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
-            } else if (!values.propertyDefinitions.results.length && !values.propertyDefinitionsLoading) {
+            } else if (!values.propertyDefinitions.results.length) {
                 actions.loadPropertyDefinitions()
             }
         },

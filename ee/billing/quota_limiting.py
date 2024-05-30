@@ -1,7 +1,8 @@
 import copy
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict, cast
+from typing import Optional, TypedDict, cast
 
 import dateutil.parser
 import posthoganalytics
@@ -66,13 +67,13 @@ def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], 
     redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
-def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str], cache_key: QuotaLimitingCaches) -> None:
+def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
     redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> List[str]:
+def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
@@ -86,7 +87,7 @@ class UsageCounters(TypedDict):
 
 
 def org_quota_limited_until(
-    organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: List[str]
+    organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: list[str]
 ) -> Optional[OrgQuotaLimitingInformation]:
     if not organization.usage:
         return None
@@ -150,8 +151,8 @@ def org_quota_limited_until(
     if not trust_score:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
-            organization.customer_trust_scores[resource] = 0
-            organization.save(update_fields=["usage"])
+            organization.customer_trust_scores[resource.value] = 0
+            organization.save(update_fields=["customer_trust_scores", "usage"])
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
@@ -265,7 +266,7 @@ def sync_org_quota_limits(organization: Organization):
 
 def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
     if resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
-        team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+        team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
         if not team_tokens:
             capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
@@ -274,7 +275,7 @@ def get_team_attribute_by_quota_resource(organization: Organization, resource: Q
         return team_tokens
 
     if resource == QuotaResource.ROWS_SYNCED:
-        team_ids: List[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
+        team_ids: list[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
 
         if not team_ids:
             capture_exception(Exception(f"quota_limiting: No team ids found for organization: {organization.id}"))
@@ -322,7 +323,7 @@ def set_org_usage_summary(
 
 def update_all_org_billing_quotas(
     dry_run: bool = False,
-) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[str, int]]]:
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
     period = get_current_day()
     period_start, period_end = period
 
@@ -352,8 +353,8 @@ def update_all_org_billing_quotas(
         )
     )
 
-    todays_usage_report: Dict[str, UsageCounters] = {}
-    orgs_by_id: Dict[str, Organization] = {}
+    todays_usage_report: dict[str, UsageCounters] = {}
+    orgs_by_id: dict[str, Organization] = {}
 
     # we iterate through all teams, and add their usage to the organization they belong to
     for team in teams:
@@ -373,12 +374,12 @@ def update_all_org_billing_quotas(
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    quota_limited_orgs: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
-    quota_limiting_suspended_orgs: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Get the current quota limits so we can track to poshog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, List[str]] = {x.value: [] for x in QuotaResource}
+    previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
@@ -405,8 +406,8 @@ def update_all_org_billing_quotas(
                     elif quota_limited_until:
                         quota_limited_orgs[field][org_id] = quota_limited_until
 
-    quota_limited_teams: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
-    quota_limiting_suspended_teams: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Convert the org ids to team tokens
     for team in teams:

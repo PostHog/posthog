@@ -1,13 +1,5 @@
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
@@ -36,9 +28,9 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         self,
         *,
         sql: str,
-        sql_settings: Optional[Dict] = None,
+        sql_settings: Optional[dict] = None,
         rollback: Optional[str],
-        rollback_settings: Optional[Dict] = None,
+        rollback_settings: Optional[dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
         per_shard: bool = False,
@@ -58,7 +50,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         if self.rollback is not None:
             self._execute_op(query_id, self.rollback, self.rollback_settings)
 
-    def _execute_op(self, query_id: str, sql: str, settings: Optional[Dict]):
+    def _execute_op(self, query_id: str, sql: str, settings: Optional[dict]):
         from posthog.async_migrations.utils import (
             execute_op_clickhouse,
             execute_op_postgres,
@@ -91,16 +83,16 @@ class AsyncMigrationDefinition:
     description = ""
 
     # list of versions accepted for the services the migration relies on e.g. ClickHouse, Postgres
-    service_version_requirements: List[ServiceVersionRequirement] = []
+    service_version_requirements: list[ServiceVersionRequirement] = []
 
     # list of operations the migration will perform _in order_
-    operations: List[AsyncMigrationOperation] = []
+    operations: list[AsyncMigrationOperation] = []
 
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
     # optional parameters for this async migration. Shown in the UI when starting the migration
-    parameters: Dict[str, Tuple[(Optional[Union[int, str]], str, Callable[[Any], Any])]] = {}
+    parameters: dict[str, tuple[(Optional[Union[int, str]], str, Callable[[Any], Any])]] = {}
 
     def __init__(self, name: str):
         self.name = name
@@ -111,11 +103,11 @@ class AsyncMigrationDefinition:
         return True
 
     # run before starting the migration
-    def precheck(self) -> Tuple[bool, Optional[str]]:
+    def precheck(self) -> tuple[bool, Optional[str]]:
         return (True, None)
 
     # run at a regular interval while the migration is being executed
-    def healthcheck(self) -> Tuple[bool, Optional[str]]:
+    def healthcheck(self) -> tuple[bool, Optional[str]]:
         return (True, None)
 
     # return an int between 0-100 to specify how far along this migration is

@@ -338,9 +338,11 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
     columns_except_team_id="""distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition""",
 )
 
-SELECT_PERSONS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
-    table_name=PERSONS_TABLE
-)
+SELECT_PERSONS_OF_TEAM = """
+SELECT id, created_at, properties, is_identified, version
+FROM {table_name}
+WHERE team_id = %(source_team_id)s
+""".format(table_name=PERSONS_TABLE)
 
 SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=PERSON_DISTINCT_ID2_TABLE

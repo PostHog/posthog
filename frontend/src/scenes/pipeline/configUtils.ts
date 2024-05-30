@@ -10,11 +10,10 @@ export function getConfigSchemaArray(
 ): PluginConfigSchema[] {
     if (Array.isArray(configSchema)) {
         return configSchema
-    } else {
-        return Object.entries(configSchema)
-            .map(([key, value]) => ({ key, ...value }))
-            .sort((a, b) => (a.order || 999999) - (b.order || 999999))
     }
+    return Object.entries(configSchema)
+        .map(([key, value]) => ({ key, ...value }))
+        .sort((a, b) => (a.order || 999999) - (b.order || 999999))
 }
 
 export function getConfigSchemaObject(
@@ -28,9 +27,8 @@ export function getConfigSchemaObject(
             }
         })
         return newSchema
-    } else {
-        return configSchema
     }
+    return configSchema
 }
 
 export function defaultConfigForPlugin(plugin: PluginType): Record<string, any> {
@@ -48,14 +46,11 @@ export function getPluginConfigFormData(
     existingConfig: Record<string, any> | undefined,
     updatedConfig: Record<string, any>
 ): FormData {
-    const { __enabled: enabled, ...config } = updatedConfig
-
     const configSchema = getConfigSchemaObject(rawConfigSchema)
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
-    formData.append('enabled', Boolean(enabled).toString())
-    for (const [key, value] of Object.entries(config)) {
+    for (const [key, value] of Object.entries(updatedConfig)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {
                 formData.append(`add_attachment[${key}]`, value)

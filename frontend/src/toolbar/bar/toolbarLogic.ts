@@ -12,7 +12,14 @@ import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
+
+export enum PostHogAppToolbarEvent {
+    PH_TOOLBAR_INIT = 'ph-toolbar-init',
+    PH_TOOLBAR_READY = 'ph-toolbar-ready',
+    PH_APP_INIT = 'ph-app-init',
+    PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
+}
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
@@ -41,6 +48,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
+        setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -117,6 +125,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             null as HedgehogActor | null,
             {
                 setHedgehogActor: (_, { actor }) => actor,
+            },
+        ],
+        isEmbeddedInApp: [
+            false,
+            {
+                setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
     })),
@@ -273,9 +287,36 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.setIsBlurred(true)
             }
         }
+
+        // Post message up to parent in case we are embedded in an app
+        cache.iframeEventListener = (e: MessageEvent): void => {
+            // TODO: Probably need to have strict checks here
+            const type: PostHogAppToolbarEvent = e?.data?.type
+
+            if (!type || !type.startsWith('ph-')) {
+                return
+            }
+
+            switch (type) {
+                case PostHogAppToolbarEvent.PH_APP_INIT:
+                    actions.setIsEmbeddedInApp(true)
+                    window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
+                    actions.enableHeatmap()
+                    return
+
+                default:
+                    console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+            }
+        }
         window.addEventListener('mousedown', cache.clickListener)
+        window.addEventListener('message', cache.iframeEventListener, false)
+        // Tell the parent window that we are ready
+        window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
+        window.removeEventListener('message', cache.iframeEventListener, false)
     }),
 ])

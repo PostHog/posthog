@@ -254,7 +254,7 @@ export function SecondaryMetricsTable({
                     ) : (
                         <></>
                     )}
-                    {metrics && !(metrics.length > 2) && isExperimentRunning && (
+                    {metrics && !(metrics.length > 2) && (
                         <div className="mb-2 mt-4 justify-end">
                             <LemonButton type="secondary" size="small" onClick={openModalToCreateSecondaryMetric}>
                                 Add metric

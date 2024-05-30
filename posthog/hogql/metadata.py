@@ -58,6 +58,8 @@ def get_hogql_metadata(
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings
         response.notices = context.notices
+        response.errors = context.errors
+        response.isValid = len(response.errors) == 0
     except Exception as e:
         response.isValid = False
         if isinstance(e, ExposedHogQLError):

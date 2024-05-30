@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, List, cast
+from typing import cast
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
@@ -34,7 +34,7 @@ class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, v
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
-        for row in cast(List[Dict], request.data):
+        for row in cast(list[dict], request.data):
             instance = GroupTypeMapping.objects.get(team=self.team, group_type_index=row["group_type_index"])
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
@@ -60,14 +60,10 @@ class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewse
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
 
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                group_type_index=self.request.GET["group_type_index"],
-                group_key__icontains=self.request.GET.get("group_key", ""),
-            )
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(
+            group_type_index=self.request.GET["group_type_index"],
+            group_key__icontains=self.request.GET.get("group_key", ""),
         )
 
     @extend_schema(

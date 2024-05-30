@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from django.test.client import Client
 from rest_framework import status
@@ -1004,7 +1004,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(["Chrome", "95"], result[1][1]["breakdown_value"])
 
     @staticmethod
-    def as_result(breakdown_properties: Union[str, List[str]]) -> Dict[str, Any]:
+    def as_result(breakdown_properties: Union[str, list[str]]) -> dict[str, Any]:
         return {
             "action_id": "$pageview",
             "name": "$pageview",

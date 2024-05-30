@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 import structlog
 from django.contrib.gis.geoip2 import GeoIP2
@@ -27,7 +27,7 @@ VALID_GEOIP_PROPERTIES = [
 ]
 
 
-def get_geoip_properties(ip_address: Optional[str]) -> Dict[str, str]:
+def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
     """
     Returns a dictionary of geoip properties for the given ip address.
 

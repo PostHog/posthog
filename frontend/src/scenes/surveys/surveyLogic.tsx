@@ -36,6 +36,7 @@ export enum SurveyEditSection {
     Appearance = 'appearance',
     Customization = 'customization',
     Targeting = 'targeting',
+    CompletionConditions = 'CompletionConditions',
 }
 export interface SurveyLogicProps {
     /** Either a UUID or 'new'. */
@@ -86,6 +87,19 @@ export interface QuestionResultsReady {
 }
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
+
+function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
+    return {
+        ...survey,
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (copy)`,
+        archived: false,
+        start_date: null,
+        end_date: null,
+        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+    }
+}
 
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
@@ -150,9 +164,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
                     return values.survey
-                } else {
-                    return { ...NEW_SURVEY }
                 }
+                return { ...NEW_SURVEY }
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -169,6 +182,26 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             resumeSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: null })
+            },
+        },
+        duplicatedSurvey: {
+            duplicateSurvey: async () => {
+                const { survey } = values
+                const payload = duplicateExistingSurvey(survey)
+                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+
+                lemonToast.success('Survey duplicated.', {
+                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            router.actions.push(urls.survey(createdSurvey.id))
+                        },
+                    },
+                })
+
+                actions.reportSurveyCreated(createdSurvey, true)
+                return survey
             },
         },
         surveyUserStats: {
@@ -209,9 +242,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const [totalSeen, dismissed, sent] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
                     return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
-                } else {
-                    return { seen: 0, dismissed: 0, sent: 0 }
                 }
+                return { seen: 0, dismissed: 0, sent: 0 }
             },
         },
         surveyRatingResults: {
@@ -413,6 +445,9 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.reportSurveyEdited(survey)
             actions.loadSurveys()
         },
+        duplicateSurveySuccess: () => {
+            actions.loadSurveys()
+        },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.loadSurveys()
@@ -439,6 +474,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
+            actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -648,7 +684,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
-                    showPropertyFilter: false,
+                    showPropertyFilter: true,
                     showTimings: false,
                 }
             },
@@ -720,6 +756,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
+                actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayload)
                 } else {
@@ -732,6 +769,9 @@ export const surveyLogic = kea<surveyLogicType>([
         [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
+            if (props.id === 'new') {
+                actions.editingSurvey(true)
+            }
             if (method === 'PUSH') {
                 if (props.id) {
                     actions.loadSurvey()

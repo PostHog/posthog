@@ -1,6 +1,7 @@
 import datetime
 import json
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 
 from django.db.models import Q, Func, F, CharField
 from freezegun import freeze_time
@@ -993,8 +994,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
 
 def filter_persons_with_property_group(
-    filter: Filter, team: Team, property_overrides: Dict[str, Any] = {}
-) -> List[str]:
+    filter: Filter, team: Team, property_overrides: Optional[dict[str, Any]] = None
+) -> list[str]:
+    if property_overrides is None:
+        property_overrides = {}
     flush_persons_and_events()
     persons = Person.objects.filter(property_group_to_Q(team.pk, filter.property_groups, property_overrides))
     persons = persons.filter(team_id=team.pk)

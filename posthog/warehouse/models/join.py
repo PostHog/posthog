@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Optional
 from warnings import warn
 
 from django.db import models
@@ -40,26 +40,30 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     joining_table_key: models.CharField = models.CharField(max_length=400)
     field_name: models.CharField = models.CharField(max_length=400)
 
-    @property
-    def join_function(self):
+    def join_function(
+        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
+    ):
         def _join_function(
             from_table: str,
             to_table: str,
-            requested_fields: Dict[str, Any],
+            requested_fields: dict[str, Any],
             context: HogQLContext,
             node: SelectQuery,
         ):
+            _source_table_key = override_source_table_key or self.source_table_key
+            _joining_table_key = override_joining_table_key or self.joining_table_key
+
             from posthog.hogql import ast
 
             if not requested_fields:
                 raise ResolutionError(f"No fields requested from {to_table}")
 
-            left = parse_expr(self.source_table_key)
+            left = parse_expr(_source_table_key)
             if not isinstance(left, ast.Field):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             left.chain = [from_table, *left.chain]
 
-            right = parse_expr(self.joining_table_key)
+            right = parse_expr(_joining_table_key)
             if not isinstance(right, ast.Field):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             right.chain = [to_table, *right.chain]
@@ -78,7 +82,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         op=ast.CompareOperationOp.Eq,
                         left=left,
                         right=right,
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
             return join_expr

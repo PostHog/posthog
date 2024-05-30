@@ -36,11 +36,15 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         productWithFeature: [
             (s) => [s.billing],
             (billing) => {
-                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined =
-                    billing?.products?.find((product) => product.features?.some((f) => f.key === props.featureKey))
+                // check addons first since their features are rolled up into the parent
+                const allAddons = billing?.products?.map((product) => product.addons).flat() || []
+                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = allAddons.find(
+                    (addon) => addon.features?.some((f) => f.key === props.featureKey)
+                )
                 if (!foundProduct) {
-                    const allAddons = billing?.products?.map((product) => product.addons).flat() || []
-                    foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.featureKey))
+                    foundProduct = billing?.products?.find((product) =>
+                        product.features?.some((f) => f.key === props.featureKey)
+                    )
                 }
                 return foundProduct
             },
@@ -85,12 +89,10 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 if (values.isCloudOrDev) {
                     if (!minimumPlanWithFeature || minimumPlanWithFeature.contact_support) {
                         return 'contact-sales'
-                    } else {
-                        return 'add-card'
                     }
-                } else {
-                    return 'move-to-cloud'
+                    return 'add-card'
                 }
+                return 'move-to-cloud'
             },
         ],
     })),

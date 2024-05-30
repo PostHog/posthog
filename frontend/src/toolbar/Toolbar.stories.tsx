@@ -79,6 +79,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/users/@me/hedgehog_config/': {},
         },
     })
 
@@ -131,6 +132,10 @@ export const FeatureFlags = (): JSX.Element => {
     return <BasicTemplate menu="flags" />
 }
 
+export const EventsDebuggerEmpty = (): JSX.Element => {
+    return <BasicTemplate menu="debugger" />
+}
+
 // Dark theme
 export const DefaultDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" />
@@ -154,4 +159,8 @@ export const ActionsDark = (): JSX.Element => {
 
 export const FeatureFlagsDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" menu="flags" />
+}
+
+export const EventsDebuggerEmptyDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="debugger" />
 }

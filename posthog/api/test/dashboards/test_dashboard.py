@@ -1,5 +1,4 @@
 import json
-from typing import Dict
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -10,7 +9,6 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
@@ -18,10 +16,15 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
+from posthog.test.base import (
+    APIBaseTest,
+    FuzzyInt,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+)
 from posthog.utils import generate_cache_key
 
-valid_template: Dict = {
+valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
@@ -53,12 +56,18 @@ valid_template: Dict = {
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.TAGGING,
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.ADVANCED_PERMISSIONS,
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.TAGGING,
+                "name": AvailableFeature.TAGGING,
+            },
+            {
+                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            },
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
-        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
+
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
@@ -189,6 +198,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
@@ -261,7 +271,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
+        self.organization.available_product_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
@@ -926,6 +936,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_return_cached_results_dashboard_has_filters(self):
         # Regression test, we were
 
@@ -999,7 +1010,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "events": [{"id": "$pageview"}],
                 "insight": "TRENDS",
-                "date_from": "-7d",
+                "date_from": None,
                 "date_to": None,
             },
         )
@@ -1186,7 +1197,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
-        template: Dict = {**valid_template, "tiles": []}
+        template: dict = {**valid_template, "tiles": []}
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -1194,8 +1205,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_create_from_template_json_cam_provide_text_tile(self) -> None:
-        template: Dict = {
+    def test_create_from_template_json_can_provide_text_tile(self) -> None:
+        template: dict = {
             **valid_template,
             "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}],
         }
@@ -1225,14 +1236,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
-    def test_create_from_template_json_cam_provide_query_tile(self) -> None:
-        template: Dict = {
+    def test_create_from_template_json_can_provide_query_tile(self) -> None:
+        template: dict = {
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
             "tiles": [
                 {
                     "type": "INSIGHT",
-                    "query": {"kind": "a datatable"},
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "kind": "EventsQuery",
+                            "select": ["*"],
+                        },
+                    },
                     "filters": {"date_from": None},
                     "layouts": {},
                 }
@@ -1250,6 +1268,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "color": None,
                 "id": ANY,
                 "insight": {
+                    "columns": None,
                     "created_at": ANY,
                     "created_by": None,
                     "dashboard_tiles": [
@@ -1277,7 +1296,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "next_allowed_client_refresh": None,
                     "order": None,
-                    "query": {"kind": "a datatable"},
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "kind": "EventsQuery",
+                            "select": ["*"],
+                        },
+                    },
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

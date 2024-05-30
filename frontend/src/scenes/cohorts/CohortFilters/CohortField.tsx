@@ -2,24 +2,30 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { useMemo } from 'react'
+import { formatDate } from 'lib/utils'
+import { useEffect, useMemo, useRef } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
+    CohortRelativeAndExactTimeFieldProps,
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -163,6 +169,118 @@ export function CohortPersonPropertiesValuesField({
                 onChange({ [fieldKey]: newValue })
             }}
             placeholder="Enter value..."
+        />
+    )
+}
+
+export function CohortEventFiltersField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+    groupIndex,
+    index,
+}: CohortEventFiltersFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    const { value } = useValues(logic)
+    const { onChange } = useActions(logic)
+    const componentRef = useRef<HTMLDivElement>(null)
+
+    const valueExists = ((value as AnyPropertyFilter[]) || []).length > 0
+
+    useEffect(() => {
+        // :TRICKY: We check parent has CohortCriteriaRow__Criteria__Field class and add basis-full class if value exists
+        // We need to do this because of how this list is generated, and we need to add a line-break programatically
+        // when the PropertyFilters take up too much space.
+        // Since the list of children is declared in the parent component, we can't add a class to the parent directly, without
+        // adding a lot of annoying complexity to the parent component.
+        // This is a hacky solution, but it works 🙈.
+
+        // find parent with className CohortCriteriaRow__Criteria__Field and add basis-full class if value exists
+        const parent = componentRef.current?.closest('.CohortCriteriaRow__Criteria__Field')
+        if (parent) {
+            if (valueExists) {
+                parent.classList.add('basis-full')
+            } else {
+                parent.classList.remove('basis-full')
+            }
+        }
+    }, [componentRef, value])
+
+    return (
+        <div ref={componentRef}>
+            <PropertyFilters
+                propertyFilters={(value as AnyPropertyFilter[]) || []}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ]}
+                onChange={(newValue: AnyPropertyFilter[]) => {
+                    onChange({ [fieldKey]: newValue })
+                }}
+                pageKey={`${fieldKey}-${groupIndex}-${index}`}
+                eventNames={criteria?.key ? [criteria?.key] : []}
+                disablePopover
+                hasRowOperator={valueExists ? true : false}
+                sendAllKeyUpdates
+            />
+        </div>
+    )
+}
+
+export function CohortRelativeAndExactTimeField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+}: CohortRelativeAndExactTimeFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    // This replaces the old TimeUnit and TimeInterval filters
+    // and combines them with a relative+exact time option.
+    // This is more inline with rest of analytics filters and make things much nicer here.
+    const { value } = useValues(logic)
+    const { onChange } = useActions(logic)
+
+    return (
+        <DateFilter
+            dateFrom={String(value)}
+            onChange={(fromDate) => {
+                onChange({ [fieldKey]: fromDate })
+            }}
+            max={1000}
+            isFixedDateMode
+            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+            showCustom
+            dateOptions={[
+                {
+                    key: 'Last 7 days',
+                    values: ['-7d'],
+                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                    defaultInterval: 'day',
+                },
+                {
+                    key: 'Last 30 days',
+                    values: ['-30d'],
+                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                    defaultInterval: 'day',
+                },
+            ]}
+            size="medium"
+            makeLabel={(_, startOfRange) => (
+                <span className="hide-when-small">Matches all values after {startOfRange} if evaluated today.</span>
+            )}
         />
     )
 }

@@ -203,7 +203,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
 })
 
 test.concurrent(
-    `event ingestion: $process_person=false drops expected fields, doesn't include person properties`,
+    `event ingestion: $process_person_profile=false drops expected fields, doesn't include person properties`,
     async () => {
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
@@ -229,7 +229,7 @@ test.concurrent(
             uuid: properylessUuid,
             event: 'custom event',
             properties: {
-                $process_person: false,
+                $process_person_profile: false,
                 $group_0: 'group_key',
                 $set: {
                     c: 3,
@@ -251,7 +251,7 @@ test.concurrent(
             expect(event).toEqual(
                 expect.objectContaining({
                     person_properties: {},
-                    properties: { uuid: properylessUuid, $sent_at: expect.any(String), $process_person: false },
+                    properties: { uuid: properylessUuid, $sent_at: expect.any(String), $process_person_profile: false },
                     person_mode: 'propertyless',
                 })
             )

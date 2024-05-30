@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -71,6 +71,7 @@ import {
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -127,12 +128,16 @@ export class ApiError extends Error {
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
 
+    /** Link to external resources, e.g. stripe invoices */
+    link: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
+        this.link = data?.link || null
     }
 }
 
@@ -388,6 +393,10 @@ class ApiRequest {
             .withQueryString(queryParams)
     }
 
+    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -478,6 +487,10 @@ class ApiRequest {
 
     public experimentsDetail(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
         return this.experiments(teamId).addPathComponent(experimentId)
+    }
+
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
     }
 
     // # Roles
@@ -681,8 +694,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
-    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.query(teamId).addPathComponent(queryId)
+    public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
+        const apiRequest = this.query(teamId).addPathComponent(queryId)
+        if (showProgress) {
+            return apiRequest.withQueryString('showProgress=true')
+        }
+        return apiRequest
     }
 
     // Notebooks
@@ -914,8 +931,16 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getCount(actionId: ActionType['id']): Promise<number> {
-            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
+        async listMatchingPluginConfigs(
+            actionId: ActionType['id']
+        ): Promise<PaginatedResponse<PluginConfigWithPluginInfoNew>> {
+            return await new ApiRequest()
+                .actionsDetail(actionId)
+                .withAction('plugin_configs')
+                .withQueryString({
+                    limit: 1000,
+                })
+                .get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
@@ -1211,6 +1236,23 @@ const api = {
         },
     },
 
+    sessions: {
+        async propertyDefinitions({
+            teamId = ApiConfig.getCurrentTeamId(),
+            search,
+            properties,
+        }: {
+            teamId?: TeamType['id']
+            search?: string
+            properties?: string[]
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .sessionPropertyDefinitions(teamId)
+                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .get()
+        },
+    },
+
     cohorts: {
         async get(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDetail(cohortId).get()
@@ -1311,6 +1353,9 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+        async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().experimentCreateExposureCohort(id).create()
         },
     },
 
@@ -1642,16 +1687,19 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(
+        async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
+            if (params.source) {
+                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
+            }
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(
+        async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any>
+            params: SessionRecordingSnapshotParams
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
@@ -1671,16 +1719,10 @@ const api = {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
 
+            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
-        async updateRecording(
-            recordingId: SessionRecordingType['id'],
-            recording: Partial<SessionRecordingType>,
-            params?: string
-        ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
-        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
@@ -1797,22 +1839,18 @@ const api = {
         ): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).update({ data })
         },
-
         async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExports().create({ data })
         },
         async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).delete()
         },
-
         async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('pause').create()
         },
-
         async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('unpause').create()
         },
-
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
@@ -1888,6 +1926,12 @@ const api = {
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
         },
+        async updateSchema(
+            tableId: DataWarehouseTable['id'],
+            updates: Record<string, DatabaseSerializedFieldType>
+        ): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
+        },
     },
 
     dataWarehouseSavedQueries: {
@@ -1950,6 +1994,12 @@ const api = {
             data: Partial<ExternalDataSourceSchema>
         ): Promise<ExternalDataSourceSchema> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
+        },
+        async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
+        },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
     },
 
@@ -2049,8 +2099,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string): Promise<QueryStatus> {
-            return await new ApiRequest().queryStatus(queryId).get()
+        async get(queryId: string, showProgress: boolean): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get()
         },
     },
 

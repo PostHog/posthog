@@ -4,43 +4,19 @@ import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
-
-function SessionPropertyMeta(props: {
-    fullScreen: boolean
-    iconProperties: Record<string, any>
-    predicate: (x: string) => boolean
-}): JSX.Element {
-    const gatheredProperties = gatherIconProperties(props.iconProperties)
-
-    return (
-        <PropertyIcons
-            recordingProperties={gatheredProperties}
-            iconClassnames="text-muted-alt"
-            showTooltip={false}
-            showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
-        />
-    )
-}
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (!lastUrl) {
@@ -83,19 +59,10 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
 }
 
 export function PlayerMeta(): JSX.Element {
-    const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const {
-        sessionPerson,
-        resolution,
-        lastPageviewEvent,
-        lastUrl,
-        scale,
-        currentWindowIndex,
-        startTime,
-        sessionPlayerMetaDataLoading,
-        sessionProperties,
-    } = useValues(playerMetaLogic(logicProps))
+    const { resolution, lastPageviewEvent, lastUrl, scale, currentWindowIndex, sessionPlayerMetaDataLoading } =
+        useValues(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -161,53 +128,6 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div
-                    className={clsx(
-                        'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
-                        isFullScreen ? ' text-xs' : 'border-b'
-                    )}
-                >
-                    <div className="ph-no-capture">
-                        {!sessionPerson ? (
-                            <LemonSkeleton.Circle className="w-8 h-8" />
-                        ) : (
-                            <ProfilePicture name={asDisplay(sessionPerson)} />
-                        )}
-                    </div>
-                    <div className="overflow-hidden ph-no-capture flex-1">
-                        <div>
-                            {!sessionPerson || !startTime ? (
-                                <LemonSkeleton className="w-1/3 h-4 my-1" />
-                            ) : (
-                                <div className="flex gap-1">
-                                    <span className="font-bold whitespace-nowrap truncate">
-                                        <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
-                                    </span>
-                                    ·
-                                    <TZLabel
-                                        time={dayjs(startTime)}
-                                        formatDate="MMMM DD, YYYY"
-                                        formatTime="h:mm A"
-                                        showPopover={false}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                        <div className="text-muted">
-                            {sessionPlayerMetaDataLoading ? (
-                                <LemonSkeleton className="w-1/4 h-4 my-1" />
-                            ) : sessionProperties ? (
-                                <SessionPropertyMeta
-                                    fullScreen={isFullScreen}
-                                    iconProperties={sessionProperties}
-                                    predicate={(x) => !!x}
-                                />
-                            ) : null}
-                        </div>
-                    </div>
-
-                    {sessionRecordingId && <PlayerMetaLinks />}
-                </div>
                 <div
                     className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
                         'p-2 h-10': !isFullScreen,

@@ -23,8 +23,10 @@ export enum Scene {
     Replay = 'Replay',
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
+    ReplayFilePlayback = 'ReplayFilePlayback',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
+    PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
     Group = 'Group',
@@ -79,6 +81,7 @@ export enum Scene {
     Onboarding = 'Onboarding',
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
+    Heatmaps = 'Heatmaps',
 }
 
 export type SceneProps = Record<string, any>

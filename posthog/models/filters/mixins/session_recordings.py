@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional, Literal
+from typing import Optional, Literal
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS
 from posthog.models.filters.mixins.common import BaseParamMixin
@@ -19,7 +19,7 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
-    def console_logs_filter(self) -> List[Literal["error", "warn", "info"]]:
+    def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
         user_value = self._data.get("console_logs", None) or []
         if isinstance(user_value, str):
             user_value = json.loads(user_value)
@@ -43,7 +43,7 @@ class SessionRecordingsMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def session_ids(self) -> Optional[List[str]]:
+    def session_ids(self) -> Optional[list[str]]:
         # Can be ['a', 'b'] or "['a', 'b']" or "a,b"
         session_ids_str = self._data.get(SESSION_RECORDINGS_FILTER_IDS, None)
 

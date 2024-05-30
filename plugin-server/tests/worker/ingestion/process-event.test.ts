@@ -142,7 +142,7 @@ describe('EventsProcessor#createEvent()', () => {
         )
     })
 
-    it('when $process_person=false, emits event with without person properties or groups', async () => {
+    it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
         const processPerson = false
         await eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
@@ -167,6 +167,36 @@ describe('EventsProcessor#createEvent()', () => {
                 person_id: personUuid,
                 person_properties: {},
                 person_mode: 'propertyless',
+            })
+        )
+    })
+
+    it('force_upgrade persons are recorded as such', async () => {
+        const processPerson = false
+        person.force_upgrade = true
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            person,
+            processPerson
+        )
+
+        await eventsProcessor.kafkaProducer.flush()
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                uuid: eventUuid,
+                event: '$pageview',
+                properties: {}, // $group_0 is removed
+                timestamp: expect.any(DateTime),
+                team_id: 2,
+                distinct_id: 'my_id',
+                elements_chain: null,
+                created_at: expect.any(DateTime),
+                person_id: personUuid,
+                person_properties: {},
+                person_mode: 'force_upgrade',
             })
         )
     })

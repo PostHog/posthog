@@ -206,7 +206,7 @@ export function RatingQuestionBarChart({
                                 <LineGraph
                                     inSurveyView={true}
                                     hideYAxis={true}
-                                    showValueOnSeries={true}
+                                    showValuesOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
                                     type={GraphType.Bar}
@@ -334,9 +334,8 @@ export function SingleChoiceQuestionPieChart({
                                     return 'py-15'
                                 } else if (dataLength < 10) {
                                     return 'py-10'
-                                } else {
-                                    return 'py-5'
                                 }
+                                return 'py-5'
                             })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
                         >
                             {surveySingleChoiceResults[questionIndex].data.map((count: number, i: number) => {
@@ -417,7 +416,7 @@ export function MultipleChoiceQuestionBarChart({
                                 inSurveyView={true}
                                 hideYAxis={true}
                                 hideXAxis={true}
-                                showValueOnSeries={true}
+                                showValuesOnSeries={true}
                                 labelGroupType={1}
                                 data-attr="survey-multiple-choice"
                                 type={GraphType.HorizontalBar}

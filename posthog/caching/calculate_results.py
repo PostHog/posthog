@@ -1,5 +1,6 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
+from pydantic import BaseModel
 import structlog
 from sentry_sdk import capture_exception
 
@@ -15,6 +16,8 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -28,17 +31,19 @@ from posthog.models import (
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import generate_insight_cache_key
-from posthog.queries.funnels import (
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-)
+from posthog.models.insight import generate_insight_filters_hash
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
+from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.types import FilterType
+from posthog.api.services.query import process_query_dict, ExecutionMode
+
+if TYPE_CHECKING:
+    from posthog.caching.fetch_from_cache import InsightResult
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
@@ -51,13 +56,23 @@ logger = structlog.get_logger(__name__)
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight = target if isinstance(target, Insight) else target.insight
-    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
+    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or (not insight.filters and insight.query is None):
-        return None
+    if insight is not None:
+        with flagged_conversion_to_query_based(insight):
+            if insight.query:
+                query_runner = get_query_runner_or_none(insight.query, insight.team)
+                if query_runner is None:
+                    return None  # Uncacheable query-based insight
+                if dashboard is not None and dashboard.filters:
+                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+                return query_runner.get_cache_key()
 
-    return generate_insight_cache_key(insight, dashboard)
+            if insight.filters:
+                return generate_insight_filters_hash(insight, dashboard)
+
+    return None
 
 
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
@@ -77,7 +92,7 @@ def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def get_cache_type_for_query(cacheable: Dict) -> CacheType:
+def get_cache_type_for_query(cacheable: dict) -> CacheType:
     cache_type = None
 
     if cacheable.get("source"):
@@ -92,7 +107,7 @@ def get_cache_type_for_query(cacheable: Dict) -> CacheType:
     return cache_type
 
 
-def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheType:
+def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheType:
     if isinstance(cacheable, dict):
         return get_cache_type_for_query(cacheable)
     elif cacheable is not None:
@@ -106,60 +121,71 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def calculate_result_by_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
-    """
-    Calculates the result for an insight. If the insight is query based,
-    it will use the query to calculate the result. Even if there is a filter present on the insight
-
-    Eventually there will be no filter-based insights left and calculate_for_query_based_insight will be
-    in-lined into this function
-    """
-    if insight.query is not None:
-        return calculate_for_query_based_insight(team, insight, dashboard)
-    else:
-        return calculate_for_filter_based_insight(team, insight, dashboard)
-
-
 def calculate_for_query_based_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
-    cache_key = generate_insight_cache_key(insight, dashboard)
-    cache_type = get_cache_type(insight.query)
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode
+) -> "InsightResult":
+    from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
+    from posthog.caching.insight_cache import update_cached_state
 
-    tag_queries(
-        team_id=team.pk,
-        insight_id=insight.pk,
-        cache_type=cache_type,
-        cache_key=cache_key,
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    if dashboard:
+        tag_queries(dashboard_id=dashboard.pk)
+
+    response = process_query_dict(
+        insight.team,
+        insight.query,
+        dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+        execution_mode=execution_mode,
     )
 
-    # local import to avoid circular reference
-    from posthog.api.services.query import process_query
+    if isinstance(response, CacheMissResponse):
+        return NothingInCacheResult(cache_key=response.cache_key)
 
-    # TODO need to properly check that hogql is enabled?
-    return cache_key, cache_type, process_query(team, insight.query, True)
+    if isinstance(response, BaseModel):
+        response = response.model_dump(by_alias=True)
+
+    cache_key = response.get("cache_key")
+    last_refresh = response.get("last_refresh")
+    if isinstance(cache_key, str) and isinstance(last_refresh, str):
+        update_cached_state(  # Updating the relevant InsightCachingState
+            insight.team_id,
+            cache_key,
+            last_refresh,
+            result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+        )
+
+    return InsightResult(
+        # Translating `QueryResponse` to legacy insights shape
+        # The response may not be conformant with that, hence these are all `.get()`s
+        result=response.get("results"),
+        columns=response.get("columns"),
+        last_refresh=last_refresh,
+        cache_key=cache_key,
+        is_cached=response.get("is_cached", False),
+        timezone=response.get("timezone"),
+        next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
+        timings=response.get("timings"),
+    )
 
 
 def calculate_for_filter_based_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
-    cache_key = generate_insight_cache_key(insight, dashboard)
+    insight: Insight, dashboard: Optional[Dashboard]
+) -> tuple[str, str, list | dict]:
+    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
+    cache_key = generate_insight_filters_hash(insight, dashboard)
     cache_type = get_cache_type(filter)
 
     tag_queries(
-        team_id=team.pk,
+        team_id=insight.team_id,
         insight_id=insight.pk,
         cache_type=cache_type,
         cache_key=cache_key,
     )
 
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
+    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.team)
 
 
-def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> list[dict[str, Any]]:
     if cache_type == CacheType.FUNNEL:
         return _calculate_funnel(filter, team)
     else:
@@ -167,7 +193,7 @@ def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: 
 
 
 @timed("update_cache_item_timer.calculate_by_filter")
-def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> list[dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
@@ -178,7 +204,7 @@ def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) 
 
 
 @timed("update_cache_item_timer.calculate_funnel")
-def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
+def _calculate_funnel(filter: Filter, team: Team) -> list[dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
@@ -191,7 +217,7 @@ def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
 
 def cache_includes_latest_events(
-    payload: Dict, filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]
+    payload: dict, filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]
 ) -> bool:
     """
     event_definition has last_seen_at timestamp
@@ -216,7 +242,7 @@ def cache_includes_latest_events(
     return False
 
 
-def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> list[str]:
     """
     If a filter only represents a set of events
     then we can use their last_seen_at to determine if the cache is up-to-date

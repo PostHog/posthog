@@ -6,49 +6,54 @@ import { useRef } from 'react'
 
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { PlayerInspectorList } from './PlayerInspectorList'
-import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 
 export function PlayerInspector({
-    inspectorExpanded,
-    setInspectorExpanded,
+    isVerticallyStacked,
+    onClose,
+    toggleLayoutStacking,
 }: {
-    inspectorExpanded: boolean
-    setInspectorExpanded: (focus: boolean) => void
+    isVerticallyStacked: boolean
+    onClose: (focus: boolean) => void
+    toggleLayoutStacking?: () => void
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
+    const logicKey = `player-inspector-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
+
     const resizerLogicProps: ResizerLogicProps = {
+        logicKey,
         containerRef: ref,
-        logicKey: 'player-inspector',
         persistent: true,
         closeThreshold: 100,
-        placement: 'left',
-        onToggleClosed: (shouldBeClosed) => setInspectorExpanded(!shouldBeClosed),
+        placement: isVerticallyStacked ? 'top' : 'left',
+        onToggleClosed: (shouldBeClosed) => onClose(!shouldBeClosed),
     }
 
-    const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <div
-            className={clsx(
-                'SessionRecordingPlayer__inspector',
-                !inspectorExpanded && 'SessionRecordingPlayer__inspector--collapsed'
-            )}
+            className={clsx('SessionRecordingPlayer__inspector')}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: inspectorExpanded ? desiredWidth ?? 'var(--inspector-width)' : undefined,
-            }}
+            style={
+                isVerticallyStacked
+                    ? { height: desiredSize ?? undefined, minHeight: 110 }
+                    : { width: desiredSize ?? undefined }
+            }
         >
-            <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />
-            {inspectorExpanded ? (
-                <>
-                    <PlayerInspectorControls onClose={() => setInspectorExpanded(false)} />
-                    <PlayerInspectorList />
-                </>
-            ) : (
-                <PlayerInspectorPreview onClick={() => setInspectorExpanded(true)} />
-            )}
+            <Resizer
+                logicKey={logicKey}
+                placement={isVerticallyStacked ? 'top' : 'left'}
+                containerRef={ref}
+                closeThreshold={100}
+            />
+            <PlayerInspectorControls
+                onClose={() => onClose(false)}
+                isVerticallyStacked={isVerticallyStacked}
+                toggleLayoutStacking={toggleLayoutStacking}
+            />
+            <PlayerInspectorList />
         </div>
     )
 }

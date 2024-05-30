@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 from django.utils.timezone import now
 from prometheus_client import Counter
 
-from posthog.caching.calculate_results import (
-    calculate_cache_key,
-    calculate_result_by_insight,
-)
+from posthog.caching.calculate_results import calculate_cache_key, calculate_for_filter_based_insight
 from posthog.caching.insight_cache import update_cached_state
 from posthog.models import DashboardTile, Insight
 from posthog.models.dashboard import Dashboard
@@ -30,7 +27,8 @@ class InsightResult:
     is_cached: bool
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
-    timings: Optional[List[QueryTiming]] = None
+    timings: Optional[list[QueryTiming]] = None
+    columns: Optional[list] = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +39,7 @@ class NothingInCacheResult(InsightResult):
     is_cached: bool = False
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
+    columns: Optional[list] = None
 
 
 def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_frequency: timedelta) -> InsightResult:
@@ -83,7 +82,7 @@ def synchronously_update_cache(
     dashboard: Optional[Dashboard],
     refresh_frequency: Optional[timedelta] = None,
 ) -> InsightResult:
-    cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
+    cache_key, cache_type, result = calculate_for_filter_based_insight(insight, dashboard)
     timestamp = now()
 
     next_allowed_client_refresh = timestamp + refresh_frequency if refresh_frequency else None

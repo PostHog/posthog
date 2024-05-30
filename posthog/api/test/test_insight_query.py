@@ -1,5 +1,3 @@
-from typing import List
-
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
@@ -25,7 +23,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "*",
                         "event",
                         "person",
-                        "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                        "coalesce(properties.$current_url, properties.$screen_name)",
                         "properties.$lib",
                         "timestamp",
                     ],
@@ -55,7 +53,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                            "coalesce(properties.$current_url, properties.$screen_name)",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -82,15 +80,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "PersonsNode",
-                        "properties": [
-                            {
-                                "type": "person",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
+                        "kind": "EventsQuery",
+                        "select": ["*"],
                     },
                 },
             },
@@ -105,41 +96,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "PersonsNode",
-                        "properties": [
-                            {
-                                "type": "person",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
+                        "kind": "EventsQuery",
+                        "select": ["*"],
                     },
                 },
             },
             expected_status=status.HTTP_201_CREATED,
         )
         assert insight_json["filters"] == {}
-
-    def test_default_filters_on_non_query_insight(self) -> None:
-        _, insight_json = self.dashboard_api.create_insight(
-            {
-                "name": "Old-Fashioned Insight",
-                "filters": {
-                    "events": [
-                        {"id": "$pageview"},
-                    ],
-                },
-            },
-            expected_status=status.HTTP_201_CREATED,
-        )
-        assert insight_json["filters"] == {
-            "events": [
-                {"id": "$pageview"},
-            ],
-            "insight": "TRENDS",
-            "date_from": "-7d",
-        }
 
     def test_can_save_insights_query_to_an_insight(self) -> None:
         self.dashboard_api.create_insight(
@@ -178,15 +142,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "name": "$pageview",
                             "custom_name": "Views",
                             "event": "$pageview",
-                            "properties": [
-                                {
-                                    "type": "event",
-                                    "key": "$browser",
-                                    "operator": "exact",
-                                    "value": "Chrome",
-                                },
-                                {"type": "cohort", "key": "id", "value": 2},
-                            ],
                             "limit": 100,
                         }
                     ],
@@ -212,15 +167,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "query": {
                     "kind": "DataTableNode",
                     "source": {
-                        "kind": "PersonsNode",
-                        "properties": [
-                            {
-                                "type": "person",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
+                        "kind": "EventsQuery",
+                        "select": ["*"],
                     },
                 },
             },
@@ -236,21 +184,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "PersonsNode",
-                        "properties": [
-                            {
-                                "type": "person",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
+                        "kind": "EventsQuery",
+                        "select": ["*"],
                     },
                 },
             },
         )
 
-        created_insights: List[Insight] = list(Insight.objects.all())
+        created_insights: list[Insight] = list(Insight.objects.all())
         assert len(created_insights) == 2
 
         listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": False})
@@ -266,21 +207,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "PersonsNode",
-                        "properties": [
-                            {
-                                "type": "person",
-                                "key": "$browser",
-                                "operator": "exact",
-                                "value": "Chrome",
-                            }
-                        ],
+                        "kind": "EventsQuery",
+                        "select": ["*"],
                     },
                 },
             },
         )
 
-        created_insights: List[Insight] = list(Insight.objects.all())
+        created_insights: list[Insight] = list(Insight.objects.all())
         assert len(created_insights) == 2
 
         listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": True})

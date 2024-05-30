@@ -39,7 +39,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -90,7 +90,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality checks
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
@@ -130,7 +130,7 @@ jobs:
 
             - name: Check formatting
               run: |
-                  ruff format --exclude posthog/hogql/grammar --check --diff .
+                  ruff format --check --diff .
 
             - name: Add Problem Matcher
               run: echo "::add-matcher::.github/mypy-problem-matcher.json"
@@ -171,7 +171,7 @@ jobs:
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -197,22 +197,33 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install python dependencies
-              run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+            # First running migrations from master, to simulate the real-world scenario
 
-            - uses: actions/checkout@v3
+            - name: Checkout master
+              uses: actions/checkout@v3
               with:
                   ref: master
 
+            - name: Install python dependencies for master
+              run: |
+                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+
             - name: Run migrations up to master
               run: |
-                  # We need to ensure we have requirements for the master branch
-                  # now also, so we can run migrations up to master.
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
                   python manage.py migrate
 
-            - uses: actions/checkout@v3
+            # Now we can consider this PR's migrations
+
+            - name: Checkout this PR
+              uses: actions/checkout@v3
+
+            - name: Install python dependencies for this PR
+              run: |
+                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+
+            - name: Run migrations for this PR
+              run: |
+                  python manage.py migrate
 
             - name: Check migrations
               run: |
@@ -236,19 +247,25 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
-                segment: ['FOSS', 'EE']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
+                segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [5]
-                group: [1, 2, 3, 4, 5]
+                concurrency: [10]
+                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                include:
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.5.81-alpine'
+                      python-version: '3.10.10'
+                      concurrency: 1
+                      group: 1
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
@@ -304,7 +321,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.person-on-events == false
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
@@ -316,10 +333,9 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
@@ -373,7 +389,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [django, async-migrations]
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         if: needs.changes.outputs.backend == 'true'
         steps:
             - name: Calculate running time
@@ -399,6 +415,7 @@ jobs:
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

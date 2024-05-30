@@ -618,7 +618,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconDecisionTree,
-                        display: 'Go to Apps',
+                        display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
                             push(urls.projectApps())

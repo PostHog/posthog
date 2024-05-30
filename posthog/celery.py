@@ -1,6 +1,5 @@
 import os
 import time
-from typing import Dict
 
 from celery import Celery
 from celery.signals import (
@@ -71,7 +70,7 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
-task_timings: Dict[str, float] = {}
+task_timings: dict[str, float] = {}
 
 
 @setup_logging.connect

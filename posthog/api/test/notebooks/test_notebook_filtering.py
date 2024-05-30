@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Any
 
 from parameterized import parameterized
 from rest_framework import status
@@ -59,7 +59,7 @@ BASIC_TEXT = lambda text: {
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
-    def _create_notebook_with_content(self, inner_content: List[Dict[str, Any]], title: str = "the title") -> str:
+    def _create_notebook_with_content(self, inner_content: list[dict[str, Any]], title: str = "the title") -> str:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={
@@ -83,7 +83,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             ["random", []],
         ]
     )
-    def test_filters_based_on_title(self, search_text: str, expected_match_indexes: List[int]) -> None:
+    def test_filters_based_on_title(self, search_text: str, expected_match_indexes: list[int]) -> None:
         notebook_ids = [
             self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="i ride around on a pony"),
             self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="my hobby is to fish around"),
@@ -108,7 +108,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
                 ["neither", []],
             ]
         )
-        def test_filters_based_on_text_content(self, search_text: str, expected_match_indexes: List[int]) -> None:
+        def test_filters_based_on_text_content(self, search_text: str, expected_match_indexes: list[int]) -> None:
             notebook_ids = [
                 # will match both pony and ponies
                 self._create_notebook_with_content([BASIC_TEXT("you may ride a pony")], title="never matches"),

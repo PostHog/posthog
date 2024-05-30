@@ -56,7 +56,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 
     return (
         <>
-            <div className="card-secondary mb-2 mt-4">
+            <div className="card-secondary mb-2 mt-2">
                 Exposure metric
                 <Tooltip
                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in the exposure calculations.`}
@@ -91,7 +91,9 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
+        experimentLogic({ experimentId })
+    )
     const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
         experimentLogic({ experimentId })
     )
@@ -108,6 +110,9 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                         Cancel
                     </LemonButton>
                     <LemonButton
+                        disabledReason={
+                            goalInsightDataLoading && 'The insight needs to be loaded before saving the goal'
+                        }
                         form="edit-experiment-goal-form"
                         onClick={() => {
                             updateExperimentGoal(experiment.filters)
@@ -190,6 +195,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                     <MetricSelector
                         dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
                         setPreviewInsight={setExperimentExposureInsight}
+                        forceTrendExposureMetric
                     />
                 </Field>
             </Form>
@@ -204,16 +210,27 @@ export function Goal(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg mb-0">Experiment goal</h2>
-            <div className="text-muted text-xs">
-                This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
-                {experimentInsightType === InsightType.FUNNELS
-                    ? 'experiment measures conversion through each step of the user journey.'
-                    : 'experiment tracks the performance of a single metric.'}
+            <div>
+                <div className="inline-flex space-x-2">
+                    <h2 className="font-semibold text-lg mb-0">Experiment goal</h2>
+                    <Tooltip
+                        title={
+                            <>
+                                {' '}
+                                This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
+                                {experimentInsightType === InsightType.FUNNELS
+                                    ? 'experiment measures conversion at each stage.'
+                                    : 'experiment tracks the count of a single metric.'}
+                            </>
+                        }
+                    >
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
             </div>
             <div className="inline-flex space-x-6">
                 <div>
-                    <div className="card-secondary mb-2 mt-4">
+                    <div className="card-secondary mb-2 mt-2">
                         {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                     </div>
                     <MetricDisplay filters={experiment.filters} />

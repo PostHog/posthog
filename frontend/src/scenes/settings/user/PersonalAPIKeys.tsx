@@ -24,8 +24,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
-import { PersonalAPIKeyType } from '~/types'
-
 import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
@@ -313,7 +311,7 @@ function EditKeyModal(): JSX.Element {
 }
 
 function PersonalAPIKeysTable(): JSX.Element {
-    const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
+    const { keys, keysLoading } = useValues(personalAPIKeysLogic)
     const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     useEffect(() => loadKeys(), [])
@@ -321,6 +319,8 @@ function PersonalAPIKeysTable(): JSX.Element {
     return (
         <LemonTable
             dataSource={keys}
+            loading={keysLoading}
+            loadingSkeletonRows={3}
             className="mt-4"
             columns={[
                 {
@@ -338,6 +338,22 @@ function PersonalAPIKeysTable(): JSX.Element {
                             </Link>
                         )
                     },
+                },
+                {
+                    title: 'Secret key',
+                    dataIndex: 'mask_value',
+                    key: 'mask_value',
+                    render: (_, key) =>
+                        key.mask_value ? (
+                            <span className="font-mono">{key.mask_value}</span>
+                        ) : (
+                            <Tooltip title="This key was created before the introduction of previews" placement="right">
+                                <span className="inline-flex items-center gap-1 cursor-default">
+                                    <span>No preview</span>
+                                    <IconInfo className="text-base" />
+                                </span>
+                            </Tooltip>
+                        ),
                 },
                 {
                     title: 'Scopes',
@@ -409,35 +425,6 @@ function PersonalAPIKeysTable(): JSX.Element {
                             >
                                 <LemonButton size="small" icon={<IconEllipsis />} />
                             </LemonMenu>
-                            // <More
-                            //     overlay={
-                            //         <>
-                            //             <LemonButton fullWidth>View</LemonButton>
-                            //             <LemonButton fullWidth>Edit</LemonButton>
-                            //             <LemonDivider />
-                            //             <LemonButton
-                            //                 status="danger"
-                            //                 type="tertiary"
-                            //                 size="xsmall"
-                            //                 fullWidth
-                            //                 onClick={() => {
-                            //                     LemonDialog.open({
-                            //                         title: `Permanently delete key "${key.label}"?`,
-                            //                         description:
-                            //                             'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
-                            //                         primaryButton: {
-                            //                             status: 'danger',
-                            //                             children: 'Permanently delete',
-                            //                             onClick: () => deleteKey(key.id),
-                            //                         },
-                            //                     })
-                            //                 }}
-                            //             >
-                            //                 Delete
-                            //             </LemonButton>
-                            //         </>
-                            //     }
-                            // />
                         )
                     },
                 },
