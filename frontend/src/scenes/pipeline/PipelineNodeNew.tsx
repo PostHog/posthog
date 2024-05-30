@@ -1,5 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -158,6 +159,7 @@ function NodeOptionsTable({
     targets: TableEntry[]
     loading: boolean
 }): JSX.Element {
+    const { hashParams } = useValues(router)
     return (
         <>
             <LemonTable
@@ -198,7 +200,8 @@ function NodeOptionsTable({
                                     type="primary"
                                     data-attr={`new-${stage}-${target.id}`}
                                     icon={<IconPlusSmall />}
-                                    to={urls.pipelineNodeNew(stage, target.id)}
+                                    // Preserve hash params to pass config in
+                                    to={combineUrl(urls.pipelineNodeNew(stage, target.id), {}, hashParams).url}
                                 >
                                     Create
                                 </LemonButton>
