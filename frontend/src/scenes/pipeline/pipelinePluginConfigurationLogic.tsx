@@ -156,7 +156,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     )
                     formData.append('enabled', enabled)
                     formData.append('name', name)
-                    formData.append('description', description)
+                    if (description) {
+                        formData.append('description', description)
+                    }
 
                     const sanitizedFilters = sanitizeFilters(filters)
                     if (filters) {
