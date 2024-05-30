@@ -209,6 +209,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -302,6 +305,9 @@
             "anyOf": [
                 {
                     "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -4238,6 +4244,42 @@
             "required": ["results"],
             "type": "object"
         },
+        "HogQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "results": {},
+                "stdout": {
+                    "type": "string"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -4541,7 +4583,7 @@
             "type": "string"
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -5012,6 +5054,7 @@
                 "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
+                "HogQuery",
                 "HogQLQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
@@ -5751,6 +5794,21 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "results": {},
+                        "stdout": {
+                            "type": "string"
                         }
                     },
                     "required": ["results"],
@@ -6641,6 +6699,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"

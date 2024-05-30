@@ -8,7 +8,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
+import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Link } from 'lib/lemon-ui/Link'
@@ -57,14 +57,17 @@ function CompactPropertyFiltersDisplay({
         <>
             {groupFilter.values.map(({ values: subValues, type: subType }, subIndex) => (
                 <React.Fragment key={subIndex}>
-                    {subIndex === 0 ? null : groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
+                    {subIndex === 0 ? null : (
+                        <em className="text-[11px] font-semibold">
+                            {groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
+                        </em>
+                    )}
                     {subValues.map((leafFilter, leafIndex) => {
                         const isFirstFilterWithinSubgroup = leafIndex === 0
                         const isFirstFilterOverall = isFirstFilterWithinSubgroup && subIndex === 0
 
                         return (
                             <div key={leafIndex} className="SeriesDisplay__condition">
-                                {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
                                 <span>
                                     {isFirstFilterWithinSubgroup
                                         ? embedded
@@ -155,59 +158,59 @@ function SeriesDisplay({
             className="SeriesDisplay"
             icon={<SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />}
             extendedContent={
-                <>
-                    {insightType !== InsightType.FUNNELS && (
-                        <div>
-                            counted by{' '}
-                            {mathDefinition?.category === MathCategory.HogQLExpression ? (
-                                <code>{filter.math_hogql}</code>
-                            ) : (
-                                <>
-                                    {mathDefinition?.category === MathCategory.PropertyValue &&
-                                        filter.math_property && (
-                                            <>
-                                                {' '}
-                                                event's
-                                                <span className="SeriesDisplay__raw-name">
-                                                    <PropertyKeyInfo
-                                                        value={filter.math_property}
-                                                        type={TaxonomicFilterGroupType.EventProperties}
-                                                    />
-                                                </span>
-                                            </>
-                                        )}
-                                    <b>{mathDefinition?.name.toLowerCase()}</b>
-                                </>
-                            )}
-                        </div>
-                    )}
-                    {filter.properties && filter.properties.length > 0 && (
-                        <CompactPropertyFiltersDisplay
-                            groupFilter={{
-                                type: FilterLogicalOperator.And,
-                                values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
-                            }}
-                            embedded
-                        />
-                    )}
-                </>
+                filter.properties &&
+                filter.properties.length > 0 && (
+                    <CompactPropertyFiltersDisplay
+                        groupFilter={{
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
+                        }}
+                        embedded
+                    />
+                )
             }
         >
-            {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-            {filter.custom_name && <b> "{filter.custom_name}"</b>}
-            {filter.type === 'actions' && filter.id ? (
-                <Link
-                    to={urls.action(filter.id)}
-                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                    title="Action series"
-                >
-                    {filter.name}
-                </Link>
-            ) : (
-                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
-                </span>
-            )}
+            <span>
+                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
+                {filter.custom_name && <b> "{filter.custom_name}"</b>}
+                {filter.type === 'actions' && filter.id ? (
+                    <Link
+                        to={urls.action(filter.id)}
+                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                        title="Action series"
+                    >
+                        {filter.name}
+                    </Link>
+                ) : (
+                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                        <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                    </span>
+                )}
+                {insightType !== InsightType.FUNNELS && (
+                    <span className="leading-none">
+                        counted by{' '}
+                        {mathDefinition?.category === MathCategory.HogQLExpression ? (
+                            <code>{filter.math_hogql}</code>
+                        ) : (
+                            <>
+                                {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                                    <>
+                                        {' '}
+                                        event's
+                                        <span className="SeriesDisplay__raw-name">
+                                            <PropertyKeyInfo
+                                                value={filter.math_property}
+                                                type={TaxonomicFilterGroupType.EventProperties}
+                                            />
+                                        </span>
+                                    </>
+                                )}
+                                <b>{mathDefinition?.name.toLowerCase()}</b>
+                            </>
+                        )}
+                    </span>
+                )}
+            </span>
         </LemonRow>
     )
 }
@@ -264,7 +267,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
                                 />
                                 {localFilters.slice(1).map((filter, index) => (
                                     <>
-                                        <LemonDivider />
+                                        <LemonDivider className="my-1" />
                                         <SeriesDisplay
                                             hasBreakdown={!!filters.breakdown}
                                             key={index}

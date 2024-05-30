@@ -54,6 +54,7 @@ export enum NodeKind {
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
+    HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
@@ -103,6 +104,7 @@ export type AnyDataNode =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -125,6 +127,7 @@ export type QuerySchema =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -172,6 +175,7 @@ export interface Node<R extends Record<string, any> = Record<string, any>> {
 
 export type AnyResponseType =
     | Record<string, any>
+    | HogQueryResponse
     | HogQLQueryResponse
     | HogQLMetadataResponse
     | HogQLAutocompleteResponse
@@ -242,6 +246,17 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+}
+
+export interface HogQueryResponse {
+    results: any
+    bytecode?: any[]
+    stdout?: string
+}
+
+export interface HogQuery extends DataNode<HogQueryResponse> {
+    kind: NodeKind.HogQuery
+    code?: string
 }
 
 export interface HogQLNotice {

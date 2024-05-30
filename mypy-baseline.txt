@@ -1,6 +1,7 @@
 posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" has incompatible type "Callable[[HeartbeatDetails, Any], Any]"; expected "Callable[[type[Never], Any], Any]"  [arg-type]
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
+posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/zendesk/talk_api.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -55,7 +56,6 @@ posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see http
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
 posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
-posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
@@ -582,10 +582,8 @@ posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (exp
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Dashboard")  [assignment]
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Insight")  [assignment]
 posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
-posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "str | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
@@ -716,6 +714,7 @@ posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not define
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
+posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]

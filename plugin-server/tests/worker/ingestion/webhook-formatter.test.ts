@@ -1,22 +1,12 @@
-import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
-import { ActionWebhookFormatter } from '../../../src/worker/ingestion/action-webhook-formatter'
+import { ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
+import { WebhookFormatter, WebhookFormatterOptions } from '../../../src/worker/ingestion/webhook-formatter'
 
-type ActionWebhookFormatterOptions = {
-    webhookUrl?: string
-    messageFormat?: string
-    action?: Action
-    event?: PostIngestionEvent
-    team?: Team
-    siteUrl?: string
+type TestWebhookFormatterOptions = Partial<WebhookFormatterOptions> & {
     personProperties?: PostIngestionEvent['person_properties']
 }
 
-describe('ActionWebhookFormatter', () => {
+describe('WebhookFormatter', () => {
     const team = { id: 123, person_display_name_properties: null } as Team
-    const action = {
-        id: 1,
-        name: 'action1',
-    } as Action
     const event: PostIngestionEvent = {
         event: '$pageview',
         eventUuid: '123',
@@ -28,20 +18,36 @@ describe('ActionWebhookFormatter', () => {
         elementsList: [],
         properties: { $browser: 'Chrome' },
         timestamp: '2021-10-31T00%3A44%3A00.000Z' as ISOTimestamp,
+        groups: {
+            organization: {
+                index: 1,
+                type: 'organization',
+                key: '123',
+                properties: { name: 'PostHog', plan: 'paid' },
+            },
+
+            project: {
+                index: 2,
+                type: 'project',
+                key: '234',
+                properties: {},
+            },
+        },
     }
 
-    const createFormatter = (options?: ActionWebhookFormatterOptions) => {
-        return new ActionWebhookFormatter(
-            options?.webhookUrl ?? 'https://example.com/',
-            options?.messageFormat ?? 'User [person] did [action.name]',
-            options?.action ?? action,
-            {
+    const createFormatter = (options?: TestWebhookFormatterOptions) => {
+        return new WebhookFormatter({
+            webhookUrl: options?.webhookUrl ?? 'https://example.com/',
+            messageFormat: options?.messageFormat ?? 'User [person] did [action.name]',
+            sourceName: options?.sourceName ?? 'action1',
+            sourcePath: options?.sourcePath ?? '/action/1',
+            event: {
                 ...(options?.event ?? event),
                 person_properties: options?.personProperties ?? event.person_properties,
             },
-            options?.team ?? team,
-            options?.siteUrl ?? 'http://localhost:8000'
-        )
+            team: options?.team ?? team,
+            siteUrl: options?.siteUrl ?? 'http://localhost:8000',
+        })
     }
 
     beforeEach(() => {
@@ -49,13 +55,15 @@ describe('ActionWebhookFormatter', () => {
     })
 
     describe('webhook formatting options', () => {
-        const cases: [ActionWebhookFormatterOptions][] = [
+        const cases: [TestWebhookFormatterOptions][] = [
             [{ messageFormat: '[person]' }],
             [{ messageFormat: '[person.link]' }],
             [{ messageFormat: '[user.name]' }], // Alias for person name
             [{ messageFormat: '[user.browser]' }], // Otherwise just alias to event properties
             [{ messageFormat: '[action.name]' }],
             [{ messageFormat: '[action.name] was done by [user.name]' }],
+            [{ messageFormat: '[source.name]' }],
+            [{ messageFormat: '[source.name] was done by [user.name]' }],
             // Handle escaping brackets
             [{ messageFormat: '[action.name\\] got done by \\[user.name\\]' }],
             [{ messageFormat: '[event]' }],
@@ -102,6 +110,11 @@ describe('ActionWebhookFormatter', () => {
                     },
                 },
             ],
+            [{ messageFormat: '[groups]' }],
+            [{ messageFormat: '[groups.missing]' }],
+            [{ messageFormat: '[groups.organization]' }],
+            [{ messageFormat: '[groups.organization.properties.plan]' }],
+            [{ messageFormat: '[groups.project]' }], // No-name one
         ]
 
         it.each(cases)('%s', (options) => {
@@ -114,7 +127,7 @@ describe('ActionWebhookFormatter', () => {
 
     describe('slack webhook formatting options', () => {
         // Additional checks for the standard slack webhook formats
-        const cases: [ActionWebhookFormatterOptions][] = [
+        const cases: [TestWebhookFormatterOptions][] = [
             [{ messageFormat: '[person]' }],
             [{ messageFormat: '[action.name]' }],
             [{ messageFormat: '[event]', event: { ...event, eventUuid: '**>)', event: 'text><new link' } }], // Special escaping

@@ -1,9 +1,7 @@
 from enum import Enum
 
 HOGQL_BYTECODE_IDENTIFIER = "_h"
-
-
-SUPPORTED_FUNCTIONS = ("concat", "match", "toString", "toInt", "toFloat", "toUUID", "ifNull")
+HOGQL_BYTECODE_FUNCTION = "_f"
 
 
 class Operation(int, Enum):
@@ -41,3 +39,10 @@ class Operation(int, Enum):
     STRING = 32
     INTEGER = 33
     FLOAT = 34
+    POP = 35
+    GET_LOCAL = 36
+    SET_LOCAL = 37
+    RETURN = 38
+    JUMP = 39
+    JUMP_IF_FALSE = 40
+    DECLARE_FN = 41
