@@ -310,25 +310,6 @@ export const NewSurveyAppearanceSection: StoryFn = () => {
     return <App />
 }
 
-// export const NewSurveyWithHTMLDescriptionInAppearanceSection: StoryFn = () => {
-//     useEffect(() => {
-//         router.actions.push(urls.survey('new'))
-//         surveyLogic({ id: 'new' }).mount()
-//         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
-//         surveyLogic({ id: 'new' }).actions.setSurveyValue('appearance', {
-//             thankYouMessageDescription: '<strong>This description has HTML in it</strong>',
-//             thankYouMessageDescriptionContentType: 'html',
-//         })
-//     }, [])
-//     return <App />
-// }
-
-// NewSurveyWithHTMLDescriptionInAppearanceSection.parameters = {
-//     testOptions: {
-//         waitForSelector: '.CodeMirror-line',
-//     },
-// }
-
 export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
