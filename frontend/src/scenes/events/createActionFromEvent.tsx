@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import {
     ActionStepType,
     ActionType,
+    ElementPropertyFilter,
     ElementType,
     EventPropertyFilter,
     EventType,
@@ -19,7 +20,7 @@ import {
 
 export type MinimalEventFilterType = {
     event: string
-    properties: EventPropertyFilter[]
+    properties: (EventPropertyFilter | ElementPropertyFilter)[]
 }
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
@@ -126,7 +127,7 @@ export async function createActionFromEvent(
 }
 
 export const createFilterFromEvent = (event: EventType): MinimalEventFilterType => {
-    const properties: EventPropertyFilter[] = []
+    const properties: MinimalEventFilterType['properties'] = []
 
     if (event.event === '$pageview' || event.event === '$autocapture') {
         properties.push({
@@ -148,12 +149,15 @@ export const createFilterFromEvent = (event: EventType): MinimalEventFilterType 
 
     if (event.event === '$autocapture') {
         // THE hard one! - todo...
-        properties.push({
-            key: '$event_type',
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.Exact,
-            value: event.properties?.$event_type || '',
-        })
+
+        if (event.properties.$event_type === 'submit') {
+            properties.push({
+                key: '$event_type',
+                value: 'submit',
+                type: PropertyFilterType.Event,
+                operator: PropertyOperator.Exact,
+            })
+        }
     }
 
     return {
