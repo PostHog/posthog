@@ -224,6 +224,7 @@ export function DateFilter({
             closeParentPopoverOnClickInside={false}
         >
             <LemonButton
+                id="daterange_selector"
                 size={size ?? 'small'}
                 type="secondary"
                 disabledReason={disabledReason}
