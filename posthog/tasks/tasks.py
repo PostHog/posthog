@@ -535,7 +535,7 @@ class Polling:
     soft_time_limit=Polling.SOFT_TIME_LIMIT_SECONDS,
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
-def poll_query_performance(last_update) -> None:
+def poll_query_performance(last_update: Optional[bytes]) -> None:
     start_time_ns = time.time_ns()
     # redis uses byte strings so convert this time to a byte string
     start_time_str = Polling.encode_redis_key(start_time_ns)
