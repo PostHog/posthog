@@ -80,7 +80,7 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-18',
-        featureFlags: [FEATURE_FLAGS.PIPELINE_UI],
+        featureFlags: [FEATURE_FLAGS.PIPELINE_UI, FEATURE_FLAGS.PLUGINS_FILTERING],
     }, // scene mode
 } as Meta
 
@@ -91,6 +91,8 @@ const eventSequenceTimerPluginConfigId = pluginConfigs.results.find(
 const geoIpConfigId = pluginConfigs.results.find(
     (conf) => conf.plugin === plugins.results.find((plugin) => plugin.name === 'GeoIP')!.id
 )!.id
+
+const webhookPluginId = plugins.results.find((plugin) => plugin.name === 'Webhook')!.id
 
 export function PipelineLandingPage(): JSX.Element {
     useEffect(() => {
@@ -237,6 +239,14 @@ export function PipelineNodeEditConfigurationStatelessPlugin(): JSX.Element {
         router.actions.push(
             urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Configuration)
         )
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeConfigurationAdvancedPlugin(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, webhookPluginId))
     }, [])
     return <App />
 }

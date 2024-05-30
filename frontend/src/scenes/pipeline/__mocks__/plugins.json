@@ -127,6 +127,60 @@
             },
             "metrics": {},
             "public_jobs": {}
+        },
+        {
+            "id": 6,
+            "plugin_type": "source",
+            "name": "Webhook",
+            "description": "Generic webhooks",
+            "url": "https://github.com/PostHog/webhook-plugin",
+            "icon": null,
+            "config_schema": [
+                {
+                    "key": "url",
+                    "name": "What is the webhook destination URL?",
+                    "type": "string",
+                    "hint": "e.g. https://webhooks.example.com/1234",
+                    "default": "",
+                    "required": true
+                },
+                {
+                    "key": "headers",
+                    "name": "Headers",
+                    "type": "dictionary",
+                    "required": false,
+                    "secret": true,
+                    "hint": "Add any headers you want to include in the request. Authorization header is treated specially and will be base64 encoded if specified as 'Basic user:password'."
+                },
+                {
+                    "key": "method",
+                    "name": "HTTP Method",
+                    "type": "choice",
+                    "default": "POST",
+                    "choices": ["POST", "GET", "PUT", "DELETE", "PATCH"],
+                    "required": true
+                },
+                {
+                    "key": "payload",
+                    "hint": "You can use {{ }} templates to add information from the event to the payload.",
+                    "default": "{\n   \"event\": \"{{event}}\"\n}",
+                    "name": "JSON Payload",
+                    "type": "json",
+                    "required": true
+                }
+            ],
+            "tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "latest_tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "is_global": false,
+            "organization_id": "12345678-abcd-1234-abcd-1234567890ab",
+            "organization_name": "PostHog",
+            "capabilities": {
+                "jobs": [],
+                "methods": ["composeWebhook"],
+                "scheduled_tasks": []
+            },
+            "metrics": {},
+            "public_jobs": {}
         }
     ]
 }
