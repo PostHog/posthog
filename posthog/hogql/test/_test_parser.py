@@ -1739,4 +1739,17 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node2 = self._expr("f'strings\\' to {'strings'}'")
             assert node2 == node
 
+        def test_template_strings_full_multiline(self):
+            node = self._string_template("hello \n{event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to \n\nopen {\nperson.properties.email\n}")
+            assert node == ast.Call(
+                name="concat",
+                args=[
+                    ast.Constant(value="we're ready to \n\nopen "),
+                    ast.Field(chain=["person", "properties", "email"]),
+                ],
+            )
+
     return TestParser
