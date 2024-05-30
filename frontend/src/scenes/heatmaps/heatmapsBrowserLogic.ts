@@ -109,7 +109,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         // they're called common filters in the toobara because they're shared between heatmaps and clickmaps
         // the name is continued here since they're passed down into the embedded iframe
         commonFilters: [
-            {} as CommonFilters,
+            { date_from: '-7d' } as CommonFilters,
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
