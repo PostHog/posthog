@@ -114,8 +114,10 @@ export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
-export const supportsPercentStackView = (q: InsightQueryNode, display?: ChartDisplayType): boolean =>
-    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph)
+export const supportsPercentStackView = (
+    q: InsightQueryNode | null | undefined,
+    display: ChartDisplayType | null | undefined
+): boolean => isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph)
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query) && supportsPercentStackView(query, query.trendsFilter?.display)) {
