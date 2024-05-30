@@ -509,56 +509,75 @@ def calculate_cohort() -> None:
     calculate_cohorts()
 
 
-POLL_SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
+class Polling:
+    SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
+    TIME_BETWEEN_RUNS_SECONDS = 2
+    SOFT_TIME_LIMIT_SECONDS = 10
+    HARD_TIME_LIMIT_SECONDS = 12
+    ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
+
+    def encode_redis_key(time_ns: int) -> bytes:
+        return time_ns.to_bytes(8, "big")
+
+    def decode_redis_key(time_ns: bytes) -> int:
+        return int.from_bytes(time_ns, "big")
 
 
-@shared_task(ignore_result=True, max_retries=1, soft_time_limit=10, time_limit=12)
+@shared_task(
+    ignore_result=True,
+    max_retries=1,
+    soft_time_limit=Polling.SOFT_TIME_LIMIT_SECONDS,
+    time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
+)
 def poll_query_performance(last_update: bytes) -> None:
     start_time = time.time_ns()
     # redis uses byte strings so convert this time to a byte string
-    start_time_str = start_time.to_bytes(8, "big")
+    start_time_str = Polling.encode_redis_key(start_time)
     from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
 
     try:
         redis_client = get_client()
         # Last update being None represents an initial run
-        if redis_client.get(POLL_SINGLETON_REDIS_KEY) != last_update:
+        if redis_client.get(Polling.SINGLETON_REDIS_KEY) != last_update:
             logger.error("Poll query performance task terminating: another poller is running")
             return
-        redis_client.set(POLL_SINGLETON_REDIS_KEY, start_time_str)
+        redis_client.set(Polling.SINGLETON_REDIS_KEY, start_time_str)
         poll_query_performance_nontask()
     except Exception as e:
         logger.error("Poll query performance failed", error=e)
 
-    elapsed = time.time_ns() - start_time
-    if elapsed > 2e9:
+    elapsed_ns = time.time_ns() - start_time
+    time_between_run_ns = 1e9 * Polling.TIME_BETWEEN_RUNS_SECONDS
+    if elapsed_ns > time_between_run_ns:
+        # right again right away if more than time_between_runs has elapsed
         poll_query_performance.delay(start_time_str)
     else:
-        poll_query_performance.apply_async(args=[start_time_str], countdown=((2e9 - elapsed) / 1e9))
+        # delay until time_between_runs has elapsed
+        poll_query_performance.apply_async(args=[start_time_str], countdown=((time_between_run_ns - elapsed_ns) / 1e9))
 
 
 @shared_task(ignore_result=True, max_retries=1)
 def start_poll_query_performance() -> None:
     redis_client = get_client()
-    start_time = redis_client.get(POLL_SINGLETON_REDIS_KEY)
-    now = time.time_ns()
+    start_time_str: bytes = redis_client.get(Polling.SINGLETON_REDIS_KEY)
+    now_ns: int = time.time_ns()
     try:
-        if start_time is None:
-            poll_query_performance.delay(start_time)
+        if start_time_str is None:
+            poll_query_performance.delay(start_time_str)
         else:
-            key = int.from_bytes(start_time, "big")
+            last_run_start_time_ns: int = Polling.decode_redis_key(start_time_str)
             # The key should never be in the future
             # If the key is in the future or more than 15 seconds in the past, start a worker
-            if key > now + 2e9:
+            if last_run_start_time_ns > now_ns + Polling.TIME_BETWEEN_RUNS_SECONDS * 1e9:
                 logger.error("Restarting poll query performance because key is in future")
-                poll_query_performance.delay(start_time)
-            elif now - key > 15e9:
+                poll_query_performance.delay(start_time_str)
+            elif now_ns - last_run_start_time_ns > Polling.ASSUME_TASK_DEAD_SECONDS * 1e9:
                 logger.error("Restarting poll query performance because of a long delay")
-                poll_query_performance.delay(start_time)
+                poll_query_performance.delay(start_time_str)
 
     except Exception as e:
         logger.error("Restarting poll query performance because of an error", error=e)
-        poll_query_performance.delay(start_time)
+        poll_query_performance.delay(start_time_str)
 
 
 @shared_task(ignore_result=True)
