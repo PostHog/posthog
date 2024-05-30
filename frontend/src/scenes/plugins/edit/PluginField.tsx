@@ -23,6 +23,11 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
             ['person.link', 'URL to the person in PostHog'],
             ['person.properties', 'Properties of the person'],
             ['person.properties.<key>', 'The individual property of the person'],
+            ['project.link', 'URL to the project in PostHog'],
+            ['project.id', 'ID of the project in PostHog'],
+            ['project.name', 'Name of the project'],
+            ['source.link', 'URL to the source of this message in PostHog'],
+            ['source.name', 'Name of the source of this message'],
         ]
 
         groupTypes.forEach((groupType) => {
