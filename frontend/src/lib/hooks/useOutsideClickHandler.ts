@@ -22,7 +22,15 @@ export function useOutsideClickHandler(
                         return event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
                     }
                     const ref = maybeRef.current
-                    return event.composedPath?.()?.find((el) => el === ref)
+
+                    if (!event.target || !ref) {
+                        return false
+                    }
+
+                    const hasShadowRoot = !!(event.target as HTMLElement).shadowRoot
+                    return hasShadowRoot
+                        ? event.composedPath?.()?.find((el) => el === ref)
+                        : `contains` in ref && ref.contains(event.target as Element)
                 })
             ) {
                 return
