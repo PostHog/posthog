@@ -1,5 +1,5 @@
 import { buildIntegerMatcher } from '../../../src/config/config'
-import { Hub, ISOTimestamp, PluginConfig, PluginTaskType, PostIngestionEvent, Team } from '../../../src/types'
+import { Hub, ISOTimestamp, PluginConfig, PluginTaskType, PostIngestionEvent } from '../../../src/types'
 import { processError } from '../../../src/utils/db/error'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
