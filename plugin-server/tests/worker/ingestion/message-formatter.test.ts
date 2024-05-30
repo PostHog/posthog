@@ -118,5 +118,38 @@ describe('MessageFormatter', () => {
             // For non-slack messages the text is always markdown
             expect(message).toMatchSnapshot()
         })
+
+        it('should handle an advanced case', () => {
+            const formatter = createFormatter({
+                event: {
+                    properties: {
+                        array_item: ['item1', 'item2'],
+                        bad_string: '`"\'\\',
+                    },
+                },
+            })
+            const message = formatter.format(`{
+    "event_properties": {{event.properties}},
+    "string_with_complex_properties": "This is a string with {{event.properties.array_item}} and {{event.properties.bad_string}}"
+}`)
+
+            console.log(message)
+            expect(message).toMatchSnapshot()
+
+            const parsed = JSON.parse(message)
+
+            expect(parsed).toMatchInlineSnapshot(`
+                Object {
+                  "event_properties": Object {
+                    "array_item": Array [
+                      "item1",
+                      "item2",
+                    ],
+                    "bad_string": "\`\\"'\\\\",
+                  },
+                  "string_with_complex_properties": "This is a string with [\\"item1\\",\\"item2\\"] and \`\\"'\\\\",
+                }
+            `)
+        })
     })
 })

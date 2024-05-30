@@ -36,7 +36,7 @@ exports[`MessageFormatter webhook formatting options {{person.link}} {} 1`] = `"
 
 exports[`MessageFormatter webhook formatting options {{person.properties.enjoys_broccoli_on_pizza}} { personProperties: [Object] } 1`] = `"false"`;
 
-exports[`MessageFormatter webhook formatting options {{person.properties.pizza_ingredient_ranking}} { personProperties: [Object] } 1`] = `"[\\"pineapple\\",\\"broccoli\\",\\"aubergine\\"\\\\]"`;
+exports[`MessageFormatter webhook formatting options {{person.properties.pizza_ingredient_ranking}} { personProperties: [Object] } 1`] = `"[\\\\\\"pineapple\\\\\\",\\\\\\"broccoli\\\\\\",\\\\\\"aubergine\\\\\\"]"`;
 
 exports[`MessageFormatter webhook formatting options {{person}} { personProperties: [Object], team: [Object] } 1`] = `"{\\"properties\\":{\\"imię\\":\\"Grzegorz\\",\\"nazwisko\\":\\"Brzęczyszczykiewicz\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
 
@@ -53,3 +53,10 @@ exports[`MessageFormatter webhook formatting options {{user.missing_property}} {
 exports[`MessageFormatter webhook formatting options {{user.name}} {} 1`] = `"test@posthog.com"`;
 
 exports[`MessageFormatter webhook formatting options {{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}} { event: [Object] } 1`] = `"test@posthog.com from Chrome on Pricing page with undefined, yes sir"`;
+
+exports[`MessageFormatter webhook formatting options should handle an advanced case 1`] = `
+"{
+    \\"event_properties\\": {\\"array_item\\":[\\"item1\\",\\"item2\\"],\\"bad_string\\":\\"\`\\\\\\"'\\\\\\\\\\"},
+    \\"string_with_complex_properties\\": \\"This is a string with [\\\\\\"item1\\\\\\",\\\\\\"item2\\\\\\"] and \`\\\\\\"'\\\\\\\\\\"
+}"
+`;

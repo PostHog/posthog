@@ -2,7 +2,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -209,10 +210,13 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 loadPluginSuccess: (state, { pluginFromPluginId }) => {
                     // For new pluginConfig creation, we need to set the default values
                     // But if we've already have something better in state, skip this
+
                     if (Object.keys(state).length > 0 || !pluginFromPluginId) {
                         return state
                     }
-                    return getDefaultConfiguration(pluginFromPluginId)
+                    const config = getDefaultConfiguration(pluginFromPluginId)
+
+                    return config
                 },
                 loadPluginConfigSuccess: (state, { pluginConfig }) => {
                     if (!pluginConfig) {
@@ -299,18 +303,45 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             },
         },
     })),
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.configurationChanged,
-        message: 'Leave action?\nChanges you made will be discarded.',
-        onConfirm: () => {
-            actions.resetConfiguration()
-        },
-    })),
-    afterMount(({ props, actions }) => {
+    // TODO: Add this back in once we have a plan for handling automatic url changes
+    // beforeUnload(({ actions, values }) => ({
+    //     enabled: () => values.configurationChanged,
+    //     message: 'Leave action?\nChanges you made will be discarded.',
+    //     onConfirm: () => {
+    //         actions.resetConfiguration()
+    //     },
+    // })),
+    afterMount(({ props, actions, cache }) => {
         if (props.pluginConfigId) {
             actions.loadPluginConfig() // comes with plugin info
         } else if (props.pluginId) {
+            cache.configFromUrl = router.values.hashParams.configuration
+
             actions.loadPlugin()
         }
     }),
+
+    subscriptions(({ values, actions, cache }) => ({
+        configuration: (configuration) => {
+            if (values.isNew) {
+                // Sync state to the URL bar if new
+                router.actions.replace(router.values.location.pathname, undefined, {
+                    configuration,
+                })
+            }
+        },
+        pluginFromPluginId: (plugin) => {
+            if (plugin && values.isNew) {
+                // Sync state from the URL bar if new
+
+                // Hash params never hit the server so are relatively safe
+                if (cache.configFromUrl) {
+                    actions.resetConfiguration({
+                        ...values.configuration,
+                        ...cache.configFromUrl,
+                    })
+                }
+            }
+        },
+    })),
 ])

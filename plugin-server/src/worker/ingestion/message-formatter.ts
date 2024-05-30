@@ -55,10 +55,7 @@ export class MessageFormatter {
 
             for (const token of tokens) {
                 const tokenParts = token.split('.') || []
-
                 const value = this.getValueOfToken(tokenParts)
-
-                console.log(tokenParts, value, tokenizedMessage)
                 values.push(value)
             }
             return format(tokenizedMessage, ...values)
@@ -67,30 +64,18 @@ export class MessageFormatter {
         }
     }
 
-    private escapeMarkdown(text: string): string {
-        const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '!']
-        const lineStartChars: string[] = ['#', '-', '+']
+    private escapeJsonString(text: string): string {
+        // typically strings will be embedded in JSON, so we need to escape them
+        // Replace all unescaped quotes with an escape
+        text = text.replace(/\\?\\/g, '\\\\')
+        text = text.replace(/\\?"/g, '\\"')
+        // Replace all unescaped escapes with an escape
 
-        let escapedText = ''
-        let isNewLine = true
-
-        for (const char of text) {
-            if (isNewLine && lineStartChars.includes(char)) {
-                escapedText += '\\' + char
-            } else if (!isNewLine && markdownChars.includes(char)) {
-                escapedText += '\\' + char
-            } else {
-                escapedText += char
-            }
-
-            isNewLine = char === '\n' || char === '\r'
-        }
-
-        return escapedText
+        return text
     }
 
     private webhookEscape(text: string): string {
-        return this.escapeMarkdown(stringify(text))
+        return this.escapeJsonString(stringify(text))
     }
 
     private getPersonDisplay(): string {
@@ -140,6 +125,22 @@ export class MessageFormatter {
                 const property = this.options.event.properties?.[propertyName]
                 text = this.webhookEscape(property)
             }
+        } else if (tokenParts[0] === 'project') {
+            // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
+            // [person] OR [event.properties.bar] should be used instead
+            if (tokenParts[1] === 'name') {
+                text = this.options.team.name
+            } else if (tokenParts[1] === 'id') {
+                text = `${this.options.team.id}`
+            } else if (tokenParts[1] === 'link') {
+                text = this.projectUrl
+            }
+        } else if (tokenParts[0] === 'action' || tokenParts[0] === 'source') {
+            if (tokenParts[1] === 'name') {
+                text = this.options.sourceName
+            } else if (tokenParts[1] === 'link') {
+                text = this.webhookEscape(this.sourceLink)
+            }
         } else if (tokenParts[0] === 'person') {
             if (tokenParts.length === 1) {
                 text = stringify({
@@ -160,12 +161,6 @@ export class MessageFormatter {
                         : undefined
                     text = this.webhookEscape(property)
                 }
-            }
-        } else if (tokenParts[0] === 'action' || tokenParts[0] === 'source') {
-            if (tokenParts[1] === 'name') {
-                text = this.options.sourceName
-            } else if (tokenParts[1] === 'link') {
-                text = this.webhookEscape(this.sourceLink)
             }
         } else if (tokenParts[0] === 'event') {
             if (tokenParts.length === 1) {

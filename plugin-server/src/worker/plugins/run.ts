@@ -442,7 +442,7 @@ async function formatConfigTemplates(
     const webhookFormatter = new MessageFormatter({
         event,
         team,
-        siteUrl: hub.SITE_URL || '',
+        siteUrl: hub.SITE_URL || 'http://localhost:8000',
         // TODO: What about pluginConfig.name ?
         sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
         sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
