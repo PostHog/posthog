@@ -93,31 +93,12 @@ async function runSingleTeamPluginComposeWebhook(
     let maybeWebhook: Webhook | null = null
 
     try {
-        const team = await hub.teamManager.fetchTeam(event.team_id)
-        if (team) {
-            const webhookFormatter = new MessageFormatter({
-                event: postIngestionEvent,
-                team,
-                siteUrl: hub.SITE_URL || '',
-                // TODO: What about pluginConfig.name ?
-                sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
-                sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
-            })
+        const config = await formatConfigTemplates(hub, pluginConfig, postIngestionEvent)
 
-            const templatedConfig = { ...pluginConfig.config }
-
-            // TODO: Pass this through to the function instead of doing it here
-            Object.keys(templatedConfig).forEach((key) => {
-                templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key])
-            })
-
-            maybeWebhook = composeWebhook(event, {
-                config: templatedConfig,
-                __pluginMeta: true,
-            })
-        } else {
-            throw new Error('Team not found')
-        }
+        maybeWebhook = composeWebhook(event, {
+            config,
+            __pluginMeta: true,
+        })
 
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
@@ -447,4 +428,32 @@ async function filterPluginMethods<T>(
     )
 
     return filteredList
+}
+
+async function formatConfigTemplates(
+    hub: Hub,
+    pluginConfig: PluginConfig,
+    event: PostIngestionEvent
+): Promise<Record<string, any>> {
+    const team = await hub.teamManager.fetchTeam(event.teamId)
+    if (!team) {
+        throw new Error('Team not found')
+    }
+    const webhookFormatter = new MessageFormatter({
+        event,
+        team,
+        siteUrl: hub.SITE_URL || '',
+        // TODO: What about pluginConfig.name ?
+        sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
+        sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
+    })
+
+    const templatedConfig = { ...pluginConfig.config }
+
+    // TODO: Pass this through to the function instead of doing it here
+    Object.keys(templatedConfig).forEach((key) => {
+        templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key])
+    })
+
+    return templatedConfig
 }
