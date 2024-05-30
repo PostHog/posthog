@@ -838,20 +838,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 5
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]", '["",""]']
+        assert len(response.results) == 4
+        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]"]
 
         assert response.results[0]["label"] == "[10.0,17.5]"
         assert response.results[1]["label"] == "[17.5,25.0]"
         assert response.results[2]["label"] == "[25.0,32.5]"
         assert response.results[3]["label"] == "[32.5,40.01]"
-        assert response.results[4]["label"] == '["",""]'
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
         assert response.results[1]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
-        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
@@ -1517,7 +1515,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
         )
 
-        assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+        assert response.results[0]["data"] == [1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier(self, patch_create_default_modifiers_for_team):
