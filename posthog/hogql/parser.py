@@ -43,6 +43,16 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select"], Histogram] = {
 }
 
 
+def parse_program(
+    program: str, placeholders: Optional[dict[str, ast.Expr]] = None, start: Optional[int] = 0
+) -> ast.Program:
+    parse_tree = get_parser(program).program()
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    if placeholders:
+        return cast(ast.Program, replace_placeholders(node, placeholders))
+    return node
+
+
 def parse_expr(
     expr: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
@@ -156,11 +166,82 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 e.end = end
             raise e
 
+    def visitProgram(self, ctx: HogQLParser.ProgramContext):
+        return ast.Program(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+
+    def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
+        return self.visitChildren(ctx)
+
+    def visitExpression(self, ctx: HogQLParser.ExpressionContext):
+        return self.visitChildren(ctx)
+
+    def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
+        return ast.VariableAssignment(
+            name=ctx.identifier().getText(),
+            expr=self.visit(ctx.expression()) if ctx.expression() else None,
+            is_declaration=True,
+        )
+
+    def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
+        return ast.VariableAssignment(
+            name=ctx.identifier().getText(),
+            expr=self.visit(ctx.expression()),
+            is_declaration=False,
+        )
+
+    def visitStatement(self, ctx: HogQLParser.StatementContext):
+        return self.visitChildren(ctx)
+
+    def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
+        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+
+    def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
+        return ast.ReturnStatement(expr=self.visit(ctx.expression()))
+
+    def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
+        return ast.IfStatement(
+            expr=self.visit(ctx.expression()),
+            then=self.visit(ctx.statement(0)),
+            else_=self.visit(ctx.statement(1)) if ctx.statement(1) else None,
+        )
+
+    def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
+        return ast.WhileStatement(
+            expr=self.visit(ctx.expression()),
+            body=self.visit(ctx.statement()) if ctx.statement() else None,
+        )
+
+    def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
+        return ast.Function(
+            name=ctx.identifier().getText(),
+            params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
+            body=self.visit(ctx.block()),
+        )
+
+    def visitDict(self, ctx: HogQLParser.DictContext):
+        return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
+
+    def visitKvPairList(self, ctx: HogQLParser.KvPairListContext):
+        return [self.visit(kv) for kv in ctx.kvPair()]
+
+    def visitKvPair(self, ctx: HogQLParser.KvPairContext):
+        k, v = ctx.expression()
+        return (self.visit(k), self.visit(v))
+
+    def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
+        return [ident.getText() for ident in ctx.identifier()]
+
+    def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
+        return ast.ExprStatement(expr=ast.Constant(value=True))
+
+    def visitBlock(self, ctx: HogQLParser.BlockContext):
+        return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = [
+        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
         flattened_queries: list[ast.SelectQuery] = []
@@ -170,7 +251,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
             elif isinstance(query, ast.Placeholder):
-                flattened_queries.append(query)
+                flattened_queries.append(query)  # type: ignore
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:

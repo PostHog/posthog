@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
+from zoneinfo import ZoneInfo
 
 import posthoganalytics
 import pydantic
@@ -9,15 +10,14 @@ import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import (
-    MinLengthValidator,
     MaxValueValidator,
+    MinLengthValidator,
     MinValueValidator,
 )
-from django.db import models, connection
+from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
-from django.db import transaction
-from zoneinfo import ZoneInfo
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -36,9 +36,9 @@ from posthog.models.utils import (
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
-from .team_caching import get_team_in_cache, set_team_in_cache
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import PathCleaningFilter, PersonsOnEventsMode, HogQLQueryModifiers
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User

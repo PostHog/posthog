@@ -15,7 +15,7 @@ class TestOrganizationAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
-        self.assertEqual(response_data["available_features"], [])
+        self.assertEqual(response_data["available_product_features"], [])
 
         # DEPRECATED attributes
         self.assertNotIn("personalization", response_data)

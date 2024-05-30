@@ -82,7 +82,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_create_domain(self):
         self.organization_membership.level = OrganizationMembershipLevel.ADMIN
-        self.organization.available_features = ["automatic_provisioning"]
+        self.organization.available_product_features = [
+            {"key": "automatic_provisioning", "name": "automatic_provisioning"}
+        ]
         self.organization.save()
         self.organization_membership.save()
 
@@ -326,7 +328,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_can_update_jit_provisioning_and_sso_enforcement(self):
         self.organization_membership.level = OrganizationMembershipLevel.ADMIN
-        self.organization.available_features = ["automatic_provisioning"]
+        self.organization.available_product_features = [
+            {"key": "automatic_provisioning", "name": "automatic_provisioning"}
+        ]
         self.organization_membership.save()
         self.organization.save()
         self.domain.verified_at = timezone.now()

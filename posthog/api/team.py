@@ -5,28 +5,22 @@ from typing import Any, Optional, cast
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from rest_framework import (
-    exceptions,
-    request,
-    response,
-    serializers,
-    viewsets,
-)
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission, IsAuthenticated
+
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.activity_logging.activity_log import (
-    log_activity,
-    Detail,
     Change,
-    load_activity,
+    Detail,
     dict_changes_between,
+    load_activity,
+    log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -34,9 +28,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import (
+    groups_on_events_querying_enabled,
+    set_team_in_cache,
+)
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import generate_random_token_project, UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
