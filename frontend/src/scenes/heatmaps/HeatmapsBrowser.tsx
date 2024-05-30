@@ -2,19 +2,51 @@ import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverl
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrlSearchOptions, browserUrl, loading, isBrowserUrlAuthorized, topUrls, topUrlsLoading } =
-        useValues(logic)
-    const { setBrowserSearch, setBrowserUrl, onIframeLoad } = useActions(logic)
+    const {
+        heatmapFilters,
+        browserUrlSearchOptions,
+        browserUrl,
+        loading,
+        isBrowserUrlAuthorized,
+        topUrls,
+        topUrlsLoading,
+        heatmapColorPalette,
+        heatmapFixedPositionMode,
+        viewportRange,
+        noPageviews,
+        commonFilters,
+    } = useValues(logic)
+    const {
+        setBrowserSearch,
+        setBrowserUrl,
+        onIframeLoad,
+        patchHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        setCommonFilters,
+        setIframeWidth,
+    } = useActions(logic)
+
+    useEffect(() => {
+        setIframeWidth(iframeWidth ?? null)
+    }, [iframeWidth])
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -60,7 +92,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     {browserUrl ? (
                         <>
                             {!isBrowserUrlAuthorized ? (
-                                <div className="flex-1 p-4 space-y-4">
+                                <div className="flex-1 p-4 gap-y-4">
                                     <LemonBanner type="error">
                                         {browserUrl} is not an authorized URL. Please add it to the list of authorized
                                         URLs to view heatmaps on this page.
@@ -70,7 +102,26 @@ export function HeatmapsBrowser(): JSX.Element {
                                     <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                                 </div>
                             ) : (
-                                <>
+                                <div className="flex flex-row gap-x-2 w-full">
+                                    <div className="flex flex-col gap-y-2 px-2 py-1">
+                                        <DateFilter
+                                            dateFrom={commonFilters.date_from}
+                                            dateTo={commonFilters.date_to}
+                                            onChange={(fromDate, toDate) => {
+                                                setCommonFilters({ date_from: fromDate, date_to: toDate })
+                                            }}
+                                            dateOptions={heatmapDateOptions}
+                                        />
+                                        <HeatmapsSettings
+                                            heatmapFilters={heatmapFilters}
+                                            patchHeatmapFilters={patchHeatmapFilters}
+                                            viewportRange={viewportRange}
+                                            heatmapColorPalette={heatmapColorPalette}
+                                            setHeatmapColorPalette={setHeatmapColorPalette}
+                                            heatmapFixedPositionMode={heatmapFixedPositionMode}
+                                            setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
+                                        />
+                                    </div>
                                     <iframe
                                         ref={iframeRef}
                                         className="flex-1"
@@ -85,13 +136,13 @@ export function HeatmapsBrowser(): JSX.Element {
                                     />
 
                                     {loading && <SpinnerOverlay />}
-                                </>
+                                </div>
                             )}
                         </>
                     ) : (
                         <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                            <div className="max-w-[50rem] m-6">
-                                <div className="flex items-center flex-wrap gap-6 my-10">
+                            <div className="max-w-[50rem] my-6 mx-3">
+                                <div className="flex items-center flex-wrap gap-6">
                                     <div className="w-50">
                                         <DetectiveHog className="w-full h-full" />
                                     </div>
@@ -110,9 +161,14 @@ export function HeatmapsBrowser(): JSX.Element {
                                     </div>
                                 </div>
 
-                                <div className="space-y-px p-2 border bg-bg-light rounded">
+                                <div className="gap-y-px p-2 border bg-bg-light rounded">
                                     {topUrlsLoading ? (
                                         <LemonSkeleton className="h-10" repeat={10} />
+                                    ) : noPageviews ? (
+                                        <LemonBanner type="info">
+                                            No pageview events have been received yet. Once you have some data, you'll
+                                            see the most viewed pages here.
+                                        </LemonBanner>
                                     ) : (
                                         <>
                                             {topUrls?.map(({ url }) => (
