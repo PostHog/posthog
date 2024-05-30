@@ -182,7 +182,8 @@ describe('MessageFormatter', () => {
                     },
                     null,
                     2
-                )
+                ),
+                'json'
             )
             console.log('Message:', message)
             expect(() => JSON.parse(message)).not.toThrow()

@@ -1,4 +1,4 @@
-import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { PluginConfigSchema, PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -439,6 +439,17 @@ async function formatConfigTemplates(
     if (!team) {
         throw new Error('Team not found')
     }
+
+    const schema = pluginConfig.plugin?.config_schema
+    if (!schema) {
+        // NOTE: This shouldn't be possible and is more about typings
+        return pluginConfig.config
+    }
+
+    const schemaObject: Record<string, PluginConfigSchema> = Array.isArray(schema)
+        ? Object.fromEntries(schema.map((field) => [field.key, field]))
+        : schema
+
     const webhookFormatter = new MessageFormatter({
         event,
         team,
@@ -450,9 +461,25 @@ async function formatConfigTemplates(
 
     const templatedConfig = { ...pluginConfig.config }
 
-    // TODO: Pass this through to the function instead of doing it here
     Object.keys(templatedConfig).forEach((key) => {
-        templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key])
+        // If the field is a json field then we template it as such
+        const type = schemaObject[key]?.type
+
+        if (type) {
+            if (type === 'string' || type === 'json') {
+                templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key], type)
+            }
+
+            if (type === 'dictionary') {
+                // TODO: Validate it really is a dictionary
+                const dict: Record<string, string> = templatedConfig[key] as Record<string, string>
+                const templatedDictionary: Record<string, string> = {}
+                for (const [dictionaryKey, dictionaryValue] of Object.entries(dict)) {
+                    templatedDictionary[dictionaryKey] = webhookFormatter.format(dictionaryValue, 'string')
+                }
+                templatedConfig[key] = templatedDictionary
+            }
+        }
     })
 
     return templatedConfig

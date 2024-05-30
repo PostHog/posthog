@@ -40,6 +40,7 @@ const PLUGIN_SELECT = `SELECT
             posthog_plugin.organization_id,
             posthog_plugin.is_global,
             posthog_plugin.capabilities,
+            posthog_plugin.config_schema,
             posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
