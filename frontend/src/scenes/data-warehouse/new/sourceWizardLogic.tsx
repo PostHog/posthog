@@ -161,7 +161,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                             },
                             {
                                 label: 'Key pair',
-                                value: 'key_pair',
+                                value: 'keypair',
                                 fields: [
                                     {
                                         name: 'private_key',
