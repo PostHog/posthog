@@ -30,8 +30,8 @@ router.register(r"dummy", DummyViewSet, "dummy")
 
 class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
+        DummyViewSet.team = self.team  # Simulating TeamAndOrgViewSetMixin
         cache.clear()
-
         super().setUp()
 
     def test_returns_fresh_result(self) -> None:
