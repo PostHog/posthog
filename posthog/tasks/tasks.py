@@ -516,9 +516,11 @@ class Polling:
     HARD_TIME_LIMIT_SECONDS = 12
     ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
 
+    @staticmethod
     def encode_redis_key(time_ns: int) -> bytes:
         return time_ns.to_bytes(8, "big")
 
+    @staticmethod
     def decode_redis_key(time_ns: bytes) -> int:
         return int.from_bytes(time_ns, "big")
 
@@ -559,7 +561,7 @@ def poll_query_performance(last_update: bytes) -> None:
 @shared_task(ignore_result=True, max_retries=1)
 def start_poll_query_performance() -> None:
     redis_client = get_client()
-    start_time_str: bytes = redis_client.get(Polling.SINGLETON_REDIS_KEY)
+    start_time_str = redis_client.get(Polling.SINGLETON_REDIS_KEY)
     now_ns: int = time.time_ns()
     try:
         if start_time_str is None:
