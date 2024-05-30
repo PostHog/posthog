@@ -42,7 +42,7 @@ class WhereClauseExtractor(CloningVisitor):
     clear_types: bool = False
     clear_locations: bool = False
     capture_timestamp_comparisons: bool = False
-    our_tables: list[ast.LazyTable | ast.LazyJoin]
+    tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
 
     limits: Literal["", "session_min"] = ""
@@ -50,7 +50,7 @@ class WhereClauseExtractor(CloningVisitor):
     def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
-        self.our_tables = []
+        self.tracked_tables = []
         # A constant with this string will be used to escape early if we can't handle the query
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
@@ -59,11 +59,11 @@ class WhereClauseExtractor(CloningVisitor):
     def add_local_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
         """Add the tables whose filters to extract into a new where clause."""
         if isinstance(join_or_table, LazyJoinToAdd):
-            if join_or_table.lazy_join not in self.our_tables:
-                self.our_tables.append(join_or_table.lazy_join)
+            if join_or_table.lazy_join not in self.tracked_tables:
+                self.tracked_tables.append(join_or_table.lazy_join)
         elif isinstance(join_or_table, LazyTableToAdd):
-            if join_or_table.lazy_table not in self.our_tables:
-                self.our_tables.append(join_or_table.lazy_table)
+            if join_or_table.lazy_table not in self.tracked_tables:
+                self.tracked_tables.append(join_or_table.lazy_table)
 
     def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
         """Return the where clause that should be applied to the inner table. If None is returned, no pre-filtering is possible."""
@@ -181,7 +181,7 @@ class WhereClauseExtractor(CloningVisitor):
                     )
 
         # Check if any of the fields are a field on our requested table
-        if len(self.our_tables) > 0:
+        if len(self.tracked_tables) > 0:
             left = self.visit(node.left)
             right = self.visit(node.right)
             if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
@@ -259,8 +259,8 @@ class WhereClauseExtractor(CloningVisitor):
             type = type.type
         if isinstance(type, ast.FieldType):
             table_type = type.table_type
-            if (isinstance(table_type, ast.LazyTableType) and table_type.table in self.our_tables) or (
-                isinstance(table_type, ast.LazyJoinType) and table_type.lazy_join in self.our_tables
+            if (isinstance(table_type, ast.LazyTableType) and table_type.table in self.tracked_tables) or (
+                isinstance(table_type, ast.LazyJoinType) and table_type.lazy_join in self.tracked_tables
             ):
                 new_field = cast(ast.Field, clone_expr(node))
                 if isinstance(node.type, ast.PropertyType):
