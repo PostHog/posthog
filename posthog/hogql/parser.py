@@ -60,6 +60,7 @@ def parse_string_template(
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Call:
+    """Parse a full template string without start/end quotes"""
     if backend == "cpp":
         raise NotImplementedError("Template strings are not supported in C++")
     parse_tree = get_parser("F'" + string).fullTemplateString()
