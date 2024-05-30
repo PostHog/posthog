@@ -554,13 +554,16 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 # Uses query
                 try:
                     refresh_requested = refresh_requested_by_client(self.context["request"])
-                    execution_mode = (
-                        ExecutionMode.CALCULATION_ALWAYS
-                        if refresh_requested
-                        else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                    )
+
+                    execution_mode = ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                     if refresh_requested and cache_requested_by_client(self.context["request"]):
                         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                    elif refresh_requested == "if_stale":
+                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                    elif refresh_requested == "async":
+                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    elif refresh_requested:
+                        execution_mode = ExecutionMode.CALCULATION_ALWAYS
 
                     return calculate_for_query_based_insight(
                         insight,

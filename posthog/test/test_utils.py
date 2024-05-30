@@ -441,6 +441,11 @@ class TestShouldRefresh(TestCase):
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(refresh_requested_by_client(drf_request))
 
+    def test_should_not_refresh_with_data_async(self):
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": "async"}  # type: ignore
+        assert refresh_requested_by_client(drf_request) == "async"
+
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         """
         regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event

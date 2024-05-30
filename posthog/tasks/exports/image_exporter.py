@@ -87,7 +87,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         wait_for_css_selector: CSSSelector
 
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend&refresh=true&use_cache=true")
+            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend&refresh=stale")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:

@@ -1012,19 +1012,32 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
     return result
 
 
-def refresh_requested_by_client(request: Request) -> bool:
-    return _request_has_key_set("refresh", request)
+def refresh_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set("refresh", request, allowed_values=["async", "stale"])
 
 
-def cache_requested_by_client(request: Request) -> bool:
+def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def _request_has_key_set(key: str, request: Request) -> bool:
+def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
 
-    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
+    value = query_param if query_param is not None else data_value
+
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if str(value).lower() in ["true", "1", "yes", "on", ""]:  # "" means it's set but no value
+        return True
+    if str(value).lower() in ["false", "0", "no", "off"]:
+        return False
+    if allowed_values and value in allowed_values:
+        assert isinstance(value, str)
+        return value
+    return False
 
 
 def str_to_bool(value: Any) -> bool:
