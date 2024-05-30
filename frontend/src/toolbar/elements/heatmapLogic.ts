@@ -34,8 +34,8 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 }
 
 export type CommonFilters = {
-    date_from?: string
-    date_to?: string
+    date_from?: string | null
+    date_to?: string | null
 }
 
 export type HeatmapFilters = {
@@ -124,7 +124,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         commonFilters: [
-            {} as CommonFilters,
+            { date_from: '-7d' } as CommonFilters,
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
