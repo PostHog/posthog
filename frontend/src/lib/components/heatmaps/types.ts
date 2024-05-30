@@ -1,8 +1,10 @@
 export type CommonFilters = {
-    date_from?: string
-    date_to?: string
+    date_from?: string | null
+    date_to?: string | null
 }
+
 export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'
+
 export type HeatmapRequestType = {
     type: HeatmapKind
     date_from?: string
@@ -13,20 +15,24 @@ export type HeatmapRequestType = {
     viewport_width_max?: number
     aggregation: 'total_count' | 'unique_visitors'
 }
+
 export type HeatmapFilters = {
     enabled: boolean
     type?: string
     viewportAccuracy?: number
     aggregation?: HeatmapRequestType['aggregation']
 }
+
 export type HeatmapJsDataPoint = {
     x: number
     y: number
     value: number
 }
+
 export type HeatmapJsData = {
     data: HeatmapJsDataPoint[]
     max: number
     min: number
 }
+
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'

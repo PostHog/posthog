@@ -46,7 +46,7 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
+const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
