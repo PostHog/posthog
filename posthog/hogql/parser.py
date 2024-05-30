@@ -39,7 +39,7 @@ RULE_TO_PARSE_FUNCTION: dict[
 }
 
 RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_string"], Histogram] = {
-    rule: Histogram(
+    cast(Literal["expr", "order_expr", "select", "full_template_string"], rule): Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend"],
