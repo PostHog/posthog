@@ -36,7 +36,7 @@ const SectionSetting = ({
     info,
 }: {
     children: React.ReactNode
-    title: React.ReactNode
+    title: string
     info?: React.ReactNode
 }): JSX.Element => {
     const [showInfo, setShowInfo] = useState(false)
@@ -44,7 +44,7 @@ const SectionSetting = ({
         <div className="space-y-2 mb-2">
             <div className="flex items-center gap-2">
                 <LemonLabel className="flex-1">
-                    {title}
+                    <span>{title}</span>
 
                     {info && (
                         <LemonButton
