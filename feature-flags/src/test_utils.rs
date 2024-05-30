@@ -1,7 +1,9 @@
 use anyhow::Error;
+use serde_json::json;
 use std::sync::Arc;
 
 use crate::{
+    flag_definitions,
     redis::{Client, RedisClient},
     team::{self, Team},
 };
@@ -38,6 +40,47 @@ pub async fn insert_new_team_in_redis(client: Arc<RedisClient>) -> Result<Team, 
         .await?;
 
     Ok(team)
+}
+
+pub async fn insert_flags_for_team_in_redis(
+    client: Arc<RedisClient>,
+    team_id: i64,
+    json_value: Option<String>,
+) -> Result<(), Error> {
+    let payload = match json_value {
+        Some(value) => value,
+        None => json!([{
+            "id": 1,
+            "key": "flag1",
+            "name": "flag1 description",
+            "active": true,
+            "deleted": false,
+            "team_id": team_id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "a@b.com",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ],
+            },
+        }])
+        .to_string(),
+    };
+
+    client
+        .set(
+            format!("{}{}", flag_definitions::TEAM_FLAGS_CACHE_PREFIX, team_id),
+            payload,
+        )
+        .await?;
+
+    Ok(())
 }
 
 pub fn setup_redis_client(url: Option<String>) -> Arc<RedisClient> {
