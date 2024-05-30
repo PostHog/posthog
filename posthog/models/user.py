@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Optional, TypedDict
-from collections.abc import Callable
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -148,7 +148,7 @@ class User(AbstractUser, UUIDClassicModel):
     strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
-    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
     partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
@@ -160,6 +160,8 @@ class User(AbstractUser, UUIDClassicModel):
 
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
+    # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # Remove unused attributes from `AbstractUser`
     username = None
@@ -176,30 +178,32 @@ class User(AbstractUser, UUIDClassicModel):
         All teams the user has access to on any organization, taking into account project based permissioning
         """
         teams = Team.objects.filter(organization__members=self)
-        if Organization.objects.filter(
-            members=self,
-            available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING],
-        ).exists():
-            try:
-                from ee.models import ExplicitTeamMembership
-            except ImportError:
-                pass
-            else:
-                available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                    Q(parent_membership__user=self)
-                ).values_list("team_id", flat=True)
-                organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                    user=self, level__gte=OrganizationMembership.Level.ADMIN
-                ).values_list("organization_id", flat=True)
-                # If project access control IS applicable, make sure
-                # - project doesn't have access control OR
-                # - the user has explicit access OR
-                # - the user is Admin or owner
-                teams = teams.filter(
-                    Q(access_control=False)
-                    | Q(pk__in=available_private_project_ids)
-                    | Q(organization__pk__in=organizations_where_user_is_admin)
-                )
+        org_available_product_features = (
+            Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
+        )
+        if org_available_product_features and len(org_available_product_features) > 0:
+            org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
+            if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
+                try:
+                    from ee.models import ExplicitTeamMembership
+                except ImportError:
+                    pass
+                else:
+                    available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                        Q(parent_membership__user=self)
+                    ).values_list("team_id", flat=True)
+                    organizations_where_user_is_admin = OrganizationMembership.objects.filter(
+                        user=self, level__gte=OrganizationMembership.Level.ADMIN
+                    ).values_list("organization_id", flat=True)
+                    # If project access control IS applicable, make sure
+                    # - project doesn't have access control OR
+                    # - the user has explicit access OR
+                    # - the user is Admin or owner
+                    teams = teams.filter(
+                        Q(access_control=False)
+                        | Q(pk__in=available_private_project_ids)
+                        | Q(organization__pk__in=organizations_where_user_is_admin)
+                    )
 
         return teams.order_by("access_control", "id")
 
@@ -228,8 +232,11 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
+            available_product_feature_keys = [
+                feature["key"] for feature in organization.available_product_features or []
+            ]
             if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
+                AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
@@ -241,6 +248,8 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
         if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
             self.update_billing_customer_email(organization)
+        if level >= OrganizationMembership.Level.ADMIN:
+            self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
         return membership
 
@@ -264,6 +273,7 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
 
     def update_billing_distinct_ids(self, organization: Organization) -> None:
@@ -277,6 +287,12 @@ class User(AbstractUser, UUIDClassicModel):
 
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
+
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_admin_emails(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
@@ -296,7 +312,6 @@ class User(AbstractUser, UUIDClassicModel):
 
         return {
             "realm": get_instance_realm(),
-            "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,

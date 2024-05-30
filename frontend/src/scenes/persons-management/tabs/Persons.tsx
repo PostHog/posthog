@@ -7,9 +7,5 @@ export function Persons(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
 
-    return (
-        <>
-            <Query query={query} setQuery={setQuery} />
-        </>
-    )
+    return <Query query={query} setQuery={setQuery} context={{ alwaysRefresh: true }} />
 }

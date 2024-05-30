@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { AvailableFeature, Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -259,7 +259,16 @@ export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight'], sidePanelStateLogic, ['sidePanelAvailable']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
@@ -387,6 +396,14 @@ export const supportLogic = kea<supportLogicType>([
                             id: 22129191462555,
                             value: posthog.get_distinct_id(),
                         },
+                        {
+                            id: 26073267652251,
+                            value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
+                                ? 'priority_support'
+                                : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
+                                ? 'email_support'
+                                : 'free_support',
+                        },
                     ],
                     comment: {
                         body: (
@@ -399,6 +416,11 @@ export const supportLogic = kea<supportLogicType>([
                             getSessionReplayLink() +
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
+                            '\n' +
+                            'PoE mode: ' +
+                            (teamLogic.values.currentTeam?.modifiers?.personsOnEventsMode ??
+                                teamLogic.values.currentTeam?.default_modifiers?.personsOnEventsMode ??
+                                'disabled') +
                             '\n' +
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(userLogic.values.user) + '\n'

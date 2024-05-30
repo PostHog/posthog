@@ -3,7 +3,6 @@
     "distinct_id": "kOyAmTq2McfCD5XvqwjKf8m6GVecm9uN0L0ypEoRN50",
     "first_name": "Jane",
     "email": "test@posthog.com",
-    "email_opt_in": true,
     "anonymize_data": false,
     "toolbar_mode": "toolbar",
     "has_password": true,
@@ -40,7 +39,6 @@
                 "timezone": "UTC"
             }
         ],
-        "available_features": [],
         "available_product_features": [
             {
                 "key": "experimentation",
@@ -52,5 +50,10 @@
             }
         ]
     },
-    "organizations": [{ "id": "01787e47-5558-0000-bae1-6bc513b42abe", "name": "Hogflix Movies" }]
+    "organizations": [
+        {
+            "id": "01787e47-5558-0000-bae1-6bc513b42abe",
+            "name": "Hogflix Movies"
+        }
+    ]
 }

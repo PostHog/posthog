@@ -1,3 +1,4 @@
+import posthoganalytics
 import structlog
 from typing import Optional
 
@@ -5,6 +6,8 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.hogql.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -16,6 +19,8 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    DatabaseSchemaQueryResponse,
+    HogQuery,
     DashboardFilter,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -23,6 +28,7 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
+    HogQueryResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -62,10 +68,40 @@ def process_query_model(
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(team, query.source, execution_mode=execution_mode)
+            result = process_query_model(
+                team,
+                query.source,
+                dashboard_filters=dashboard_filters,
+                limit_context=limit_context,
+                execution_mode=execution_mode,
+            )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
+        elif isinstance(query, HogQuery):
+            if is_cloud():
+                if not posthoganalytics.feature_enabled(
+                    "hog",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id)},
+                    group_properties={
+                        "organization": {
+                            "id": str(team.organization_id),
+                            "created_at": team.organization.created_at,
+                        }
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                ):
+                    return {"results": "Hog queries not enabled for this organization."}
+
+            try:
+                hog_result = execute_hog(query.code or "", team=team)
+                result = HogQueryResponse(
+                    results=hog_result.result, bytecode=hog_result.bytecode, stdout="".join(hog_result.stdout)
+                )
+            except Exception as e:
+                result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
@@ -75,7 +111,7 @@ def process_query_model(
         elif isinstance(query, DatabaseSchemaQuery):
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = serialize_database(context)
+            result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         elif isinstance(query, TimeToSeeDataSessionsQuery):
             sessions_query_serializer = SessionsQuerySerializer(data=query)
             sessions_query_serializer.is_valid(raise_exception=True)

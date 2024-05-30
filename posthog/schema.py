@@ -226,6 +226,35 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DatabaseSchemaSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    incremental: bool
+    last_synced_at: Optional[str] = None
+    name: str
+    should_sync: bool
+    status: str
+
+
+class DatabaseSchemaSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    last_synced_at: Optional[str] = None
+    prefix: str
+    source_type: str
+    status: str
+
+
+class Type(str, Enum):
+    posthog = "posthog"
+    data_warehouse = "data_warehouse"
+    view = "view"
+
+
 class DatabaseSerializedFieldType(str, Enum):
     integer = "integer"
     float = "float"
@@ -483,6 +512,11 @@ class PersonsArgMaxVersion(str, Enum):
     v2 = "v2"
 
 
+class PersonsJoinMode(str, Enum):
+    inner = "inner"
+    left = "left"
+
+
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
@@ -499,8 +533,18 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
+
+
+class HogQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytecode: Optional[list] = None
+    results: Any
+    stdout: Optional[str] = None
 
 
 class Compare(str, Enum):
@@ -555,6 +599,7 @@ class InsightType(str, Enum):
     PATHS = "PATHS"
     JSON = "JSON"
     SQL = "SQL"
+    HOG = "HOG"
 
 
 class IntervalType(str, Enum):
@@ -578,6 +623,7 @@ class NodeKind(str, Enum):
     DataWarehouseNode = "DataWarehouseNode"
     EventsQuery = "EventsQuery"
     PersonsNode = "PersonsNode"
+    HogQuery = "HogQuery"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
     HogQLAutocomplete = "HogQLAutocomplete"
@@ -732,7 +778,16 @@ class QueryResponseAlternative4(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
-class QueryResponseAlternative7(BaseModel):
+class QueryResponseAlternative6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytecode: Optional[list] = None
+    results: Any
+    stdout: Optional[str] = None
+
+
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -745,7 +800,7 @@ class QueryResponseAlternative7(BaseModel):
     warnings: list[HogQLNotice]
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1091,6 +1146,8 @@ class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1463,6 +1520,8 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1588,6 +1647,8 @@ class Response4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -1679,16 +1740,37 @@ class DataWarehousePropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
-class DatabaseSchemaQueryResponseField(BaseModel):
+class DatabaseSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    chain: Optional[list[str]] = None
+    chain: Optional[list[Union[str, int]]] = None
     fields: Optional[list[str]] = None
-    key: str
+    hogql_value: str
+    name: str
     schema_valid: bool
     table: Optional[str] = None
     type: DatabaseSerializedFieldType
+
+
+class DatabaseSchemaPostHogTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaTableCommon(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    type: Type
 
 
 class ElementPropertyFilter(BaseModel):
@@ -1881,6 +1963,18 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
+class HogQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: Optional[str] = None
+    kind: Literal["HogQuery"] = "HogQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[HogQueryResponse] = None
+
+
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2024,7 +2118,7 @@ class QueryResponseAlternative5(BaseModel):
     )
 
 
-class QueryResponseAlternative6(BaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2051,7 +2145,7 @@ class QueryResponseAlternative6(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative8(BaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2062,10 +2156,12 @@ class QueryResponseAlternative8(BaseModel):
     )
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2081,7 +2177,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative10(BaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2105,7 +2201,7 @@ class QueryResponseAlternative10(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2126,7 +2222,7 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2149,7 +2245,7 @@ class QueryResponseAlternative12(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative13(BaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2173,7 +2269,7 @@ class QueryResponseAlternative13(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2200,10 +2296,12 @@ class QueryResponseAlternative14(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative16(BaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2219,7 +2317,7 @@ class QueryResponseAlternative16(BaseModel):
     )
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2243,7 +2341,7 @@ class QueryResponseAlternative17(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2264,7 +2362,7 @@ class QueryResponseAlternative18(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2282,7 +2380,7 @@ class QueryResponseAlternative19(BaseModel):
     )
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2300,7 +2398,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2318,7 +2416,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2528,6 +2626,7 @@ class AnyResponseType(
     RootModel[
         Union[
             dict[str, Any],
+            HogQueryResponse,
             HogQLQueryResponse,
             HogQLMetadataResponse,
             HogQLAutocompleteResponse,
@@ -2537,7 +2636,13 @@ class AnyResponseType(
     ]
 ):
     root: Union[
-        dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, HogQLAutocompleteResponse, Any, EventsQueryResponse
+        dict[str, Any],
+        HogQueryResponse,
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        HogQLAutocompleteResponse,
+        Any,
+        EventsQueryResponse,
     ]
 
 
@@ -2707,6 +2812,20 @@ class DataWarehouseNode(BaseModel):
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
+
+
+class DatabaseSchemaDataWarehouseTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    format: str
+    id: str
+    name: str
+    schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
+    source: Optional[DatabaseSchemaSource] = None
+    type: Literal["data_warehouse"] = "data_warehouse"
+    url_pattern: str
 
 
 class EntityNode(BaseModel):
@@ -3125,7 +3244,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3141,68 +3260,6 @@ class QueryResponseAlternative21(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class QueryResponseAlternative(
-    RootModel[
-        Union[
-            dict[str, Any],
-            QueryResponseAlternative1,
-            QueryResponseAlternative2,
-            QueryResponseAlternative3,
-            QueryResponseAlternative4,
-            QueryResponseAlternative5,
-            QueryResponseAlternative6,
-            QueryResponseAlternative7,
-            QueryResponseAlternative8,
-            QueryResponseAlternative9,
-            QueryResponseAlternative10,
-            QueryResponseAlternative11,
-            Any,
-            QueryResponseAlternative12,
-            QueryResponseAlternative13,
-            QueryResponseAlternative14,
-            QueryResponseAlternative15,
-            QueryResponseAlternative16,
-            QueryResponseAlternative17,
-            QueryResponseAlternative18,
-            QueryResponseAlternative19,
-            QueryResponseAlternative20,
-            QueryResponseAlternative21,
-            QueryResponseAlternative22,
-            QueryResponseAlternative25,
-            dict[str, list[DatabaseSchemaQueryResponseField]],
-        ]
-    ]
-):
-    root: Union[
-        dict[str, Any],
-        QueryResponseAlternative1,
-        QueryResponseAlternative2,
-        QueryResponseAlternative3,
-        QueryResponseAlternative4,
-        QueryResponseAlternative5,
-        QueryResponseAlternative6,
-        QueryResponseAlternative7,
-        QueryResponseAlternative8,
-        QueryResponseAlternative9,
-        QueryResponseAlternative10,
-        QueryResponseAlternative11,
-        Any,
-        QueryResponseAlternative12,
-        QueryResponseAlternative13,
-        QueryResponseAlternative14,
-        QueryResponseAlternative15,
-        QueryResponseAlternative16,
-        QueryResponseAlternative17,
-        QueryResponseAlternative18,
-        QueryResponseAlternative19,
-        QueryResponseAlternative20,
-        QueryResponseAlternative21,
-        QueryResponseAlternative22,
-        QueryResponseAlternative25,
-        dict[str, list[DatabaseSchemaQueryResponseField]],
-    ]
 
 
 class RetentionQueryResponse(BaseModel):
@@ -3307,15 +3364,15 @@ class DataVisualizationNode(BaseModel):
     source: HogQLQuery
 
 
-class DatabaseSchemaQuery(BaseModel):
+class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    query: HogQLQuery
+    type: Literal["view"] = "view"
 
 
 class FunnelsFilter(BaseModel):
@@ -3847,6 +3904,84 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
+class QueryResponseAlternative27(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+
+
+class QueryResponseAlternative(
+    RootModel[
+        Union[
+            dict[str, Any],
+            QueryResponseAlternative1,
+            QueryResponseAlternative2,
+            QueryResponseAlternative3,
+            QueryResponseAlternative4,
+            QueryResponseAlternative5,
+            QueryResponseAlternative6,
+            QueryResponseAlternative7,
+            QueryResponseAlternative8,
+            QueryResponseAlternative9,
+            QueryResponseAlternative10,
+            QueryResponseAlternative11,
+            QueryResponseAlternative12,
+            Any,
+            QueryResponseAlternative13,
+            QueryResponseAlternative14,
+            QueryResponseAlternative15,
+            QueryResponseAlternative16,
+            QueryResponseAlternative17,
+            QueryResponseAlternative18,
+            QueryResponseAlternative19,
+            QueryResponseAlternative20,
+            QueryResponseAlternative21,
+            QueryResponseAlternative22,
+            QueryResponseAlternative23,
+            QueryResponseAlternative26,
+            QueryResponseAlternative27,
+        ]
+    ]
+):
+    root: Union[
+        dict[str, Any],
+        QueryResponseAlternative1,
+        QueryResponseAlternative2,
+        QueryResponseAlternative3,
+        QueryResponseAlternative4,
+        QueryResponseAlternative5,
+        QueryResponseAlternative6,
+        QueryResponseAlternative7,
+        QueryResponseAlternative8,
+        QueryResponseAlternative9,
+        QueryResponseAlternative10,
+        QueryResponseAlternative11,
+        QueryResponseAlternative12,
+        Any,
+        QueryResponseAlternative13,
+        QueryResponseAlternative14,
+        QueryResponseAlternative15,
+        QueryResponseAlternative16,
+        QueryResponseAlternative17,
+        QueryResponseAlternative18,
+        QueryResponseAlternative19,
+        QueryResponseAlternative20,
+        QueryResponseAlternative21,
+        QueryResponseAlternative22,
+        QueryResponseAlternative23,
+        QueryResponseAlternative26,
+        QueryResponseAlternative27,
+    ]
+
+
+class DatabaseSchemaQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tables: dict[str, Union[DatabaseSchemaPostHogTable, DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable]]
+
+
 class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3926,6 +4061,17 @@ class PathsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class DatabaseSchemaQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[DatabaseSchemaQueryResponse] = None
 
 
 class FunnelCorrelationQuery(BaseModel):
@@ -4036,9 +4182,11 @@ class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+    fixedProperties: Optional[
+        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+    ] = Field(
         default=None,
-        description="Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
+        description="Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
     )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
@@ -4047,9 +4195,11 @@ class ActorsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
-    properties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+    properties: Optional[
+        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+    ] = Field(
         default=None,
-        description="Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
+        description="Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
     )
     response: Optional[ActorsQueryResponse] = None
     search: Optional[str] = None
@@ -4138,6 +4288,7 @@ class HogQLMetadata(BaseModel):
             InsightActorsQuery,
             InsightActorsQueryOptions,
             SessionsTimelineQuery,
+            HogQuery,
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
@@ -4182,6 +4333,7 @@ class QueryRequest(BaseModel):
         InsightActorsQuery,
         InsightActorsQueryOptions,
         SessionsTimelineQuery,
+        HogQuery,
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
@@ -4221,6 +4373,7 @@ class QuerySchemaRoot(
             InsightActorsQuery,
             InsightActorsQueryOptions,
             SessionsTimelineQuery,
+            HogQuery,
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
@@ -4253,6 +4406,7 @@ class QuerySchemaRoot(
         InsightActorsQuery,
         InsightActorsQueryOptions,
         SessionsTimelineQuery,
+        HogQuery,
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,

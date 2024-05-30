@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from dataclasses import dataclass
 import datetime as dt
 import dns.resolver
@@ -19,12 +20,12 @@ from posthog.temporal.proxy_service.common import (
     update_proxy_record,
     UpdateProxyRecordInputs,
 )
-from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest
+from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, CertificateState_READY
 
 
 @dataclass
-class CreateHostedProxyInputs:
-    """Inputs for the CreateHostedProxy Workflow and Activity."""
+class CreateManagedProxyInputs:
+    """Inputs for the CreateManagedProxy Workflow and Activity."""
 
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -35,6 +36,7 @@ class CreateHostedProxyInputs:
 @dataclass
 class WaitForDNSRecordsInputs:
     organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
 
@@ -58,6 +60,14 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         inputs.target_cname,
     )
 
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for DNS records")
+
     try:
         cnames = dns.resolver.query(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
@@ -74,16 +84,24 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
 
 @activity.defn
-async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
+async def create_managed_proxy(inputs: CreateManagedProxyInputs):
     """Activity that calls the proxy provisioner to create the resources for
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Creating managed proxy resources for domain %s",
         inputs.domain,
     )
+
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for certificate to be provisioned")
 
     client = await get_grpc_client()
 
@@ -97,6 +115,7 @@ async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
+        raise
 
 
 @activity.defn
@@ -107,7 +126,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Waiting for certificate to be provisioned for domain %s",
         inputs.domain,
     )
 
@@ -123,28 +142,32 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 
         # throw exceptions until ready
         # this lets temporal handle retry/backoff logic
-        if response.certificateStatus != "READY":
-            raise Exception("certificate not yet ready")
+        if response.certificate_status != CertificateState_READY:
+            raise ApplicationError("certificate not yet ready")
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
             raise NonRetriableException("not found") from e
+    except ApplicationError:
+        raise
+    except Exception as e:
+        raise NonRetriableException("unknown exception in wait_for_certificate") from e
 
 
 @workflow.defn(name="create-proxy")
-class CreateHostedProxyWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to create a Hosted Reverse Proxy."""
+class CreateManagedProxyWorkflow(PostHogWorkflow):
+    """A Temporal Workflow to create a Managed reverse Proxy."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> CreateHostedProxyInputs:
+    def parse_inputs(inputs: list[str]) -> CreateManagedProxyInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-        return CreateHostedProxyInputs(**loaded)
+        return CreateManagedProxyInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, inputs: CreateHostedProxyInputs) -> None:
-        """Workflow implementation to create a Hosted Reverse Proxy."""
+    async def run(self, inputs: CreateManagedProxyInputs) -> None:
+        """Workflow implementation to create a Managed reverse Proxy."""
 
         try:
             # Wait for DNS record to be created.
@@ -153,7 +176,10 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 wait_for_dns_records,
                 WaitForDNSRecordsInputs(
-                    organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    domain=inputs.domain,
+                    target_cname=inputs.target_cname,
                 ),
                 schedule_to_close_timeout=dt.timedelta(days=7),
                 start_to_close_timeout=dt.timedelta(seconds=2),
@@ -182,7 +208,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
 
             # Call proxy provisioner to create the HTTProxy and Certificate resources
             await temporalio.workflow.execute_activity(
-                create_hosted_proxy,
+                create_managed_proxy,
                 inputs,
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 start_to_close_timeout=dt.timedelta(minutes=1),

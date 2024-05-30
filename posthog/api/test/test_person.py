@@ -1,7 +1,7 @@
 import json
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -792,7 +792,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -803,7 +803,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(6):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -994,8 +994,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(activity, expected)
 
 
-# TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-@patch("posthog.api.person.posthoganalytics.feature_enabled", Mock())
 class TestPersonFromClickhouse(TestPerson):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):

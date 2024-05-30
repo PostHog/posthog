@@ -34,8 +34,8 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 }
 
 export type CommonFilters = {
-    date_from?: string
-    date_to?: string
+    date_from?: string | null
+    date_to?: string | null
 }
 
 export type HeatmapFilters = {
@@ -124,7 +124,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         commonFilters: [
-            {} as CommonFilters,
+            { date_from: '-7d' } as CommonFilters,
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
@@ -225,7 +225,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        results: [
+                            // if url is present we are paginating and merge results, otherwise we only use the new results
+                            ...(url ? values.elementStats?.results || [] : []),
+                            ...(paginatedResults.results || []),
+                        ],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
@@ -455,6 +459,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     min: Math.round(minWidth),
                     max: Math.round(maxWidth),
                 }
+            },
+        ],
+
+        heatmapTooltipLabel: [
+            (s) => [s.heatmapFilters],
+            (heatmapFilters) => {
+                if (heatmapFilters.aggregation === 'unique_visitors') {
+                    return 'visitors'
+                }
+                return heatmapFilters.type + 's'
             },
         ],
 

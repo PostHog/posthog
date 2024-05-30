@@ -1,31 +1,27 @@
-import './TreeRow.scss'
-
 import { IconChevronDown } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useCallback, useState } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+
+import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 
 export interface TreeRowProps {
     item: TreeItemLeaf
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
+    onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
 }
 
 export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
     return (
         <li>
-            <div className={clsx('TreeRow text-ellipsis cursor-default', selected ? 'TreeRow__selected' : '')}>
-                <span className="mr-2">{item.icon}</span>
-                <div className="flex flex-row justify-between w-100">
-                    <div className="w-40 overflow-hidden text-ellipsis whitespace-nowrap">{item.name}</div>
-                    <div className="text-right whitespace-nowrap">{item.type}</div>
-                </div>
-            </div>
+            <LemonButton size="xsmall" fullWidth active={selected} icon={item.icon ? <>{item.icon}</> : null}>
+                <span className="flex-1 flex justify-between">
+                    <span className="truncate">{item.name}</span>
+                    <span className="whitespace-nowrap">{item.type}</span>
+                </span>
+            </LemonButton>
         </li>
     )
 }
@@ -33,7 +29,7 @@ export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
 export interface TreeTableRowProps {
     item: TreeTableItemLeaf
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
+    onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
 }
 
@@ -44,10 +40,15 @@ export function TreeTableRow({ item, onClick, selected }: TreeTableRowProps): JS
 
     return (
         <li>
-            <div className={clsx('TreeRow text-ellipsis', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
-                <span className="mr-2">{item.icon}</span>
-                <div className="overflow-hidden text-ellipsis whitespace-nowrap">{item.table.name}</div>
-            </div>
+            <LemonButton
+                size="xsmall"
+                fullWidth
+                onClick={_onClick}
+                active={selected}
+                icon={item.icon ? <>{item.icon}</> : null}
+            >
+                <span className="truncate">{item.table.name}</span>
+            </LemonButton>
         </li>
     )
 }
@@ -55,8 +56,8 @@ export function TreeTableRow({ item, onClick, selected }: TreeTableRowProps): JS
 export interface TreeFolderRowProps {
     item: TreeItemFolder
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
-    selectedRow?: DataWarehouseTableType | null
+    onClick?: (row: DatabaseSchemaTable) => void
+    selectedRow?: DatabaseSchemaTable | null
 }
 
 export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {
@@ -72,10 +73,14 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
 
     return (
         <li className="overflow-hidden">
-            <div className={clsx('TreeRow', isColumnType ? '' : 'font-bold')} onClick={_onClick}>
-                <span className="mr-2">{collapsed ? <IconChevronRight /> : <IconChevronDown />}</span>
+            <LemonButton
+                size="small"
+                fullWidth
+                onClick={_onClick}
+                icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
+            >
                 {name}
-            </div>
+            </LemonButton>
             {!collapsed &&
                 (items.length > 0 ? (
                     <DatabaseTableTree
@@ -83,13 +88,13 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `14px`, padding: 0 }}
+                        className="ml-4"
                     />
                 ) : (
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${14 * depth}px`,
+                            marginLeft: `${depth * 2}rem`,
                         }}
                     >
                         {item.isLoading ? (

@@ -49,6 +49,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InsightActorsQueryOptions,
 )
+from posthog.schema_helpers import to_json
 from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
@@ -406,9 +407,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedResponse(**fresh_response_dict)
 
-        # Dont cache debug queries with errors
+        # Dont cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if has_error is None or len(has_error) == 0:
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
             # TODO: Use JSON serializer in general for redis cache
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
             cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
@@ -437,13 +438,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "hogql",
             )
 
-    def to_json(self) -> str:
-        return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
-
     def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
+            f"query_{to_json(self.query)}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
         )
 
     @abstractmethod
