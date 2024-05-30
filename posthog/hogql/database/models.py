@@ -2,7 +2,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 from pydantic import ConfigDict, BaseModel
 
-from posthog.hogql.base import Expr, UnknownType
+from posthog.hogql.base import Expr
 from posthog.hogql.errors import ResolutionError, NotImplementedError
 
 if TYPE_CHECKING:
@@ -31,7 +31,9 @@ class DatabaseField(FieldOrTable):
         return not not self.nullable
 
     def get_constant_type(self) -> "ConstantType":
-        return UnknownType
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType()
 
 
 class IntegerDatabaseField(DatabaseField):

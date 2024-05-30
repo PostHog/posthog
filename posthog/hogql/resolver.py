@@ -416,6 +416,10 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
             node.type = ast.FloatType()
+        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+            node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
+            node.type = ast.UnknownType()
         else:
             raise ResolutionError(
                 f"Arithmetic operations can only be performed on numeric types, not on '{left_type.__class__.__name__}' and '{right_type.__class__.__name__}'"
@@ -464,10 +468,13 @@ class Resolver(CloningVisitor):
                         break
 
         if return_type is None:
-            arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
-            raise ResolutionError(
-                f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
-            )
+            return_type = ast.UnknownType()
+
+            # Uncomment once all hogql mappings are complete with signatures
+            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
+            # raise ResolutionError(
+            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
+            # )
 
         if node.name == "concat":
             return_type.nullable = False

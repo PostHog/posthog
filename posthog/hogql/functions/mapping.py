@@ -125,6 +125,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 ),
                 TupleType(item_types=[NumericType()], repeat=True),
             ),
+            ((DateTimeType(), NumericType()), DateTimeType()),
+            ((NumericType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "minus": HogQLFunctionMeta(
@@ -140,6 +142,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 ),
                 TupleType(item_types=[NumericType()], repeat=True),
             ),
+            ((DateTimeType(), NumericType()), DateTimeType()),
+            ((NumericType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
@@ -163,6 +167,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
                 TupleType(item_types=[NumericType()], repeat=True),
             ),
+            ((DateTimeType(), NumericType()), DateTimeType()),
+            ((NumericType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "divide": HogQLFunctionMeta(
@@ -175,6 +181,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
                 TupleType(item_types=[NumericType()], repeat=True),
             ),
+            ((DateTimeType(), NumericType()), DateTimeType()),
+            ((NumericType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "intDiv": HogQLFunctionMeta(

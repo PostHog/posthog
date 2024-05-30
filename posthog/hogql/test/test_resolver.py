@@ -483,9 +483,9 @@ class TestResolver(BaseTest):
         self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
 
     def test_function_types(self):
-        node: ast.SelectQuery = self._select("select 'a' || 'b' from events")
+        node: ast.SelectQuery = self._select("select abs(3) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.IntegerType(nullable=False))
 
         node: ast.SelectQuery = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))

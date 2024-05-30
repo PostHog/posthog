@@ -453,7 +453,13 @@ class FieldType(Type):
 
             if isinstance(table_type, SelectQueryType):
                 field_type = table_type.columns.get(self.name)
+                if field_type is None:
+                    raise QueryError(f"Cant get column: {self.name}")
+
                 constant_type = field_type.resolve_constant_type(context)
+                if constant_type is None:
+                    raise QueryError(f"Constant type cant be resolved: {field_type}")
+
                 return constant_type
 
             if isinstance(table_type, BaseTableType):

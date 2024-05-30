@@ -2915,6 +2915,7 @@
             }
           ]
           nullable: False
+          repeat: False
         }
         value: (1, 2, 3)
       }
@@ -4443,121 +4444,6 @@
       tables: {
         events: <recursion ...>
       }
-    }
-  }
-  '''
-# ---
-# name: TestResolver.test_types_pass_outside_subqueries_two_levels
-  '''
-  {
-    select: [
-      {
-        alias: "event"
-        expr: {
-          chain: [
-            "event"
-          ]
-          type: {
-            name: "event"
-            table_type: {
-              aliases: {}
-              anonymous_tables: []
-              columns: {
-                event: {
-                  alias: "event"
-                  type: {
-                    name: "event"
-                    table_type: {
-                      table: {
-                        fields: {
-                          $group_0: {},
-                          $group_1: {},
-                          $group_2: {},
-                          $group_3: {},
-                          $group_4: {},
-                          $session_id: {},
-                          $window_id: {},
-                          created_at: {},
-                          distinct_id: {},
-                          elements_chain: {},
-                          event: {},
-                          goe_0: {},
-                          goe_1: {},
-                          goe_2: {},
-                          goe_3: {},
-                          goe_4: {},
-                          group_0: {},
-                          group_1: {},
-                          group_2: {},
-                          group_3: {},
-                          group_4: {},
-                          pdi: {},
-                          person: {},
-                          person_id: {},
-                          poe: {},
-                          properties: {},
-                          session: {},
-                          team_id: {},
-                          timestamp: {},
-                          uuid: {}
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              ctes: {}
-              tables: {
-                events: <recursion ...>
-              }
-            }
-          }
-        }
-        hidden: True
-        type: {
-          alias: "event"
-          type: <recursion ...>
-        }
-      }
-    ]
-    select_from: {
-      table: {
-        select: [
-          {
-            alias: "event"
-            expr: {
-              chain: [
-                "event"
-              ]
-              type: <recursion ...>
-            }
-            hidden: True
-            type: <recursion ...>
-          }
-        ]
-        select_from: {
-          table: {
-            chain: [
-              "events"
-            ]
-            type: <recursion ...>
-          }
-          type: <recursion ...>
-        }
-        type: <recursion ...>
-      }
-      type: <recursion ...>
-    }
-    type: {
-      aliases: {}
-      anonymous_tables: [
-        <recursion ...>
-      ]
-      columns: {
-        event: <recursion ...>
-      }
-      ctes: {}
-      tables: {}
     }
   }
   '''
