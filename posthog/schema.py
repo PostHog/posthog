@@ -718,7 +718,6 @@ class PathsFilterLegacy(BaseModel):
 
 
 class PropertyFilterType(str, Enum):
-    meta = "meta"
     event = "event"
     events = "events"
     person = "person"

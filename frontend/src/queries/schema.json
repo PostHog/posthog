@@ -5429,7 +5429,6 @@
         },
         "PropertyFilterType": {
             "enum": [
-                "meta",
                 "event",
                 "events",
                 "person",
