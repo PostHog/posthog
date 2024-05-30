@@ -15,7 +15,7 @@ import { ResponseComposition, RestContext, RestRequest } from 'msw'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
-import { billingJson } from './fixtures/_billing_v2'
+import { billingJson } from './fixtures/_billing'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -120,7 +120,7 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
-        '/api/billing-v2/': {
+        '/api/billing/': {
             ...billingJson,
         },
     },

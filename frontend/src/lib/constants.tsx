@@ -205,7 +205,7 @@ export const FEATURE_FLAGS = {
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
-    PLUGINS_ACTION_MATCHING: 'plugins-action-matching', // owner: @benjackwhite
+    PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
