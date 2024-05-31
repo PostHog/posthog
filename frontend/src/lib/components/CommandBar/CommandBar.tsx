@@ -49,7 +49,7 @@ export function CommandBar(): JSX.Element | null {
     const { barStatus } = useValues(commandBarLogic)
     const { hideCommandBar } = useActions(commandBarLogic)
 
-    useOutsideClickHandler(containerRef, hideCommandBar, [])
+    useOutsideClickHandler([containerRef], hideCommandBar, [])
 
     if (barStatus === BarStatus.HIDDEN) {
         return null

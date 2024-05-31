@@ -5,9 +5,9 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -120,17 +120,13 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, daysRemaining, daysTotal } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
-    const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
-    const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
-        billing.billing_period?.current_period_start,
-        'days'
-    )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
@@ -194,7 +190,7 @@ export const PlanComparison = ({
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={`/api/billing/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
@@ -223,10 +219,7 @@ export const PlanComparison = ({
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => {
                         const prorationAmount = plan.unit_amount_usd
-                            ? (
-                                  parseInt(plan.unit_amount_usd) *
-                                  ((billingDaysRemaining || 1) / (billingDaysTotal || 1))
-                              ).toFixed(2)
+                            ? (parseInt(plan.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(2)
                             : 0
                         const isProrated =
                             billing?.has_active_subscription && plan.unit_amount_usd
@@ -283,56 +276,65 @@ export const PlanComparison = ({
                     </tr>
                 )}
                 {includeAddons &&
-                    product.addons?.map((addon) => {
-                        return addon.tiered ? (
-                            <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
-                                <th scope="row">
-                                    <p className="ml-0">
-                                        <Tooltip title={addon.description}>
-                                            <span className="font-bold cursor-default">{addon.name}</span>
-                                        </Tooltip>
-                                        <Tooltip
-                                            title={
-                                                addon.inclusion_only
-                                                    ? 'Automatically charged based on SDK config options and usage.'
-                                                    : 'If subscribed, charged on all usage.'
-                                            }
-                                        >
-                                            <LemonTag
-                                                type={addon.inclusion_only ? 'option' : 'primary'}
-                                                className="ml-2"
+                    product.addons
+                        ?.filter((addon) => {
+                            if (addon.inclusion_only) {
+                                if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+                                    return false
+                                }
+                            }
+                            return true
+                        })
+                        .map((addon) => {
+                            return addon.tiered ? (
+                                <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
+                                    <th scope="row">
+                                        <p className="ml-0">
+                                            <Tooltip title={addon.description}>
+                                                <span className="font-bold cursor-default">{addon.name}</span>
+                                            </Tooltip>
+                                            <Tooltip
+                                                title={
+                                                    addon.inclusion_only
+                                                        ? 'Automatically charged based on SDK config options and usage.'
+                                                        : 'If subscribed, charged on all usage.'
+                                                }
                                             >
-                                                {addon.inclusion_only ? 'config' : 'add-on'}
-                                            </LemonTag>
-                                        </Tooltip>
-                                    </p>
-                                    <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
-                                </th>
-                                {plans?.map((plan, i) => {
-                                    // If the parent plan is free, the addon isn't available
-                                    return !addon.inclusion_only ? (
-                                        plan.free_allocation && !plan.tiers ? (
+                                                <LemonTag
+                                                    type={addon.inclusion_only ? 'option' : 'primary'}
+                                                    className="ml-2"
+                                                >
+                                                    {addon.inclusion_only ? 'config' : 'add-on'}
+                                                </LemonTag>
+                                            </Tooltip>
+                                        </p>
+                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                    </th>
+                                    {plans?.map((plan, i) => {
+                                        // If the parent plan is free, the addon isn't available
+                                        return !addon.inclusion_only ? (
+                                            plan.free_allocation && !plan.tiers ? (
+                                                <td key={`${addon.name}-free-tiers-td`}>
+                                                    <p className="text-muted text-xs">Not available on this plan.</p>
+                                                </td>
+                                            ) : (
+                                                <td key={`${addon.type}-tiers-td`}>
+                                                    <AddonPlanTiers plan={addon.plans?.[0]} addon={addon} />
+                                                </td>
+                                            )
+                                        ) : plan.free_allocation && !plan.tiers ? (
                                             <td key={`${addon.name}-free-tiers-td`}>
-                                                <p className="text-muted text-xs">Not available on this plan.</p>
+                                                <PricingTiers plan={plan} product={product} />
                                             </td>
                                         ) : (
                                             <td key={`${addon.type}-tiers-td`}>
-                                                <AddonPlanTiers plan={addon.plans?.[0]} addon={addon} />
+                                                <AddonPlanTiers plan={addon.plans?.[i]} addon={addon} />
                                             </td>
                                         )
-                                    ) : plan.free_allocation && !plan.tiers ? (
-                                        <td key={`${addon.name}-free-tiers-td`}>
-                                            <PricingTiers plan={plan} product={product} />
-                                        </td>
-                                    ) : (
-                                        <td key={`${addon.type}-tiers-td`}>
-                                            <AddonPlanTiers plan={addon.plans?.[i]} addon={addon} />
-                                        </td>
-                                    )
-                                })}
-                            </tr>
-                        ) : null
-                    })}
+                                    })}
+                                </tr>
+                            ) : null
+                        })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
                         <h3 className="mt-6 mb-2">Product Features:</h3>

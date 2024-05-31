@@ -4,9 +4,7 @@
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.1
@@ -14,8 +12,7 @@
   
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.2
@@ -23,8 +20,7 @@
   
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.3
@@ -32,8 +28,7 @@
   
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.4
@@ -41,8 +36,7 @@
   
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.5
@@ -50,8 +44,7 @@
   
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.6
@@ -59,8 +52,7 @@
   
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team.7
@@ -68,8 +60,7 @@
   
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated
@@ -77,9 +68,7 @@
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.1
@@ -87,8 +76,7 @@
   
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.2
@@ -96,8 +84,7 @@
   
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.3
@@ -105,8 +92,7 @@
   
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.4
@@ -114,8 +100,7 @@
   
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.5
@@ -123,8 +108,7 @@
   
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.6
@@ -132,8 +116,7 @@
   
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_auxilary_models_via_team_unrelated.7
@@ -141,8 +124,7 @@
   
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_cohortpeople
@@ -157,14 +139,32 @@
   FROM cohortpeople
   '''
 # ---
+# name: TestAsyncDeletion.test_delete_group
+  '''
+  
+  ALTER TABLE sharded_events ON CLUSTER 'posthog'
+  DELETE
+  WHERE (team_id = 2
+         AND $group_0 = 'foo')
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_group_unrelated
+  '''
+  
+  ALTER TABLE sharded_events ON CLUSTER 'posthog'
+  DELETE
+  WHERE (team_id = 2
+         AND $group_0 = 'foo')
+  '''
+# ---
 # name: TestAsyncDeletion.test_delete_person
   '''
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE (team_id = 2
+         AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_person_unrelated
@@ -172,9 +172,9 @@
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE (team_id = 2
+         AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams
@@ -182,9 +182,8 @@
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.1
@@ -192,8 +191,8 @@
   
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.2
@@ -201,8 +200,8 @@
   
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.3
@@ -210,8 +209,8 @@
   
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.4
@@ -219,8 +218,8 @@
   
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.5
@@ -228,8 +227,8 @@
   
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.6
@@ -237,8 +236,8 @@
   
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.7
@@ -246,8 +245,8 @@
   
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated
@@ -255,9 +254,7 @@
   
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND (joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
-         OR joinGet(posthog_test.async_deletion_run, 'id', team_id, 1, toString(person_id)) > 0)
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.1
@@ -265,8 +262,7 @@
   
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.2
@@ -274,8 +270,7 @@
   
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.3
@@ -283,8 +278,7 @@
   
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.4
@@ -292,8 +286,7 @@
   
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.5
@@ -301,8 +294,7 @@
   
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.6
@@ -310,8 +302,7 @@
   
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated.7
@@ -319,8 +310,27 @@
   
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND joinGet(posthog_test.async_deletion_run, 'id', team_id, 0, toString(team_id)) > 0
+  WHERE team_id = 2
+  '''
+# ---
+# name: TestAsyncDeletion.test_mark_deletions_done_groups
+  '''
+  
+  SELECT DISTINCT team_id,
+                  $group_0
+  FROM events
+  WHERE (team_id = 2
+         AND $group_0 = 'foo')
+  '''
+# ---
+# name: TestAsyncDeletion.test_mark_deletions_done_groups_when_not_done
+  '''
+  
+  SELECT DISTINCT team_id,
+                  $group_0
+  FROM events
+  WHERE (team_id = 2
+         AND $group_0 = 'foo')
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person
@@ -331,6 +341,7 @@
   FROM events
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person_when_not_done
@@ -341,6 +352,7 @@
   FROM events
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_team_when_not_done

@@ -1,16 +1,23 @@
 import json
+from posthog.clickhouse.client.connection import Workload
 import uuid
 
-from django.test import TestCase
+from django.test import TestCase, SimpleTestCase
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.redis import get_client
+from posthog.schema import QueryStatus, ClickhouseQueryProgress
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch, MagicMock
-from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    QueryStatusManager,
+    execute_process_query,
+    QueryNotFoundError,
+)
 
 
 def build_query(sql):
@@ -18,6 +25,69 @@ def build_query(sql):
         "kind": "HogQLQuery",
         "query": sql,
     }
+
+
+ZERO_PROGRESS = {
+    "bytes_read": 0,
+    "rows_read": 0,
+    "estimated_rows_total": 0,
+    "time_elapsed": 0,
+    "active_cpu_time": 0,
+}
+
+
+class TestQueryStatusManager(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        get_client().flushall()
+        self.query_id = "550e8400-e29b-41d4-a716-446655440000"
+        self.team_id = 12345
+        self.query_status = QueryStatus(id=self.query_id, team_id=self.team_id)
+        self.manager = QueryStatusManager(self.query_id, self.team_id)
+
+    def test_is_empty(self):
+        self.assertRaises(QueryNotFoundError, lambda: self.manager.get_query_status(True))
+
+    def test_no_status(self):
+        self.manager.store_query_status(self.query_status)
+        self.query_status.query_progress = ClickhouseQueryProgress(**ZERO_PROGRESS)
+        self.assertEqual(self.manager.get_query_status(True), self.query_status)
+
+    def test_store_clickhouse_query_progress(self):
+        query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
+        self.manager._store_clickhouse_query_progress_dict(query_status)
+        self.assertEqual(self.manager._get_clickhouse_query_progress_dict(), query_status)
+
+    def test_bad_progress(self):
+        self.manager.store_query_status(self.query_status)
+        query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": "a"}}
+        self.manager._store_clickhouse_query_progress_dict(query_status)
+        self.assertEqual(self.manager.get_query_status(True), self.query_status)
+
+    def test_update_clickhouse_query_progress(self):
+        self.manager.store_query_status(self.query_status)
+
+        query_id_1 = f"{self.team_id}_{self.query_id}_1"
+        query_id_2 = f"{self.team_id}_{self.query_id}_2"
+        query_id_3 = f"{self.team_id}_{self.query_id}_3"
+        query_progress_dict = {
+            query_id_1: {**ZERO_PROGRESS, "bytes_read": 1},
+            query_id_2: {**ZERO_PROGRESS, "bytes_read": 2},
+        }
+
+        self.manager._store_clickhouse_query_progress_dict(query_progress_dict)
+        self.manager.update_clickhouse_query_progress(
+            query_id_2,
+            {**ZERO_PROGRESS, "bytes_read": 10},
+        )
+        self.manager.update_clickhouse_query_progress(
+            query_id_3,
+            {**ZERO_PROGRESS, "bytes_read": 20},
+        )
+
+        self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})
+
+        self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
 
 
 class TestExecuteProcessQuery(TestCase):
@@ -164,6 +234,26 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_async_query_refreshes_if_requested(self, process_query_dict_mock, process_query_task_mock):
+        query = build_query("SELECT 8 + 8")
+        query_id = "query_id"
+
+        client.enqueue_process_query_task(
+            self.team,
+            self.user,
+            query,
+            query_id=query_id,
+            _test_only_bypass_celery=True,
+            refresh_requested=True,
+        )
+
+        self.assertEqual(process_query_dict_mock.call_count, 0)
+        self.assertEqual(process_query_task_mock.call_count, 1)
+        _, kwargs = process_query_task_mock.call_args
+        self.assertTrue(kwargs["refresh_requested"])
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.
@@ -195,3 +285,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
+
+    @patch("posthog.clickhouse.client.execute.get_pool")
+    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
+        from posthog.clickhouse.query_tagging import tag_queries
+
+        with self.capture_select_queries():
+            tag_queries(kind="request", id="1", access_method="personal_api_key")
+            sync_execute("select 1")
+
+            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)

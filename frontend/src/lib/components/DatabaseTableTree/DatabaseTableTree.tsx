@@ -2,8 +2,7 @@ import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
 
-export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
-    children?: React.ReactNode
+export interface TreeProps {
     className?: string
     items: TreeItem[]
     depth?: number
@@ -31,19 +30,9 @@ export interface TreeItemLeaf {
     icon?: React.ReactNode
 }
 
-export function DatabaseTableTree({
-    className = '',
-    items,
-    onSelectRow,
-    selectedRow,
-    depth = 1,
-    ...props
-}: TreeProps): JSX.Element {
+export function DatabaseTableTree({ items, onSelectRow, selectedRow, depth = 1, className }: TreeProps): JSX.Element {
     return (
-        <ul
-            className={`bg-bg-light ${depth == 1 ? 'p-4 overflow-y-scroll h-full w-full' : ''} rounded-lg ${className}`}
-            {...props}
-        >
+        <ul className={className}>
             {items.map((item, index) => {
                 if ('items' in item) {
                     return (

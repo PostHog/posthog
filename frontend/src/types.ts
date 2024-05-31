@@ -151,6 +151,7 @@ export enum AvailableFeature {
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
+    MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -178,6 +179,7 @@ export enum ProductKey {
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    TEAMS = 'teams',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -772,6 +774,13 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 
+/** Any filter type supported by `property_to_expr(scope="person", ...)`. */
+export type AnyPersonScopeFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | HogQLPropertyFilter
+    | EmptyPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
@@ -1364,7 +1373,24 @@ export interface PerformanceEvent {
     decoded_body_size?: number
     encoded_body_size?: number
 
-    initiator_type?: string
+    initiator_type?:
+        | 'navigation'
+        | 'css'
+        | 'script'
+        | 'xmlhttprequest'
+        | 'fetch'
+        | 'beacon'
+        | 'video'
+        | 'audio'
+        | 'track'
+        | 'img'
+        | 'image'
+        | 'input'
+        | 'a'
+        | 'iframe'
+        | 'frame'
+        | 'link'
+        | 'other'
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
@@ -1410,6 +1436,8 @@ export interface PerformanceEvent {
     //server timings - reported as separate events but added back in here on the front end
     server_timings?: PerformanceEvent[]
 }
+
+export type AssetType = 'CSS' | 'JS' | 'Fetch' | 'Image' | 'Link' | 'XHR' | 'HTML'
 
 export interface CurrentBillCycleType {
     current_period_start: number
@@ -1502,6 +1530,8 @@ export interface BillingProductV2AddonType {
     free_allocation?: number | null
     percentage_usage?: number
     features: BillingV2FeatureType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    usage_limit?: number | null
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1724,6 +1754,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     first_name: string
+    level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserBasicType | null
@@ -1826,6 +1857,29 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
+    filters?: PluginConfigFilters | null
+}
+
+// subset of EntityFilter
+export interface PluginConfigFilterBase {
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
+    type: 'events'
+}
+
+export interface PluginConfigFilterActions extends PluginConfigFilterBase {
+    type: 'actions'
+}
+
+export interface PluginConfigFilters {
+    events?: PluginConfigFilterEvents[]
+    actions?: PluginConfigFilterActions[]
+    filter_test_accounts?: boolean
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -1930,6 +1984,7 @@ export enum InsightType {
     PATHS = 'PATHS',
     JSON = 'JSON',
     SQL = 'SQL',
+    HOG = 'HOG',
 }
 
 export enum PathType {
@@ -3907,13 +3962,32 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
-export interface SourceFieldConfig {
+export interface SourceFieldInputConfig {
+    type: LemonInputProps['type'] | 'textarea'
     name: string
     label: string
-    type: LemonInputProps['type']
     required: boolean
     placeholder: string
 }
+
+export interface SourceFieldSelectConfig {
+    type: 'select'
+    name: string
+    label: string
+    required: boolean
+    defaultValue: string
+    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+}
+
+export interface SourceFieldSwitchGroupConfig {
+    type: 'switch-group'
+    name: string
+    label: string
+    default: string | number | boolean
+    fields: SourceFieldConfig[]
+}
+
+export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -3943,4 +4017,20 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string
     subrows: ProductPricingTierSubrows
+}
+
+export type AvailableOnboardingProducts = Pick<
+    {
+        [key in ProductKey]: OnboardingProduct
+    },
+    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+>
+
+export type OnboardingProduct = {
+    name: string
+    breadcrumbsName?: string
+    icon: string
+    iconColor: string
+    url: string
+    scene: Scene
 }

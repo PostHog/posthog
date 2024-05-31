@@ -118,6 +118,7 @@ export function InsightLoadingStateWithLoadingBar({
         return () => clearInterval(interval)
     }, [insightPollResponse])
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+    const estimatedRows = insightPollResponse?.status?.query_progress?.estimated_rows_total
 
     const cpuUtilization =
         (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
@@ -132,7 +133,11 @@ export function InsightLoadingStateWithLoadingBar({
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
                         <>
-                            {humanFriendlyNumber(rowsRead || 0, 0)} rows
+                            {humanFriendlyNumber(rowsRead || 0, 0)}{' '}
+                            {estimatedRows && estimatedRows >= rowsRead
+                                ? `/ ${humanFriendlyNumber(estimatedRows)} `
+                                : null}{' '}
+                            rows
                             <br />
                             {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
                             <br />
@@ -177,11 +182,12 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
         return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
     }
 
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     return (
         <div className="insight-empty-state warning">
             <Animation type={AnimationType.LaptopHog} />

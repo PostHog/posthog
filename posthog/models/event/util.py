@@ -124,6 +124,7 @@ def bulk_create_events(
     params: dict[str, Any] = {}
     for index, event in enumerate(events):
         datetime64_default_timestamp = timezone.now().astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
+        _timestamp = event.get("_timestamp") or dt.datetime.now()
         timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
@@ -162,7 +163,7 @@ def bulk_create_events(
                 %(group4_created_at_{i})s,
                 %(person_mode_{i})s,
                 %(created_at_{i})s,
-                now(),
+                %(_timestamp_{i})s,
                 0
             )""".format(i=index)
         )
@@ -258,6 +259,7 @@ def bulk_create_events(
             "group4_created_at": (
                 event["group4_created_at"] if event.get("group4_created_at") else datetime64_default_timestamp
             ),
+            "_timestamp": _timestamp,
             "person_mode": person_mode,
         }
 

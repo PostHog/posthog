@@ -171,7 +171,7 @@ def update_cache(caching_state_id: UUID):
 def update_cached_state(
     team_id: int,
     cache_key: str,
-    timestamp: datetime,
+    timestamp: datetime | str,
     result: Any,
     ttl: Optional[int] = None,
 ):

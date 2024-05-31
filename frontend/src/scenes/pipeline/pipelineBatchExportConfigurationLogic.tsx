@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
 export interface PipelineBatchExportConfigurationLogicProps {
@@ -46,7 +47,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
     connect(() => ({
-        values: [pipelineDestinationsLogic, ['canEnableNewDestinations']],
+        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
@@ -237,6 +238,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         },
     })),
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.configurationChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetConfiguration()
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadBatchExportConfig()
     }),

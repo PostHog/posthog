@@ -22,7 +22,6 @@ import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWare
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -45,7 +44,6 @@ import {
     NotebookType,
     PersonProperty,
     PersonType,
-    PluginType,
     PropertyDefinition,
 } from '~/types'
 
@@ -457,16 +455,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (experiment: Experiment) => experiment.name,
                         getValue: (experiment: Experiment) => experiment.id,
                         getPopoverHeader: () => `Experiments`,
-                    },
-                    {
-                        name: 'Plugins',
-                        searchPlaceholder: 'plugins',
-                        type: TaxonomicFilterGroupType.Plugins,
-                        logic: pluginsLogic,
-                        value: 'allPossiblePlugins',
-                        getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getPopoverHeader: () => `Plugins`,
                     },
                     {
                         name: 'Dashboards',

@@ -1,5 +1,6 @@
 import json
 from contextlib import contextmanager
+from functools import lru_cache
 from typing import Any
 
 from django.db import models
@@ -19,6 +20,7 @@ class InstanceSetting(models.Model):
         return json.loads(self.raw_value)
 
 
+@lru_cache
 def get_instance_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
@@ -47,6 +49,7 @@ def set_instance_setting(key: str, value: Any):
     InstanceSetting.objects.update_or_create(
         key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
     )
+    get_instance_setting.cache_clear()
 
 
 @contextmanager
