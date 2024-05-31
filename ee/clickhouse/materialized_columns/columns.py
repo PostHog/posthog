@@ -17,7 +17,7 @@ ColumnName = str
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
 
-TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
+TablesWithMaterializedColumns = Union[TableWithProperties]
 
 TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw({table_column}, %(property)s)")
 

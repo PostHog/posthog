@@ -41,7 +41,8 @@ class InsightActorsQueryRunner(QueryRunner):
                 time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
-                compare=query.compare,
+                compare_value=query.compare,
+                include_recordings=query.includeRecordings,
             )
         elif isinstance(self.source_runner, FunnelsQueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)

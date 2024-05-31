@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useState } from 'react'
+import { CSSProperties, useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
@@ -76,12 +76,12 @@ SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
 
 export interface CodeSnippetProps {
-    children: string
+    children: string | undefined | null
     language?: Language
     wrap?: boolean
     compact?: boolean
     actions?: JSX.Element
-    style?: React.CSSProperties
+    style?: CSSProperties
     /** What is being copied. @example 'link' */
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
@@ -97,14 +97,27 @@ export function CodeSnippet({
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
-}: CodeSnippetProps): JSX.Element {
+}: CodeSnippetProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [expanded, setExpanded] = useState(false)
+    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(
+        maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
+    )
+    const [lineCount, setLineCount] = useState(-1)
+    const [displayedText, setDisplayedText] = useState('')
 
-    const indexOfLimitNewline = maxLinesWithoutExpansion ? indexOfNth(text, '\n', maxLinesWithoutExpansion) : -1
-    const lineCount = text.split('\n').length
-    const displayedText = indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline)
+    useEffect(() => {
+        if (text) {
+            setIndexOfLimitNewline(maxLinesWithoutExpansion ? indexOfNth(text, '\n', maxLinesWithoutExpansion) : -1)
+            setLineCount(text.split('\n').length)
+            setDisplayedText(indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline))
+        }
+    }, [text, maxLinesWithoutExpansion, expanded])
+
+    if (lineCount == -1) {
+        return null
+    }
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
@@ -114,8 +127,9 @@ export function CodeSnippet({
                 <LemonButton
                     data-attr="copy-code-button"
                     icon={<IconCopy />}
-                    onClick={() => {
+                    onClick={(e) => {
                         if (text) {
+                            e.stopPropagation()
                             void copyToClipboard(text, thing)
                         }
                     }}

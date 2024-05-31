@@ -6,7 +6,6 @@ import structlog
 from django.db import models
 from django.utils import timezone
 
-from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
@@ -50,12 +49,16 @@ class OrganizationDomainManager(models.Manager):
                 | models.Q(saml_acs_url__isnull=True)
                 | models.Q(saml_x509_cert__isnull=True)
             )
-            .values("organization__available_features")
+            .values_list("organization__available_product_features", flat=True)
             .first()
         )
 
-        if query and AvailableFeature.SAML in query["organization__available_features"]:
-            return True
+        if query is None:
+            return False
+
+        for feature in query:
+            if feature.get("key") == AvailableFeature.SAML:
+                return True
         return False
 
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
@@ -68,7 +71,7 @@ class OrganizationDomainManager(models.Manager):
             self.verified_domains()
             .filter(domain=domain)
             .exclude(sso_enforcement="")
-            .values("sso_enforcement", "organization_id", "organization__available_features")
+            .values("sso_enforcement", "organization_id", "organization__available_product_features")
             .first()
         )
 
@@ -77,8 +80,10 @@ class OrganizationDomainManager(models.Manager):
 
         candidate_sso_enforcement = query["sso_enforcement"]
 
+        available_product_features = query["organization__available_product_features"]
+        available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
-        if AvailableFeature.SSO_ENFORCEMENT not in query["organization__available_features"]:
+        if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:
             logger.warning(
                 f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license.",
                 domain=domain,
@@ -89,7 +94,7 @@ class OrganizationDomainManager(models.Manager):
         # Check SSO provider is properly configured and has a valid license (to use the specific SSO) if applicable
         if candidate_sso_enforcement == "saml":
             # SAML uses special handling because it's configured at the domain level instead of at the instance-level
-            if AvailableFeature.SAML not in query["organization__available_features"]:
+            if AvailableFeature.SAML not in available_product_feature_keys:
                 logger.warning(
                     f"🤑🚪 SAML SSO is enforced for domain {domain} but the organization does not have a SAML license.",
                     domain=domain,
@@ -161,11 +166,6 @@ class OrganizationDomain(UUIDModel):
         """
         Performs a DNS verification for a specific domain.
         """
-
-        if not is_cloud():
-            # We only do DNS validation on PostHog Cloud
-            return self._complete_verification()
-
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")

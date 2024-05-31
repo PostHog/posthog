@@ -253,8 +253,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
                 segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
@@ -334,8 +333,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:

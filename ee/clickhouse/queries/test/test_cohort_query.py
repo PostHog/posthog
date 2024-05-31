@@ -5,7 +5,6 @@ from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
@@ -54,12 +53,16 @@ def _create_cohort(**kwargs):
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query(self):
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         # satiesfies all conditions
@@ -1035,12 +1038,16 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_person_properties_with_pushdowns(self):
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         # satiesfies all conditions
@@ -2213,12 +2220,16 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test", "email": "test@posthog.com"},
         )
 
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$pageview",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         _make_event_sequence(

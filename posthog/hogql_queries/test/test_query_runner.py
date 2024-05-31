@@ -6,18 +6,15 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import (
-    ExecutionMode,
-    QueryRunner,
-)
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import (
-    TestCachedBasicQueryResponse,
+    CacheMissResponse,
+    HogQLQuery,
     HogQLQueryModifiers,
     MaterializationMode,
-    HogQLQuery,
-    CacheMissResponse,
     TestBasicQueryResponse,
+    TestCachedBasicQueryResponse,
 )
 from posthog.test.base import BaseTest
 
@@ -38,7 +35,12 @@ class TestQueryRunner(BaseTest):
             cached_response: TestCachedBasicQueryResponse
 
             def calculate(self):
-                return TestBasicQueryResponse(results=[])
+                return TestBasicQueryResponse(
+                    results=[
+                        ["row", 1, 2, 3],
+                        (i for i in range(10)),  # Test support of cache.set with iterators
+                    ]
+                )
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
@@ -66,33 +68,6 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
-    def test_serializes_to_json(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
-    def test_serializes_to_json_ignores_empty_dict(self):
-        # The below behaviour is not currently implemented, since we're auto-
-        # generating the pydantic models for queries, which doesn't allow us
-        # setting a custom default value for list and dict type properties.
-        #
-        # :KLUDGE: In order to receive a stable JSON representation for cache
-        # keys we want to ignore semantically equal attributes. E.g. an empty
-        # list and None should be treated equally.
-        #
-        # To achieve this behaviour we ignore None and the default value, which
-        # we set to an empty list. It would be even better, if we would
-        # implement custom validators for this.
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -101,7 +76,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_b6f14c97c218e0b9c9a8258f7460fd5b")
+        self.assertEqual(cache_key, "cache_b1d728aa930c229409d9e25c1c9f6da8")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -115,7 +90,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_ec1c2f9715cf9c424b1284b94b1205e6")
+        self.assertEqual(cache_key, "cache_152551f1203fb6a38599509f111aa03d")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -126,7 +101,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_a6614c0fb564f9c98b1d7b830928c7a1")
+        self.assertEqual(cache_key, "cache_f824b242d459b9deafa2340cb9575e93")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()

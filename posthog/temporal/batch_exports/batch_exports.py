@@ -48,13 +48,24 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-TIMESTAMP_PREDICATES = """
+TIMESTAMP_PREDICATES = Template(
+    """
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
 -- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 4 DAY
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL $lookback_days DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 """
+)
+
+
+def get_timestamp_predicates_for_team(team_id: int) -> str:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        return ""
+    else:
+        return TIMESTAMP_PREDICATES.substitute(
+            lookback_days=settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS),
+        )
 
 
 async def get_rows_count(
@@ -83,9 +94,7 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
@@ -184,9 +193,7 @@ def iter_records(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
+    timestamp_predicates = timestamp_predicates = get_timestamp_predicates_for_team(team_id)
 
     if fields is None:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())

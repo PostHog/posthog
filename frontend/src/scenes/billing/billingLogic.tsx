@@ -7,6 +7,7 @@ import api, { getJSONOrNull } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -33,9 +34,21 @@ export interface BillingAlertConfig {
     onClose?: () => void
 }
 
+export enum BillingAPIErrorCodes {
+    OPEN_INVOICES_ERROR = 'open_invoices_error',
+    NO_ACTIVE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
+    COULD_NOT_PAY_INVOICES_ERROR = 'could_not_pay_invoices_error',
+}
+
 export interface UnsubscribeError {
     detail: string | JSX.Element
     link: JSX.Element
+}
+
+export interface BillingError {
+    status: 'info' | 'warning' | 'error'
+    message: string
+    action: LemonButtonPropsBase
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -140,19 +153,44 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
+        daysRemaining: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(dayjs(), 'days')
+                },
+            },
+        ],
+        daysTotal: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    return billing.billing_period.current_period_end.diff(
+                        billing.billing_period.current_period_start,
+                        'days'
+                    )
+                },
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
             null as BillingV2Type | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get('api/billing-v2')
+                    const response = await api.get('api/billing')
 
                     return parseBillingResponse(response)
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
-                    const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+                    const response = await api.update('api/billing', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
@@ -161,26 +199,42 @@ export const billingLogic = kea<billingLogicType>([
                 deactivateProduct: async (key: string) => {
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
+                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
                         lemonToast.success('Product unsubscribed')
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        if (error.detail && error.detail.includes('open invoice')) {
-                            actions.setUnsubscribeError({
-                                detail: error.detail,
-                                link: (
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
-                                        View invoices
-                                    </Link>
-                                ),
-                            } as UnsubscribeError)
+                        if (error.code) {
+                            if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                            View invoices
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVE_PAYMENT_METHOD_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
+                                            {error.link ? 'View invoice' : 'View invoices'}
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            }
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
-                                    error.detail ||
-                                    `We encountered a problem. Please try again or submit a support ticket.`,
+                                    typeof error.detail === 'string'
+                                        ? error.detail
+                                        : `We encountered a problem. Please try again or submit a support ticket.`,
                             } as UnsubscribeError)
                         }
                         console.error(error)
@@ -190,11 +244,46 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
+        billingError: [
+            null as BillingError | null,
+            {
+                getInvoices: async () => {
+                    // First check to see if there are open invoices
+                    try {
+                        const res = await api.getResponse('api/billing/get_invoices?status=open')
+                        const jsonRes = await getJSONOrNull(res)
+                        const numOpenInvoices = jsonRes['count']
+                        if (numOpenInvoices > 0) {
+                            const viewInvoicesButton = {
+                                to:
+                                    numOpenInvoices == 1 && jsonRes['link']
+                                        ? jsonRes['link']
+                                        : values.billing?.stripe_portal_url,
+                                children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
+                                targetBlank: true,
+                            }
+                            return {
+                                status: 'warning',
+                                message: `You have ${numOpenInvoices} open invoice${
+                                    numOpenInvoices > 1 ? 's' : ''
+                                }. Please pay ${
+                                    numOpenInvoices > 1 ? 'them' : 'it'
+                                } before adding items to your subscription.`,
+                                action: viewInvoicesButton,
+                            }
+                        }
+                    } catch (error: any) {
+                        console.error(error)
+                    }
+                    return null
+                },
+            },
+        ],
         products: [
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
-                    const response = await api.get('api/billing-v2/available_products')
+                    const response = await api.get('api/billing/available_products')
                     return response
                 },
             },
@@ -206,7 +295,7 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsd: [
+        projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
             (billing: BillingV2Type): number => {
                 if (!billing) {
@@ -214,13 +303,19 @@ export const billingLogic = kea<billingLogicType>([
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    projectedTotal += parseFloat(product.projected_amount_usd || '0')
+                    const billingLimit: string =
+                        billing?.custom_limits_usd?.[product.type] ||
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || '0' : '0')
+                    projectedTotal += Math.min(
+                        parseFloat(product.projected_amount_usd || '0'),
+                        parseFloat(billingLimit)
+                    )
                 }
                 return projectedTotal
             },
         ],
         over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
             (billing, preflight, projectedTotalAmountUsd) => {
                 if (!billing || !preflight?.cloud) {
                     return
@@ -233,7 +328,7 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return true
                 }
-                return
+                return false
             },
         ],
         isAnnualPlan: [
@@ -277,7 +372,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
-                    await api.update('api/billing-v2/license', {
+                    await api.update('api/billing/license', {
                         license,
                     })
 
@@ -436,6 +531,7 @@ export const billingLogic = kea<billingLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadBilling()
+        actions.getInvoices()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence

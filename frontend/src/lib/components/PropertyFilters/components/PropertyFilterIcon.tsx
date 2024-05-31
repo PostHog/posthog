@@ -10,9 +10,7 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
         case 'event':
             iconElement = (
                 <Tooltip title="Event property">
-                    <span className="flex items-center">
-                        <IconUnverifiedEvent />
-                    </span>
+                    <IconUnverifiedEvent />
                 </Tooltip>
             )
             break
@@ -26,9 +24,7 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
         case 'cohort':
             iconElement = (
                 <Tooltip title="Cohort filter">
-                    <span className="flex items-center">
-                        <IconCohort />
-                    </span>
+                    <IconCohort />
                 </Tooltip>
             )
             break

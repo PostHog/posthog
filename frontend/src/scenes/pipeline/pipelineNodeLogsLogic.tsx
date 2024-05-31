@@ -39,90 +39,94 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         markLogsEnd: true,
     }),
     loaders(({ props: { id }, values, actions, cache }) => ({
-        logs: {
-            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
-            loadLogs: async () => {
-                let results: LogEntry[]
-                if (values.nodeBackend === PipelineBackend.BatchExport) {
-                    results = await api.batchExportLogs.search(
-                        id as string,
-                        values.searchTerm,
-                        values.selectedLogLevels
-                    )
-                } else {
-                    results = await api.pluginLogs.search(
-                        id as number,
-                        values.searchTerm,
-                        logLevelsToTypeFilters(values.selectedLogLevels)
-                    )
-                }
+        logs: [
+            [] as LogEntry[],
+            {
+                loadLogs: async () => {
+                    let results: LogEntry[]
+                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                        results = await api.batchExportLogs.search(
+                            id as string,
+                            values.searchTerm,
+                            values.selectedLogLevels
+                        )
+                    } else {
+                        results = await api.pluginLogs.search(
+                            id as number,
+                            values.searchTerm,
+                            logLevelsToTypeFilters(values.selectedLogLevels)
+                        )
+                    }
 
-                if (!cache.pollingInterval) {
-                    cache.pollingInterval = setInterval(actions.pollBackgroundLogs, 5000)
-                }
-                actions.clearBackgroundLogs()
-                return results
-            },
-            loadMoreLogs: async () => {
-                let results: LogEntry[]
-                if (values.nodeBackend === PipelineBackend.BatchExport) {
-                    results = await api.batchExportLogs.search(
-                        id as string,
-                        values.searchTerm,
-                        values.selectedLogLevels,
-                        values.trailingEntry as BatchExportLogEntry | null
-                    )
-                } else {
-                    results = await api.pluginLogs.search(
-                        id as number,
-                        values.searchTerm,
-                        logLevelsToTypeFilters(values.selectedLogLevels),
-                        values.trailingEntry as PluginLogEntry | null
-                    )
-                }
+                    if (!cache.pollingInterval) {
+                        cache.pollingInterval = setInterval(actions.pollBackgroundLogs, 5000)
+                    }
+                    actions.clearBackgroundLogs()
+                    return results
+                },
+                loadMoreLogs: async () => {
+                    let results: LogEntry[]
+                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                        results = await api.batchExportLogs.search(
+                            id as string,
+                            values.searchTerm,
+                            values.selectedLogLevels,
+                            values.trailingEntry as BatchExportLogEntry | null
+                        )
+                    } else {
+                        results = await api.pluginLogs.search(
+                            id as number,
+                            values.searchTerm,
+                            logLevelsToTypeFilters(values.selectedLogLevels),
+                            values.trailingEntry as PluginLogEntry | null
+                        )
+                    }
 
-                if (results.length < LOGS_PORTION_LIMIT) {
-                    actions.markLogsEnd()
-                }
-                return [...values.logs, ...results]
+                    if (results.length < LOGS_PORTION_LIMIT) {
+                        actions.markLogsEnd()
+                    }
+                    return [...values.logs, ...results]
+                },
+                revealBackground: () => {
+                    const newArray = [...values.backgroundLogs, ...values.logs]
+                    actions.clearBackgroundLogs()
+                    return newArray
+                },
             },
-            revealBackground: () => {
-                const newArray = [...values.backgroundLogs, ...values.logs]
-                actions.clearBackgroundLogs()
-                return newArray
-            },
-        },
-        backgroundLogs: {
-            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
-            pollBackgroundLogs: async () => {
-                // we fetch new logs in the background and allow the user to expand
-                // them into the array of visible logs
-                if (values.logsLoading) {
-                    return values.backgroundLogs
-                }
+        ],
+        backgroundLogs: [
+            [] as LogEntry[],
+            {
+                pollBackgroundLogs: async () => {
+                    // we fetch new logs in the background and allow the user to expand
+                    // them into the array of visible logs
+                    if (values.logsLoading) {
+                        return values.backgroundLogs
+                    }
 
-                let results: LogEntry[]
-                if (values.nodeBackend === PipelineBackend.BatchExport) {
-                    results = await api.batchExportLogs.search(
-                        id as string,
-                        values.searchTerm,
-                        values.selectedLogLevels,
-                        null,
-                        values.leadingEntry as BatchExportLogEntry | null
-                    )
-                } else {
-                    results = await api.pluginLogs.search(
-                        id as number,
-                        values.searchTerm,
-                        logLevelsToTypeFilters(values.selectedLogLevels),
-                        null,
-                        values.leadingEntry as PluginLogEntry | null
-                    )
-                }
+                    let results: LogEntry[]
+                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                        results = await api.batchExportLogs.search(
+                            id as string,
+                            values.searchTerm,
+                            values.selectedLogLevels,
+                            null,
+                            values.leadingEntry as BatchExportLogEntry | null
+                        )
+                    } else {
+                        results = await api.pluginLogs.search(
+                            id as number,
+                            values.searchTerm,
+                            logLevelsToTypeFilters(values.selectedLogLevels),
+                            null,
+                            values.leadingEntry as PluginLogEntry | null
+                        )
+                    }
 
-                return [...results, ...values.backgroundLogs]
+                    return [...results, ...values.backgroundLogs]
+                },
             },
-        },
+        ],
     })),
     reducers({
         selectedLogLevels: [
@@ -132,7 +136,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         backgroundLogs: [
-            [] as PluginLogEntry[] | BatchExportLogEntry[],
+            [] as LogEntry[],
             {
                 clearBackgroundLogs: () => [],
             },
@@ -184,6 +188,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
+                        sorter: (a: LogEntry, b: LogEntry) => dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
                         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
                     },
                     {

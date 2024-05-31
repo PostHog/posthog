@@ -5,7 +5,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
 
@@ -282,6 +282,28 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            lifecycleFilter: { showValuesOnSeries: true },
+                        },
+                    } as Node),
+                ])
+            })
+
+            it('gets rid of minute when leaving trends', async () => {
+                ;(trendsQuery.source as TrendsQuery).interval = 'minute'
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.LIFECYCLE)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'LifecycleQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            filterTestAccounts: true,
+                            interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
                         },
                     } as Node),

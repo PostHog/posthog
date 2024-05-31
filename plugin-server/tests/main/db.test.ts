@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { ClickHouseTimestamp, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
+import {
+    ClickHouseTimestamp,
+    Hub,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB, GroupId } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
@@ -48,7 +56,7 @@ describe('DB', () => {
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
-        beforeEach(async () => {
+        const insertAction = async (action: Partial<RawAction> = {}) => {
             await insertRow(hub.db.postgres, 'posthog_action', {
                 id: 69,
                 team_id: 2,
@@ -62,7 +70,12 @@ describe('DB', () => {
                 is_calculating: false,
                 updated_at: new Date().toISOString(),
                 last_calculated_at: new Date().toISOString(),
+                ...action,
             })
+        }
+
+        beforeEach(async () => {
+            await insertAction()
         })
 
         it('returns actions with `post_to_slack', async () => {
@@ -86,63 +99,54 @@ describe('DB', () => {
         })
 
         it('returns actions with steps', async () => {
-            await insertRow(hub.db.postgres, 'posthog_actionstep', {
-                id: 913,
-                action_id: 69,
-                tag_name: null,
-                text: null,
-                text_matching: null,
-                href: null,
-                href_matching: null,
-                selector: null,
-                url: null,
-                url_matching: null,
-                name: null,
-                event: null,
-                properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+            await insertAction({
+                id: 70,
+                steps_json: [
+                    {
+                        tag_name: null,
+                        text: null,
+                        text_matching: null,
+                        href: null,
+                        href_matching: null,
+                        selector: null,
+                        url: null,
+                        url_matching: null,
+                        event: null,
+                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                    },
+                ],
             })
 
             const result = await db.fetchAllActionsGroupedByTeam()
 
-            expect(result).toMatchObject({
-                2: {
-                    69: {
-                        id: 69,
-                        team_id: 2,
-                        name: 'Test Action',
-                        deleted: false,
-                        post_to_slack: true,
-                        slack_message_format: '',
-                        is_calculating: false,
-                        steps: [
-                            {
-                                id: 913,
-                                action_id: 69,
-                                tag_name: null,
-                                text: null,
-                                text_matching: null,
-                                href: null,
-                                href_matching: null,
-                                selector: null,
-                                url: null,
-                                url_matching: null,
-                                name: null,
-                                event: null,
-                                properties: [
-                                    { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
-                                ],
-                            },
-                        ],
-                        hooks: [],
+            expect(result[2][70]).toMatchObject({
+                id: 70,
+                team_id: 2,
+                name: 'Test Action',
+                deleted: false,
+                post_to_slack: true,
+                slack_message_format: '',
+                is_calculating: false,
+                steps: [
+                    {
+                        tag_name: null,
+                        text: null,
+                        text_matching: null,
+                        href: null,
+                        href_matching: null,
+                        selector: null,
+                        url: null,
+                        url_matching: null,
+                        event: null,
+                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                     },
-                },
+                ],
+                hooks: [],
             })
 
-            const action = await db.fetchAction(69)
+            const action = await db.fetchAction(70)
             expect(action!.steps).toEqual([
                 {
-                    id: 913,
-                    action_id: 69,
                     tag_name: null,
                     text: null,
                     text_matching: null,
@@ -151,7 +155,6 @@ describe('DB', () => {
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },
@@ -198,7 +201,10 @@ describe('DB', () => {
                 },
             })
 
-            expect(await db.fetchAction(69)).toEqual(result[2][69])
+            expect(await db.fetchAction(69)).toEqual({
+                ...result[2][69],
+                steps_json: null, // Temporary diff whilst we migrate to this new field
+            })
         })
 
         it('does not return actions that dont match conditions', async () => {
@@ -486,37 +492,6 @@ describe('DB', () => {
                     version: 0,
                 })
             )
-        })
-    })
-
-    describe('fetchGroupTypes() and insertGroupType()', () => {
-        it('fetches group types that have been inserted', async () => {
-            expect(await db.fetchGroupTypes(2)).toEqual({})
-            expect(await db.insertGroupType(2, 'g0', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'g1', 1)).toEqual([1, true])
-            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1 })
-        })
-
-        it('handles conflicting by index when inserting and limits', async () => {
-            expect(await db.insertGroupType(2, 'g0', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'g1', 0)).toEqual([1, true])
-            expect(await db.insertGroupType(2, 'g2', 0)).toEqual([2, true])
-            expect(await db.insertGroupType(2, 'g3', 1)).toEqual([3, true])
-            expect(await db.insertGroupType(2, 'g4', 0)).toEqual([4, true])
-            expect(await db.insertGroupType(2, 'g5', 0)).toEqual([null, false])
-            expect(await db.insertGroupType(2, 'g6', 0)).toEqual([null, false])
-
-            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1, g2: 2, g3: 3, g4: 4 })
-        })
-
-        it('handles conflict by name when inserting', async () => {
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
-            expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, true])
-            expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, false])
-
-            expect(await db.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 
@@ -1017,6 +992,7 @@ describe('DB', () => {
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             } as Team)
         })
 
@@ -1042,6 +1018,7 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             })
         })
 

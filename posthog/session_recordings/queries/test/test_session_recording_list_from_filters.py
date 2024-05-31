@@ -1,6 +1,5 @@
 from datetime import datetime
 from uuid import uuid4
-from unittest import skip
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -9,14 +8,10 @@ from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Cohort, GroupTypeMapping
+from posthog.models import Cohort, GroupTypeMapping, Person
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
@@ -25,6 +20,9 @@ from posthog.session_recordings.queries.session_recording_list_from_filters impo
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
+)
+from posthog.session_recordings.sql.session_replay_event_sql import (
+    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -38,10 +36,6 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
-    # this test does not create any session_recording_events, only writes to the session_replay summary table
-    # it is a pair with test_session_recording_list
-    # it should pass all the same tests but without needing the session_recording_events table at all
-
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -52,8 +46,16 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(team_id=team_id, name=name)
-        ActionStep.objects.create(action=action, event=name, properties=properties)
+        action = Action.objects.create(
+            team_id=team_id,
+            name=name,
+            steps_json=[
+                {
+                    "event": name,
+                    "properties": properties,
+                }
+            ],
+        )
         return action
 
     def create_event(
@@ -440,7 +442,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         ordered_by_default = [(r["session_id"], r["start_time"]) for r in session_recordings.results]
         assert ordered_by_default == [(session_id_one, session_one_start), (session_id_two, session_two_start)]
 
-    @skip("TODO: Not implemented in HogQL")
     def test_first_url_selection(self):
         user = "test_first_url_selection-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -668,7 +669,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
-    @skip("TODO: This should work!")
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -717,7 +717,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2023-09-01T12:00:01Z"):
                 assert ttl_days(self.team) == 30
 
-            self.team.organization.available_features = [AvailableFeature.RECORDINGS_PLAYLISTS]
+            self.team.organization.available_product_features = [
+                {"key": AvailableFeature.RECORDINGS_PLAYLISTS, "name": AvailableFeature.RECORDINGS_PLAYLISTS}
+            ]
 
             # Far enough in the future from `days_since_blob_ingestion` but paid
             with freeze_time("2023-12-01T12:00:01Z"):
@@ -1092,7 +1094,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
     @freeze_time("2023-01-04")
-    @skip("TODO: This should work!")
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1460,7 +1461,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by({"person_uuid": str(p.uuid)})
         assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]
@@ -1537,7 +1537,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        # TODO this test has no assertion🫠
+
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == target_session_id
 
     def test_teams_dont_leak_event_filter(self):
         user = "test_teams_dont_leak_event_filter-user"
@@ -1951,7 +1953,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
@@ -2026,7 +2027,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == []
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_any_event_filter_with_properties(self):
@@ -2522,7 +2522,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         verify_no_jsonextract=False,
     )
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -2602,7 +2601,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         verify_no_jsonextract=False,
     )
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_event_properties_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -2703,7 +2701,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter(self):
         """
@@ -2796,7 +2793,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=True)
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter_allowing_denormalized_props(self):
         """
@@ -3139,7 +3135,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(session_recordings), 1)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_two_events_and_multiple_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -3196,7 +3191,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_group_filter(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})

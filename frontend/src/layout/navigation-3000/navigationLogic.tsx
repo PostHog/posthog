@@ -498,20 +498,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               }
                             : null,
                         hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.Apps,
-                                  label: 'Data pipeline',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.projectApps(),
-                              }
+                            ? featureFlags[FEATURE_FLAGS.PIPELINE_UI]
+                                ? {
+                                      identifier: Scene.Pipeline,
+                                      label: 'Data pipeline',
+                                      icon: <IconDecisionTree />,
+                                      to: urls.pipeline(),
+                                  }
+                                : {
+                                      identifier: Scene.Apps,
+                                      label: 'Data pipeline',
+                                      icon: <IconDecisionTree />,
+                                      to: urls.projectApps(),
+                                  }
                             : null,
-                        {
-                            identifier: Scene.Pipeline,
-                            label: 'Data pipeline 3000',
-                            icon: <IconDecisionTree />,
-                            to: urls.pipeline(),
-                            featureFlag: FEATURE_FLAGS.PIPELINE_UI,
-                        },
                     ].filter(isNotNil),
                 ]
             },

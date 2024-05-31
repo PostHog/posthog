@@ -1,0 +1,13 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+protected_branch='master'
+current_branch=$(git branch --show-current)
+
+if [ $protected_branch = $current_branch ]
+then
+    echo "Pushing to $protected_branch is a sin! Instead, create a pull request and repent."
+    exit 1 # push will not execute
+else
+    exit 0 # push will execute
+fi

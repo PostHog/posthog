@@ -29,8 +29,8 @@ export interface MetricsOverviewProps {
     metricsLoading: boolean
 }
 
-export function PipelineNodeMetrics({ pluginConfigId }: PipelineNodeMetricsProps): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
 
     const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(logic)
     const { setDateFrom } = useActions(logic)
@@ -58,7 +58,7 @@ export function PipelineNodeMetrics({ pluginConfigId }: PipelineNodeMetricsProps
 
             <div>
                 <h2>Errors</h2>
-                <ErrorsOverview pluginConfigId={pluginConfigId} />
+                <ErrorsOverview id={id} />
             </div>
         </div>
     )
@@ -189,14 +189,14 @@ function colorConfig(baseColorVar: string): Partial<ChartDataset<'line', any>> {
     }
 }
 
-function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+function ErrorsOverview({ id }: { id: number | string }): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
     const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { openErrorDetailsModal } = useActions(logic)
 
     return (
         <>
-            <ErrorDetailsModal pluginConfigId={pluginConfigId} />
+            <ErrorDetailsModal id={id} />
             <LemonTable
                 dataSource={appMetricsResponse?.errors || []}
                 loading={appMetricsResponseLoading}
@@ -257,8 +257,8 @@ function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Ele
     )
 }
 
-function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
     // const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(logic)
     const { closeErrorDetailsModal } = useActions(logic)

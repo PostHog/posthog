@@ -1,22 +1,28 @@
-from posthog.hogql.ast import SelectQuery
+from typing import cast
+import posthoganalytics
 
+from posthog.hogql.ast import SelectQuery, And
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
-    StringJSONDatabaseField,
-    BooleanDatabaseField,
     LazyTable,
     LazyJoin,
     FieldOrTable,
+    LazyTableToAdd,
+    LazyJoinToAdd,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
 )
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
+from posthog.hogql.errors import ResolutionError
+from posthog.models.organization import Organization
+from posthog.schema import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -32,22 +38,24 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_persons_table(requested_fields: dict[str, list[str | int]], modifiers: HogQLQueryModifiers):
-    version = modifiers.personsArgMaxVersion
+def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+    version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.auto:
         version = PersonsArgMaxVersion.v1
-        # If selecting properties, use the faster v2 query. Otherwise v1 is faster.
-        for field_chain in requested_fields.values():
+        # If selecting properties, use the faster v2 query. Otherwise, v1 is faster.
+        for field_chain in join_or_table.fields_accessed.values():
             if field_chain[0] == "properties":
                 version = PersonsArgMaxVersion.v2
                 break
 
     if version == PersonsArgMaxVersion.v2:
-        from posthog.hogql.parser import parse_select
         from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
 
-        query = parse_select(
-            """
+        select = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version
                FROM raw_persons
@@ -55,52 +63,85 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
             )
             """
+            ),
         )
-        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
-        for field_name, field_chain in requested_fields.items():
+        for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
             # be "persons__id" if anything, but just in case, let's avoid duplicates.
             if field_name != "id":
-                query.select.append(
+                select.select.append(
                     ast.Alias(
                         alias=field_name,
                         expr=ast.Field(chain=field_chain),
                     )
                 )
-        return query
     else:
         select = argmax_select(
             table_name="raw_persons",
-            select_fields=requested_fields,
+            select_fields=join_or_table.fields_accessed,
             group_fields=["id"],
             argmax_field="version",
             deleted_field="is_deleted",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        return select
+
+    if context.modifiers.optimizeJoinedFilters:
+        extractor = WhereClauseExtractor(context)
+        extractor.add_local_tables(join_or_table)
+        where = extractor.get_inner_where(node)
+        if where and select.where:
+            select.where = And(exprs=[select.where, where])
+        elif where:
+            select.where = where
+
+    return select
 
 
 def join_with_persons_table(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, list[str | int]],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
-    join_expr.join_type = "INNER JOIN"
-    join_expr.alias = to_table
+    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
+
+    organization: Organization = context.team.organization if context.team else None
+    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
+    use_inner_join = (
+        posthoganalytics.feature_enabled(
+            "personless-events-not-supported",
+            str(context.team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(organization.id),
+                    "created_at": organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if organization and context.team
+        else False
+    )
+    if use_inner_join:
+        join_expr.join_type = "INNER JOIN"
+    else:
+        join_expr.join_type = "LEFT JOIN"
+
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "person_id"]),
-            right=ast.Field(chain=[to_table, "id"]),
-        )
+            left=ast.Field(chain=[join_to_add.from_table, "person_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "id"]),
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
@@ -122,8 +163,8 @@ class RawPersonsTable(Table):
 class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
-        return select_from_persons_table(requested_fields, context.modifiers)
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_persons_table(table_to_add, context, node)
 
     def to_printed_clickhouse(self, context):
         return "person"

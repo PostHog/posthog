@@ -1,21 +1,18 @@
-import copy
 from natsort import natsorted, ns
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
-from itertools import groupby
 from math import ceil
 from operator import itemgetter
 import threading
 from typing import Optional, Any
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
 
@@ -32,8 +29,9 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.query_runner import QueryRunner, RunnableQueryNode
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
@@ -44,6 +42,7 @@ from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
+from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
@@ -102,12 +101,14 @@ class TrendsQueryRunner(QueryRunner):
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
 
-        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "minute":
+            return REAL_TIME_INSIGHT_REFRESH_INTERVAL
+
         if interval == "hour" or (delta_days is not None and delta_days <= 7):
             # The interval is shorter for short-term insights
-            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+            return REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-        return refresh_frequency
+        return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     def to_query(self) -> ast.SelectUnionQuery:
         queries = []
@@ -151,38 +152,25 @@ class TrendsQueryRunner(QueryRunner):
         time_frame: Optional[str],
         series_index: int,
         breakdown_value: Optional[str | int] = None,
-        compare: Optional[Compare] = None,
+        compare_value: Optional[Compare] = None,
+        include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            series = self.query.series[series_index]
-
-            # TODO: Add support for DataWarehouseNode
-            if isinstance(series, DataWarehouseNode):
-                raise Exception("DataWarehouseNode is not supported for actors query")
-
-            if compare == Compare.previous:
-                query_date_range = self.query_previous_date_range
-
-                delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
-                if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-                    relative_delta = relativedelta(**delta_mappings)
-                    parsed_dt = parser.isoparse(time_frame)
-                    parse_dt_with_relative_delta = parsed_dt - relative_delta
-                    time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-            else:
-                query_date_range = self.query_date_range
-
-            query_builder = TrendsQueryBuilder(
+            query_builder = TrendsActorsQueryBuilder(
                 trends_query=self.query,
                 team=self.team,
-                query_date_range=query_date_range,
-                series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                # actors related args
+                time_frame=time_frame,
+                series_index=series_index,
+                breakdown_value=breakdown_value,
+                compare_value=compare_value,
+                include_recordings=include_recordings,
             )
 
-            query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))
+            query = query_builder.build_actors_query()
 
         return query
 
@@ -194,7 +182,7 @@ class TrendsQueryRunner(QueryRunner):
         # Days
         res_days: Optional[list[DayItem]] = (
             None
-            if self._trends_display.should_aggregate_values()
+            if self._trends_display.is_total_value()
             else [
                 DayItem(
                     label=format_label_date(value, self.query_date_range.interval_name),
@@ -346,19 +334,17 @@ class TrendsQueryRunner(QueryRunner):
             raise errors[0]
 
         # Flatten res and timings
-        res = []
+        returned_results: list[list[dict[str, Any]]] = []
         for result in res_matrix:
             if isinstance(result, list):
-                res.extend(result)
-            else:
-                res.append(result)
+                returned_results.append(result)
+            elif isinstance(result, dict):
+                returned_results.append([result])
 
-        timings = []
-        for result in timings_matrix:
-            if isinstance(result, list):
-                timings.extend(result)
-            else:
-                timings.append(result)
+        timings: list[QueryTiming] = []
+        for timing in timings_matrix:
+            if isinstance(timing, list):
+                timings.extend(timing)
 
         if (
             self.query.trendsFilter is not None
@@ -366,16 +352,33 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.formula != ""
         ):
             with self.timings.measure("apply_formula"):
-                res = self.apply_formula(self.query.trendsFilter.formula, res)
+                has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
+                if has_compare:
+                    current_results = returned_results[: len(returned_results) // 2]
+                    previous_results = returned_results[len(returned_results) // 2 :]
+
+                    final_result = self.apply_formula(
+                        self.query.trendsFilter.formula, current_results
+                    ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
+                else:
+                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+        else:
+            final_result = []
+            for result in returned_results:
+                if isinstance(result, list):
+                    final_result.extend(result)
+                elif isinstance(result, dict):
+                    raise ValueError("This should not happen")
 
         return TrendsQueryResponse(
-            results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
+            results=final_result,
+            timings=timings,
+            hogql=response_hogql,
+            modifiers=self.modifiers,
+            error=". ".join(debug_errors),
         )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
-        if response.results is None:
-            return []
-
         def get_value(name: str, val: Any):
             if name not in ["date", "total", "breakdown_value"]:
                 raise Exception("Column not found in hogql results")
@@ -405,7 +408,7 @@ class TrendsQueryRunner(QueryRunner):
                         [
                             item.strftime(
                                 "%Y-%m-%d{}".format(
-                                    " %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""
+                                    " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
                                 )
                             )
                             for item in get_value("date", val)
@@ -444,7 +447,9 @@ class TrendsQueryRunner(QueryRunner):
                     ],
                     "days": [
                         item.strftime(
-                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
+                            "%Y-%m-%d{}".format(
+                                " %H:%M:%S" if self.query_date_range.interval_name in ("hour", "minute") else ""
+                            )
                         )
                         for item in get_value("date", val)
                     ],
@@ -524,6 +529,20 @@ class TrendsQueryRunner(QueryRunner):
 
                     series_object["breakdown_value"] = remapped_label
 
+            if self.query.samplingFactor and self.query.samplingFactor != 1:
+                factor = self.query.samplingFactor
+                math = series_object.get("action", {}).get("math")
+                if "count" in series_object:
+                    series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
+                if "aggregated_value" in series_object:
+                    series_object["aggregated_value"] = correct_result_for_sampling(
+                        series_object["aggregated_value"], factor, math
+                    )
+                if "data" in series_object:
+                    series_object["data"] = [
+                        correct_result_for_sampling(value, factor, math) for value in series_object["data"]
+                    ]
+
             res.append(series_object)
         return res
 
@@ -590,7 +609,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_order=index,
                 is_previous_period_series=None,
                 overriden_query=None,
-                aggregate_values=self._trends_display.should_aggregate_values(),
+                aggregate_values=self._trends_display.is_total_value(),
             )
             for index, series in enumerate(self.query.series)
         ]
@@ -620,7 +639,7 @@ class TrendsQueryRunner(QueryRunner):
                             series_order=series.series_order,
                             is_previous_period_series=series.is_previous_period_series,
                             overriden_query=copied_query,
-                            aggregate_values=self._trends_display.should_aggregate_values(),
+                            aggregate_values=self._trends_display.is_total_value(),
                         )
                     )
             series_with_extras = updated_series
@@ -634,71 +653,113 @@ class TrendsQueryRunner(QueryRunner):
                         series_order=series.series_order,
                         is_previous_period_series=False,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
+            for series in series_with_extras:
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
                         series_order=series.series_order,
                         is_previous_period_series=True,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
             series_with_extras = updated_series
 
         return series_with_extras
 
-    def apply_formula(self, formula: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def apply_formula(
+        self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
+    ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
-        is_total_value = self._trends_display.should_aggregate_values()
+        is_total_value = self._trends_display.is_total_value()
 
         if len(results) == 0:
             return []
 
+        # The "all" cohort makes us do special handling (basically we run a separate query per cohort,
+        # search for leftjoin_conjoined in self.setup_series). Here we undo the damage.
+        if (
+            has_breakdown
+            and self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+            and isinstance(self.query.breakdownFilter.breakdown, list)
+            and "all" in self.query.breakdownFilter.breakdown
+            and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and not in_breakdown_clause
+            and self.query.trendsFilter
+            and self.query.trendsFilter.formula
+        ):
+            cohort_count = len(self.query.breakdownFilter.breakdown)
+
+            if len(results) % cohort_count == 0:
+                results_per_cohort = len(results) // cohort_count
+                conjoined_results = []
+                for i in range(cohort_count):
+                    cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
+                    cohort_results = self.apply_formula(
+                        self.query.trendsFilter.formula, cohort_series, in_breakdown_clause=True
+                    )
+                    conjoined_results.append(cohort_results)
+                results = conjoined_results
+            else:
+                raise ValueError("Number of results is not divisible by breakdowns count")
+
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
-            keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
-            try:
-                sorted_results = natsorted(
-                    results, key=lambda x: tuple(str(itemgetter(k)(x)) for k in keys), alg=ns.IGNORECASE
-                )
-            except Exception:
-                sorted_results = results
+            keys = ["breakdown_value"] if has_breakdown else ["compare_label"]
+
+            all_breakdown_values = set()
+            for result in results:
+                if isinstance(result, list):
+                    for item in result:
+                        all_breakdown_values.add(itemgetter(*keys)(item))
+
+            # sort the results so that the breakdown values are in the correct order
+            sorted_breakdown_values = natsorted(list(all_breakdown_values), alg=ns.IGNORECASE)
 
             computed_results = []
-            for _key, group in groupby(sorted_results, key=itemgetter(*keys)):
-                results_group = list(group)
-                # compare queries are executed separately and some breakdown values might be missing in a group
-                # we need to fill them up so that series are correctly attributed to formula letters
-                if has_compare:
-                    for idx in range(0, len(self.query.series)):
-                        if any(result["action"]["order"] == idx for result in results_group):
-                            continue
-
-                        # add the missing result
-                        base_result = copy.deepcopy(results_group[0])
-                        base_result["label"] = f"filler for {idx} - {base_result['breakdown_value']}"
-                        if is_total_value:
-                            base_result["aggregated_value"] = 0
-                        else:
-                            base_result["data"] = [0] * len(base_result["data"])
-                        base_result["count"] = 0
-                        base_result["action"]["order"] = idx
-                        results_group.append(base_result)
-
-                    results_group = sorted(results_group, key=lambda x: x["action"]["order"])
-
-                computed_results.append(self.apply_formula_to_results_group(results_group, formula, is_total_value))
+            for breakdown_value in sorted_breakdown_values:
+                any_result: Optional[dict[str, Any]] = None
+                for result in results:
+                    matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
+                    if matching_result:
+                        any_result = matching_result[0]
+                        break
+                if not any_result:
+                    continue
+                row_results = []
+                for result in results:
+                    matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
+                    if matching_result:
+                        row_results.append(matching_result[0])
+                    else:
+                        row_results.append(
+                            {
+                                "label": f"filler for {breakdown_value}",
+                                "data": [0] * len(results[0][0].get("data") or any_result.get("data") or []),
+                                "count": 0,
+                                "aggregated_value": 0,
+                                "action": None,
+                                "breakdown_value": any_result.get("breakdown_value"),
+                                "compare_label": any_result.get("compare_label"),
+                                "days": any_result.get("days"),
+                            }
+                        )
+                new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)
+                computed_results.append(new_result)
 
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
             return sorted(computed_results, key=itemgetter("count"), reverse=True)
         else:
-            return [self.apply_formula_to_results_group(results, formula, aggregate_values=is_total_value)]
+            return [
+                self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
+            ]
 
     @staticmethod
     def apply_formula_to_results_group(
@@ -825,21 +886,21 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
-        updated_query: TrendsQuery = super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
         if (
-            updated_query.breakdownFilter
-            and updated_query.breakdownFilter.breakdown_limit
-            and updated_query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdown_limit
+            and self.query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
         ):
             # Remove too high breakdown limit for display on the dashboard
-            updated_query.breakdownFilter.breakdown_limit = None
+            self.query.breakdownFilter.breakdown_limit = None
 
         if (
-            updated_query.trendsFilter is not None
-            and updated_query.trendsFilter.compare
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.compare
             and dashboard_filter.date_from == "all"
         ):
-            updated_query.trendsFilter.compare = False
-
-        return updated_query
+            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
+            # we should disable `compare` _no matter how_ we arrived at the final executed query
+            self.query.trendsFilter.compare = False

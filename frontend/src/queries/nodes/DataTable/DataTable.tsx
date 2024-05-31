@@ -38,6 +38,7 @@ import {
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -61,7 +62,7 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
-import { EventType } from '~/types'
+import { EventType, InsightLogicProps } from '~/types'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -86,23 +87,20 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({
-    uniqueKey,
-    query,
-    setQuery,
-    context,
-    cachedResults,
-    dataNodeLogicKey,
-}: DataTableProps): JSX.Element {
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
-
+    const insightProps: InsightLogicProps = context?.insightProps || {
+        dashboardItemId: `new-AdHoc.${dataKey}`,
+        dataNodeCollectionId: dataKey,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataNodeLogicKey ?? dataKey,
+        key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
+        alwaysRefresh: context?.alwaysRefresh,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -122,7 +120,7 @@ export function DataTable({
         query,
         vizKey: vizKey,
         dataKey: dataKey,
-        dataNodeLogicKey,
+        dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(

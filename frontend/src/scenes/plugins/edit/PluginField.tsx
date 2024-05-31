@@ -1,11 +1,10 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
-import { UploadField } from 'scenes/plugins/edit/UploadField'
 
 function JsonConfigField(props: {
     onChange?: (value: any) => void
@@ -37,10 +36,12 @@ export function PluginField({
     value,
     onChange,
     fieldConfig,
+    disabled,
 }: {
     value?: any
     onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
+    disabled?: boolean
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
     if (
@@ -57,6 +58,7 @@ export function PluginField({
                     onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
+                disabled={disabled}
             >
                 Reset secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
             </LemonButton>
@@ -64,9 +66,24 @@ export function PluginField({
     }
 
     return fieldConfig.type === 'attachment' ? (
-        <UploadField value={value} onChange={onChange} />
+        <>
+            {value?.name ? <span>Selected file: {value.name}</span> : null}
+            <LemonFileInput
+                accept="*"
+                multiple={false}
+                onChange={(files) => onChange?.(files[0])}
+                value={value?.size ? [value] : []}
+                showUploadedFiles={false}
+            />
+        </>
     ) : fieldConfig.type === 'string' ? (
-        <LemonInput value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
+        <LemonInput
+            value={value}
+            onChange={onChange}
+            autoFocus={editingSecret}
+            className="ph-no-capture"
+            disabled={disabled}
+        />
     ) : fieldConfig.type === 'json' ? (
         <JsonConfigField value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
     ) : fieldConfig.type === 'choice' ? (
@@ -78,6 +95,7 @@ export function PluginField({
             options={fieldConfig.choices.map((choice) => {
                 return { label: choice, value: choice }
             })}
+            disabled={disabled}
         />
     ) : (
         <strong className="text-danger">

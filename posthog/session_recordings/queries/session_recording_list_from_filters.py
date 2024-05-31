@@ -92,29 +92,6 @@ class SessionRecordingListFromFilters:
     def ttl_days(self):
         return ttl_days(self._team)
 
-    @cached_property
-    def _event_predicates(self):
-        event_exprs: list[ast.Expr] = []
-        event_names: set[int | str] = set()
-
-        for entity in self._filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
-                event_names.update([ae for ae in action.get_step_events() if ae not in event_names])
-            else:
-                if entity.id and entity.id not in event_names:
-                    event_names.add(entity.id)
-
-            # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
-            entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
-
-            if entity.property_groups:
-                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay"))
-
-            event_exprs.append(ast.And(exprs=entity_exprs))
-
-        return event_exprs, list(event_names)
-
     def run(self) -> SessionRecordingQueryResult:
         query = parse_select(
             self.BASE_QUERY,
@@ -164,7 +141,7 @@ class SessionRecordingListFromFilters:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["s", "max_last_timestamp"]),
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=self._filter.date_to),
                 )
             )
@@ -178,9 +155,15 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        (event_where_exprs, _) = self._event_predicates
-        if event_where_exprs:
-            exprs.append(ast.Or(exprs=event_where_exprs))
+        if self._filter.entities:
+            events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=events_sub_query,
+                )
+            )
 
         if self._filter.property_groups:
             # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
@@ -255,17 +238,117 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        (_, event_names) = self._event_predicates
-        if event_names:
+        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+
+
+class EventsSubQuery:
+    _team: Team
+    _filter: SessionRecordingsFilter
+    _ttl_days: int
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+        self._team = team
+        self._filter = filter
+        self._ttl_days = ttl_days
+
+    @cached_property
+    def _event_predicates(self):
+        event_exprs: list[ast.Expr] = []
+        event_names: set[int | str] = set()
+
+        for entity in self._filter.entities:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
+            else:
+                if entity.id and entity.id not in event_names:
+                    event_names.add(entity.id)
+
+            # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
+            entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
+
+            if entity.property_groups:
+                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay_entity"))
+
+            event_exprs.append(ast.And(exprs=entity_exprs))
+
+        return event_exprs, list(event_names)
+
+    def get_query(self):
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._where_predicates(),
+            having=self._having_predicates(),
+            group_by=[ast.Field(chain=["$session_id"])],
+        )
+
+    def _where_predicates(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.Call(
+                name="notEmpty",
+                args=[ast.Field(chain=["$session_id"])],
+            ),
+            # regardless of any other filters limit between TTL and current time
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self._ttl_days)),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Call(name="now", args=[]),
+            ),
+        ]
+
+        # TRICKY: we're adding a buffer to the date range to ensure we get all the events
+        # you can start sending us events before the session starts
+        if self._filter.date_from:
             exprs.append(
-                ast.Call(
-                    name="hasAll",
-                    args=[
-                        ast.Call(name="groupUniqArray", args=[ast.Field(chain=["events", "event"])]),
-                        # KLUDGE: sorting only so that snapshot tests are consistent
-                        ast.Constant(value=sorted(event_names)),
-                    ],
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=self._filter.date_from - timedelta(minutes=2)),
                 )
             )
 
-        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+        # but we don't want to include events after date_to if provided
+        if self._filter.date_to:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=self._filter.date_to),
+                )
+            )
+
+        (event_where_exprs, _) = self._event_predicates
+        if event_where_exprs:
+            exprs.append(ast.Or(exprs=event_where_exprs))
+
+        if self._filter.session_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Constant(value="`$session_id`"),
+                    right=ast.Constant(value=self._filter.session_ids),
+                )
+            )
+
+        return ast.And(exprs=exprs)
+
+    def _having_predicates(self) -> ast.Expr:
+        (_, event_names) = self._event_predicates
+
+        if event_names:
+            return ast.Call(
+                name="hasAll",
+                args=[
+                    ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
+                    # KLUDGE: sorting only so that snapshot tests are consistent
+                    ast.Constant(value=sorted(event_names)),
+                ],
+            )
+
+        return ast.Constant(value=True)

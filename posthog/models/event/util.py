@@ -22,7 +22,7 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
 
-ZERO_DATE = timezone.datetime(1970, 1, 1)
+ZERO_DATE = dt.datetime(1970, 1, 1)
 
 
 def create_event(
@@ -30,22 +30,22 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[timezone.datetime, str]] = None,
+    timestamp: Optional[Union[dt.datetime, str]] = None,
     properties: Optional[dict] = None,
     elements: Optional[list[Element]] = None,
     person_id: Optional[uuid.UUID] = None,
     person_properties: Optional[dict] = None,
-    person_created_at: Optional[Union[timezone.datetime, str]] = None,
+    person_created_at: Optional[Union[dt.datetime, str]] = None,
     group0_properties: Optional[dict] = None,
     group1_properties: Optional[dict] = None,
     group2_properties: Optional[dict] = None,
     group3_properties: Optional[dict] = None,
     group4_properties: Optional[dict] = None,
-    group0_created_at: Optional[Union[timezone.datetime, str]] = None,
-    group1_created_at: Optional[Union[timezone.datetime, str]] = None,
-    group2_created_at: Optional[Union[timezone.datetime, str]] = None,
-    group3_created_at: Optional[Union[timezone.datetime, str]] = None,
-    group4_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group0_created_at: Optional[Union[dt.datetime, str]] = None,
+    group1_created_at: Optional[Union[dt.datetime, str]] = None,
+    group2_created_at: Optional[Union[dt.datetime, str]] = None,
+    group3_created_at: Optional[Union[dt.datetime, str]] = None,
+    group4_created_at: Optional[Union[dt.datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
 ) -> str:
     if properties is None:
@@ -91,7 +91,7 @@ def create_event(
 
 
 def format_clickhouse_timestamp(
-    raw_timestamp: Optional[Union[timezone.datetime, str]],
+    raw_timestamp: Optional[Union[dt.datetime, str]],
     default=None,
 ) -> str:
     if default is None:
@@ -124,6 +124,7 @@ def bulk_create_events(
     params: dict[str, Any] = {}
     for index, event in enumerate(events):
         datetime64_default_timestamp = timezone.now().astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
+        _timestamp = event.get("_timestamp") or dt.datetime.now()
         timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
@@ -162,7 +163,7 @@ def bulk_create_events(
                 %(group4_created_at_{i})s,
                 %(person_mode_{i})s,
                 %(created_at_{i})s,
-                now(),
+                %(_timestamp_{i})s,
                 0
             )""".format(i=index)
         )
@@ -258,6 +259,7 @@ def bulk_create_events(
             "group4_created_at": (
                 event["group4_created_at"] if event.get("group4_created_at") else datetime64_default_timestamp
             ),
+            "_timestamp": _timestamp,
             "person_mode": person_mode,
         }
 
@@ -362,7 +364,7 @@ def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
 
 
 def get_agg_events_with_groups_count_for_teams_and_period(
-    team_ids: list[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+    team_ids: list[Union[str, int]], begin: dt.datetime, end: dt.datetime
 ) -> int:
     result = sync_execute(
         """

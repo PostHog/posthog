@@ -152,11 +152,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         return pluginConfigs
                     }
 
+                    const { __enabled: enabled, ...config } = pluginConfigChanges
                     const formData = getPluginConfigFormData(
                         editingPlugin.config_schema,
                         editingPlugin.pluginConfig?.config,
-                        pluginConfigChanges
+                        config
                     )
+                    formData.append('enabled', Boolean(enabled).toString())
 
                     if (!editingPlugin.pluginConfig?.enabled) {
                         formData.append('order', values.nextPluginOrder.toString())

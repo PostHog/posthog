@@ -24,6 +24,8 @@ import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
+import { ActionManager } from './worker/ingestion/action-manager'
+import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
@@ -78,7 +80,6 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
 
@@ -238,6 +239,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -279,6 +281,8 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     eventsProcessor: EventsProcessor
+    actionManager: ActionManager
+    actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
     // geoip database, setup in workers
@@ -311,7 +315,6 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
-    sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -423,6 +426,7 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
+    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -509,6 +513,9 @@ export type VMMethods = {
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
+// Helper when ensuring that a required method is implemented
+export type VMMethodsConcrete = Required<VMMethods>
+
 export enum AlertLevel {
     P0 = 0,
     P1 = 1,
@@ -552,13 +559,18 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+export interface ProductFeature {
+    key: string
+    name: string
+}
+
 /** Raw Organization row from database. */
 export interface RawOrganization {
     id: string
     name: string
     created_at: string
     updated_at: string
-    available_features: string[]
+    available_product_features: ProductFeature[]
 }
 
 /** Usable Team model. */
@@ -573,6 +585,9 @@ export interface Team {
     session_recording_opt_in: boolean
     ingested_event: boolean
     person_display_name_properties: string[] | null
+    test_account_filters:
+        | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
+        | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -663,20 +678,9 @@ export interface ClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-/** Event in a database-agnostic shape, AKA an ingestion event.
- * This is what should be passed around most of the time in the plugin server.
+/** Event structure before initial ingestion.
+ * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
  */
-interface BaseIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-    elementsList: Element[]
-}
-
-/** Ingestion event before saving, BaseIngestionEvent without elementsList */
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -686,11 +690,25 @@ export interface PreIngestionEvent {
     timestamp: ISOTimestamp
 }
 
-/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+/** Parsed event structure after initial ingestion.
+ * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
+ */
+
+export interface PostIngestionEvent extends PreIngestionEvent {
+    elementsList?: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
+
+    groups?: Record<
+        string,
+        {
+            key: string
+            type: string
+            index: number
+            properties: Properties
+        }
+    >
 }
 
 export interface DeadLetterQueueEvent {
@@ -931,8 +949,6 @@ export enum StringMatching {
 }
 
 export interface ActionStep {
-    id: number
-    action_id: number
     tag_name: string | null
     text: string | null
     /** @default StringMatching.Exact */
@@ -944,9 +960,32 @@ export interface ActionStep {
     url: string | null
     /** @default StringMatching.Contains */
     url_matching: StringMatching | null
-    name: string | null
     event: string | null
     properties: PropertyFilter[] | null
+}
+
+// subset of EntityFilter
+export interface PluginConfigFilterBase {
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
+    type: 'events'
+}
+
+export interface PluginConfigFilterActions extends PluginConfigFilterBase {
+    type: 'actions'
+}
+
+export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
+
+export interface PluginConfigFilters {
+    events?: PluginConfigFilterEvents[]
+    actions?: PluginConfigFilterActions[]
+    filter_test_accounts?: boolean
 }
 
 /** Raw Action row from database. */
@@ -963,12 +1002,13 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
-    bytecode?: any[]
-    bytecode_error?: string
+    steps_json: ActionStep[] | null
+    bytecode: any[] | null
+    bytecode_error: string | null
 }
 
 /** Usable Action model. */
-export interface Action extends RawAction {
+export interface Action extends Omit<RawAction, 'steps_json'> {
     steps: ActionStep[]
     hooks: Hook[]
 }
@@ -1138,4 +1178,24 @@ export type RawClickhouseHeatmapEvent = {
     timestamp: string
     type: string
     team_id: number
+}
+
+export interface HookPayload {
+    hook: Pick<Hook, 'id' | 'event' | 'target'>
+
+    data: {
+        eventUuid: string
+        event: string
+        teamId: TeamId
+        distinctId: string
+        properties: Properties
+        timestamp: ISOTimestamp
+        elementsList?: Element[]
+
+        person: {
+            uuid: string
+            properties: Properties
+            created_at: ISOTimestamp | null
+        }
+    }
 }

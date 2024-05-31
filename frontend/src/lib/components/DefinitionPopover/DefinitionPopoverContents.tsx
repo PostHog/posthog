@@ -20,7 +20,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
@@ -258,10 +258,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         )
     }
     if (isDataWarehouse) {
-        const _definition = definition as DataWarehouseTableType
-        const columnOptions = _definition.columns.map((column) => ({
-            label: column.key + ' (' + column.type + ')',
-            value: column.key,
+        const _definition = definition as DataWarehouseTableForInsight
+        const columnOptions = Object.values(_definition.fields).map((column) => ({
+            label: column.name + ' (' + column.type + ')',
+            value: column.name,
         }))
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
 

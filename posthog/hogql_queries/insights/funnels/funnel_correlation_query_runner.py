@@ -831,7 +831,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
                 action = Action.objects.get(pk=int(entity.id), team=self.context.team)
-                events.update(action.get_step_events())
+                events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:
                     events.add(entity.event)

@@ -1,14 +1,10 @@
-from posthog.models import Action, ActionStep, Element, Organization
+from posthog.models import Action, Element, Organization
 from posthog.models.event import Selector
 from posthog.test.base import BaseTest
 
 
 def _create_action(team, steps):
-    action = Action.objects.create(team=team)
-    for step in steps:
-        ActionStep.objects.create(action=action, **step)
-
-    return action
+    return Action.objects.create(team=team, steps_json=steps)
 
 
 # :TODO: Move ee/clickhouse/models/test/test_action.py here
@@ -136,9 +132,13 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             _create_person(distinct_ids=["whatever"], team=self.team)
             # _create_person(distinct_ids=["whatever2"], team=self.team)
 
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
-            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {"event": "$autocapture", "href": "/a-url", "selector": "a"},
+                    {"event": "$autocapture", "href": "/a-url-2"},
+                ],
+            )
 
             team2 = Organization.objects.bootstrap(None)[2]
             event1_uuid = _create_event(
@@ -255,13 +255,16 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def test_with_href_contains(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
 
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                href="/a-url",
-                href_matching="contains",
-                selector="a",
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "href": "/a-url",
+                        "href_matching": "contains",
+                        "selector": "a",
+                    }
+                ],
             )
 
             event1_uuid = _create_event(
@@ -346,12 +349,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                selector="a.nav-link.active",
-                tag_name="a",
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "selector": "a.nav-link.active",
+                        "tag_name": "a",
+                    }
+                ],
             )
             event1_uuid = _create_event(
                 event="$autocapture",
@@ -380,12 +386,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_with_class_with_escaped_symbols(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                selector="a.na\\v-link:b@ld",
-                tag_name="a",
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "selector": "a.na\\v-link:b@ld",
+                        "tag_name": "a",
+                    }
+                ],
             )
             event1_uuid = _create_event(
                 event="$autocapture",
@@ -403,12 +412,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_with_class_with_escaped_slashes(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                selector="a.na\\\\\\v-link:b@ld",
-                tag_name="a",
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "selector": "a.na\\\\\\v-link:b@ld",
+                        "tag_name": "a",
+                    }
+                ],
             )
             event1_uuid = _create_event(
                 event="$autocapture",
@@ -426,11 +438,14 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_with_tag_matching_class_selector(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                selector="input",  # This should ONLY match the tag, but not a class named `input`
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "selector": "input",  # This should ONLY match the tag, but not a class named `input`
+                    }
+                ],
             )
             event_matching_tag_uuid = _create_event(
                 event="$autocapture",
@@ -464,8 +479,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
             )
 
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(event="$autocapture", action=action1, selector='[data-id="123"]')
+            action1 = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": '[data-id="123"]'}]
+            )
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 1)
@@ -473,37 +489,49 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action1,
-                url="https://posthog.com/feedback/123",
-                url_matching=ActionStep.EXACT,
-            )
-            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
-
-            action2 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action2,
-                url="123",
-                url_matching=ActionStep.CONTAINS,
+            action1 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "url": "https://posthog.com/feedback/123",
+                        "url_matching": "exact",
+                    },
+                    {"event": "$autocapture", "href": "/a-url-2"},
+                ],
             )
 
-            action3 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action3,
-                url="https://posthog.com/%/123",
-                url_matching=ActionStep.CONTAINS,
+            action2 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "url": "123",
+                        "url_matching": "contains",
+                    }
+                ],
             )
 
-            action4 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=action4,
-                url="/123$",
-                url_matching=ActionStep.REGEX,
+            action3 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "url": "https://posthog.com/%/123",
+                        "url_matching": "contains",
+                    }
+                ],
+            )
+
+            action4 = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "url": "/123$",
+                        "url_matching": "regex",
+                    }
+                ],
             )
 
             _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
@@ -539,12 +567,16 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(len(events), 1)
 
         def test_person_with_different_distinct_id(self):
-            action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(
-                action=action_watch_movie,
-                tag_name="a",
-                href="/movie",
-                event="$autocapture",
+            action_watch_movie = Action.objects.create(
+                team=self.team,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "tag_name": "a",
+                        "href": "/movie",
+                        "event": "$autocapture",
+                    }
+                ],
             )
 
             _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
@@ -567,8 +599,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(events[0].distinct_id, "is_now_signed_up")
 
         def test_no_person_leakage_from_other_teams(self):
-            action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(action=action_watch_movie, event="user signed up")
+            action_watch_movie = Action.objects.create(
+                team=self.team, name="watched movie", steps_json=[{"event": "user signed up"}]
+            )
 
             _create_person(distinct_ids=["anonymous_user"], team=self.team)
             _create_event(event="user signed up", distinct_id="anonymous_user", team=self.team)
@@ -589,11 +622,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             _create_person(team=self.team, distinct_ids=["person2"])
             _create_event(event="$pageview", distinct_id="person1", team=self.team)
             _create_event(event="$pageview", distinct_id="person2", team=self.team)
-            action = Action.objects.create(name="pageview", team=self.team)
-            ActionStep.objects.create(
-                action=action,
-                event="$pageview",
-                properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+            action = Action.objects.create(
+                name="pageview",
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$pageview",
+                        "properties": [{"key": "$browser", "value": "Chrome", "type": "person"}],
+                    }
+                ],
             )
             events = _get_events_for_action(action)
             self.assertEqual(len(events), 1)
@@ -613,10 +650,12 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_empty_selector_same_as_null(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            action_null_selector = Action.objects.create(team=self.team)
-            ActionStep.objects.create(action=action_null_selector, event="$autocapture", selector=None)
-            action_empty_selector = Action.objects.create(team=self.team)
-            ActionStep.objects.create(action=action_empty_selector, event="$autocapture", selector="")
+            action_null_selector = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": None}]
+            )
+            action_empty_selector = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": ""}]
+            )
             event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,

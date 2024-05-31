@@ -62,6 +62,36 @@ describe('Dashboard', () => {
         }
     })
 
+    it('Shows details when moving between dashboard and insight', () => {
+        const dashboardName = randomString('Dashboard')
+        const insightName = randomString('DashboardInsight')
+
+        // Create and visit a dashboard to get it into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+        insight.create(insightName)
+
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        // Put a second insight on a dashboard, visit both insights a few times to make sure they show data still
+        const insightNameOther = randomString('DashboardInsightOther')
+        insight.create(insightNameOther)
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        cy.reload()
+
+        cy.get('.CardMeta h4').contains(insightName).click()
+        cy.get('.Insight').should('contain', 'Last modified').wait(500)
+        cy.go('back').wait(500)
+
+        cy.get('.CardMeta h4').contains(insightNameOther).click()
+        cy.get('.Insight').should('contain', 'Last modified').wait(500)
+        cy.go('back').wait(500)
+
+        cy.get('.CardMeta h4').contains(insightName).click()
+        cy.get('.Insight').should('contain', 'Last modified').wait(500)
+    })
+
     it('Dashboard filter updates are correctly isolated for one insight on multiple dashboards', () => {
         const dashboardAName = randomString('Dashboard with insight A')
         const dashboardBName = randomString('Dashboard with insight B')
@@ -91,7 +121,6 @@ describe('Dashboard', () => {
         cy.get('[data-attr=date-filter]').contains('No date range override')
         cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days')
         // Override the time range on dashboard B
-        cy.get('button').contains('Edit filters').click()
         cy.get('[data-attr=date-filter]').contains('No date range override').click()
         cy.get('div').contains('Yesterday').should('exist').click()
         cy.get('[data-attr=date-filter]').contains('Yesterday')

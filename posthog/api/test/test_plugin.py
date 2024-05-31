@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -58,6 +58,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+    def _create_plugin(
+        self, additional_params: Optional[dict] = None, expected_status: int = status.HTTP_201_CREATED
+    ) -> dict:
+        params = {"url": "https://github.com/PostHog/helloworldplugin"}
+
+        if additional_params:
+            params.update(additional_params)
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        return response.json()
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_create_plugin_auth(self, mock_get, mock_reload):
@@ -997,23 +1013,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
         self.assertIsNotNone(plugin_config.web_token)  # type: ignore
-
-        # If we're trying to create another plugin config for the same plugin, just return the original
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"bar": "moop"}),
-            },
-            format="multipart",
-        )
-        self.assertEqual(response.json()["id"], plugin_config_id)
 
         response = self.client.patch(
             f"/api/plugin_config/{plugin_config_id}",
@@ -1039,11 +1043,48 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "filters": None,
             },
         )
-        self.client.delete(f"/api/plugin_config/{plugin_config_id}")
+
+        # If we're trying to create another plugin config for the same plugin, we get a new one
+        response = self.client.post(
+            "/api/plugin_config/",
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "second"}),
+                "name": "name in ui",
+                "description": "description in ui",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        plugin_config_id2 = response.json()["id"]
+        self.assertNotEqual(plugin_config_id, plugin_config_id2)
         self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginConfig.objects.count(), 1)
+        self.assertEqual(PluginConfig.objects.count(), 2)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": plugin_config_id2,
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": {"bar": "second"},
+                "error": None,
+                "team_id": self.team.pk,
+                "plugin_info": mock.ANY,  # Not testing plugin serialization in this endpoint
+                "delivery_rate_24h": None,
+                "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
+                "filters": None,
+            },
+        )
 
     def test_create_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
@@ -1359,6 +1400,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "filters": None,
             },
         )
 
@@ -1388,6 +1430,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "filters": None,
             },
         )
 
@@ -1419,6 +1462,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1467,6 +1511,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
+                    "filters": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1483,6 +1528,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
+                    "filters": None,
                 },
             ],
         )
@@ -1606,6 +1652,49 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
             ]
         )
+
+    def test_update_plugin_filters(self, mock_get, mock_reload):
+        plugin = self._create_plugin()
+        response = self.client.post(
+            "/api/plugin_config/",
+            {
+                "plugin": plugin["id"],
+                "enabled": True,
+                "order": 0,
+                "filters": json.dumps(
+                    {
+                        "events": [
+                            {
+                                "name": "$pageview",
+                                "properties": [],
+                                "type": "events",
+                            }
+                        ]
+                    }
+                ),
+            },
+            format="multipart",
+        )
+
+        assert response.status_code == 201, response.json()
+
+        assert response.json()["filters"] == {"events": [{"name": "$pageview", "properties": [], "type": "events"}]}
+
+    def test_update_plugin_filters_fails_for_bad_formatting(self, mock_get, mock_reload):
+        plugin = self._create_plugin()
+        response = self.client.post(
+            "/api/plugin_config/",
+            {
+                "plugin": plugin["id"],
+                "enabled": True,
+                "order": 0,
+                "filters": json.dumps({"events": "wrong"}),
+            },
+            format="multipart",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["code"] == "not_a_list"
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

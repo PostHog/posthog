@@ -222,7 +222,7 @@ export function FilterBasedCardContent({
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
-                    <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
+                    <InsightTimeoutState />
                 ) : apiErrored && !loading ? (
                     <InsightErrorState query={query} excludeDetail />
                 ) : (
@@ -283,7 +283,7 @@ function InsightCardInternal(
         if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         }
-        if (!hasFunnelResults) {
+        if (!hasFunnelResults && !apiErrored) {
             empty = true
         }
     }
@@ -323,7 +323,15 @@ function InsightCardInternal(
                 />
                 {insight.query ? (
                     <div className="InsightCard__viz">
-                        <Query query={insight.query} cachedResults={insight.result} readOnly />
+                        <Query
+                            query={insight.query}
+                            cachedResults={insight}
+                            context={{
+                                insightProps: insightLogicProps,
+                            }}
+                            readOnly
+                            stale={stale}
+                        />
                     </div>
                 ) : insight.filters?.insight ? (
                     <FilterBasedCardContent

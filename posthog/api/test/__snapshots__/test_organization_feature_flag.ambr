@@ -19,12 +19,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -49,8 +50,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -171,8 +171,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -258,7 +257,6 @@
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
          "posthog_dashboarditem"."created_at",
-         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."refreshing",
          "posthog_dashboarditem"."created_by_id",
          "posthog_dashboarditem"."is_sample",
@@ -268,6 +266,7 @@
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dashboard_id",
+         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
@@ -437,7 +436,6 @@
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
          "posthog_dashboarditem"."created_at",
-         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."refreshing",
          "posthog_dashboarditem"."created_by_id",
          "posthog_dashboarditem"."is_sample",
@@ -447,6 +445,7 @@
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dashboard_id",
+         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
@@ -612,7 +611,6 @@
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
          "posthog_dashboarditem"."created_at",
-         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."refreshing",
          "posthog_dashboarditem"."created_by_id",
          "posthog_dashboarditem"."is_sample",
@@ -622,6 +620,7 @@
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dashboard_id",
+         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
@@ -782,7 +781,6 @@
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
          "posthog_dashboarditem"."created_at",
-         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."refreshing",
          "posthog_dashboarditem"."created_by_id",
          "posthog_dashboarditem"."is_sample",
@@ -792,6 +790,7 @@
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dashboard_id",
+         "posthog_dashboarditem"."last_refresh",
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
@@ -1025,6 +1024,7 @@
          "posthog_survey"."description",
          "posthog_survey"."linked_flag_id",
          "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."type",
          "posthog_survey"."conditions",
          "posthog_survey"."questions",
@@ -1130,8 +1130,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -2010,12 +2009,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -2040,8 +2040,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -2158,12 +2157,13 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -2190,12 +2190,13 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -2222,12 +2223,12 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
