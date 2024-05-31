@@ -70,7 +70,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
@@ -149,7 +149,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
@@ -225,7 +225,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
@@ -301,7 +301,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person

@@ -6,8 +6,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
-import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { OnboardingProduct, ProductKey } from '~/types'
 
@@ -36,7 +36,7 @@ export default meta
 export const _OnboardingSDKs = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },
@@ -55,7 +55,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
 export const _OnboardingBilling = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingUnsubscribedJson,
             },
         },

@@ -105,6 +105,18 @@ class AsyncEventDeletion(AsyncDeletionProcess):
     def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
         if async_deletion.deletion_type == DeletionType.Team:
             return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
+        elif async_deletion.deletion_type == DeletionType.Person:
+            # `person_id` is deterministic, meaning it can be reused after a user marks the person
+            # for deletion. For that reason we only delete events that happened up to the point when
+            # the delete was requested.
+            return (
+                f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s) AND _timestamp <= %(timestamp{suffix})s",
+                {
+                    f"team_id{suffix}": async_deletion.team_id,
+                    f"key{suffix}": async_deletion.key,
+                    f"timestamp{suffix}": async_deletion.created_at,
+                },
+            )
         else:
             return (
                 f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s)",

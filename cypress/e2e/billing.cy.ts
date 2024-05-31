@@ -2,14 +2,14 @@ const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 describe('Billing', () => {
     beforeEach(() => {
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing.json' })
 
         cy.visit('/organization/billing')
     })
 
     it('Show and submit unsubscribe survey', () => {
-        cy.intercept('/api/billing-v2/deactivate?products=product_analytics', {
-            fixture: 'api/billing-v2/billing-v2-unsubscribed-product-analytics.json',
+        cy.intercept('/api/billing/deactivate?products=product_analytics', {
+            fixture: 'api/billing/billing-unsubscribed-product-analytics.json',
         }).as('unsubscribeProductAnalytics')
 
         cy.get('[data-attr=more-button]').first().click()
