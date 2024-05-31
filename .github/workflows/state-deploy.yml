@@ -66,10 +66,9 @@ jobs:
               uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
+                  repository: PostHog/charts
                   event_type: commit_state_update
-                  message: |
+                  client-payload: |
                       {"message":{
                         "values": {
                           "image": {
