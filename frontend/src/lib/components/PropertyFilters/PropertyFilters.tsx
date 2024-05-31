@@ -37,7 +37,7 @@ interface PropertyFiltersProps {
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
-    disabled?: boolean
+    disabledReason?: string
 }
 
 export function PropertyFilters({
@@ -64,7 +64,7 @@ export function PropertyFilters({
     errorMessages = null,
     propertyAllowList,
     allowRelativeDateOptions,
-    disabled = false,
+    disabledReason = undefined,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -130,7 +130,7 @@ export function PropertyFilters({
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
-                                    disabled={disabled}
+                                    disabledReason={disabledReason}
                                 />
                             </React.Fragment>
                         )

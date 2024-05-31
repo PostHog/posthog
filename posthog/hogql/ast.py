@@ -30,6 +30,63 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 
 @dataclass(kw_only=True)
+class Declaration(AST):
+    pass
+
+
+@dataclass(kw_only=True)
+class VariableAssignment(Declaration):
+    name: str
+    expr: Optional[Expr] = None
+    is_declaration: bool
+
+
+@dataclass(kw_only=True)
+class Statement(Declaration):
+    pass
+
+
+@dataclass(kw_only=True)
+class ExprStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class ReturnStatement(Statement):
+    expr: Optional[Expr]
+
+
+@dataclass(kw_only=True)
+class IfStatement(Statement):
+    expr: Expr
+    then: Statement
+    else_: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
+class WhileStatement(Statement):
+    expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class Function(Statement):
+    name: str
+    params: list[str]
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class Block(Statement):
+    declarations: list[Declaration]
+
+
+@dataclass(kw_only=True)
+class Program(AST):
+    declarations: list[Declaration]
+
+
+@dataclass(kw_only=True)
 class FieldAliasType(Type):
     alias: str
     type: Type
@@ -521,6 +578,11 @@ class ArrayAccess(Expr):
 @dataclass(kw_only=True)
 class Array(Expr):
     exprs: list[Expr]
+
+
+@dataclass(kw_only=True)
+class Dict(Expr):
+    items: list[tuple[Expr, Expr]]
 
 
 @dataclass(kw_only=True)

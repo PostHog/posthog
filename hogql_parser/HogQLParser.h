@@ -12,74 +12,64 @@
 class  HogQLParser : public antlr4::Parser {
 public:
   enum {
-    ADD = 1, AFTER = 2, ALIAS = 3, ALL = 4, ALTER = 5, AND = 6, ANTI = 7, 
-    ANY = 8, ARRAY = 9, AS = 10, ASCENDING = 11, ASOF = 12, AST = 13, ASYNC = 14, 
-    ATTACH = 15, BETWEEN = 16, BOTH = 17, BY = 18, CASE = 19, CAST = 20, 
-    CHECK = 21, CLEAR = 22, CLUSTER = 23, CODEC = 24, COHORT = 25, COLLATE = 26, 
-    COLUMN = 27, COMMENT = 28, CONSTRAINT = 29, CREATE = 30, CROSS = 31, 
-    CUBE = 32, CURRENT = 33, DATABASE = 34, DATABASES = 35, DATE = 36, DAY = 37, 
-    DEDUPLICATE = 38, DEFAULT = 39, DELAY = 40, DELETE = 41, DESC = 42, 
-    DESCENDING = 43, DESCRIBE = 44, DETACH = 45, DICTIONARIES = 46, DICTIONARY = 47, 
-    DISK = 48, DISTINCT = 49, DISTRIBUTED = 50, DROP = 51, ELSE = 52, END = 53, 
-    ENGINE = 54, EVENTS = 55, EXISTS = 56, EXPLAIN = 57, EXPRESSION = 58, 
-    EXTRACT = 59, FETCHES = 60, FINAL = 61, FIRST = 62, FLUSH = 63, FOLLOWING = 64, 
-    FOR = 65, FORMAT = 66, FREEZE = 67, FROM = 68, FULL = 69, FUNCTION = 70, 
-    GLOBAL = 71, GRANULARITY = 72, GROUP = 73, HAVING = 74, HIERARCHICAL = 75, 
-    HOUR = 76, ID = 77, IF = 78, ILIKE = 79, IN = 80, INDEX = 81, INF = 82, 
-    INJECTIVE = 83, INNER = 84, INSERT = 85, INTERVAL = 86, INTO = 87, IS = 88, 
-    IS_OBJECT_ID = 89, JOIN = 90, KEY = 91, KILL = 92, LAST = 93, LAYOUT = 94, 
-    LEADING = 95, LEFT = 96, LIFETIME = 97, LIKE = 98, LIMIT = 99, LIVE = 100, 
-    LOCAL = 101, LOGS = 102, MATERIALIZE = 103, MATERIALIZED = 104, MAX = 105, 
-    MERGES = 106, MIN = 107, MINUTE = 108, MODIFY = 109, MONTH = 110, MOVE = 111, 
-    MUTATION = 112, NAN_SQL = 113, NO = 114, NOT = 115, NULL_SQL = 116, 
-    NULLS = 117, OFFSET = 118, ON = 119, OPTIMIZE = 120, OR = 121, ORDER = 122, 
-    OUTER = 123, OUTFILE = 124, OVER = 125, PARTITION = 126, POPULATE = 127, 
-    PRECEDING = 128, PREWHERE = 129, PRIMARY = 130, PROJECTION = 131, QUARTER = 132, 
-    RANGE = 133, RELOAD = 134, REMOVE = 135, RENAME = 136, REPLACE = 137, 
-    REPLICA = 138, REPLICATED = 139, RIGHT = 140, ROLLUP = 141, ROW = 142, 
-    ROWS = 143, SAMPLE = 144, SECOND = 145, SELECT = 146, SEMI = 147, SENDS = 148, 
-    SET = 149, SETTINGS = 150, SHOW = 151, SOURCE = 152, START = 153, STOP = 154, 
-    SUBSTRING = 155, SYNC = 156, SYNTAX = 157, SYSTEM = 158, TABLE = 159, 
-    TABLES = 160, TEMPORARY = 161, TEST = 162, THEN = 163, TIES = 164, TIMEOUT = 165, 
-    TIMESTAMP = 166, TO = 167, TOP = 168, TOTALS = 169, TRAILING = 170, 
-    TRIM = 171, TRUNCATE = 172, TTL = 173, TYPE = 174, UNBOUNDED = 175, 
-    UNION = 176, UPDATE = 177, USE = 178, USING = 179, UUID = 180, VALUES = 181, 
-    VIEW = 182, VOLUME = 183, WATCH = 184, WEEK = 185, WHEN = 186, WHERE = 187, 
-    WINDOW = 188, WITH = 189, YEAR = 190, JSON_FALSE = 191, JSON_TRUE = 192, 
-    ESCAPE_CHAR_SINGLE = 193, ESCAPE_CHAR_DOUBLE = 194, IDENTIFIER = 195, 
-    FLOATING_LITERAL = 196, OCTAL_LITERAL = 197, DECIMAL_LITERAL = 198, 
-    HEXADECIMAL_LITERAL = 199, STRING_LITERAL = 200, ARROW = 201, ASTERISK = 202, 
-    BACKQUOTE = 203, BACKSLASH = 204, COLON = 205, COMMA = 206, CONCAT = 207, 
-    DASH = 208, DOLLAR = 209, DOT = 210, EQ_DOUBLE = 211, EQ_SINGLE = 212, 
-    GT_EQ = 213, GT = 214, HASH = 215, IREGEX_SINGLE = 216, IREGEX_DOUBLE = 217, 
-    LBRACE = 218, LBRACKET = 219, LPAREN = 220, LT_EQ = 221, LT = 222, NOT_EQ = 223, 
-    NOT_IREGEX = 224, NOT_REGEX = 225, NULLISH = 226, PERCENT = 227, PLUS = 228, 
-    QUERY = 229, QUOTE_DOUBLE = 230, QUOTE_SINGLE = 231, REGEX_SINGLE = 232, 
-    REGEX_DOUBLE = 233, RBRACE = 234, RBRACKET = 235, RPAREN = 236, SEMICOLON = 237, 
-    SLASH = 238, UNDERSCORE = 239, MULTI_LINE_COMMENT = 240, SINGLE_LINE_COMMENT = 241, 
-    WHITESPACE = 242
+    ALL = 1, AND = 2, ANTI = 3, ANY = 4, ARRAY = 5, AS = 6, ASCENDING = 7, 
+    ASOF = 8, BETWEEN = 9, BOTH = 10, BY = 11, CASE = 12, CAST = 13, COHORT = 14, 
+    COLLATE = 15, CROSS = 16, CUBE = 17, CURRENT = 18, DATE = 19, DAY = 20, 
+    DESC = 21, DESCENDING = 22, DISTINCT = 23, ELSE = 24, END = 25, EXTRACT = 26, 
+    FINAL = 27, FIRST = 28, FN = 29, FOLLOWING = 30, FOR = 31, FROM = 32, 
+    FULL = 33, GROUP = 34, HAVING = 35, HOUR = 36, ID = 37, IF = 38, ILIKE = 39, 
+    IN = 40, INF = 41, INNER = 42, INTERVAL = 43, IS = 44, JOIN = 45, KEY = 46, 
+    LAST = 47, LEADING = 48, LEFT = 49, LIKE = 50, LIMIT = 51, MINUTE = 52, 
+    MONTH = 53, NAN_SQL = 54, NOT = 55, NULL_SQL = 56, NULLS = 57, OFFSET = 58, 
+    ON = 59, OR = 60, ORDER = 61, OUTER = 62, OVER = 63, PARTITION = 64, 
+    PRECEDING = 65, PREWHERE = 66, QUARTER = 67, RANGE = 68, RETURN = 69, 
+    RIGHT = 70, ROLLUP = 71, ROW = 72, ROWS = 73, SAMPLE = 74, SECOND = 75, 
+    SELECT = 76, SEMI = 77, SETTINGS = 78, SUBSTRING = 79, THEN = 80, TIES = 81, 
+    TIMESTAMP = 82, TO = 83, TOP = 84, TOTALS = 85, TRAILING = 86, TRIM = 87, 
+    TRUNCATE = 88, UNBOUNDED = 89, UNION = 90, USING = 91, VAR = 92, WEEK = 93, 
+    WHEN = 94, WHERE = 95, WHILE = 96, WINDOW = 97, WITH = 98, YEAR = 99, 
+    ESCAPE_CHAR_COMMON = 100, IDENTIFIER = 101, FLOATING_LITERAL = 102, 
+    OCTAL_LITERAL = 103, DECIMAL_LITERAL = 104, HEXADECIMAL_LITERAL = 105, 
+    STRING_LITERAL = 106, ARROW = 107, ASTERISK = 108, BACKQUOTE = 109, 
+    BACKSLASH = 110, COLON = 111, COMMA = 112, CONCAT = 113, DASH = 114, 
+    DOLLAR = 115, DOT = 116, EQ_DOUBLE = 117, EQ_SINGLE = 118, GT_EQ = 119, 
+    GT = 120, HASH = 121, IREGEX_SINGLE = 122, IREGEX_DOUBLE = 123, LBRACE = 124, 
+    LBRACKET = 125, LPAREN = 126, LT_EQ = 127, LT = 128, NOT_EQ = 129, NOT_IREGEX = 130, 
+    NOT_REGEX = 131, NULLISH = 132, PERCENT = 133, PLUS = 134, QUERY = 135, 
+    QUOTE_DOUBLE = 136, QUOTE_SINGLE_TEMPLATE = 137, QUOTE_SINGLE_TEMPLATE_FULL = 138, 
+    QUOTE_SINGLE = 139, REGEX_SINGLE = 140, REGEX_DOUBLE = 141, RBRACE = 142, 
+    RBRACKET = 143, RPAREN = 144, SEMICOLON = 145, SLASH = 146, UNDERSCORE = 147, 
+    MULTI_LINE_COMMENT = 148, SINGLE_LINE_COMMENT = 149, WHITESPACE = 150, 
+    STRING_TEXT = 151, STRING_ESCAPE_TRIGGER = 152, FULL_STRING_TEXT = 153, 
+    FULL_STRING_ESCAPE_TRIGGER = 154
   };
 
   enum {
-    RuleSelect = 0, RuleSelectUnionStmt = 1, RuleSelectStmtWithParens = 2, 
-    RuleSelectStmt = 3, RuleWithClause = 4, RuleTopClause = 5, RuleFromClause = 6, 
-    RuleArrayJoinClause = 7, RuleWindowClause = 8, RulePrewhereClause = 9, 
-    RuleWhereClause = 10, RuleGroupByClause = 11, RuleHavingClause = 12, 
-    RuleOrderByClause = 13, RuleProjectionOrderByClause = 14, RuleLimitAndOffsetClause = 15, 
-    RuleOffsetOnlyClause = 16, RuleSettingsClause = 17, RuleJoinExpr = 18, 
-    RuleJoinOp = 19, RuleJoinOpCross = 20, RuleJoinConstraintClause = 21, 
-    RuleSampleClause = 22, RuleOrderExprList = 23, RuleOrderExpr = 24, RuleRatioExpr = 25, 
-    RuleSettingExprList = 26, RuleSettingExpr = 27, RuleWindowExpr = 28, 
-    RuleWinPartitionByClause = 29, RuleWinOrderByClause = 30, RuleWinFrameClause = 31, 
-    RuleWinFrameExtend = 32, RuleWinFrameBound = 33, RuleExpr = 34, RuleColumnTypeExpr = 35, 
-    RuleColumnExprList = 36, RuleColumnExpr = 37, RuleColumnArgList = 38, 
-    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleHogqlxTagElement = 41, 
-    RuleHogqlxTagAttribute = 42, RuleWithExprList = 43, RuleWithExpr = 44, 
-    RuleColumnIdentifier = 45, RuleNestedIdentifier = 46, RuleTableExpr = 47, 
-    RuleTableFunctionExpr = 48, RuleTableIdentifier = 49, RuleTableArgList = 50, 
-    RuleDatabaseIdentifier = 51, RuleFloatingLiteral = 52, RuleNumberLiteral = 53, 
-    RuleLiteral = 54, RuleInterval = 55, RuleKeyword = 56, RuleKeywordForAlias = 57, 
-    RuleAlias = 58, RuleIdentifier = 59, RuleEnumValue = 60, RulePlaceholder = 61
+    RuleProgram = 0, RuleDeclaration = 1, RuleExpression = 2, RuleVarDecl = 3, 
+    RuleVarAssignment = 4, RuleIdentifierList = 5, RuleStatement = 6, RuleExprStmt = 7, 
+    RuleIfStmt = 8, RuleWhileStmt = 9, RuleReturnStmt = 10, RuleFuncStmt = 11, 
+    RuleEmptyStmt = 12, RuleBlock = 13, RuleDict = 14, RuleKvPair = 15, 
+    RuleKvPairList = 16, RuleSelect = 17, RuleSelectUnionStmt = 18, RuleSelectStmtWithParens = 19, 
+    RuleSelectStmt = 20, RuleWithClause = 21, RuleTopClause = 22, RuleFromClause = 23, 
+    RuleArrayJoinClause = 24, RuleWindowClause = 25, RulePrewhereClause = 26, 
+    RuleWhereClause = 27, RuleGroupByClause = 28, RuleHavingClause = 29, 
+    RuleOrderByClause = 30, RuleProjectionOrderByClause = 31, RuleLimitAndOffsetClause = 32, 
+    RuleOffsetOnlyClause = 33, RuleSettingsClause = 34, RuleJoinExpr = 35, 
+    RuleJoinOp = 36, RuleJoinOpCross = 37, RuleJoinConstraintClause = 38, 
+    RuleSampleClause = 39, RuleOrderExprList = 40, RuleOrderExpr = 41, RuleRatioExpr = 42, 
+    RuleSettingExprList = 43, RuleSettingExpr = 44, RuleWindowExpr = 45, 
+    RuleWinPartitionByClause = 46, RuleWinOrderByClause = 47, RuleWinFrameClause = 48, 
+    RuleWinFrameExtend = 49, RuleWinFrameBound = 50, RuleExpr = 51, RuleColumnTypeExpr = 52, 
+    RuleColumnExprList = 53, RuleColumnExpr = 54, RuleColumnArgList = 55, 
+    RuleColumnArgExpr = 56, RuleColumnLambdaExpr = 57, RuleHogqlxTagElement = 58, 
+    RuleHogqlxTagAttribute = 59, RuleWithExprList = 60, RuleWithExpr = 61, 
+    RuleColumnIdentifier = 62, RuleNestedIdentifier = 63, RuleTableExpr = 64, 
+    RuleTableFunctionExpr = 65, RuleTableIdentifier = 66, RuleTableArgList = 67, 
+    RuleDatabaseIdentifier = 68, RuleFloatingLiteral = 69, RuleNumberLiteral = 70, 
+    RuleLiteral = 71, RuleInterval = 72, RuleKeyword = 73, RuleKeywordForAlias = 74, 
+    RuleAlias = 75, RuleIdentifier = 76, RuleEnumValue = 77, RulePlaceholder = 78, 
+    RuleString = 79, RuleTemplateString = 80, RuleStringContents = 81, RuleFullTemplateString = 82, 
+    RuleStringContentsFull = 83
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -99,6 +89,23 @@ public:
   antlr4::atn::SerializedATNView getSerializedATN() const override;
 
 
+  class ProgramContext;
+  class DeclarationContext;
+  class ExpressionContext;
+  class VarDeclContext;
+  class VarAssignmentContext;
+  class IdentifierListContext;
+  class StatementContext;
+  class ExprStmtContext;
+  class IfStmtContext;
+  class WhileStmtContext;
+  class ReturnStmtContext;
+  class FuncStmtContext;
+  class EmptyStmtContext;
+  class BlockContext;
+  class DictContext;
+  class KvPairContext;
+  class KvPairListContext;
   class SelectContext;
   class SelectUnionStmtContext;
   class SelectStmtWithParensContext;
@@ -160,7 +167,284 @@ public:
   class AliasContext;
   class IdentifierContext;
   class EnumValueContext;
-  class PlaceholderContext; 
+  class PlaceholderContext;
+  class StringContext;
+  class TemplateStringContext;
+  class StringContentsContext;
+  class FullTemplateStringContext;
+  class StringContentsFullContext; 
+
+  class  ProgramContext : public antlr4::ParserRuleContext {
+  public:
+    ProgramContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *EOF();
+    std::vector<DeclarationContext *> declaration();
+    DeclarationContext* declaration(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ProgramContext* program();
+
+  class  DeclarationContext : public antlr4::ParserRuleContext {
+  public:
+    DeclarationContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    VarDeclContext *varDecl();
+    StatementContext *statement();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  DeclarationContext* declaration();
+
+  class  ExpressionContext : public antlr4::ParserRuleContext {
+  public:
+    ExpressionContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    ColumnExprContext *columnExpr();
+    DictContext *dict();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ExpressionContext* expression();
+
+  class  VarDeclContext : public antlr4::ParserRuleContext {
+  public:
+    VarDeclContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *VAR();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *SEMICOLON();
+    antlr4::tree::TerminalNode *COLON();
+    antlr4::tree::TerminalNode *EQ_SINGLE();
+    ExpressionContext *expression();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  VarDeclContext* varDecl();
+
+  class  VarAssignmentContext : public antlr4::ParserRuleContext {
+  public:
+    VarAssignmentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *COLON();
+    antlr4::tree::TerminalNode *EQ_SINGLE();
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  VarAssignmentContext* varAssignment();
+
+  class  IdentifierListContext : public antlr4::ParserRuleContext {
+  public:
+    IdentifierListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  IdentifierListContext* identifierList();
+
+  class  StatementContext : public antlr4::ParserRuleContext {
+  public:
+    StatementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    ReturnStmtContext *returnStmt();
+    EmptyStmtContext *emptyStmt();
+    ExprStmtContext *exprStmt();
+    IfStmtContext *ifStmt();
+    WhileStmtContext *whileStmt();
+    FuncStmtContext *funcStmt();
+    VarAssignmentContext *varAssignment();
+    BlockContext *block();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StatementContext* statement();
+
+  class  ExprStmtContext : public antlr4::ParserRuleContext {
+  public:
+    ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ExprStmtContext* exprStmt();
+
+  class  IfStmtContext : public antlr4::ParserRuleContext {
+  public:
+    IfStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *IF();
+    antlr4::tree::TerminalNode *LPAREN();
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<StatementContext *> statement();
+    StatementContext* statement(size_t i);
+    antlr4::tree::TerminalNode *ELSE();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  IfStmtContext* ifStmt();
+
+  class  WhileStmtContext : public antlr4::ParserRuleContext {
+  public:
+    WhileStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *WHILE();
+    antlr4::tree::TerminalNode *LPAREN();
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *RPAREN();
+    StatementContext *statement();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  WhileStmtContext* whileStmt();
+
+  class  ReturnStmtContext : public antlr4::ParserRuleContext {
+  public:
+    ReturnStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *RETURN();
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ReturnStmtContext* returnStmt();
+
+  class  FuncStmtContext : public antlr4::ParserRuleContext {
+  public:
+    FuncStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FN();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *LPAREN();
+    antlr4::tree::TerminalNode *RPAREN();
+    BlockContext *block();
+    IdentifierListContext *identifierList();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  FuncStmtContext* funcStmt();
+
+  class  EmptyStmtContext : public antlr4::ParserRuleContext {
+  public:
+    EmptyStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  EmptyStmtContext* emptyStmt();
+
+  class  BlockContext : public antlr4::ParserRuleContext {
+  public:
+    BlockContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *LBRACE();
+    antlr4::tree::TerminalNode *RBRACE();
+    std::vector<DeclarationContext *> declaration();
+    DeclarationContext* declaration(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  BlockContext* block();
+
+  class  DictContext : public antlr4::ParserRuleContext {
+  public:
+    DictContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *LBRACE();
+    antlr4::tree::TerminalNode *RBRACE();
+    KvPairListContext *kvPairList();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  DictContext* dict();
+
+  class  KvPairContext : public antlr4::ParserRuleContext {
+  public:
+    KvPairContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
+    antlr4::tree::TerminalNode *COLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  KvPairContext* kvPair();
+
+  class  KvPairListContext : public antlr4::ParserRuleContext {
+  public:
+    KvPairListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<KvPairContext *> kvPair();
+    KvPairContext* kvPair(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  KvPairListContext* kvPairList();
 
   class  SelectContext : public antlr4::ParserRuleContext {
   public:
@@ -1175,7 +1459,7 @@ public:
 
     antlr4::tree::TerminalNode *TRIM();
     antlr4::tree::TerminalNode *LPAREN();
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *FROM();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RPAREN();
@@ -1191,6 +1475,15 @@ public:
     ColumnExprTagElementContext(ColumnExprContext *ctx);
 
     HogqlxTagElementContext *hogqlxTagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprTemplateStringContext : public ColumnExprContext {
+  public:
+    ColumnExprTemplateStringContext(ColumnExprContext *ctx);
+
+    TemplateStringContext *templateString();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1494,7 +1787,7 @@ public:
     virtual size_t getRuleIndex() const override;
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *EQ_SINGLE();
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *LBRACE();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
@@ -1803,10 +2096,7 @@ public:
   public:
     KeywordContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *AFTER();
-    antlr4::tree::TerminalNode *ALIAS();
     antlr4::tree::TerminalNode *ALL();
-    antlr4::tree::TerminalNode *ALTER();
     antlr4::tree::TerminalNode *AND();
     antlr4::tree::TerminalNode *ANTI();
     antlr4::tree::TerminalNode *ANY();
@@ -1814,125 +2104,58 @@ public:
     antlr4::tree::TerminalNode *AS();
     antlr4::tree::TerminalNode *ASCENDING();
     antlr4::tree::TerminalNode *ASOF();
-    antlr4::tree::TerminalNode *AST();
-    antlr4::tree::TerminalNode *ASYNC();
-    antlr4::tree::TerminalNode *ATTACH();
     antlr4::tree::TerminalNode *BETWEEN();
     antlr4::tree::TerminalNode *BOTH();
     antlr4::tree::TerminalNode *BY();
     antlr4::tree::TerminalNode *CASE();
     antlr4::tree::TerminalNode *CAST();
-    antlr4::tree::TerminalNode *CHECK();
-    antlr4::tree::TerminalNode *CLEAR();
-    antlr4::tree::TerminalNode *CLUSTER();
-    antlr4::tree::TerminalNode *CODEC();
+    antlr4::tree::TerminalNode *COHORT();
     antlr4::tree::TerminalNode *COLLATE();
-    antlr4::tree::TerminalNode *COLUMN();
-    antlr4::tree::TerminalNode *COMMENT();
-    antlr4::tree::TerminalNode *CONSTRAINT();
-    antlr4::tree::TerminalNode *CREATE();
     antlr4::tree::TerminalNode *CROSS();
     antlr4::tree::TerminalNode *CUBE();
     antlr4::tree::TerminalNode *CURRENT();
-    antlr4::tree::TerminalNode *DATABASE();
-    antlr4::tree::TerminalNode *DATABASES();
     antlr4::tree::TerminalNode *DATE();
-    antlr4::tree::TerminalNode *DEDUPLICATE();
-    antlr4::tree::TerminalNode *DEFAULT();
-    antlr4::tree::TerminalNode *DELAY();
-    antlr4::tree::TerminalNode *DELETE();
-    antlr4::tree::TerminalNode *DESCRIBE();
     antlr4::tree::TerminalNode *DESC();
     antlr4::tree::TerminalNode *DESCENDING();
-    antlr4::tree::TerminalNode *DETACH();
-    antlr4::tree::TerminalNode *DICTIONARIES();
-    antlr4::tree::TerminalNode *DICTIONARY();
-    antlr4::tree::TerminalNode *DISK();
     antlr4::tree::TerminalNode *DISTINCT();
-    antlr4::tree::TerminalNode *DISTRIBUTED();
-    antlr4::tree::TerminalNode *DROP();
     antlr4::tree::TerminalNode *ELSE();
     antlr4::tree::TerminalNode *END();
-    antlr4::tree::TerminalNode *ENGINE();
-    antlr4::tree::TerminalNode *EVENTS();
-    antlr4::tree::TerminalNode *EXISTS();
-    antlr4::tree::TerminalNode *EXPLAIN();
-    antlr4::tree::TerminalNode *EXPRESSION();
     antlr4::tree::TerminalNode *EXTRACT();
-    antlr4::tree::TerminalNode *FETCHES();
     antlr4::tree::TerminalNode *FINAL();
     antlr4::tree::TerminalNode *FIRST();
-    antlr4::tree::TerminalNode *FLUSH();
     antlr4::tree::TerminalNode *FOR();
     antlr4::tree::TerminalNode *FOLLOWING();
-    antlr4::tree::TerminalNode *FORMAT();
-    antlr4::tree::TerminalNode *FREEZE();
     antlr4::tree::TerminalNode *FROM();
     antlr4::tree::TerminalNode *FULL();
-    antlr4::tree::TerminalNode *FUNCTION();
-    antlr4::tree::TerminalNode *GLOBAL();
-    antlr4::tree::TerminalNode *GRANULARITY();
     antlr4::tree::TerminalNode *GROUP();
     antlr4::tree::TerminalNode *HAVING();
-    antlr4::tree::TerminalNode *HIERARCHICAL();
     antlr4::tree::TerminalNode *ID();
     antlr4::tree::TerminalNode *IF();
     antlr4::tree::TerminalNode *ILIKE();
     antlr4::tree::TerminalNode *IN();
-    antlr4::tree::TerminalNode *INDEX();
-    antlr4::tree::TerminalNode *INJECTIVE();
     antlr4::tree::TerminalNode *INNER();
-    antlr4::tree::TerminalNode *INSERT();
     antlr4::tree::TerminalNode *INTERVAL();
-    antlr4::tree::TerminalNode *INTO();
     antlr4::tree::TerminalNode *IS();
-    antlr4::tree::TerminalNode *IS_OBJECT_ID();
     antlr4::tree::TerminalNode *JOIN();
-    antlr4::tree::TerminalNode *JSON_FALSE();
-    antlr4::tree::TerminalNode *JSON_TRUE();
     antlr4::tree::TerminalNode *KEY();
-    antlr4::tree::TerminalNode *KILL();
     antlr4::tree::TerminalNode *LAST();
-    antlr4::tree::TerminalNode *LAYOUT();
     antlr4::tree::TerminalNode *LEADING();
     antlr4::tree::TerminalNode *LEFT();
-    antlr4::tree::TerminalNode *LIFETIME();
     antlr4::tree::TerminalNode *LIKE();
     antlr4::tree::TerminalNode *LIMIT();
-    antlr4::tree::TerminalNode *LIVE();
-    antlr4::tree::TerminalNode *LOCAL();
-    antlr4::tree::TerminalNode *LOGS();
-    antlr4::tree::TerminalNode *MATERIALIZE();
-    antlr4::tree::TerminalNode *MATERIALIZED();
-    antlr4::tree::TerminalNode *MAX();
-    antlr4::tree::TerminalNode *MERGES();
-    antlr4::tree::TerminalNode *MIN();
-    antlr4::tree::TerminalNode *MODIFY();
-    antlr4::tree::TerminalNode *MOVE();
-    antlr4::tree::TerminalNode *MUTATION();
-    antlr4::tree::TerminalNode *NO();
     antlr4::tree::TerminalNode *NOT();
     antlr4::tree::TerminalNode *NULLS();
     antlr4::tree::TerminalNode *OFFSET();
     antlr4::tree::TerminalNode *ON();
-    antlr4::tree::TerminalNode *OPTIMIZE();
     antlr4::tree::TerminalNode *OR();
     antlr4::tree::TerminalNode *ORDER();
     antlr4::tree::TerminalNode *OUTER();
-    antlr4::tree::TerminalNode *OUTFILE();
     antlr4::tree::TerminalNode *OVER();
     antlr4::tree::TerminalNode *PARTITION();
-    antlr4::tree::TerminalNode *POPULATE();
     antlr4::tree::TerminalNode *PRECEDING();
     antlr4::tree::TerminalNode *PREWHERE();
-    antlr4::tree::TerminalNode *PRIMARY();
     antlr4::tree::TerminalNode *RANGE();
-    antlr4::tree::TerminalNode *RELOAD();
-    antlr4::tree::TerminalNode *REMOVE();
-    antlr4::tree::TerminalNode *RENAME();
-    antlr4::tree::TerminalNode *REPLACE();
-    antlr4::tree::TerminalNode *REPLICA();
-    antlr4::tree::TerminalNode *REPLICATED();
+    antlr4::tree::TerminalNode *RETURN();
     antlr4::tree::TerminalNode *RIGHT();
     antlr4::tree::TerminalNode *ROLLUP();
     antlr4::tree::TerminalNode *ROW();
@@ -1940,24 +2163,10 @@ public:
     antlr4::tree::TerminalNode *SAMPLE();
     antlr4::tree::TerminalNode *SELECT();
     antlr4::tree::TerminalNode *SEMI();
-    antlr4::tree::TerminalNode *SENDS();
-    antlr4::tree::TerminalNode *SET();
     antlr4::tree::TerminalNode *SETTINGS();
-    antlr4::tree::TerminalNode *SHOW();
-    antlr4::tree::TerminalNode *SOURCE();
-    antlr4::tree::TerminalNode *START();
-    antlr4::tree::TerminalNode *STOP();
     antlr4::tree::TerminalNode *SUBSTRING();
-    antlr4::tree::TerminalNode *SYNC();
-    antlr4::tree::TerminalNode *SYNTAX();
-    antlr4::tree::TerminalNode *SYSTEM();
-    antlr4::tree::TerminalNode *TABLE();
-    antlr4::tree::TerminalNode *TABLES();
-    antlr4::tree::TerminalNode *TEMPORARY();
-    antlr4::tree::TerminalNode *TEST();
     antlr4::tree::TerminalNode *THEN();
     antlr4::tree::TerminalNode *TIES();
-    antlr4::tree::TerminalNode *TIMEOUT();
     antlr4::tree::TerminalNode *TIMESTAMP();
     antlr4::tree::TerminalNode *TOTALS();
     antlr4::tree::TerminalNode *TRAILING();
@@ -1965,18 +2174,9 @@ public:
     antlr4::tree::TerminalNode *TRUNCATE();
     antlr4::tree::TerminalNode *TO();
     antlr4::tree::TerminalNode *TOP();
-    antlr4::tree::TerminalNode *TTL();
-    antlr4::tree::TerminalNode *TYPE();
     antlr4::tree::TerminalNode *UNBOUNDED();
     antlr4::tree::TerminalNode *UNION();
-    antlr4::tree::TerminalNode *UPDATE();
-    antlr4::tree::TerminalNode *USE();
     antlr4::tree::TerminalNode *USING();
-    antlr4::tree::TerminalNode *UUID();
-    antlr4::tree::TerminalNode *VALUES();
-    antlr4::tree::TerminalNode *VIEW();
-    antlr4::tree::TerminalNode *VOLUME();
-    antlr4::tree::TerminalNode *WATCH();
     antlr4::tree::TerminalNode *WHEN();
     antlr4::tree::TerminalNode *WHERE();
     antlr4::tree::TerminalNode *WINDOW();
@@ -2038,7 +2238,7 @@ public:
   public:
     EnumValueContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     NumberLiteralContext *numberLiteral();
 
@@ -2063,6 +2263,84 @@ public:
   };
 
   PlaceholderContext* placeholder();
+
+  class  StringContext : public antlr4::ParserRuleContext {
+  public:
+    StringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *STRING_LITERAL();
+    TemplateStringContext *templateString();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContext* string();
+
+  class  TemplateStringContext : public antlr4::ParserRuleContext {
+  public:
+    TemplateStringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *QUOTE_SINGLE_TEMPLATE();
+    antlr4::tree::TerminalNode *QUOTE_SINGLE();
+    std::vector<StringContentsContext *> stringContents();
+    StringContentsContext* stringContents(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  TemplateStringContext* templateString();
+
+  class  StringContentsContext : public antlr4::ParserRuleContext {
+  public:
+    StringContentsContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *STRING_ESCAPE_TRIGGER();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+    antlr4::tree::TerminalNode *STRING_TEXT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContentsContext* stringContents();
+
+  class  FullTemplateStringContext : public antlr4::ParserRuleContext {
+  public:
+    FullTemplateStringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *QUOTE_SINGLE_TEMPLATE_FULL();
+    antlr4::tree::TerminalNode *EOF();
+    std::vector<StringContentsFullContext *> stringContentsFull();
+    StringContentsFullContext* stringContentsFull(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  FullTemplateStringContext* fullTemplateString();
+
+  class  StringContentsFullContext : public antlr4::ParserRuleContext {
+  public:
+    StringContentsFullContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FULL_STRING_ESCAPE_TRIGGER();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+    antlr4::tree::TerminalNode *FULL_STRING_TEXT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContentsFullContext* stringContentsFull();
 
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;

@@ -209,6 +209,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -302,6 +305,9 @@
             "anyOf": [
                 {
                     "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -1564,7 +1570,7 @@
             ],
             "type": "string"
         },
-        "ClickhouseQueryStatus": {
+        "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
                 "active_cpu_time": {
@@ -4144,6 +4150,9 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -4230,6 +4239,42 @@
                     "description": "Types of returned columns",
                     "items": {},
                     "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "HogQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "results": {},
+                "stdout": {
+                    "type": "string"
                 }
             },
             "required": ["results"],
@@ -4538,7 +4583,7 @@
             "type": "string"
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -5009,6 +5054,7 @@
                 "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
+                "HogQuery",
                 "HogQLQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
@@ -5748,6 +5794,21 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "results": {},
+                        "stdout": {
+                            "type": "string"
                         }
                     },
                     "required": ["results"],
@@ -6640,6 +6701,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -6733,7 +6797,7 @@
                     "type": "boolean"
                 },
                 "query_progress": {
-                    "$ref": "#/definitions/ClickhouseQueryStatus"
+                    "$ref": "#/definitions/ClickhouseQueryProgress"
                 },
                 "results": {},
                 "start_time": {

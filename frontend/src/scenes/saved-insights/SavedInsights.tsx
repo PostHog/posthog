@@ -113,6 +113,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: IconBrackets,
         inMenu: true,
     },
+    [InsightType.HOG]: {
+        name: 'Hog',
+        description: 'Use Hog to query your data.',
+        icon: IconHogQL,
+        inMenu: true,
+    },
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
@@ -312,6 +318,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Top Clicks',
         description: 'View top clicks for a website',
         icon: IconTrends,
+        inMenu: true,
+    },
+    [NodeKind.HogQuery]: {
+        name: 'Hog',
+        description: 'Hog query',
+        icon: IconHogQL,
         inMenu: true,
     },
 }

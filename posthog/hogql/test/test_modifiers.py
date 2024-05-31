@@ -2,7 +2,12 @@ from typing import NamedTuple
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode, MaterializationMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    MaterializationMode,
+)
 from posthog.test.base import BaseTest
 from django.test import override_settings
 
@@ -238,3 +243,26 @@ class TestModifiers(BaseTest):
             "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"
             in response.clickhouse
         )
+
+    def test_optimize_joined_filters(self):
+        # no optimizations
+        response = execute_hogql_query(
+            f"select event from events where person.properties.$browser ilike '%Chrome%'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+        )
+        # "ilike" shows up once in the response
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("ilike") == 1
+
+        # with optimizations
+        response = execute_hogql_query(
+            f"select event from events where person.properties.$browser ilike '%Chrome%'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+        )
+        # "ilike" shows up twice in the response
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("ilike") == 2
