@@ -9,6 +9,7 @@ import { BatchExportRun, GroupedBatchExportRuns } from '~/types'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
 import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 
+const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
     id: string
 }
@@ -65,9 +66,9 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     })),
     reducers({
         dateRange: [
-            { from: '-2d', to: 'now' } as { from: string; to: string },
+            { from: DEFAULT_DATE_FROM, to: null } as { from: string; to: string | null },
             {
-                setDateRange: (_, { from, to }) => ({ from: from ?? '-2d', to: to ?? 'now' }),
+                setDateRange: (_, { from, to }) => ({ from: from ?? DEFAULT_DATE_FROM, to: to }),
             },
         ],
         usingLatestRuns: [

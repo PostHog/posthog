@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { dateMapping } from 'lib/utils'
 import { BatchExportRunIcon } from 'scenes/batch_exports/components'
 import { isRunInProgress } from 'scenes/batch_exports/utils'
 
@@ -67,7 +66,6 @@ export function RunsDateSelection({ id }: { id: string }): JSX.Element {
             dateFrom={dateRange.from}
             disabledReason={usingLatestRuns ? 'Turn off "Show latest runs" to filter by data interval' : undefined}
             onChange={(from, to) => setDateRange(from, to)}
-            dateOptions={dateMapping}
             allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             makeLabel={(key) => (
                 <>
