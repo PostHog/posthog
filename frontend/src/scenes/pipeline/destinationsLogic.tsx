@@ -8,6 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
+    HogFunctionTemplateType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -16,6 +17,7 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { HOG_FUNCTION_TEMPLATES } from './hogfunctions/templates/hog-templates'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
@@ -116,12 +118,29 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
+
+        hogFunctionTemplates: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplates: async () => {
+                    return HOG_FUNCTION_TEMPLATES.reduce((acc, template) => {
+                        acc[template.id] = template
+                        return acc
+                    }, {} as Record<string, HogFunctionTemplateType>)
+                },
+            },
+        ],
     })),
     selectors({
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
+            (s) => [
+                s.pluginsLoading,
+                s.pluginConfigsLoading,
+                s.batchExportConfigsLoading,
+                s.hogFunctionTemplatesLoading,
+            ],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionTemplatesLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionTemplatesLoading,
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.user],
@@ -183,5 +202,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         actions.loadPlugins()
         actions.loadPluginConfigs()
         actions.loadBatchExports()
+        actions.loadHogFunctionTemplates()
     }),
 ])

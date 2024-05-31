@@ -519,7 +519,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
-    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,

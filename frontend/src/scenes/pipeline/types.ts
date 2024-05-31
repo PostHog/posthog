@@ -1,6 +1,7 @@
 import {
     BatchExportConfiguration,
     BatchExportService,
+    HogFunctionType,
     PipelineStage,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -9,6 +10,7 @@ import {
 export enum PipelineBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
+    HogFunction = 'hog_function',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -39,6 +41,12 @@ export interface BatchExportBasedNode extends PipelineNodeBase {
     interval: BatchExportConfiguration['interval']
 }
 
+export interface HogFunctionBasedNode extends PipelineNodeBase {
+    backend: PipelineBackend.HogFunction
+    id: string
+    config: HogFunctionType
+}
+
 // Stage: Transformations
 
 export interface Transformation extends PluginBasedNode {
@@ -55,7 +63,11 @@ export interface WebhookDestination extends PluginBasedNode {
 export interface BatchExportDestination extends BatchExportBasedNode {
     stage: PipelineStage.Destination
 }
-export type Destination = BatchExportDestination | WebhookDestination
+export interface FunctionDestination extends HogFunctionBasedNode {
+    stage: PipelineStage.Destination
+    interval: 'realtime'
+}
+export type Destination = BatchExportDestination | WebhookDestination | FunctionDestination
 
 // Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {

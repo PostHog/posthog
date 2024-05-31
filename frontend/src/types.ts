@@ -4037,6 +4037,8 @@ export type OnboardingProduct = {
 
 export type HogFunctionType = {
     id: string
+    name: string
+    description: string
     inputs_schema: string
     inputs: string
     hog: string
@@ -4047,7 +4049,9 @@ export type HogFunctionType = {
 
 export type HogFunctionTemplateType = {
     id: string
-    inputs_schema: string
+    name: string
+    description: string
     hog: string
+    inputs_schema?: string
     filters?: PluginConfigFilters | null
 }

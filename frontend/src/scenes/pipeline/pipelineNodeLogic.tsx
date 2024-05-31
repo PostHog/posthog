@@ -24,7 +24,11 @@ type BatchExportNodeId = {
     backend: PipelineBackend.BatchExport
     id: string
 }
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
+type HogFunctionNodeId = {
+    backend: PipelineBackend.HogFunction
+    id: string
+}
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -61,17 +65,25 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 },
             ],
         ],
-        node: [
-            (_, p) => [p.id],
-            (id): PipelineNodeLimitedType => {
-                return typeof id === 'string'
-                    ? { backend: PipelineBackend.BatchExport, id: id }
-                    : { backend: PipelineBackend.Plugin, id: id }
-            },
-        ],
+
         nodeBackend: [
             (_, p) => [p.id],
-            (id): PipelineBackend => (typeof id === 'string' ? PipelineBackend.BatchExport : PipelineBackend.Plugin),
+            (id): PipelineBackend => {
+                return typeof id === 'string'
+                    ? id.indexOf('hog-') === 0
+                        ? PipelineBackend.HogFunction
+                        : PipelineBackend.BatchExport
+                    : PipelineBackend.Plugin
+            },
+        ],
+        node: [
+            (s, p) => [p.id, s.nodeBackend],
+            (id, nodeBackend): PipelineNodeLimitedType => {
+                return {
+                    backend: nodeBackend,
+                    id: id,
+                }
+            },
         ],
         tabs: [
             (s) => [s.nodeBackend],
