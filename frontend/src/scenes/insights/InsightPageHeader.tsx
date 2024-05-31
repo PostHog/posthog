@@ -134,7 +134,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
-                                            {insight.short_id && <AlertsButton insightShortId={insight.short_id} />}
+                                            <AlertsButton insight={insight} />
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
