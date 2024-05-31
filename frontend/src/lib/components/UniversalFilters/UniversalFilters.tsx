@@ -180,7 +180,7 @@ const UniversalFilterRow = ({
                         pageKey={pageKey}
                         propertyFilters={filter.properties}
                         onChange={(properties) => onChange({ ...filter, properties })}
-                        disablePopover={true}
+                        disablePopover
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
