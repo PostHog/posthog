@@ -44,7 +44,7 @@ export function UniversalFilters({
     console.log(pageKey)
     const logic = universalFiltersLogic({ pageKey, group, onChange })
     const { filterGroup } = useValues(logic)
-    const { addFilterGroup, replaceGroupValue, addGroupFilter } = useActions(logic)
+    const { addFilterGroup, replaceGroupValue, removeGroupValue, addGroupFilter } = useActions(logic)
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -70,10 +70,10 @@ export function UniversalFilters({
                 ) : (
                     <UniversalFilterRow
                         key={index}
+                        pageKey={`${pageKey}.filter_${index}`}
                         filter={filterOrGroup}
                         index={index}
-                        pageKey={`${pageKey}.filter_${index}`}
-                        onRemove={() => console.log('TODO: implement remove')}
+                        onRemove={() => removeGroupValue(index)}
                         onChange={() => {
                             console.log('TODO: implement update')
                         }}

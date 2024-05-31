@@ -1,11 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FilterLogicalOperator } from '~/types'
+import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { createDefaultPropertyFilter, taxonomicFilterTypeToPropertyFilterType } from '../PropertyFilters/utils'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalFilterGroup, UniversalFilterValue } from './UniversalFilters'
+import { UniversalFilterGroup, UniversalFilterValue, UniversalGroupFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFilterGroup = {
@@ -38,7 +38,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         setGroupType: (type: FilterLogicalOperator) => ({ type }),
         setGroupValues: (newValues: UniversalFilterGroup['values']) => ({ newValues }),
-        replaceGroupValue: (index: number, group: UniversalFilterGroup) => ({ index, group }),
+        replaceGroupValue: (index: number, value: AnyPropertyFilter | ActionFilter | UniversalGroupFilterValue) => ({
+            index,
+            value,
+        }),
+        removeGroupValue: (index: number) => ({ index }),
 
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
@@ -63,9 +67,14 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 setGroupValues: (state, { newValues }) => {
                     return { ...state, values: newValues }
                 },
-                replaceGroupValue: (state, { index, group }) => {
+                replaceGroupValue: (state, { index, value }) => {
                     const newValues = [...state.values]
-                    newValues.splice(index, 1, group)
+                    newValues.splice(index, 1, value)
+                    return { ...state, values: newValues }
+                },
+                removeGroupValue: (state, { index }) => {
+                    const newValues = [...state.values]
+                    newValues.splice(index, 1)
                     return { ...state, values: newValues }
                 },
             },
@@ -112,6 +121,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         setGroupType: () => props.onChange(values.filterGroup),
         setGroupValues: () => props.onChange(values.filterGroup),
         replaceGroupValue: () => props.onChange(values.filterGroup),
+        removeGroupValue: () => props.onChange(values.filterGroup),
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
