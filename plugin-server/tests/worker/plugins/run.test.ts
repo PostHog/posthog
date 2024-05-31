@@ -357,7 +357,12 @@ describe('runComposeWebhook', () => {
               Object {
                 "__pluginMeta": true,
                 "config": Object {
+                  "headers": Object {
+                    "X-PostHog-Event": "$autocapture",
+                    "X-PostHog-Project": "2",
+                  },
                   "input": "The event $autocapture was triggered!",
+                  "json": "{\\"email\\":\\"test@posthog.com\\"}",
                 },
               },
             ]
