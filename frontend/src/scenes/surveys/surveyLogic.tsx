@@ -475,6 +475,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
             actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
+            actions.setSurveyValue('events', NEW_SURVEY.events)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
