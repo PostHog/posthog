@@ -454,8 +454,7 @@ async function formatConfigTemplates(
         event,
         team,
         siteUrl: hub.SITE_URL || 'http://localhost:8000',
-        // TODO: What about pluginConfig.name ?
-        sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
+        sourceName: pluginConfig.name || pluginConfig.plugin?.name || 'Unnamed plugin',
         sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
     })
 

@@ -413,6 +413,7 @@ export enum PluginMethod {
 export interface PluginConfig {
     id: number
     team_id: TeamId
+    name?: string
     plugin?: Plugin
     plugin_id: PluginId
     enabled: boolean
