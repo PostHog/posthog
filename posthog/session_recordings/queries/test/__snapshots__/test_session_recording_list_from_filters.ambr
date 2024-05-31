@@ -1343,7 +1343,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -1398,7 +1398,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -1490,7 +1490,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
      FROM person
@@ -1545,7 +1545,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
      FROM person
@@ -1601,7 +1601,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE equals(person_distinct_id2.team_id, 2)
                                                                                                                                                                                                                                                                                                                                                                                                                             GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                                                                                                                                                                                                                                                                                                                                                                         INNER JOIN
+                                                                                                                                                                                                                                                                                                                                                                                                                         LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
@@ -1653,7 +1653,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE equals(person_distinct_id2.team_id, 2)
                                                                                                                                                                                                                                                                                                                                                                                                                             GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                                                                                                                                                                                                                                                                                                                                                                         INNER JOIN
+                                                                                                                                                                                                                                                                                                                                                                                                                         LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
@@ -1926,7 +1926,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -2278,7 +2278,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -2376,7 +2376,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
      FROM person
@@ -3807,7 +3807,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -3894,7 +3894,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
      FROM person
@@ -3981,7 +3981,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
@@ -4068,7 +4068,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  INNER JOIN
+  LEFT JOIN
     (SELECT person.id AS id,
             nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
      FROM person
