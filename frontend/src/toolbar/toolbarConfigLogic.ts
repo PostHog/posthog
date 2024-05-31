@@ -113,7 +113,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
 
-            const scopes = ['project:read', 'action:write', 'feature_flag:read'].join(' ')
+            // TODO: Keep this in sync with the scopes in the backend
+            const scopes = ['project:read', 'action:write', 'feature_flag:read', 'heatmaps:read', 'user:read'].join(' ')
             window.location.href = `${values.apiURL}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${scopes}&client_id=toolbar`
         },
 
