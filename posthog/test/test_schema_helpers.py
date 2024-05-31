@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     EventPropertyFilter,
+    EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     FunnelStepReference,
@@ -168,3 +169,32 @@ class TestSchemaHelpers(TestCase):
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 
         self._assert_filter("funnelsFilter", num_keys, q1, q2)
+
+    def test_removes_frontend_only_props_from_series(self):
+        query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
+
+        result_dict = json.loads(to_json(query))
+
+        self.assertEqual(result_dict, {"series": [{"name": "$pageview"}]})
+
+    def test_removes_frontend_only_props_from_insight_filter(self):
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
+
+        result_dict = json.loads(to_json(query))
+
+        self.assertEqual(result_dict, {"series": []})
+
+    def test_replaces_display_with_canonic_alternatie(self):
+        # time series (gets removed as ActionsLineGraph is the default)
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
+        self.assertEqual(json.loads(to_json(query)), {"series": []})
+
+        # cumulative time series
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
+        self.assertEqual(
+            json.loads(to_json(query)), {"series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}}
+        )
+
+        # total value
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
+        self.assertEqual(json.loads(to_json(query)), {"series": [], "trendsFilter": {"display": "ActionsBarValue"}})

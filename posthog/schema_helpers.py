@@ -1,7 +1,18 @@
 import orjson
 from typing import Any, Literal, get_origin
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, ValidationError, model_serializer
 from rest_framework.utils.encoders import JSONEncoder
+
+from posthog.schema import (
+    ChartDisplayType,
+    FunnelsQuery,
+    LifecycleQuery,
+    PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
+)
+from posthog.types import InsightQueryNode
 
 
 def to_json(query: BaseModel) -> bytes:
@@ -21,6 +32,66 @@ def to_json(query: BaseModel) -> bytes:
                     dumped[name] = getattr(self, name)
             return dumped
 
+        @model_serializer(mode="wrap")
+        def clean_insight_queries(self, next_serializer):
+            """
+            Frontend only settings like which graph type is displayed, that don't affect
+            the generated dataset should be removed.
+            """
+            # Keep this in sync with the frontend side "cleanInsightQuery" function.
+            dumped = next_serializer(self)
+
+            if isinstance(
+                self,
+                (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery),
+            ):
+                insightFilterKey = filter_key_for_query(self)
+
+                for name in self.model_fields.keys():
+                    if name not in dumped:
+                        continue
+
+                    if name == "series":
+                        # remove frontend-only props from series
+                        dumped["series"] = [
+                            {key: value for key, value in entity.items() if key != "custom_name"}
+                            for entity in dumped["series"]
+                        ]
+                    elif name == insightFilterKey:
+                        # remove frontend-only props from insight filters
+                        dumped[insightFilterKey] = {
+                            key: value
+                            for key, value in dumped[insightFilterKey].items()
+                            if key
+                            not in [
+                                "showLegend",
+                                "showPercentStackView",
+                                "showValuesOnSeries",
+                                "aggregationAxisFormat",
+                                "aggregationAxisPrefix",
+                                "aggregationAxisPostfix",
+                                "decimalPlaces",
+                                "layout",
+                                "toggledLifecycles",
+                                "showLabelsOnSeries",
+                                "showMean",
+                            ]
+                        }
+
+                        # use a canonical value for each display category
+                        if "display" in dumped[insightFilterKey]:
+                            canonical_display = grouped_chart_display_types(dumped[insightFilterKey]["display"])
+                            if canonical_display == ChartDisplayType.ActionsLineGraph:
+                                del dumped[insightFilterKey]["display"]  # default value, remove
+                            else:
+                                dumped[insightFilterKey]["display"] = canonical_display
+
+                        # remove empty insight filters, so that empty and not existing filter serialize to the same json
+                        if len(dumped[insightFilterKey]) == 0:
+                            del dumped[insightFilterKey]
+
+            return dumped
+
     # our schema is generated, so extend the models here
     query = ExtendedQuery(**query.model_dump())
 
@@ -32,3 +103,36 @@ def to_json(query: BaseModel) -> bytes:
     json_string = orjson.dumps(instance_dict, default=JSONEncoder().default, option=option)
 
     return json_string
+
+
+def filter_key_for_query(node: InsightQueryNode) -> str:
+    if isinstance(node, TrendsQuery):
+        return "trendsFilter"
+    elif isinstance(node, FunnelsQuery):
+        return "funnelsFilter"
+    elif isinstance(node, RetentionQuery):
+        return "retentionFilter"
+    elif isinstance(node, PathsQuery):
+        return "pathsFilter"
+    elif isinstance(node, StickinessQuery):
+        return "stickinessFilter"
+    elif isinstance(node, LifecycleQuery):
+        return "lifecycleFilter"
+    else:
+        raise ValidationError(f"Expected an insight node, got {node.__name__}")
+
+
+def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType | None:
+    if display in [
+        ChartDisplayType.ActionsLineGraph,
+        ChartDisplayType.ActionsBar,
+        ChartDisplayType.ActionsAreaGraph,
+    ]:
+        # time series
+        return ChartDisplayType.ActionsLineGraph
+    elif display in [ChartDisplayType.ActionsLineGraphCumulative]:
+        # cumulative time series
+        return ChartDisplayType.ActionsLineGraphCumulative
+    else:
+        # total value
+        return ChartDisplayType.ActionsBarValue
