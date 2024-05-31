@@ -1,9 +1,7 @@
 import { FilterLogicalOperator } from '~/types'
 
-import { UniversalGroupFilter, UniversalGroupFilterValue } from './UniversalFilters'
+import { UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
 
-export function isUniversalGroupFilterLike(
-    filter?: UniversalGroupFilter | UniversalGroupFilterValue | null
-): filter is UniversalGroupFilter | UniversalGroupFilterValue {
+export function isUniversalGroupFilterLike(filter?: UniversalGroupFilterValue): filter is UniversalGroupFilterGroup {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
 }

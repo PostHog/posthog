@@ -19,25 +19,20 @@ import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isUniversalGroupFilterLike } from './utils'
 
-export interface UniversalGroupFilter {
+export interface UniversalGroupFilterGroup {
     type: FilterLogicalOperator
     values: UniversalGroupFilterValue[]
 }
 
-export interface UniversalGroupFilterValue {
-    type: FilterLogicalOperator
-    values: UniversalFilterValue[]
-}
-
+export type UniversalGroupFilterValue = UniversalGroupFilterGroup | UniversalFilterValue
 export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
-export type UniversalFilterGroup = UniversalGroupFilter | UniversalGroupFilterValue
 
 type UniversalFiltersProps = {
     pageKey: string
-    group: UniversalGroupFilter | UniversalGroupFilterValue | null
+    group: UniversalGroupFilterGroup | null
     allowGroups: boolean
     allowFilters: boolean
-    onChange: (group: UniversalFilterGroup) => void
+    onChange: (group: UniversalGroupFilterGroup) => void
     taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
     taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
 }
@@ -47,7 +42,7 @@ export function UniversalFilters({
     group = null,
     allowGroups = false,
     allowFilters = false,
-    onChange = (group: UniversalFilterGroup) => console.log(group),
+    onChange = (group: UniversalGroupFilterGroup) => console.log(group),
     taxonomicEntityFilterGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     taxonomicPropertyFilterGroupTypes = [
         TaxonomicFilterGroupType.PersonProperties,

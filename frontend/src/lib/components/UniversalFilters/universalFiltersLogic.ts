@@ -7,10 +7,10 @@ import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { createDefaultPropertyFilter, taxonomicFilterTypeToPropertyFilterType } from '../PropertyFilters/utils'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalFilterGroup, UniversalFilterValue, UniversalGroupFilterValue } from './UniversalFilters'
+import { UniversalFilterValue, UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
-const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFilterGroup = {
+const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalGroupFilterGroup = {
     type: FilterLogicalOperator.And,
     values: [
         {
@@ -22,8 +22,8 @@ const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFilterGroup = {
 
 export type UniversalFiltersLogicProps = {
     pageKey: string
-    group: UniversalFilterGroup | null
-    onChange: (group: UniversalFilterGroup) => void
+    group: UniversalGroupFilterGroup | null
+    onChange: (group: UniversalGroupFilterGroup) => void
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
@@ -39,7 +39,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addFilterGroup: true,
 
         setGroupType: (type: FilterLogicalOperator) => ({ type }),
-        setGroupValues: (newValues: UniversalFilterGroup['values']) => ({ newValues }),
+        setGroupValues: (newValues: UniversalGroupFilterValue[]) => ({ newValues }),
         replaceGroupValue: (index: number, value: AnyPropertyFilter | ActionFilter | UniversalGroupFilterValue) => ({
             index,
             value,
