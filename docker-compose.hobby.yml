@@ -199,3 +199,5 @@ volumes:
     clickhouse-data:
     caddy-data:
     caddy-config:
+    redis-data:
+    kafka-data:
