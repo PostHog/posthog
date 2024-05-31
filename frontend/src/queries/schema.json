@@ -4150,6 +4150,9 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
