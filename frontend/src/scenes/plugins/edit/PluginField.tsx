@@ -77,7 +77,7 @@ function JsonConfigField(props: {
         })
 
         const provider = monaco.languages.registerCompletionItemProvider('json', {
-            triggerCharacters: ['{{'],
+            triggerCharacters: ['{', '{{'],
             provideCompletionItems: async (model, position) => {
                 const word = model.getWordUntilPosition(position)
 
@@ -88,20 +88,13 @@ function JsonConfigField(props: {
                     endColumn: position.column,
                 })
 
-                if (wordWithTrigger.indexOf('{{') === -1) {
+                if (wordWithTrigger.indexOf('{') === -1) {
                     return { suggestions: [] }
                 }
 
-                const followingCharacters = model.getValueInRange({
-                    startLineNumber: position.lineNumber,
-                    startColumn: position.column,
-                    endLineNumber: position.lineNumber,
-                    endColumn: position.column + 2,
-                })
-
                 const localSuggestions = suggestions.map((x) => ({
                     ...x,
-                    insertText: x.insertText + (followingCharacters !== '}}' ? '}}' : ''),
+                    insertText: x.insertText,
                     range: {
                         startLineNumber: position.lineNumber,
                         endLineNumber: position.lineNumber,
