@@ -1,0 +1,92 @@
+# do not merge this file to master it's just for testing
+name: test state deploy
+
+on:
+    push:
+        branches:
+            - frank/test-state-deploy
+    workflow_dispatch:
+
+jobs:
+    posthog_build:
+        name: Build and push PostHog
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
+            packages: write # allow push to ghcr.io
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v3
+              with:
+                  username: posthog
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@v1
+              with:
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+            - name: get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Trigger State Update
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: commit_state_update
+                  message: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-general-purpose",
+                        "commit": ${{ toJson(github.head_commit) }},
+                        "context": ${{ toJson(github) }}
+                      }
