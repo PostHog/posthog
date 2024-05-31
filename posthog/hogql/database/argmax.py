@@ -1,10 +1,9 @@
 from typing import Optional
 from collections.abc import Callable
 
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from posthog.hogql.ast import SelectQuery
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.parser import parse_expr
 
 
 def argmax_select(
@@ -13,6 +12,7 @@ def argmax_select(
     group_fields: list[str],
     argmax_field: str,
     deleted_field: Optional[str] = None,
+    timestamp_field_to_clamp: Optional[str] = None,
 ) -> "SelectQuery":
     from posthog.hogql import ast
 
@@ -45,5 +45,12 @@ def argmax_select(
             left=argmax_version(ast.Field(chain=[table_name, deleted_field])),
             right=ast.Constant(value=0),
         )
+    if timestamp_field_to_clamp:
+        clause = ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=argmax_version(ast.Field(chain=[table_name, timestamp_field_to_clamp])),
+            right=parse_expr("now() + interval 1 day"),
+        )
+        select_query.having = clause if select_query.having is None else ast.And(exprs=[select_query.having, clause])
 
     return select_query
