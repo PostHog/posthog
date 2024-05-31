@@ -1,45 +1,4 @@
 {
-    "available_features": [
-        "zapier",
-        "slack_integration",
-        "microsoft_teams_integration",
-        "discord_integration",
-        "apps",
-        "app_metrics",
-        "boolean_flags",
-        "multivariate_flags",
-        "console_logs",
-        "recordings_playlists",
-        "recordings_performance",
-        "recordings_file_export",
-        "experimentation",
-        "group_analytics",
-        "dashboards",
-        "funnels",
-        "graphs_trends",
-        "paths",
-        "subscriptions",
-        "paths_advanced",
-        "advanced_permissions",
-        "ingestion_taxonomy",
-        "correlation_analysis",
-        "tagging",
-        "behavioral_cohort_filtering",
-        "tracked_users",
-        "data_retention",
-        "team_members",
-        "organizations_projects",
-        "api_access",
-        "social_sso",
-        "project_based_permissioning",
-        "sso_enforcement",
-        "white_labeling",
-        "community_support",
-        "dedicated_support",
-        "email_support",
-        "terms_and_conditions",
-        "security_assessment"
-    ],
     "license": {
         "plan": "cloud"
     },
@@ -1402,7 +1361,9 @@
             "inclusion_only": true
         }
     ],
-    "custom_limits_usd": {},
+    "custom_limits_usd": {
+        "product_analytics": "500"
+    },
     "usage_summary": {
         "events": {
             "usage": 16175767,
@@ -1414,7 +1375,7 @@
         }
     },
     "free_trial_until": null,
-    "discount_percent": 30,
+    "discount_percent": 100,
     "discount_amount_usd": null,
     "available_plans": [
         {

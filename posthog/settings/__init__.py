@@ -104,8 +104,6 @@ HOOK_EVENTS: dict[str, str] = {}
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED: bool = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
-BILLING_V2_ENABLED: bool = get_from_env("BILLING_V2_ENABLED", False, type_cast=str_to_bool)
-
 AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")

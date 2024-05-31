@@ -5,7 +5,7 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb } from '~/types'
+import { ActionType, Breadcrumb, PluginConfigWithPluginInfoNew } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -32,6 +32,16 @@ export const actionLogic = kea<actionLogicType>([
                         throw new Error('Cannot fetch an unsaved action from the API.')
                     }
                     return await api.actions.get(props.id)
+                },
+            },
+        ],
+        matchingPluginConfigs: [
+            null as PluginConfigWithPluginInfoNew[] | null,
+            {
+                loadMatchingPluginConfigs: async () => {
+                    const res = await api.actions.listMatchingPluginConfigs(props.id!)
+
+                    return res.results
                 },
             },
         ],
