@@ -210,13 +210,11 @@ export function PluginField({
     onChange,
     fieldConfig,
     disabled,
-    templating,
 }: {
     value?: any
     onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
     disabled?: boolean
-    templating?: boolean
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
     if (
@@ -265,7 +263,7 @@ export function PluginField({
             onChange={onChange}
             autoFocus={editingSecret}
             className="ph-no-capture"
-            templating={templating}
+            templating={fieldConfig.templating}
         />
     ) : fieldConfig.type === 'choice' ? (
         <LemonSelect

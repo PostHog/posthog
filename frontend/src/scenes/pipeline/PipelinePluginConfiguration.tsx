@@ -1,5 +1,13 @@
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -68,27 +76,42 @@ export function PipelinePluginConfiguration({
                 <LemonField
                     name={fieldConfig.key}
                     label={
-                        <>
-                            {fieldConfig.secret && (
+                        <span className="flex flex-1 flex-row items-center">
+                            <span className="flex-1">
+                                {fieldConfig.secret && (
+                                    <Tooltip
+                                        placement="top-start"
+                                        title="This field is write-only. Its value won't be visible after saving."
+                                    >
+                                        <IconLock />
+                                    </Tooltip>
+                                )}
+                                {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}
+                                {fieldConfig.name || fieldConfig.key}
+                                {!requiredFields.includes(fieldConfig.key) ? (
+                                    <span className="text-muted-alt"> (optional)</span>
+                                ) : null}
+                            </span>
+
+                            {fieldConfig.templating && (
                                 <Tooltip
-                                    placement="top-start"
-                                    title="This field is write-only. Its value won't be visible after saving."
+                                    placement="bottom-start"
+                                    title={
+                                        <>
+                                            This field supports templating. You can include properties from the event,
+                                            person, related groups and more using curly brackets such as{' '}
+                                            <code> {'{event.event}'} </code>
+                                        </>
+                                    }
                                 >
-                                    <IconLock />
+                                    <LemonTag type="completion">Supports templating</LemonTag>
                                 </Tooltip>
                             )}
-                            {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}
-                            {fieldConfig.name || fieldConfig.key}
-                        </>
+                        </span>
                     }
                     help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
-                    showOptional={!requiredFields.includes(fieldConfig.key)}
                 >
-                    <PluginField
-                        fieldConfig={fieldConfig}
-                        disabled={loadingOrSubmitting}
-                        templating={pluginFilteringEnabled}
-                    />
+                    <PluginField fieldConfig={fieldConfig} disabled={loadingOrSubmitting} />
                 </LemonField>
             ) : (
                 <>
