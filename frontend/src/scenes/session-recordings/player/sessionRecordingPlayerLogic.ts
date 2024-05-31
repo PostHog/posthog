@@ -181,8 +181,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
+        setScreenSize: (size: 'small' | 'medium' | 'wide') => ({ size }),
     }),
     reducers(() => ({
+        screenSize: [
+            'medium' as 'small' | 'medium' | 'wide',
+            {
+                setScreenSize: (_, { size }) => size,
+            },
+        ],
         reportedReplayerErrors: [
             new Set<string>(),
             {
