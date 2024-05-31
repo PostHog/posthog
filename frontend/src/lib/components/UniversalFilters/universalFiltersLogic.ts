@@ -1,4 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
@@ -81,42 +83,6 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         ],
     })),
 
-    // reducers(({ props }) => ({
-    //     filterGroup: [
-    //         props.group || DEFAULT_UNIVERSAL_GROUP_FILTER,
-    //         {
-    //             setFilters: (_, { filters }) => filters,
-    //             addFilterGroup: (state) => {
-    //                 const filterGroups = [
-    //                     ...state.values,
-    //                     { type: FilterLogicalOperator.And, values: [{} as EmptyPropertyFilter] },
-    //                 ]
-
-    //                 return { ...state, values: filterGroups }
-    //             },
-    //             removeFilterGroup: (state, { filterGroup }) => {
-    //                 const filteredGroups = [...state.values]
-    //                 filteredGroups.splice(filterGroup, 1)
-    //                 return { ...state, values: filteredGroups }
-    //             },
-    //             setOuterGroupsType: (state, { type }) => {
-    //                 return { ...state, type }
-    //             },
-    //             setInnerGroupFilters: (state, { filters, index }) => {
-    //                 const values = [...state.values]
-    //                 values[index] = { ...values[index], values: filters }
-
-    //                 return { ...state, values }
-    //             },
-    //             setInnerGroupType: (state, { type, index }) => {
-    //                 const values = [...state.values]
-    //                 values[index] = { ...values[index], type }
-    //                 return { ...state, values }
-    //             },
-    //         },
-    //     ],
-    // })),
-
     listeners(({ props, values, actions }) => ({
         setGroupType: () => props.onChange(values.filterGroup),
         setGroupValues: () => props.onChange(values.filterGroup),
@@ -124,9 +90,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         removeGroupValue: () => props.onChange(values.filterGroup),
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+            const newValues = [...values.filterGroup.values]
+
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
-                const value = createDefaultPropertyFilter(
+                const newPropertyFilter = createDefaultPropertyFilter(
                     {},
                     propertyKey,
                     propertyType,
@@ -134,11 +102,20 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     values.describeProperty
                 )
 
-                const newValues = [...values.filterGroup.values]
-                newValues.push(value)
+                newValues.push(newPropertyFilter)
+            } else {
+                const entityType = itemPropertyFilterType ?? taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+                if (entityType) {
+                    const newEntityFilter: ActionFilter = {
+                        id: getDefaultEventName(),
+                        name: getDefaultEventLabel(),
+                        type: entityType,
+                    }
 
-                actions.setGroupValues(newValues)
+                    newValues.push(newEntityFilter)
+                }
             }
+            actions.setGroupValues(newValues)
         },
     })),
 ])
