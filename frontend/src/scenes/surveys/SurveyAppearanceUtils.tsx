@@ -65,7 +65,8 @@ export function HTMLEditor({
     const { activeTabKey } = useValues(surveyLogic)
     const { setActiveTab } = useActions(surveyLogic)
 
-    // Initialize the tab state
+    // Initialize the tab state; useful for when user opens the editor for the first time,
+    // or for when they're editing an existing survey question.
     if (activeTabKey !== initialActiveTab) {
         setActiveTab(initialActiveTab ?? 'text')
     }
