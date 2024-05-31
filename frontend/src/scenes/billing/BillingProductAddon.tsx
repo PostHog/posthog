@@ -3,7 +3,7 @@ import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posth
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useRef } from 'react'
+import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -13,14 +13,45 @@ import { billingProductLogic } from './billingProductLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
+const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
+    if (!unit) {
+        return `$${flatRate}`
+    }
+    return (
+        <span className="space-x-0.5">
+            <span>${Number(flatRate)}</span>
+            <span>/</span>
+            <span>{unit}</span>
+        </span>
+    )
+}
+
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, billingError, daysTotal, daysRemaining } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade } = useActions(
         billingProductLogic({ product: addon })
+    )
+
+    const upgradePlan = currentAndUpgradePlans?.upgradePlan
+
+    const prorationAmount = useMemo(
+        () =>
+            upgradePlan?.unit_amount_usd
+                ? parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))
+                : 0,
+        [upgradePlan, daysRemaining, daysTotal]
+    )
+
+    const isProrated = useMemo(
+        () =>
+            billing?.has_active_subscription && upgradePlan?.unit_amount_usd
+                ? prorationAmount !== parseInt(upgradePlan?.unit_amount_usd || '')
+                : false,
+        [billing?.has_active_subscription, prorationAmount]
     )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
@@ -81,66 +112,85 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         )}
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
-                    {addon.docs_url && (
-                        <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
-                    )}
-                    {addon.subscribed && !addon.inclusion_only ? (
-                        <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() => {
-                                                setSurveyResponse(addon.type, '$survey_response_1')
-                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                            }}
-                                        >
-                                            Remove addon
-                                        </LemonButton>
-                                    </>
-                                }
+                <div>
+                    <div className="ml-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
+                        {addon.docs_url && (
+                            <LemonButton
+                                icon={<IconDocument />}
+                                size="small"
+                                to={addon.docs_url}
+                                tooltip="Read the docs"
                             />
-                        </>
-                    ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckCircle />}>
-                            Included with plan
-                        </LemonTag>
-                    ) : (
-                        <>
-                            {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
-                                <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                    <span>${Number(currentAndUpgradePlans?.upgradePlan?.unit_amount_usd)}</span>
-                                    <span>/</span>
-                                    <span>{currentAndUpgradePlans?.upgradePlan?.unit}</span>
-                                </h4>
-                            ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        toggleIsPricingModalOpen()
-                                    }}
-                                >
-                                    View pricing
-                                </LemonButton>
-                            )}
-                            {!addon.inclusion_only && (
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    size="small"
-                                    disableClientSideRouting
-                                    disabledReason={billingError && billingError.message}
-                                    loading={billingProductLoading === addon.type}
-                                    onClick={() =>
-                                        initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
+                        )}
+                        {addon.subscribed && !addon.inclusion_only ? (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                fullWidth
+                                                onClick={() => {
+                                                    setSurveyResponse(addon.type, '$survey_response_1')
+                                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                                }}
+                                            >
+                                                Remove addon
+                                            </LemonButton>
+                                        </>
                                     }
-                                >
-                                    Add
-                                </LemonButton>
-                            )}
-                        </>
+                                />
+                            </>
+                        ) : addon.included_with_main_product ? (
+                            <LemonTag type="completion" icon={<IconCheckCircle />}>
+                                Included with plan
+                            </LemonTag>
+                        ) : (
+                            <>
+                                {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
+                                    <h4 className="leading-5 font-bold mb-0 space-x-0.5">
+                                        <span>
+                                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}
+                                        </span>
+                                    </h4>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => {
+                                            toggleIsPricingModalOpen()
+                                        }}
+                                    >
+                                        View pricing
+                                    </LemonButton>
+                                )}
+                                {!addon.inclusion_only && (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        size="small"
+                                        disableClientSideRouting
+                                        disabledReason={billingError && billingError.message}
+                                        loading={billingProductLoading === addon.type}
+                                        onClick={() =>
+                                            initiateProductUpgrade(
+                                                addon,
+                                                currentAndUpgradePlans?.upgradePlan,
+                                                redirectPath
+                                            )
+                                        }
+                                    >
+                                        Add
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                    </div>
+                    {!addon.inclusion_only && isProrated && (
+                        <p className="mt-2 text-xs text-muted text-right">
+                            ${prorationAmount} charged today (pro-rated),
+                            <br />
+                            then {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} starting next
+                            invoice
+                        </p>
                     )}
                 </div>
             </div>
