@@ -76,6 +76,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-general-purpose",
-                        "commit": ${{ toJson(github.head_commit) }},
+                        "commit": ${{ toJson(github.event.head_commit) }},
                         "context": ${{ toJson(github) }}
                       }}
