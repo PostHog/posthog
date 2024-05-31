@@ -1,4 +1,5 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 
 from posthog.schema import (
     HogQLQueryModifiers,

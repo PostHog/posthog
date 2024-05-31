@@ -7,19 +7,6 @@ export type ElementsEventType = {
     type: '$autocapture' | '$rageclick'
 }
 
-export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'
-
-export type HeatmapRequestType = {
-    type: HeatmapKind
-    date_from?: string
-    date_to?: string
-    url_exact?: string
-    url_pattern?: string
-    viewport_width_min?: number
-    viewport_width_max?: number
-    aggregation: 'total_count' | 'unique_visitors'
-}
-
 export type HeatmapResponseType = {
     results: (
         | {

@@ -6,18 +6,15 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import (
-    ExecutionMode,
-    QueryRunner,
-)
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import (
-    TestCachedBasicQueryResponse,
+    CacheMissResponse,
+    HogQLQuery,
     HogQLQueryModifiers,
     MaterializationMode,
-    HogQLQuery,
-    CacheMissResponse,
     TestBasicQueryResponse,
+    TestCachedBasicQueryResponse,
 )
 from posthog.test.base import BaseTest
 

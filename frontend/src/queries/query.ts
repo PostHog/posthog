@@ -94,6 +94,7 @@ export function queryExportContext<N extends DataNode>(
 }
 
 const SYNC_ONLY_QUERY_KINDS = [
+    'HogQuery',
     'HogQLMetadata',
     'EventsQuery',
     'HogQLAutocomplete',

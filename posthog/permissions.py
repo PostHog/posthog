@@ -2,12 +2,10 @@ import time
 from typing import cast
 
 from django.conf import settings
-from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
-
+from django.db.models import Model
 from django.views import View
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -225,7 +223,10 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+        if view.premium_feature not in [
+            feature["key"]
+            for feature in request.user.organization.available_product_features  # type: ignore
+        ]:
             raise EnterpriseFeatureException()
 
         return True

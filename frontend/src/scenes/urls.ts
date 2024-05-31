@@ -224,6 +224,7 @@ export const urls = {
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    heatmaps: (): string => `/heatmaps`,
     clientAuthorization: (): string => `/client_authorization`,
+    heatmaps: (params?: string): string =>
+        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
 }

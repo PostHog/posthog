@@ -54,6 +54,7 @@ export enum NodeKind {
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
+    HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
@@ -103,6 +104,7 @@ export type AnyDataNode =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -125,6 +127,7 @@ export type QuerySchema =
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
+    | HogQuery
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
@@ -172,6 +175,7 @@ export interface Node<R extends Record<string, any> = Record<string, any>> {
 
 export type AnyResponseType =
     | Record<string, any>
+    | HogQueryResponse
     | HogQLQueryResponse
     | HogQLMetadataResponse
     | HogQLAutocompleteResponse
@@ -197,6 +201,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -240,6 +245,17 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+}
+
+export interface HogQueryResponse {
+    results: any
+    bytecode?: any[]
+    stdout?: string
+}
+
+export interface HogQuery extends DataNode<HogQueryResponse> {
+    kind: NodeKind.HogQuery
+    code?: string
 }
 
 export interface HogQLNotice {
@@ -928,7 +944,7 @@ export interface CacheMissResponse {
     cache_key: string | null
 }
 
-export type ClickhouseQueryStatus = {
+export type ClickhouseQueryProgress = {
     bytes_read: integer
     rows_read: integer
     estimated_rows_total: integer
@@ -958,7 +974,7 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
-    query_progress?: ClickhouseQueryStatus
+    query_progress?: ClickhouseQueryProgress
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -1317,6 +1333,7 @@ export interface DatabaseSchemaSource {
 
 export interface DatabaseSchemaField {
     name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string

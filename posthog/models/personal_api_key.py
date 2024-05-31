@@ -1,4 +1,4 @@
-from typing import Optional, Literal, get_args
+from typing import Optional, Literal
 import hashlib
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
