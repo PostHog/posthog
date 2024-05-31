@@ -1,11 +1,13 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
-import { FilterRow } from '../PropertyFilters/components/FilterRow'
+import { PropertyFilterButton } from '../PropertyFilters/components/PropertyFilterButton'
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
+import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { universalFiltersLogic, UniversalFiltersLogicProps } from './universalFiltersLogic'
 import { isUniversalGroupFilterLike } from './utils'
 
@@ -83,47 +85,75 @@ export function UniversalFilters({
                         />
                     </div>
                 ) : (
-                    <FilterRow
+                    <UniversalFilterRow
+                        filter={filterOrGroup}
                         index={index}
-                        filters={[]}
-                        item={filterOrGroup}
-                        label={addText}
-                        openOnInsert
                         pageKey={pageKey}
-                        totalCount={1}
                         onRemove={_onRemove}
-                        disablePopover={false}
-                        filterComponent={(onComplete) => (
-                            <TaxonomicPropertyFilter
-                                key={index}
-                                pageKey={pageKey}
-                                index={index}
-                                onComplete={onComplete}
-                                disablePopover={false}
-                                filters={[]}
-                                setFilter={_onChange}
-                            />
-                        )}
+                        onChange={_onChange}
                     />
                 )
-
-                // return (
-                //     // <ActionFilterRow
-                //     //     key={filter.uuid}
-                //     //     typeKey={typeKey}
-                //     //     filter={filter}
-                //     //     index={index}
-                //     //     filterCount={localFilters.length}
-                //     //     showNestedArrow={showNestedArrow}
-                //     //     singleFilter={singleFilter}
-                //     //     hideFilter={hideFilter || readOnly}
-                //     //     {...commonProps}
-                //     // />
-                // )
             })}
             <LemonButton type="secondary" size="small" onClick={onAdd} icon={<IconPlusSmall />}>
                 {addText}
             </LemonButton>
         </div>
+    )
+}
+
+const UniversalFilterRow = ({
+    filter,
+    index,
+    pageKey,
+    onChange,
+    onRemove,
+}: {
+    filter: AnyPropertyFilter | ActionFilter
+    index: number
+    pageKey: string
+    onChange: (index: number, property: AnyPropertyFilter | ActionFilter) => void
+    onRemove: (index: number) => void
+}): JSX.Element => {
+    const [open, setOpen] = useState<boolean>(false)
+
+    useEffect(() => {
+        setOpen(true)
+    }, [])
+
+    const handleVisibleChange = (visible: boolean): void => {
+        if (!visible && isValidPropertyFilter(filter) && !filter.key) {
+            onRemove(index)
+        }
+        setOpen(visible)
+    }
+
+    const isPropertyFilter = isValidPropertyFilter(filter)
+
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => handleVisibleChange(false)}
+            overlay={
+                isPropertyFilter ? (
+                    <TaxonomicPropertyFilter
+                        key={index}
+                        pageKey={pageKey}
+                        index={index}
+                        onComplete={() => setOpen(false)}
+                        disablePopover={false}
+                        filters={[]}
+                        setFilter={onChange}
+                    />
+                ) : (
+                    <div>Edit action</div>
+                )
+            }
+        >
+            {isPropertyFilter ? (
+                <PropertyFilterButton onClick={() => setOpen(!open)} onClose={() => onRemove(index)} item={filter} />
+            ) : (
+                <div>Action filter</div>
+            )}
+        </Popover>
     )
 }
