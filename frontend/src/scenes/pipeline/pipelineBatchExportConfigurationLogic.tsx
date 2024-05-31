@@ -4,6 +4,8 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
@@ -47,7 +49,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
     connect(() => ({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
+        values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
@@ -187,6 +189,13 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     ]
                 }
                 return generalRequiredFields
+            },
+        ],
+
+        filteringEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.BATCH_EXPORT_FILTERING]
             },
         ],
     })),

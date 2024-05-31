@@ -1,5 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -101,7 +102,7 @@ export function BatchExportGeneralEditFields({
 
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className={clsx('space-y-4', !isPipeline && 'max-w-200')}>
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
@@ -194,14 +195,16 @@ export function BatchExportGeneralEditFields({
 
 export function BatchExportsEditFields({
     isNew,
+    isPipeline = false,
     batchExportConfigForm,
 }: {
     isNew: boolean
+    isPipeline?: boolean
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className={clsx('space-y-4', !isPipeline && 'max-w-200')}>
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
