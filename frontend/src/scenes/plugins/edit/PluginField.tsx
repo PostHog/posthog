@@ -172,7 +172,6 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                             const newEntries = [...entries]
                             newEntries[index] = [key, newEntries[index][1]]
                             setEntries(newEntries)
-                            onChange?.(Object.fromEntries(newEntries))
                         }}
                         placeholder="Key"
                     />
@@ -184,7 +183,6 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                             const newEntries = [...entries]
                             newEntries[index] = [newEntries[index][0], val]
                             setEntries(newEntries)
-                            onChange?.(Object.fromEntries(newEntries))
                         }}
                         placeholder="Value"
                     />
@@ -196,7 +194,6 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                             const newEntries = [...entries]
                             newEntries.splice(index, 1)
                             setEntries(newEntries)
-                            onChange?.(Object.fromEntries(newEntries))
                         }}
                     />
                 </div>
