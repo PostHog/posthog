@@ -1,6 +1,6 @@
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 
-import { PluginType } from '~/types'
+import { FilterType, PluginConfigFilters, PluginType } from '~/types'
 
 // Keep this in sync with: posthog/api/plugin.py
 export const SECRET_FIELD_VALUE = '**************** POSTHOG SECRET FIELD ****************'
@@ -129,3 +129,36 @@ export const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean =>
 
 export const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
     fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
+
+export function sanitizeFilters(filters?: FilterType): PluginConfigFilters | null {
+    if (!filters) {
+        return null
+    }
+    const sanitized: PluginConfigFilters = {}
+
+    if (filters.events) {
+        sanitized.events = filters.events.map((f) => ({
+            id: f.id,
+            type: 'events',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        }))
+    }
+
+    if (filters.actions) {
+        sanitized.actions = filters.actions.map((f) => ({
+            id: f.id,
+            type: 'actions',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        }))
+    }
+
+    if (filters.filter_test_accounts) {
+        sanitized.filter_test_accounts = filters.filter_test_accounts
+    }
+
+    return Object.keys(sanitized).length > 0 ? sanitized : null
+}

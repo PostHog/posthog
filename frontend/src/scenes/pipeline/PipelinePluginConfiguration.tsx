@@ -37,7 +37,7 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
-        pluginFilteringEnabled,
+        filteringEnabled,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
@@ -84,7 +84,7 @@ export function PipelinePluginConfiguration({
                     <PluginField
                         fieldConfig={fieldConfig}
                         disabled={loadingOrSubmitting}
-                        templating={pluginFilteringEnabled}
+                        templating={filteringEnabled}
                     />
                 </LemonField>
             ) : (
@@ -177,7 +177,7 @@ export function PipelinePluginConfiguration({
                             </LemonField>
                         </div>
 
-                        {pluginFilteringEnabled ? (
+                        {filteringEnabled ? (
                             <PipelineNodeFilters
                                 description={
                                     <>

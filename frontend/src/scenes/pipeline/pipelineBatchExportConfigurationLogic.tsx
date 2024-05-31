@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { sanitizeFilters } from './configUtils'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -26,6 +27,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
+        filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
     }
 }
@@ -72,7 +74,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return null
                     }
-                    const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
+                    const { name, destination, interval, paused, filters, created_at, start_at, end_at, ...config } =
+                        formdata
                     const destinationObj = {
                         type: destination,
                         config: config,
@@ -84,6 +87,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         paused,
                         name,
                         interval,
+                        filters: sanitizeFilters(filters),
                         destination: destinationObj,
                     }
                     if (props.id) {
@@ -193,9 +197,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         ],
 
         filteringEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.BATCH_EXPORT_FILTERING]
+            (s) => [s.featureFlags, s.batchExportConfig],
+            (featureFlags, batchExportConfig): boolean => {
+                return !!batchExportConfig?.filters || !!featureFlags[FEATURE_FLAGS.BATCH_EXPORT_FILTERING]
             },
         ],
     })),

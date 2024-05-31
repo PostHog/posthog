@@ -10,15 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    FilterType,
-    PipelineNodeTab,
-    PipelineStage,
-    PluginConfigFilters,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    PluginType,
-} from '~/types'
+import { PipelineNodeTab, PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -26,6 +18,7 @@ import {
     determineRequiredFields,
     getConfigSchemaArray,
     getPluginConfigFormData,
+    sanitizeFilters,
 } from './configUtils'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
@@ -58,39 +51,6 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
         name: plugin.name,
         description: plugin.description,
     }
-}
-
-function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
-    if (!filters) {
-        return null
-    }
-    const sanitized: PluginConfigFilters = {}
-
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.actions) {
-        sanitized.actions = filters.actions.map((f) => ({
-            id: f.id,
-            type: 'actions',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.filter_test_accounts) {
-        sanitized.filter_test_accounts = filters.filter_test_accounts
-    }
-
-    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
@@ -281,12 +241,12 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
 
-        pluginFilteringEnabled: [
+        filteringEnabled: [
             (s) => [s.featureFlags, s.pluginConfig, s.plugin],
             (featureFlags, pluginConfig, plugin): boolean => {
-                const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
+                const filteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
                 return !!(
-                    (pluginFilteringEnabled || pluginConfig?.filters) &&
+                    (filteringEnabled || pluginConfig?.filters) &&
                     plugin?.capabilities?.methods?.includes('composeWebhook')
                 )
             },
