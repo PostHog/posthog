@@ -55,6 +55,24 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
+def resolve_types_from_table(
+    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+) -> ast.Expr:
+    if context.database is None:
+        raise QueryError("Database needs to be defined")
+
+    if not context.database.has_table(table_name):
+        raise QueryError(f'Table "{table_name}" does not exist')
+
+    select_node = ast.SelectQuery(
+        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+    )
+    select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
+    assert select_node_with_types.type is not None
+
+    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+
 def resolve_types(
     node: ast.Expr | ast.SelectQuery,
     context: HogQLContext,
