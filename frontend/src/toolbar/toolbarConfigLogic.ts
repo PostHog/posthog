@@ -112,7 +112,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
-            window.location.href = `${values.apiURL}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&client_id=toolbar`
+
+            const scopes = ['project:read', 'action:write', 'feature_flag:read'].join(' ')
+            window.location.href = `${values.apiURL}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&scopes=${scopes}&client_id=toolbar`
         },
 
         checkAuthorizationSuccess: () => {

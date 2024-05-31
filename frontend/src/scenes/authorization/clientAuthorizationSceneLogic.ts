@@ -9,6 +9,7 @@ import type { clientAuthorizationSceneLogicType } from './clientAuthorizationSce
 export type AuthenticationFlowInformation = {
     name?: string
     code?: string
+    scopes?: string[]
     redirect_url?: string
     verification?: string
 }
@@ -39,9 +40,14 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     const code = router.values.searchParams['code']
                     const clientId = router.values.searchParams['client_id']
                     const redirectUrl = router.values.searchParams['redirect_url']
+                    const scopes = router.values.searchParams['scopes']
 
                     if (!clientId) {
                         throw new Error('Missing client_id')
+                    }
+
+                    if (!scopes) {
+                        throw new Error('Missing scopes')
                     }
 
                     // TODO: Validate redirectUrl is in list of approved if toolbar
@@ -57,6 +63,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                         code,
                         verification: res.verification,
                         redirect_url: redirectUrl,
+                        scopes: scopes.split(','),
                     }
                 },
 
