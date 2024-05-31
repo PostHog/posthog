@@ -1,4 +1,3 @@
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -24,7 +23,9 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
     onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
+    // propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
+    filters: AnyPropertyFilter[]
+    setFilter: (index: number, property: AnyPropertyFilter) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
@@ -37,6 +38,8 @@ export interface PropertyFilterInternalProps {
     index: number
     onComplete: () => void
     disablePopover: boolean
+    filters: AnyPropertyFilter[]
+    setFilter: (index: number, property: AnyPropertyFilter) => void
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]

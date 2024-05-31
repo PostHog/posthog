@@ -4,6 +4,8 @@ import { useActions, useValues } from 'kea'
 
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { FilterRow } from '../PropertyFilters/components/FilterRow'
+import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { universalFiltersLogic, UniversalFiltersLogicProps } from './universalFiltersLogic'
 import { isUniversalGroupFilterLike } from './utils'
 
@@ -19,13 +21,18 @@ export interface UniversalGroupFilterValue {
 
 export function UniversalFilters({
     pageKey = 'rootKey',
+    addText = 'Add filter group',
     filters = null,
-    __isRoot = true,
     onAdd: _onAdd,
+    onChange: _onChange = (_, property: AnyPropertyFilter | ActionFilter) => console.log(property),
+    onRemove: _onRemove = (index: number) => console.log('remove', index),
 }: {
     pageKey: string
+    addText: string
     filters: UniversalFiltersLogicProps['filters']
     onAdd: () => void
+    onChange: (index: number, property: AnyPropertyFilter | ActionFilter) => void
+    onRemove: (index: number) => void
 }): JSX.Element {
     const logic = universalFiltersLogic({ pageKey, filters })
     const { rootGroup } = useValues(logic)
@@ -61,12 +68,43 @@ export function UniversalFilters({
                             key={key}
                             pageKey={key}
                             filters={filterOrGroup}
-                            __isRoot={false}
+                            addText="Add filter"
                             onAdd={() => setInnerGroupFilters([...filterOrGroup.values, {}], index)}
+                            onChange={(index: number, property: any) => {
+                                const newFilters = [...filterOrGroup.values]
+                                newFilters.splice(index, 1, property)
+                                setInnerGroupFilters(newFilters, index)
+                            }}
+                            onRemove={(index) => {
+                                const newFilters = [...filterOrGroup.values]
+                                newFilters.splice(index, 1)
+                                setInnerGroupFilters(newFilters, index)
+                            }}
                         />
                     </div>
                 ) : (
-                    <div>Action or Property</div>
+                    <FilterRow
+                        index={index}
+                        filters={[]}
+                        item={filterOrGroup}
+                        label={addText}
+                        openOnInsert
+                        pageKey={pageKey}
+                        totalCount={1}
+                        onRemove={_onRemove}
+                        disablePopover={false}
+                        filterComponent={(onComplete) => (
+                            <TaxonomicPropertyFilter
+                                key={index}
+                                pageKey={pageKey}
+                                index={index}
+                                onComplete={onComplete}
+                                disablePopover={false}
+                                filters={[]}
+                                setFilter={_onChange}
+                            />
+                        )}
+                    />
                 )
 
                 // return (
@@ -84,7 +122,7 @@ export function UniversalFilters({
                 // )
             })}
             <LemonButton type="secondary" size="small" onClick={onAdd} icon={<IconPlusSmall />}>
-                Add filter {__isRoot && 'group'}
+                {addText}
             </LemonButton>
         </div>
     )
