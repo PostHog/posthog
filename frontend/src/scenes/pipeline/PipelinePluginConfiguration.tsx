@@ -2,16 +2,19 @@ import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
-import { PipelineStage } from '~/types'
+import { EntityTypes, PipelineStage } from '~/types'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'
@@ -37,7 +40,7 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
-        actionMatchingEnabled,
+        pluginFilteringEnabled,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
@@ -173,33 +176,74 @@ export function PipelinePluginConfiguration({
                             </LemonField>
                         </div>
 
-                        {actionMatchingEnabled ? (
-                            <div className="border bg-bg-light rounded p-3">
-                                <LemonField
-                                    name="match_action"
-                                    label="Filter events by action"
-                                    info="Create or select an action to filter events by. Only events that match this action will be processed."
-                                >
-                                    <LemonSelectAction allowClear disabled={loading} />
+                        {pluginFilteringEnabled ? (
+                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                                <LemonField name="filters" label="Filters by events and actions">
+                                    {({ value, onChange }) => (
+                                        <>
+                                            <TestAccountFilterSwitch
+                                                checked={value?.filter_test_accounts ?? false}
+                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
+                                                fullWidth
+                                            />
+                                            <ActionFilter
+                                                bordered
+                                                filters={value ?? {}}
+                                                setFilters={(payload) => {
+                                                    onChange({
+                                                        ...payload,
+                                                        filter_test_accounts: value?.filter_test_accounts,
+                                                    })
+                                                }}
+                                                typeKey="plugin-filters"
+                                                mathAvailability={MathAvailability.None}
+                                                hideRename
+                                                hideDuplicate
+                                                showNestedArrow={false}
+                                                actionsTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.Events,
+                                                    TaxonomicFilterGroupType.Actions,
+                                                ]}
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                ]}
+                                                propertyFiltersPopover
+                                                addFilterDefaultOptions={{
+                                                    id: '$pageview',
+                                                    name: '$pageview',
+                                                    type: EntityTypes.EVENTS,
+                                                }}
+                                                buttonCopy="Add event filter"
+                                            />
+                                        </>
+                                    )}
                                 </LemonField>
+
+                                <p className="italic text-muted-alt">
+                                    This destination will be triggered if <b>any of</b> the above filters match.
+                                </p>
                             </div>
                         ) : null}
                     </div>
 
-                    <div className="border bg-bg-light rounded p-3 flex-2 min-w-100 space-y-2">
-                        <>
-                            {fields.length ? (
-                                fields
-                            ) : (
-                                <span className="italic text-muted-alt">
-                                    This app does not have specific configuration options
-                                </span>
-                            )}
-                        </>
+                    <div className="flex-2 min-w-100 space-y-4">
+                        <div className="border bg-bg-light rounded p-3  space-y-2">
+                            <>
+                                {fields.length ? (
+                                    fields
+                                ) : (
+                                    <span className="italic text-muted-alt">
+                                        This app does not have specific configuration options
+                                    </span>
+                                )}
+                            </>
+                        </div>
+                        <div className="flex gap-2 justify-end">{buttons}</div>
                     </div>
                 </div>
-
-                <div className="flex gap-2 justify-end">{buttons}</div>
             </Form>
         </div>
     )
