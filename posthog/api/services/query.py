@@ -15,7 +15,7 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
@@ -41,6 +41,7 @@ def process_query_dict(
     dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    user: Optional[User] = None,
 ) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -51,6 +52,7 @@ def process_query_dict(
         dashboard_filters=dashboard_filters,
         limit_context=limit_context,
         execution_mode=execution_mode,
+        user=user,
     )
 
 
@@ -61,6 +63,7 @@ def process_query_model(
     dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    user: Optional[User] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -74,6 +77,7 @@ def process_query_model(
                 dashboard_filters=dashboard_filters,
                 limit_context=limit_context,
                 execution_mode=execution_mode,
+                user=user,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -132,6 +136,6 @@ def process_query_model(
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
-        result = query_runner.run(execution_mode=execution_mode)
+        result = query_runner.run(execution_mode=execution_mode, user=user)
 
     return result

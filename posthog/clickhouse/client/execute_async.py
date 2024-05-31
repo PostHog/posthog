@@ -129,11 +129,10 @@ class QueryStatusManager:
 
 def execute_process_query(
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext],
-    refresh_requested: bool,
 ):
     manager = QueryStatusManager(query_id, team_id)
 
@@ -142,10 +141,11 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    user = User.objects.get(pk=user_id)
-
-    sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
     sentry_sdk.set_tag("team_id", team_id)
+
+    if user_id:
+        user = User.objects.get(pk=user_id)
+        sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
 
     query_status = manager.get_query_status()
 
@@ -165,9 +165,7 @@ def execute_process_query(
             team=team,
             query_json=query_json,
             limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATION_ALWAYS
-            if refresh_requested
-            else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            execution_mode=ExecutionMode.CALCULATION_ALWAYS,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -197,9 +195,8 @@ def kick_off_task(
     query_id: str,
     query_json: dict,
     query_status: QueryStatus,
-    refresh_requested: bool,
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
 ):
     task = process_query_task.delay(
         team_id,
@@ -207,7 +204,6 @@ def kick_off_task(
         query_id,
         query_json,
         limit_context=LimitContext.QUERY_ASYNC,
-        refresh_requested=refresh_requested,
     )
     query_status.task_id = task.id
     manager.store_query_status(query_status)
@@ -215,9 +211,10 @@ def kick_off_task(
 
 def enqueue_process_query_task(
     team: "Team",
-    user: "User",
+    user: Optional["User"],
     query_json: dict,
     query_id: Optional[str] = None,
+    # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
@@ -241,15 +238,22 @@ def enqueue_process_query_task(
     if _test_only_bypass_celery:
         process_query_task(
             team.id,
-            user.id,
+            user.id if user else None,
             query_id,
             query_json,
             limit_context=LimitContext.QUERY_ASYNC,
-            refresh_requested=refresh_requested,
         )
     else:
         transaction.on_commit(
-            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team.id, user.id)
+            partial(
+                kick_off_task,
+                manager,
+                query_id,
+                query_json,
+                query_status,
+                team.id,
+                user.id if user else None,
+            )
         )
 
     return query_status

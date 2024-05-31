@@ -564,6 +564,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                         insight,
                         dashboard=dashboard,
                         execution_mode=execution_mode,
+                        user=self.context["request"].user,
                     )
                 except ExposedHogQLError as e:
                     raise ValidationError(str(e))
