@@ -145,6 +145,8 @@ export const NEW_SURVEY: NewSurvey = {
             type: SurveyQuestionType.Open,
             question: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].question,
             description: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].description,
+            descriptionContentType:
+                defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].descriptionContentType,
             buttonText: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].buttonText,
         },
     ],
@@ -179,6 +181,8 @@ export const defaultSurveyTemplates = [
             {
                 type: SurveyQuestionType.Open,
                 question: 'What can we do to improve our product?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
         description: "Let your users share what's on their mind.",

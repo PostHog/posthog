@@ -50,7 +50,7 @@ export default function SurveyEdit(): JSX.Element {
     } = useValues(surveyLogic)
     const { setSurveyValue, resetTargeting, setSelectedQuestion, setSelectedSection, setFlagPropertyErrors } =
         useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysHTMLAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
 
@@ -67,6 +67,10 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion(newIndex)
     }
 
+    const initialThankYouMessageDescriptionContentType = surveysHTMLAvailable
+        ? thankYouMessageDescriptionContentType || 'text'
+        : 'text'
+
     const handleSurveyValueChange = (key: string, val: string): void => {
         const updatedAppearance = {
             ...survey.appearance,
@@ -75,10 +79,16 @@ export default function SurveyEdit(): JSX.Element {
         setSurveyValue('appearance', updatedAppearance)
     }
 
-    const isWritingHTML = thankYouMessageDescriptionContentType === 'html'
+    const updateWritingHTMLDescription = (val: boolean): void => {
+        if (surveysHTMLAvailable) {
+            handleSurveyValueChange('thankYouMessageDescriptionContentType', val ? 'html' : 'text')
+        }
+    }
 
-    const handleHTMLToggle = (isHTML: boolean): void => {
-        handleSurveyValueChange('thankYouMessageDescriptionContentType', isHTML ? 'html' : 'text')
+    const onTabChange = (key: string): void => {
+        if (surveysHTMLAvailable || key === 'text') {
+            updateWritingHTMLDescription(key === 'html')
+        }
     }
 
     const handleChange = (val: string): void => {
@@ -273,9 +283,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           .thankYouMessageDescription
                                                                                   }
                                                                                   onChange={handleChange}
-                                                                                  writingHTMLDescription={isWritingHTML}
-                                                                                  setWritingHTMLDescription={
-                                                                                      handleHTMLToggle
+                                                                                  onTabChange={onTabChange}
+                                                                                  initialActiveTab={
+                                                                                      initialThankYouMessageDescriptionContentType
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />

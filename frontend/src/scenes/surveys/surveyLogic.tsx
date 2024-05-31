@@ -140,6 +140,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
+        setActiveTab: (key: string) => ({ key }),
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
@@ -496,6 +497,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
+        activeTabKey: [
+            'text',
+            {
+                setActiveTab: (_, { key }) => key,
+            },
+        ],
         surveyMissing: [
             false,
             {
@@ -516,9 +523,9 @@ export const surveyLogic = kea<surveyLogicType>([
                     const description = isEditingDescription
                         ? state.questions[idx].description
                         : defaultSurveyFieldValues[type].questions[0].description
-                    const descriptionContentType = isEditingDescription
-                        ? state.questions[idx].descriptionContentType
-                        : defaultSurveyFieldValues[type].questions[0].descriptionContentType
+                    // const descriptionContentType = isEditingDescription
+                    //     ? state.questions[idx].descriptionContentType
+                    //     : defaultSurveyFieldValues[type].questions[0].descriptionContentType
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
@@ -528,7 +535,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
-                        descriptionContentType,
+                        // descriptionContentType,
                     }
                     return {
                         ...state,

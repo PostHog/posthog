@@ -15,6 +15,7 @@ import { Survey, SurveyQuestionType } from '~/types'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -85,6 +86,9 @@ export function SurveyEditQuestionHeader({
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
+
+    const initialDescriptionContentType = surveysHTMLAvailable ? descriptionContentType(index) || 'text' : 'text'
 
     const handleQuestionValueChange = (key: string, val: string): void => {
         const updatedQuestion = survey.questions.map((question, idx) => {
@@ -100,7 +104,15 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const updateWritingHTMLDescription = (isHTML: boolean): void => {
-        handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
+        if (surveysHTMLAvailable) {
+            handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
+        }
+    }
+
+    const handleTabChange = (key: string): void => {
+        if (surveysHTMLAvailable || key === 'text') {
+            updateWritingHTMLDescription(key === 'html')
+        }
     }
 
     return (
@@ -163,8 +175,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 onChange(val)
                                 handleQuestionValueChange('description', val)
                             }}
-                            writingHTMLDescription={descriptionContentType(index) == 'html'}
-                            setWritingHTMLDescription={updateWritingHTMLDescription}
+                            onTabChange={handleTabChange}
+                            initialActiveTab={initialDescriptionContentType}
                         />
                     )}
                 </LemonField>

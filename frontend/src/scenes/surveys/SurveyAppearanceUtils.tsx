@@ -1,12 +1,13 @@
 import { IconLock } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
 
+import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 export function PresentationTypeCard({
@@ -50,28 +51,34 @@ export function PresentationTypeCard({
 export function HTMLEditor({
     value,
     onChange,
-    writingHTMLDescription,
-    setWritingHTMLDescription,
+    onTabChange,
+    initialActiveTab,
     textPlaceholder,
 }: {
     value?: string
     onChange: (value: any) => void
-    writingHTMLDescription: boolean
-    setWritingHTMLDescription: (writingHTML: boolean) => void
+    onTabChange: (key: SurveyQuestionDescriptionContentType) => void
+    initialActiveTab: SurveyQuestionDescriptionContentType | undefined
     textPlaceholder?: string
 }): JSX.Element {
     const { surveysHTMLAvailable } = useValues(surveysLogic)
+    const { activeTabKey } = useValues(surveyLogic)
+    const { setActiveTab } = useActions(surveyLogic)
 
-    const handleTabChange = (key: SurveyQuestionDescriptionContentType): void => {
-        setWritingHTMLDescription(key === 'html')
+    // Initialize the tab state
+    if (activeTabKey !== initialActiveTab) {
+        setActiveTab(initialActiveTab ?? 'text')
     }
 
-    const activeKey = writingHTMLDescription ? 'html' : 'text'
+    const handleTabChange = (key: SurveyQuestionDescriptionContentType): void => {
+        setActiveTab(key)
+        onTabChange(key)
+    }
 
     return (
         <>
             <LemonTabs
-                activeKey={activeKey}
+                activeKey={activeTabKey as SurveyQuestionDescriptionContentType}
                 onChange={handleTabChange}
                 tabs={[
                     {
