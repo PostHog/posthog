@@ -28,19 +28,29 @@ export interface UniversalGroupFilterValue {
 export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 export type UniversalFilterGroup = UniversalGroupFilter | UniversalGroupFilterValue
 
+type UniversalFiltersProps = {
+    pageKey: string
+    group: UniversalGroupFilter | UniversalGroupFilterValue | null
+    allowGroups: boolean
+    allowFilters: boolean
+    onChange: (group: UniversalFilterGroup) => void
+    taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
+}
+
 export function UniversalFilters({
     pageKey = 'rootKey',
     group = null,
     allowGroups = false,
     allowFilters = false,
     onChange = (group: UniversalFilterGroup) => console.log(group),
-}: {
-    pageKey: string
-    group: UniversalGroupFilter | UniversalGroupFilterValue | null
-    allowGroups: boolean
-    allowFilters: boolean
-    onChange: (group: UniversalFilterGroup) => void
-}): JSX.Element {
+    taxonomicEntityFilterGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    taxonomicPropertyFilterGroupTypes = [
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.SessionProperties,
+    ],
+}: UniversalFiltersProps): JSX.Element {
     const logic = universalFiltersLogic({ pageKey, group, onChange })
     const { filterGroup } = useValues(logic)
     const { addFilterGroup, replaceGroupValue, removeGroupValue, addGroupFilter } = useActions(logic)
@@ -62,6 +72,8 @@ export function UniversalFilters({
                             onChange={(group) => replaceGroupValue(index, group)}
                             allowGroups={false} // only ever allow a single level of group nesting
                             allowFilters={true}
+                            taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
+                            taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
                         />
                     </div>
                 ) : (
@@ -71,6 +83,8 @@ export function UniversalFilters({
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
+                        taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
                     />
                 )
             })}
@@ -84,11 +98,8 @@ export function UniversalFilters({
                                 setDropdownOpen(false)
                             }}
                             taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Actions,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.SessionProperties,
+                                ...taxonomicEntityFilterGroupTypes,
+                                ...taxonomicPropertyFilterGroupTypes,
                             ]}
                         />
                     }
@@ -129,11 +140,15 @@ const UniversalFilterRow = ({
     pageKey,
     onChange,
     onRemove,
+    taxonomicEntityFilterGroupTypes,
+    taxonomicPropertyFilterGroupTypes,
 }: {
     filter: AnyPropertyFilter | ActionFilter
     pageKey: string
     onChange: (property: AnyPropertyFilter | ActionFilter) => void
     onRemove: () => void
+    taxonomicEntityFilterGroupTypes: UniversalFiltersProps['taxonomicEntityFilterGroupTypes']
+    taxonomicPropertyFilterGroupTypes: UniversalFiltersProps['taxonomicPropertyFilterGroupTypes']
 }): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
 
@@ -156,11 +171,7 @@ const UniversalFilterRow = ({
                         }}
                         setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.SessionProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.Cohorts,
-                        ]}
+                        taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
                     />
                 ) : (
                     <div>Edit action</div>
