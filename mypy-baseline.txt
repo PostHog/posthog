@@ -1,8 +1,6 @@
 posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" has incompatible type "Callable[[HeartbeatDetails, Any], Any]"; expected "Callable[[type[Never], Any], Any]"  [arg-type]
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
-posthog/warehouse/models/ssh_tunnel.py:0: error: Module has no attribute "load_ssh_private_key"; maybe "load_der_private_key", "load_pem_private_key", or "load_ssh_public_key"?  [attr-defined]
-posthog/warehouse/models/ssh_tunnel.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/zendesk/talk_api.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
@@ -50,17 +48,17 @@ posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incomp
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Expr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_REGION'  [misc]

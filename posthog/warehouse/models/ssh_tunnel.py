@@ -13,13 +13,13 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
     file_bytes = bytes(file_obj.read(), "utf-8")
     password = bytes(StringIO(passphrase).read(), "utf-8")
     try:
-        key = crypto_serialization.load_ssh_private_key(
+        key = crypto_serialization.load_ssh_private_key(  # type: ignore
             file_bytes,
             password=password,
         )
         file_obj.seek(0)
     except ValueError:
-        key = crypto_serialization.load_pem_private_key(  # type: ignore
+        key = crypto_serialization.load_pem_private_key(
             file_bytes,
             password=password,
         )
