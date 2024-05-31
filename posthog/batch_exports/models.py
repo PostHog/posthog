@@ -178,6 +178,8 @@ class BatchExport(UUIDModel):
         help_text="A schema of custom fields to select when exporting data.",
     )
 
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
+
     @property
     def latest_runs(self):
         """Return the latest 10 runs for this batch export."""

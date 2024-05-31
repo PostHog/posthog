@@ -17,6 +17,7 @@ from rest_framework.pagination import CursorPagination
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import FiltersSerializer
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
     BatchExportLogEntry,
@@ -190,6 +191,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "latest_runs",
             "hogql_query",
             "schema",
+            "filters",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -276,6 +278,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         batch_export_schema["values"] = context.values
 
         return batch_export_schema
+
+    def validate_filters(self, value: dict) -> dict:
+        serializer = FiltersSerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
         """Validate a HogQLQuery being used for batch exports.
