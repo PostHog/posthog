@@ -476,6 +476,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # urls TODO
     "protocol": HogQLFunctionMeta("protocol", 1, 1),
     "domain": HogQLFunctionMeta("domain", 1, 1),
+    "domainRFC": HogQLFunctionMeta("domainRFC", 1, 1),
     "domainWithoutWWW": HogQLFunctionMeta("domainWithoutWWW", 1, 1),
     "topLevelDomain": HogQLFunctionMeta("topLevelDomain", 1, 1),
     "firstSignificantSubdomain": HogQLFunctionMeta("firstSignificantSubdomain", 1, 1),

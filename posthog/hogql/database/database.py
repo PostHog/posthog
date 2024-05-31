@@ -56,6 +56,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.web_vitals import WebVitalsTable
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -100,6 +101,7 @@ class Database(BaseModel):
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: SessionsTable = SessionsTable()
     heatmaps: HeatmapsTable = HeatmapsTable()
+    web_vitals: WebVitalsTable = WebVitalsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -126,6 +128,7 @@ class Database(BaseModel):
         "log_entries",
         "sessions",
         "heatmaps",
+        "web_vitals",
     ]
 
     _warehouse_table_names: list[str] = []
