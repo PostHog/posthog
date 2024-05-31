@@ -885,7 +885,7 @@ export type LifecycleFilter = {
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    refresh?: boolean
+    refresh?: boolean | 'async' | 'force_async'
     /**
      * (Experimental)
      * Whether to run the query asynchronously. Defaults to False.

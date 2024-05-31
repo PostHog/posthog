@@ -35,6 +35,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { pollForResults } from '~/queries/query'
 import { DashboardFilter } from '~/queries/schema'
 import {
     AnyPropertyFilter,
@@ -959,7 +960,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache,
+                    refresh: hardRefreshWithoutCache ? 'async' : undefined,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
@@ -972,13 +973,41 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
+
+                    if (refreshedInsight.query_status) {
+                        actions.setRefreshStatus(insight.short_id, false, true)
+                        pollForResults(refreshedInsight.query_status.id, false, methodOptions)
+                            .then(async () => {
+                                const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams(
+                                    {
+                                        refresh: 'stale',
+                                        from_dashboard: dashboardId, // needed to load insight in correct context
+                                        client_query_id: queryId,
+                                        session_id: currentSessionId(),
+                                    }
+                                )}`
+                                const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
+                                const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
+                                dashboardsModel.actions.updateDashboardInsight(
+                                    refreshedInsight,
+                                    [],
+                                    props.id ? [props.id] : undefined
+                                )
+                                actions.setRefreshStatus(insight.short_id)
+                            })
+                            .catch(() => {
+                                actions.setRefreshError(insight.short_id)
+                            })
+                    } else {
+                        actions.setRefreshStatus(insight.short_id)
+                    }
+
                     breakpoint()
                     dashboardsModel.actions.updateDashboardInsight(
                         refreshedInsight,
                         [],
                         props.id ? [props.id] : undefined
                     )
-                    actions.setRefreshStatus(insight.short_id)
 
                     void captureTimeToSeeData(values.currentTeamId, {
                         type: 'insight_load',

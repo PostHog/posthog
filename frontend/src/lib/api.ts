@@ -2125,9 +2125,10 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
+        const refreshParam = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

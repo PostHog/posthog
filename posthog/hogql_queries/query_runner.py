@@ -70,8 +70,10 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 
 
 class ExecutionMode(IntEnum):
-    CALCULATION_ALWAYS = 3
+    CALCULATION_ALWAYS = 4
     """Always recalculate."""
+    CALCULATE_ASYNC_ALWAYS = 3
+    """Always kick off async calculation."""
     RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 2
     """Use cache, unless the results are missing or stale."""
     RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 1
@@ -84,6 +86,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str) -> ExecutionMode:
     refresh_map = {
         "stale": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
         True: ExecutionMode.CALCULATION_ALWAYS,
     }
     if refresh_requested in refresh_map:
@@ -364,61 +367,73 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def calculate(self) -> R:
         raise NotImplementedError()
 
+    def check_cache(
+        self, execution_mode: ExecutionMode, cache_key: str
+    ) -> Optional[CR | CacheMissResponse | QueryStatus]:
+        CachedResponse: type[CR] = self.cached_response_type
+        cached_response: CR | CacheMissResponse
+        cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
+        cached_response_candidate: Optional[dict] = (
+            OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes) if cached_response_candidate_bytes else None
+        )
+        if self.is_cached_response(cached_response_candidate):
+            cached_response_candidate["is_cached"] = True
+            cached_response = CachedResponse(**cached_response_candidate)
+        elif cached_response_candidate is None:
+            cached_response = CacheMissResponse(cache_key=cache_key)
+        else:
+            # Whatever's in cache is malformed, so let's treat is as non-existent
+            cached_response = CacheMissResponse(cache_key=cache_key)
+            with push_scope() as scope:
+                scope.set_tag("cache_key", cache_key)
+                capture_exception(
+                    ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
+                )
+
+        if self.is_cached_response(cached_response_candidate):
+            if not self._is_stale(cached_response):
+                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
+                # We have a valid result that's fresh enough, let's return it
+                return cached_response
+
+            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+            # We have a stale result. If we aren't allowed to calculate, let's still return it
+            # – otherwise let's proceed to calculation
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                return cached_response
+            elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+                # We're allowed to calculate, but we'll do it asynchronously
+                self.kick_off_async_calculation()
+                # TODO: We might want to return the query status as well
+                return cached_response
+        else:
+            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+            # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
+            # – otherwise let's proceed to calculation
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                return cached_response
+            elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+                # We're allowed to calculate, but we'll do it asynchronously
+                return self.kick_off_async_calculation()
+
+        # Nothing useful out of cache, nor async query status
+        return None
+
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    ) -> CR | CacheMissResponse:
+    ) -> CR | CacheMissResponse | QueryStatus:
         cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
         CachedResponse: type[CR] = self.cached_response_type
 
-        if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
+        if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+            # We should always kick off async calculation
+            return self.kick_off_async_calculation(refresh=True)
+        elif execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
-            cached_response: CR | CacheMissResponse
-            cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
-            cached_response_candidate: Optional[dict] = (
-                OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes)
-                if cached_response_candidate_bytes
-                else None
-            )
-            if self.is_cached_response(cached_response_candidate):
-                cached_response_candidate["is_cached"] = True
-                cached_response = CachedResponse(**cached_response_candidate)
-            elif cached_response_candidate is None:
-                cached_response = CacheMissResponse(cache_key=cache_key)
-            else:
-                # Whatever's in cache is malformed, so let's treat is as non-existent
-                cached_response = CacheMissResponse(cache_key=cache_key)
-                with push_scope() as scope:
-                    scope.set_tag("cache_key", cache_key)
-                    capture_exception(
-                        ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
-                    )
-
-            if self.is_cached_response(cached_response_candidate):
-                if not self._is_stale(cached_response):
-                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
-                    # We have a valid result that's fresh enough, let's return it
-                    return cached_response
-
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
-                # We have a stale result. If we aren't allowed to calculate, let's still return it
-                # – otherwise let's proceed to calculation
-                if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                    return cached_response
-                elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
-                    # We're allowed to calculate, but we'll do it asynchronously
-                    self.kick_off_async_calculation()
-                    # TODO: We might want to return the query status as well
-                    return cached_response
-            else:
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
-                # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
-                # – otherwise let's proceed to calculation
-                if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                    return cached_response
-                elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
-                    # We're allowed to calculate, but we'll do it asynchronously
-                    return self.kick_off_async_calculation()
+            results = self.check_cache(execution_mode=execution_mode, cache_key=cache_key)
+            if results is not None:
+                return results
 
         fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
@@ -440,12 +455,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
-    def kick_off_async_calculation(self) -> QueryStatus:
+    def kick_off_async_calculation(self, refresh: bool = False) -> QueryStatus:
         return enqueue_process_query_task(
             team=self.team,
             user=self.team.all_users_with_access().first(),  # TODO
             query_json=self.query.model_dump(),
             query_id=None,  # TODO
+            refresh_requested=refresh,
         )
 
     @abstractmethod

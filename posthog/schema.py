@@ -4357,7 +4357,7 @@ class QueryRequest(BaseModel):
         description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
         discriminator="kind",
     )
-    refresh: Optional[bool] = None
+    refresh: Optional[Union[bool, str]] = None
 
 
 class QuerySchemaRoot(

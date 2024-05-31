@@ -270,6 +270,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     """,
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
+    query_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -302,6 +303,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "effective_privilege_level",
             "timezone",
             "is_cached",
+            "query_status",
         ]
         read_only_fields = (
             "created_at",
@@ -493,6 +495,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
+
+    def get_query_status(self, insight: Insight):
+        return self.insight_result(insight).query_status
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):

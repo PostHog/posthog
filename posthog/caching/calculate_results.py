@@ -165,6 +165,7 @@ def calculate_for_query_based_insight(
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
         timings=response.get("timings"),
+        query_status=response if "query_async" in response else None,  # TODO
     )
 
 
