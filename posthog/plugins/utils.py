@@ -240,10 +240,14 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     return response.content
 
 
-def load_json_file(filename: str):
+def load_local_plugin_file(local_plugin_url: str, relative_file_path: str, json_parse: bool = True):
+    local_path = local_plugin_url[5:]
+    filename = os.path.join(local_path, relative_file_path)
     try:
         with open(filename, encoding="utf_8") as reader:
-            return json.loads(reader.read())
+            if json_parse:
+                return json.loads(reader.read())
+            return reader.read()
     except FileNotFoundError:
         return None
 

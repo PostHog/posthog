@@ -74,12 +74,14 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                         lemonToast.error('Unsupported installation type.')
                         return values.plugins
                     }
-                    const response: PluginType = await api.create('api/organizations/@current/plugins', payload)
+                    let response: PluginType = await api.create('api/organizations/@current/plugins', payload)
                     if (pluginType === PluginInstallationType.Source) {
                         await api.update(
                             `api/organizations/@current/plugins/${response.id}/update_source`,
                             getInitialCode(values.sourcePluginName, values.sourcePluginKind)
                         )
+                        // reload plugin to get the updated full info
+                        response = await api.get(`api/organizations/@current/plugins/${response.id}`)
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
@@ -197,6 +199,15 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                     (plugin) => !(plugin.url && GLOBAL_PLUGINS.has(plugin.url)) && plugin.is_global
                 )
             },
+        ],
+        localAndSourcePlugins: [
+            (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter(
+                    (plugin) =>
+                        plugin.plugin_type === PluginInstallationType.Local ||
+                        plugin.plugin_type === PluginInstallationType.Source
+                ),
         ],
         updatablePlugins: [
             (s) => [s.plugins],
