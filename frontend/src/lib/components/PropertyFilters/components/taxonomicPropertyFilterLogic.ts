@@ -1,9 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
+    createDefaultPropertyFilter,
     isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
-    propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -11,22 +10,13 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    CohortPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
@@ -97,59 +87,17 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
-                if (propertyType === PropertyFilterType.Cohort) {
-                    const cohortProperty: CohortPropertyFilter = {
-                        key: 'id',
-                        value: parseInt(String(propertyKey)),
-                        type: propertyType,
-                    }
-                    props.setFilter(props.filterIndex, cohortProperty)
-                    // props.propertyFilterLogic.actions.setFilter(props.filterIndex, cohortProperty)
-                } else if (propertyType === PropertyFilterType.HogQL) {
-                    const hogQLProperty: HogQLPropertyFilter = {
-                        type: propertyType,
-                        key: String(propertyKey),
-                        value: null, // must specify something to be compatible with existing types
-                    }
-                    props.setFilter(props.filterIndex, hogQLProperty)
-                    // props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
-                } else {
-                    const apiType =
-                        propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
-
-                    const propertyValueType = values.describeProperty(
-                        propertyKey,
-                        apiType,
-                        taxonomicGroup.groupTypeIndex
-                    )
-                    const property_name_to_default_operator_override = {
-                        $active_feature_flags: PropertyOperator.IContains,
-                    }
-                    const property_value_type_to_default_operator_override = {
-                        [PropertyType.Duration]: PropertyOperator.GreaterThan,
-                        [PropertyType.DateTime]: PropertyOperator.IsDateExact,
-                        [PropertyType.Selector]: PropertyOperator.Exact,
-                    }
-                    const operator =
-                        property_name_to_default_operator_override[propertyKey] ||
-                        (isPropertyFilterWithOperator(values.filter) ? values.filter.operator : null) ||
-                        property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
-                        PropertyOperator.Exact
-
-                    const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
-                    // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
-                    // is the equivalent of selecting a property value
-                    const property: AnyPropertyFilter = {
-                        key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-                        value: isGroupNameFilter ? propertyKey.toString() : null,
-                        operator,
-                        type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
-                        group_type_index: taxonomicGroup.groupTypeIndex,
-                    }
-                    props.setFilter(props.filterIndex, property)
-                    // props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
-                }
+                const filter = createDefaultPropertyFilter(
+                    values.filter,
+                    propertyKey,
+                    propertyType,
+                    taxonomicGroup,
+                    values.describeProperty
+                )
+                debugger
+                props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
+                return
             }
         },
     })),
