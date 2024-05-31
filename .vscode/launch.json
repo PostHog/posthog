@@ -5,8 +5,46 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Frontend",
+            "command": "npm start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Backend",
+            "consoleName": "Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["runserver"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
             "name": "Celery Threaded Pool",
-            "type": "python",
+            "consoleName": "Celery Threaded Pool",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
@@ -29,11 +67,15 @@
                 "DEBUG": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
             }
         },
         {
             "name": "Celery Redbeat Scheduler",
-            "type": "python",
+            "consoleName": "Celery Redbeat Scheduler",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
@@ -46,11 +88,14 @@
                 "DEBUG": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
             }
         },
         {
-            "command": "npm run start:dev",
             "name": "Plugin Server",
+            "command": "npm run start:dev",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}/plugin-server",
@@ -60,41 +105,15 @@
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True"
+            },
+            "presentation": {
+                "group": "main"
             }
         },
         {
-            "name": "Frontend",
-            "command": "npm start",
-            "request": "launch",
-            "type": "node-terminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Backend",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": ["runserver"],
-            "django": true,
-            "env": {
-                "PYTHONUNBUFFERED": "1",
-                "DJANGO_SETTINGS_MODULE": "posthog.settings",
-                "DEBUG": "1",
-                "CLICKHOUSE_SECURE": "False",
-                "KAFKA_HOSTS": "localhost",
-                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
-                "PRINT_SQL": "1",
-                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "CLOUD_DEPLOYMENT": "dev"
-            },
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}"
-        },
-        {
             "name": "Temporal Worker",
-            "type": "python",
+            "consoleName": "Temporal Worker",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
             "args": ["start_temporal_worker"],
@@ -111,11 +130,14 @@
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
         },
         {
             "name": "Pytest: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": ["${file}", "-vvv"],
@@ -150,7 +172,11 @@
                 "Plugin Server",
                 "Temporal Worker"
             ],
-            "stopAll": true
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
         }
     ]
 }
