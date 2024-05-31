@@ -39,7 +39,7 @@ runs:
               LABELS=$(curl \
                 -H "Authorization: Bearer ${{ inputs.token }}" \
                 -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels | jq -rc '[.[].name]')
+                https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels | jq -rc '[try .[].name catch null] | map(select(. != null))')
               echo "Labels of PR #$PR_NUMBER: $LABELS"
 
               echo labels="$LABELS" >> $GITHUB_OUTPUT
