@@ -944,7 +944,7 @@ export interface CacheMissResponse {
     cache_key: string | null
 }
 
-export type ClickhouseQueryStatus = {
+export type ClickhouseQueryProgress = {
     bytes_read: integer
     rows_read: integer
     estimated_rows_total: integer
@@ -974,7 +974,7 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
-    query_progress?: ClickhouseQueryStatus
+    query_progress?: ClickhouseQueryProgress
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

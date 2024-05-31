@@ -1570,7 +1570,7 @@
             ],
             "type": "string"
         },
-        "ClickhouseQueryStatus": {
+        "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
                 "active_cpu_time": {
@@ -6794,7 +6794,7 @@
                     "type": "boolean"
                 },
                 "query_progress": {
-                    "$ref": "#/definitions/ClickhouseQueryStatus"
+                    "$ref": "#/definitions/ClickhouseQueryProgress"
                 },
                 "results": {},
                 "start_time": {
