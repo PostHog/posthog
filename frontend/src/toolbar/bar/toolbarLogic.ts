@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
@@ -14,13 +15,6 @@ const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
 
-export enum PostHogAppToolbarEvent {
-    PH_TOOLBAR_INIT = 'ph-toolbar-init',
-    PH_TOOLBAR_READY = 'ph-toolbar-ready',
-    PH_APP_INIT = 'ph-app-init',
-    PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
-}
-
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
@@ -30,7 +24,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
-            ['enableHeatmap', 'disableHeatmap'],
+            [
+                'enableHeatmap',
+                'disableHeatmap',
+                'patchHeatmapFilters',
+                'setHeatmapFixedPositionMode',
+                'setHeatmapColorPalette',
+                'setCommonFilters',
+            ],
         ],
     })),
     actions(() => ({
@@ -300,12 +301,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
             switch (type) {
                 case PostHogAppToolbarEvent.PH_APP_INIT:
                     actions.setIsEmbeddedInApp(true)
+                    actions.patchHeatmapFilters(e.data.payload.filters)
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    actions.setCommonFilters(e.data.payload.commonFilters)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
                     actions.enableHeatmap()
                     return
-
+                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
+                    actions.patchHeatmapFilters(e.data.payload.filters)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
+                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
+                    actions.setCommonFilters(e.data.payload.commonFilters)
+                    return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }
