@@ -254,7 +254,9 @@ describe('runComposeWebhook', () => {
         elementsList: undefined,
         person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
         person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
-        person_properties: {},
+        person_properties: {
+            email: 'test@posthog.com',
+        },
         ...data,
     })
 
@@ -270,6 +272,16 @@ describe('runComposeWebhook', () => {
                         name: 'input',
                         type: 'string',
                         required: true,
+                    },
+                    {
+                        key: 'headers',
+                        name: 'headers',
+                        type: 'dictionary',
+                    },
+                    {
+                        key: 'json',
+                        name: 'json',
+                        type: 'json',
                     },
                 ],
             },
@@ -322,6 +334,11 @@ describe('runComposeWebhook', () => {
     it('calls composeWebhook with PostHogEvent format and templated config', async () => {
         mockPluginConfig.config = {
             input: 'The event {{event.event}} was triggered!',
+            headers: {
+                'X-PostHog-Event': '{{event.event}}',
+                'X-PostHog-Project': '{{project.id}}',
+            },
+            json: '"{{person.properties}}"',
         }
 
         await runComposeWebhook(mockHub as Hub, createEvent())
