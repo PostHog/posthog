@@ -18,15 +18,9 @@ export function SurveyFormAppearance({
     survey,
     setActivePreview,
 }: SurveyFormAppearanceProps): JSX.Element {
-    const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
-
     return survey.type !== SurveyType.API ? (
         <div className="survey-view max-w-72">
-            <SurveyAppearancePreview
-                survey={survey as Survey}
-                activePreview={showThankYou ? 'confirmation' : 'survey'}
-                questionIndex={activePreview}
-            />
+            <SurveyAppearancePreview survey={survey as Survey} previewPageIndex={activePreview} />
             <LemonSelect
                 onChange={(activePreview) => {
                     setActivePreview(activePreview)
