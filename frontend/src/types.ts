@@ -4034,3 +4034,20 @@ export type OnboardingProduct = {
     url: string
     scene: Scene
 }
+
+export type HogFunctionType = {
+    id: string
+    inputs_schema: string
+    inputs: string
+    hog: string
+    enabled: boolean
+    // TODO: Rewrite these
+    filters?: PluginConfigFilters | null
+}
+
+export type HogFunctionTemplateType = {
+    id: string
+    inputs_schema: string
+    hog: string
+    filters?: PluginConfigFilters | null
+}
