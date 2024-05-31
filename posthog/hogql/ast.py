@@ -512,6 +512,9 @@ class PropertyType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
+            return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+
         return self.field_type.resolve_constant_type(context)
 
 
