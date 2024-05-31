@@ -67,7 +67,7 @@ jobs:
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
-                  event_type: commit_state_update
+                  event-type: commit_state_update
                   client-payload: |
                       {"message":{
                         "values": {
