@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Celery",
+            "name": "Celery Threaded Pool",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/env/bin/celery",
@@ -16,16 +16,30 @@
                 "-A",
                 "posthog",
                 "worker",
-                "-B",
-                "--scheduler",
-                "redbeat.RedBeatScheduler",
                 "--without-heartbeat",
                 "--without-mingle",
-                "--pool=solo",
+                "--pool=threads",
                 "-Ofair",
                 "-n",
                 "node@%h"
             ],
+            "envFile": "${workspaceFolder}/bin/celery-queues.env",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            }
+        },
+        {
+            "name": "Celery Redbeat Scheduler",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/env/bin/celery",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}",
+            "args": ["-A", "posthog", "beat", "-S", "redbeat.RedBeatScheduler"],
             "envFile": "${workspaceFolder}/bin/celery-queues.env",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
@@ -128,7 +142,14 @@
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Redbeat Scheduler",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
             "stopAll": true
         }
     ]
