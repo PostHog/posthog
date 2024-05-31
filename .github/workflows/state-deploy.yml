@@ -78,5 +78,5 @@ jobs:
                         "release": "temporal-worker-general-purpose",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ toJson(steps.labels.outputs.labels) }}
+                        "laabels": ${{ steps.labels.outputs.labels }}
                       }
