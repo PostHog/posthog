@@ -254,9 +254,6 @@ class ActorsQueryRunner(QueryRunner):
         if self.source_query_runner:
             self.source_query_runner.apply_dashboard_filters(dashboard_filter)
 
-    def _is_stale(self, cached_result_package):
-        return True
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 

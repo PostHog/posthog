@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -11,6 +12,7 @@ from sentry_sdk import capture_exception, push_scope
 import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.caching.utils import is_stale
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -491,9 +493,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             f"query_{to_json(self.query)}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
         )
 
-    @abstractmethod
     def _is_stale(self, cached_result_package):
-        raise NotImplementedError()
+        return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
 
     @abstractmethod
     def _refresh_frequency(self):
