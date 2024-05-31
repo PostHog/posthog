@@ -41,7 +41,6 @@ export function UniversalFilters({
     allowFilters: boolean
     onChange: (group: UniversalFilterGroup) => void
 }): JSX.Element {
-    console.log(pageKey)
     const logic = universalFiltersLogic({ pageKey, group, onChange })
     const { filterGroup } = useValues(logic)
     const { addFilterGroup, replaceGroupValue, removeGroupValue, addGroupFilter } = useActions(logic)
@@ -60,9 +59,7 @@ export function UniversalFilters({
                             key={index}
                             pageKey={`${pageKey}.group_${index}`}
                             group={filterOrGroup}
-                            onChange={(group: UniversalFilterGroup) => {
-                                replaceGroupValue(index, group)
-                            }}
+                            onChange={(group) => replaceGroupValue(index, group)}
                             allowGroups={false} // only ever allow a single level of group nesting
                             allowFilters={true}
                         />
@@ -72,11 +69,8 @@ export function UniversalFilters({
                         key={index}
                         pageKey={`${pageKey}.filter_${index}`}
                         filter={filterOrGroup}
-                        index={index}
                         onRemove={() => removeGroupValue(index)}
-                        onChange={() => {
-                            console.log('TODO: implement update')
-                        }}
+                        onChange={(value) => replaceGroupValue(index, value)}
                     />
                 )
             })}
@@ -132,42 +126,41 @@ export function UniversalFilters({
 
 const UniversalFilterRow = ({
     filter,
-    index,
     pageKey,
     onChange,
     onRemove,
 }: {
     filter: AnyPropertyFilter | ActionFilter
-    index: number
     pageKey: string
-    onChange: (index: number, property: AnyPropertyFilter | ActionFilter) => void
-    onRemove: (index: number) => void
+    onChange: (property: AnyPropertyFilter | ActionFilter) => void
+    onRemove: () => void
 }): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
 
-    const handleVisibleChange = (visible: boolean): void => {
-        if (!visible && isValidPropertyFilter(filter) && !filter.key) {
-            onRemove(index)
-        }
-        setOpen(visible)
-    }
-
-    const isPropertyFilter = isValidPropertyFilter(filter)
+    const isPropertyFilter = isValidPropertyFilter(filter) // TODO: maybe won't be valid initially
 
     return (
         <Popover
             visible={open}
-            onClickOutside={() => handleVisibleChange(false)}
+            onClickOutside={() => setOpen(false)}
             overlay={
                 isPropertyFilter ? (
                     <TaxonomicPropertyFilter
-                        key={index}
                         pageKey={pageKey}
-                        index={index}
-                        onComplete={() => setOpen(false)}
+                        index={0}
+                        filters={[filter]}
+                        onComplete={() => {
+                            if (isValidPropertyFilter(filter) && !filter.key) {
+                                onRemove()
+                            }
+                        }}
+                        setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
-                        filters={[]}
-                        setFilter={onChange}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.SessionProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Cohorts,
+                        ]}
                     />
                 ) : (
                     <div>Edit action</div>
@@ -175,7 +168,7 @@ const UniversalFilterRow = ({
             }
         >
             {isPropertyFilter ? (
-                <PropertyFilterButton onClick={() => setOpen(!open)} onClose={() => onRemove(index)} item={filter} />
+                <PropertyFilterButton onClick={() => setOpen(!open)} onClose={() => onRemove()} item={filter} />
             ) : (
                 <div>Action filter</div>
             )}

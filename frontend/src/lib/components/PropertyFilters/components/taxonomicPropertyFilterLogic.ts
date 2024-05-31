@@ -94,7 +94,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     taxonomicGroup,
                     values.describeProperty
                 )
-                debugger
                 props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
                 return
