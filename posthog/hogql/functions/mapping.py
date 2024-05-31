@@ -10,7 +10,6 @@ from posthog.hogql.ast import (
     FloatType,
     StringType,
     TupleType,
-    NumericType,
     IntegerType,
     UUIDType,
 )
@@ -45,8 +44,7 @@ def validate_function_args(
 
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
 AnyConstantType = (
-    NumericType
-    | StringType
+    StringType
     | BooleanType
     | DateType
     | DateTimeType
@@ -79,20 +77,17 @@ class HogQLFunctionMeta:
     """Additional arguments that are added to the end of the arguments provided by the caller"""
 
 
-def compare_types(arg_types, sig_arg_types):
-    _arg_types = list(arg_types)
+def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
     _sig_arg_types = list(sig_arg_types)
     if len(arg_types) != len(sig_arg_types):
         return False
 
-    for arg_type in arg_types:
-        for _sig_arg_type in _sig_arg_types:
-            if isinstance(arg_type, _sig_arg_type.__class__):
-                _arg_types.remove(arg_type)
-                _sig_arg_types.remove(_sig_arg_type)
-                break
+    for index, arg_type in enumerate(arg_types):
+        _sig_arg_type = _sig_arg_types[index]
+        if not isinstance(arg_type, _sig_arg_type.__class__):
+            return False
 
-    return not _arg_types
+    return True
 
 
 HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
@@ -117,16 +112,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
             (
                 (
-                    TupleType(item_types=[NumericType()], repeat=True),
-                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
                 ),
-                TupleType(item_types=[NumericType()], repeat=True),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
-            ((DateTimeType(), NumericType()), DateTimeType()),
-            ((NumericType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "minus": HogQLFunctionMeta(
@@ -134,16 +131,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
             (
                 (
-                    TupleType(item_types=[NumericType()], repeat=True),
-                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
                 ),
-                TupleType(item_types=[NumericType()], repeat=True),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
-            ((DateTimeType(), NumericType()), DateTimeType()),
-            ((NumericType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
@@ -151,24 +150,26 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
             (
                 (
-                    TupleType(item_types=[NumericType()], repeat=True),
-                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
                 ),
-                TupleType(item_types=[NumericType()], repeat=True),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
             (
-                (NumericType(), TupleType(item_types=[NumericType()], repeat=True)),
-                TupleType(item_types=[NumericType()], repeat=True),
+                (IntegerType(), TupleType(item_types=[IntegerType()], repeat=True)),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
             (
-                (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
-                TupleType(item_types=[NumericType()], repeat=True),
+                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
-            ((DateTimeType(), NumericType()), DateTimeType()),
-            ((NumericType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "divide": HogQLFunctionMeta(
@@ -176,13 +177,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
             (
-                (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
-                TupleType(item_types=[NumericType()], repeat=True),
+                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
+                TupleType(item_types=[IntegerType()], repeat=True),
             ),
-            ((DateTimeType(), NumericType()), DateTimeType()),
-            ((NumericType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "intDiv": HogQLFunctionMeta(
@@ -190,7 +193,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
         ],
     ),
     "intDivOrZero": HogQLFunctionMeta(
@@ -198,7 +201,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
         ],
     ),
     "modulo": HogQLFunctionMeta(
@@ -206,7 +209,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
         ],
     ),
     "moduloOrZero": HogQLFunctionMeta(
@@ -214,7 +219,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
         ],
     ),
     "positiveModulo": HogQLFunctionMeta(
@@ -222,7 +229,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
         ],
     ),
     "negate": HogQLFunctionMeta(
@@ -230,7 +239,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((NumericType(),), NumericType()),
+            ((IntegerType(),), IntegerType()),
+            ((FloatType(),), FloatType()),
         ],
     ),
     "abs": HogQLFunctionMeta(
@@ -263,7 +273,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
         ],
         case_sensitive=False,
     ),
@@ -272,7 +284,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         2,
         signatures=[
-            ((NumericType(), NumericType()), NumericType()),
+            ((IntegerType(), IntegerType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
         ],
         case_sensitive=False,
     ),

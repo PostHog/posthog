@@ -405,6 +405,10 @@ class Resolver(CloningVisitor):
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         node = super().visit_arithmetic_operation(node)
+
+        if node.left.type is None or node.right.type is None:
+            return node
+
         left_type = node.left.type.resolve_constant_type(self.context)
         right_type = node.right.type.resolve_constant_type(self.context)
 
@@ -421,9 +425,8 @@ class Resolver(CloningVisitor):
         elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
             node.type = ast.UnknownType()
         else:
-            raise ResolutionError(
-                f"Arithmetic operations can only be performed on numeric types, not on '{left_type.__class__.__name__}' and '{right_type.__class__.__name__}'"
-            )
+            node.type = ast.UnknownType()
+
         node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
@@ -441,7 +444,7 @@ class Resolver(CloningVisitor):
         arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type(self.context))
             else:
                 arg_types.append(ast.UnknownType())
         param_types: Optional[list[ast.ConstantType]] = None
@@ -449,7 +452,7 @@ class Resolver(CloningVisitor):
             param_types = []
             for i, param in enumerate(node.params):
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type(self.context))
                 else:
                     raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
 

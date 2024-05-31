@@ -91,7 +91,7 @@ class FieldAliasType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.type.has_child(name, context)
 
-    def resolve_constant_type(self, context: HogQLContext):
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
@@ -167,6 +167,9 @@ class LazyJoinType(BaseTableType):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.lazy_join.resolve_table(context)
 
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        return self.get_child(self.field, context).resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class LazyTableType(BaseTableType):
@@ -187,6 +190,9 @@ class VirtualTableType(BaseTableType):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.virtual_table.has_field(name)
+
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        return self.get_child(self.field, context).resolve_constant_type(context)
 
 
 @dataclass(kw_only=True)
@@ -221,20 +227,16 @@ class SelectQueryType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return name in self.columns
 
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        field = self.columns.get(name)
+        if field is None:
+            raise QueryError(f"Constant type cant be resolved: {name}")
+
+        return field.resolve_constant_type(context)
+
     def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
-        columns = list(self.columns.values())
-        if len(columns) == 1:
-            constant_type = columns[0].resolve_constant_type(context=context)
-            if not constant_type:
-                raise QueryError(f"Constant type cant be resolved: {columns[0]}")
-            return constant_type
-
-        item_types = [column.resolve_constant_type(context=context) for column in self.columns.values()]
-        for index, item in enumerate(item_types):
-            if item is None:
-                raise QueryError(f"Constant type cant be resolved: {columns[index]}")
-
-        return TupleType(item_types=item_types)  # type: ignore
+        # Used only for resolving the constant type of a `ast.Lambda` node or `SELECT 1` query
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -249,6 +251,9 @@ class SelectUnionQueryType(Type):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.types[0].has_child(name, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.types[0].resolve_column_constant_type(name, context)
 
 
 @dataclass(kw_only=True)
@@ -293,6 +298,9 @@ class SelectViewType(Type):
 
         return self.select_query_type.has_child(name, context)
 
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.select_query_type.resolve_column_constant_type(name, context)
+
 
 @dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
@@ -310,17 +318,12 @@ class SelectQueryAliasType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
 
-
-@dataclass(kw_only=True)
-class NumericType(ConstantType):
-    data_type: ConstantDataType = field(default="numeric", init=False)
-
-    def print_type(self) -> str:
-        return "Numeric"
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.select_query_type.resolve_column_constant_type(name, context)
 
 
 @dataclass(kw_only=True)
-class IntegerType(NumericType):
+class IntegerType(ConstantType):
     data_type: ConstantDataType = field(default="int", init=False)
 
     def print_type(self) -> str:
@@ -328,7 +331,7 @@ class IntegerType(NumericType):
 
 
 @dataclass(kw_only=True)
-class FloatType(NumericType):
+class FloatType(ConstantType):
     data_type: ConstantDataType = field(default="float", init=False)
 
     def print_type(self) -> str:
@@ -378,7 +381,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: Optional[ConstantType] = None  # none means any type
+    item_type: ConstantType = UnknownType()
 
     def print_type(self) -> str:
         return "Array"
@@ -418,12 +421,20 @@ class FieldTraverserType(Type):
     chain: list[str | int]
     table_type: TableOrSelectType
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+
+    def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
+        if self.expr.type is not None:
+            return self.expr.type.resolve_constant_type(context)
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -445,47 +456,18 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        table_type = self.table_type
-        while True:
-            if isinstance(table_type, SelectQueryAliasType):
-                table_type = table_type.select_query_type
-                continue
+        if not isinstance(self.table_type, BaseTableType):
+            return self.table_type.resolve_column_constant_type(self.name, context)
 
-            if isinstance(table_type, SelectQueryType):
-                field_type = table_type.columns.get(self.name)
-                if field_type is None:
-                    raise QueryError(f"Cant get column: {self.name}")
+        table: Table = self.table_type.resolve_database_table(context)
 
-                constant_type = field_type.resolve_constant_type(context)
-                if constant_type is None:
-                    raise QueryError(f"Constant type cant be resolved: {field_type}")
+        database_field = table.get_field(self.name)
+        if isinstance(database_field, DatabaseField):
+            return database_field.get_constant_type()
 
-                return constant_type
-
-            if isinstance(table_type, BaseTableType):
-                table: Table = table_type.resolve_database_table(context)
-                database_field = None
-                if table is not None:
-                    database_field = table.get_field(self.name)
-                if isinstance(database_field, DatabaseField):
-                    constant_type = database_field.get_constant_type()
-                    return constant_type
-                else:
-                    raise NotImplementedError(
-                        f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
-                    )
-
-            if isinstance(table_type, SelectUnionQueryType):
-                table_type = table_type.types[0]
-                continue
-
-            if isinstance(table_type, SelectViewType):
-                table_type = table_type.select_query_type
-                continue
-
-            raise NotImplementedError(
-                f"FieldType.resolve_constant_type found unexpected table_type: {str(table_type.__class__)}"
-            )
+        raise NotImplementedError(
+            f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
+        )
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)

@@ -58,11 +58,17 @@ class StringDatabaseField(DatabaseField):
 
 
 class StringJSONDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):

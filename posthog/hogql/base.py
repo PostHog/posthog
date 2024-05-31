@@ -43,8 +43,11 @@ class Type(AST):
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None
 
-    def resolve_constant_type(self, context: "HogQLContext") -> Optional["ConstantType"]:
+    def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         raise NotImplementedError(f"{self.__class__.__name__}.resolve_constant_type not overridden")
+
+    def resolve_column_constant_type(self, name: str, context: "HogQLContext") -> "ConstantType":
+        raise NotImplementedError(f"{self.__class__.__name__}.resolve_column_constant_type not overridden")
 
 
 @dataclass(kw_only=True)
