@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 from freezegun import freeze_time
 from posthog.decorators import cached_by_filters, is_stale_filter
 
@@ -11,11 +12,19 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
 
+if TYPE_CHECKING:
+    from posthog.api.routing import TeamAndOrgViewSetMixin
 
-class DummyViewSet(GenericViewSet):
+
+class DummyViewSet(*((TeamAndOrgViewSetMixin, GenericViewSet) if TYPE_CHECKING else (GenericViewSet,))):  # type: ignore
+    # We don't actually want TeamAndOrgViewSetMixin's functionality in this class, but we do pretend to act like
+    # TeamAndOrgViewSetMixin in terms of having `team`. To make mypy happy, we make it _think_ that the mixin is used
+    team: Team
+
     def list(self, request):
         data = self.calculate_with_filters(request)
         return Response(data)
@@ -30,8 +39,8 @@ router.register(r"dummy", DummyViewSet, "dummy")
 
 class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
+        DummyViewSet.team = self.team  # Simulating TeamAndOrgViewSetMixin
         cache.clear()
-
         super().setUp()
 
     def test_returns_fresh_result(self) -> None:
@@ -42,7 +51,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert isinstance(response["last_refresh"], str)
 
     def test_returns_cached_result(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy").json()
@@ -50,8 +59,25 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert response["result"] == "bla"
         assert response["is_cached"] is True
 
+    def test_team_id_from_viewset_is_used(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+
+        # Prime the cache
+        self.client.get(f"/api/dummy").json()
+
+        # Now switch to the other team - cache should be different
+        DummyViewSet.team = other_team
+
+        response_for_other_team_initial = self.client.get(f"/api/dummy").json()
+        response_for_other_team_repeated = self.client.get(f"/api/dummy").json()
+
+        assert response_for_other_team_initial["result"] == "bla"
+        assert response_for_other_team_initial["is_cached"] is False
+        assert response_for_other_team_repeated["result"] == "bla"
+        assert response_for_other_team_repeated["is_cached"] is True
+
     def test_cache_bypass_with_refresh_param(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy", data={"refresh": "true"}).json()
@@ -59,7 +85,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert response["is_cached"] is False
 
     def test_cache_bypass_with_invalidation_key_param(self) -> None:
-        # cache the result
+        # Prime the cache
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy", data={"cache_invalidation_key": "abc"}).json()
@@ -68,7 +94,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
 
     def test_discards_stale_response(self) -> None:
         with freeze_time("2023-02-08T12:05:23Z"):
-            # cache the result
+            # Prime the cache
             self.client.get(f"/api/dummy").json()
 
         with freeze_time("2023-02-10T12:00:00Z"):

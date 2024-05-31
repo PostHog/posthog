@@ -1013,7 +1013,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1043,7 +1043,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
 
@@ -1082,7 +1082,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
 
@@ -1400,7 +1400,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
 
@@ -1430,7 +1430,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
 
@@ -1462,7 +1462,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "match_action": None,
+                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1511,7 +1511,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
-                    "match_action": None,
+                    "filters": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1528,7 +1528,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
-                    "match_action": None,
+                    "filters": None,
                 },
             ],
         )
@@ -1653,45 +1653,48 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             ]
         )
 
-    def test_update_plugin_match_action(self, mock_get, mock_reload):
-        action_res = self.client.post(f"/api/projects/{self.team.id}/actions/", {"name": "test action"})
-        assert action_res.status_code == 201, action_res.json()
-        action = action_res.json()
-
+    def test_update_plugin_filters(self, mock_get, mock_reload):
         plugin = self._create_plugin()
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": action["id"]},
+            {
+                "plugin": plugin["id"],
+                "enabled": True,
+                "order": 0,
+                "filters": json.dumps(
+                    {
+                        "events": [
+                            {
+                                "name": "$pageview",
+                                "properties": [],
+                                "type": "events",
+                            }
+                        ]
+                    }
+                ),
+            },
             format="multipart",
         )
 
         assert response.status_code == 201, response.json()
-        assert response.json()["match_action"] == action["id"]
 
-    def test_update_plugin_match_action_fails_for_missing_action(self, mock_get, mock_reload):
+        assert response.json()["filters"] == {"events": [{"name": "$pageview", "properties": [], "type": "events"}]}
+
+    def test_update_plugin_filters_fails_for_bad_formatting(self, mock_get, mock_reload):
         plugin = self._create_plugin()
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": 99999},
+            {
+                "plugin": plugin["id"],
+                "enabled": True,
+                "order": 0,
+                "filters": json.dumps({"events": "wrong"}),
+            },
             format="multipart",
         )
 
         assert response.status_code == 400, response.json()
-        assert response.json()["code"] == "does_not_exist"
-
-    def test_update_plugin_match_action_fails_for_wrong_team(self, mock_get, mock_reload):
-        other_team = Team.objects.create(organization=self.organization, name="Another Team")
-        action_res = self.client.post(f"/api/projects/{other_team.id}/actions/", {"name": "test action"})
-
-        plugin = self._create_plugin()
-        response = self.client.post(
-            "/api/plugin_config/",
-            {"plugin": plugin["id"], "enabled": True, "order": 0, "match_action": action_res.json()["id"]},
-            format="multipart",
-        )
-
-        assert response.status_code == 400, response.json()
-        assert response.json()["detail"] == "Action must belong to the same project as the plugin config."
+        assert response.json()["code"] == "not_a_list"
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

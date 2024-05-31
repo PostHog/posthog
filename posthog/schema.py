@@ -178,7 +178,7 @@ class ChartDisplayType(str, Enum):
     WorldMap = "WorldMap"
 
 
-class ClickhouseQueryStatus(BaseModel):
+class ClickhouseQueryProgress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -532,6 +532,7 @@ class HogQLQueryModifiers(BaseModel):
     debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
+    optimizeJoinedFilters: Optional[bool] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
@@ -818,7 +819,7 @@ class QueryStatus(BaseModel):
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
-    query_progress: Optional[ClickhouseQueryStatus] = None
+    query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None

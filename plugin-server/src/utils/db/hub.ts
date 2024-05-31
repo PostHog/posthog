@@ -154,7 +154,7 @@ export async function createHub(
     )
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager)
+    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
