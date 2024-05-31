@@ -23,7 +23,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         hideButton: true,
         persistConfig: true,
         authorize: true,
-        authIssue: (message: string) => ({ message }),
+        onAuthenticationErrror: (message: string) => ({ message }),
         checkAuthorization: true,
     }),
 
@@ -82,8 +82,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     }
                 },
 
-                authIssue: () => {
-                    return null
+                onAuthenticationErrror: () => {
+                    return {
+                        accessToken: null,
+                        authorizationCode: null,
+                    }
                 },
             },
         ],
@@ -199,10 +202,10 @@ export async function toolbarFetch(
         },
     })
     if (response.status === 403) {
-        toolbarConfigLogic.actions.authIssue('forbidden')
+        toolbarConfigLogic.actions.onAuthenticationErrror('forbidden')
     }
     if (response.status == 401) {
-        toolbarConfigLogic.actions.authIssue('forbidden')
+        toolbarConfigLogic.actions.onAuthenticationErrror('forbidden')
     }
     return response
 }

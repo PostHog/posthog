@@ -39,7 +39,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["heatmaps:read"])
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         """
         The original version of this API always and only returned $autocapture elements
@@ -149,7 +149,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError("Only $autocapture and $rageclick are supported for now.")
         return event_to_filter
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["heatmaps:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
