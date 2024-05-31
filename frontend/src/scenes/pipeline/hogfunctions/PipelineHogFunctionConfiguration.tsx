@@ -1,15 +1,27 @@
-import React from 'react'
+import { LemonButton, LemonInput, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { PageHeader } from 'lib/components/PageHeader'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+
+import { EntityTypes } from '~/types'
+
+import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
     templateId,
     id,
 }: {
-    pluginId?: number
-    pluginConfigId?: number
+    templateId?: string
+    id?: string
 }): JSX.Element {
-    return <p>Hello</p>
-    // const logicProps = { stage: stage, pluginId: pluginId || null, pluginConfigId: pluginConfigId || null }
-    // const logic = pipelinePluginConfigurationLogic(logicProps)
+    const logicProps = { templateId, id }
+    const logic = pipelineHogFunctionConfigurationLogic(logicProps)
+
+    const loadingOrSubmitting = false
 
     // const {
     //     plugin,
@@ -97,153 +109,142 @@ export function PipelineHogFunctionConfiguration({
     //     </React.Fragment>
     // ))
 
-    // const buttons = (
-    //     <>
-    //         <LemonButton
-    //             type="secondary"
-    //             htmlType="reset"
-    //             onClick={() => resetConfiguration(savedConfiguration || {})}
-    //             disabledReason={
-    //                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-    //             }
-    //         >
-    //             Clear changes
-    //         </LemonButton>
-    //         <LemonButton
-    //             type="primary"
-    //             htmlType="submit"
-    //             onClick={submitConfiguration}
-    //             loading={isConfigurationSubmitting}
-    //         >
-    //             {isNew ? 'Create' : 'Save'}
-    //         </LemonButton>
-    //     </>
-    // )
+    const buttons = (
+        <>
+            <LemonButton
+                type="secondary"
+                htmlType="reset"
+                // onClick={() => resetConfiguration(savedConfiguration || {})}
+                // disabledReason={
+                //     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
+                // }
+            >
+                Clear changes
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                htmlType="submit"
+                // onClick={submitConfiguration}
+                // loading={isConfigurationSubmitting}
+            >
+                {templateId ? 'Create' : 'Save'}
+            </LemonButton>
+        </>
+    )
 
-    // return (
-    //     <div className="space-y-3">
-    //         <PageHeader buttons={buttons} />
-    //         <Form
-    //             logic={pipelinePluginConfigurationLogic}
-    //             props={logicProps}
-    //             formKey="configuration"
-    //             className="space-y-3"
-    //         >
-    //             <div className="flex flex-wrap gap-4 items-start">
-    //                 <div className="flex flex-col gap-4 flex-1 min-w-100">
-    //                     <div className="border bg-bg-light rounded p-3 space-y-2">
-    //                         <div className="flex flex-row gap-2 min-h-16 items-center">
-    //                             <RenderApp plugin={plugin} imageSize="medium" />
-    //                             <div className="flex flex-col py-1 flex-1">
-    //                                 <div className="flex flex-row items-center font-semibold text-sm gap-1">
-    //                                     {plugin.name}
-    //                                 </div>
-    //                                 {plugin.description ? (
-    //                                     <div className="text-default text-xs text-text-secondary-3000 mt-1">
-    //                                         <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-    //                                             {plugin.description}
-    //                                         </LemonMarkdown>
-    //                                     </div>
-    //                                 ) : null}
-    //                             </div>
+    return (
+        <div className="space-y-3">
+            <PageHeader buttons={buttons} />
+            <Form
+                logic={pipelineHogFunctionConfigurationLogic}
+                props={logicProps}
+                formKey="configuration"
+                className="space-y-3"
+            >
+                <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex flex-col gap-4 flex-1 min-w-100">
+                        <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <div className="flex flex-row gap-2 min-h-16 items-center">
+                                <span>🦔</span>
+                                <div className="flex flex-col py-1 flex-1">
+                                    <span>Hog Function</span>
+                                </div>
 
-    //                             <LemonField name="enabled">
-    //                                 {({ value, onChange }) => (
-    //                                     <LemonSwitch
-    //                                         label="Enabled"
-    //                                         onChange={() => onChange(!value)}
-    //                                         checked={value}
-    //                                         disabled={loadingOrSubmitting}
-    //                                         bordered
-    //                                     />
-    //                                 )}
-    //                             </LemonField>
-    //                         </div>
-    //                         <LemonField
-    //                             name="name"
-    //                             label="Name"
-    //                             info="Customising the name can be useful if multiple instances of the same type are used."
-    //                         >
-    //                             <LemonInput type="text" disabled={loadingOrSubmitting} />
-    //                         </LemonField>
-    //                         <LemonField
-    //                             name="description"
-    //                             label="Description"
-    //                             info="Add a description to share context with other team members"
-    //                         >
-    //                             <LemonTextArea disabled={loadingOrSubmitting} />
-    //                         </LemonField>
-    //                     </div>
+                                <LemonField name="enabled">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            label="Enabled"
+                                            onChange={() => onChange(!value)}
+                                            checked={value}
+                                            disabled={loadingOrSubmitting}
+                                            bordered
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                            <LemonField
+                                name="name"
+                                label="Name"
+                                info="Customising the name can be useful if multiple instances of the same type are used."
+                            >
+                                <LemonInput type="text" disabled={loadingOrSubmitting} />
+                            </LemonField>
+                            <LemonField
+                                name="description"
+                                label="Description"
+                                info="Add a description to share context with other team members"
+                            >
+                                <LemonTextArea disabled={loadingOrSubmitting} />
+                            </LemonField>
+                        </div>
 
-    //                     {pluginFilteringEnabled ? (
-    //                         <div className="border bg-bg-light rounded p-3 space-y-2">
-    //                             <LemonField name="filters" label="Filters by events and actions">
-    //                                 {({ value, onChange }) => (
-    //                                     <>
-    //                                         <TestAccountFilterSwitch
-    //                                             checked={value?.filter_test_accounts ?? false}
-    //                                             onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-    //                                             fullWidth
-    //                                         />
-    //                                         <ActionFilter
-    //                                             bordered
-    //                                             filters={value ?? {}}
-    //                                             setFilters={(payload) => {
-    //                                                 onChange({
-    //                                                     ...payload,
-    //                                                     filter_test_accounts: value?.filter_test_accounts,
-    //                                                 })
-    //                                             }}
-    //                                             typeKey="plugin-filters"
-    //                                             mathAvailability={MathAvailability.None}
-    //                                             hideRename
-    //                                             hideDuplicate
-    //                                             showNestedArrow={false}
-    //                                             actionsTaxonomicGroupTypes={[
-    //                                                 TaxonomicFilterGroupType.Events,
-    //                                                 TaxonomicFilterGroupType.Actions,
-    //                                             ]}
-    //                                             propertiesTaxonomicGroupTypes={[
-    //                                                 TaxonomicFilterGroupType.EventProperties,
-    //                                                 TaxonomicFilterGroupType.EventFeatureFlags,
-    //                                                 TaxonomicFilterGroupType.Elements,
-    //                                                 TaxonomicFilterGroupType.PersonProperties,
-    //                                             ]}
-    //                                             propertyFiltersPopover
-    //                                             addFilterDefaultOptions={{
-    //                                                 id: '$pageview',
-    //                                                 name: '$pageview',
-    //                                                 type: EntityTypes.EVENTS,
-    //                                             }}
-    //                                             buttonCopy="Add event filter"
-    //                                         />
-    //                                     </>
-    //                                 )}
-    //                             </LemonField>
+                        <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <LemonField name="filters" label="Filters by events and actions">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <TestAccountFilterSwitch
+                                            checked={value?.filter_test_accounts ?? false}
+                                            onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
+                                            fullWidth
+                                        />
+                                        <ActionFilter
+                                            bordered
+                                            filters={value ?? {}}
+                                            setFilters={(payload) => {
+                                                onChange({
+                                                    ...payload,
+                                                    filter_test_accounts: value?.filter_test_accounts,
+                                                })
+                                            }}
+                                            typeKey="plugin-filters"
+                                            mathAvailability={MathAvailability.None}
+                                            hideRename
+                                            hideDuplicate
+                                            showNestedArrow={false}
+                                            actionsTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.Events,
+                                                TaxonomicFilterGroupType.Actions,
+                                            ]}
+                                            propertiesTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                                TaxonomicFilterGroupType.Elements,
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                            ]}
+                                            propertyFiltersPopover
+                                            addFilterDefaultOptions={{
+                                                id: '$pageview',
+                                                name: '$pageview',
+                                                type: EntityTypes.EVENTS,
+                                            }}
+                                            buttonCopy="Add event filter"
+                                        />
+                                    </>
+                                )}
+                            </LemonField>
 
-    //                             <p className="italic text-muted-alt">
-    //                                 This destination will be triggered if <b>any of</b> the above filters match.
-    //                             </p>
-    //                         </div>
-    //                     ) : null}
-    //                 </div>
+                            <p className="italic text-muted-alt">
+                                This destination will be triggered if <b>any of</b> the above filters match.
+                            </p>
+                        </div>
+                    </div>
 
-    //                 <div className="flex-2 min-w-100 space-y-4">
-    //                     <div className="border bg-bg-light rounded p-3  space-y-2">
-    //                         <>
-    //                             {fields.length ? (
-    //                                 fields
-    //                             ) : (
-    //                                 <span className="italic text-muted-alt">
-    //                                     This app does not have specific configuration options
-    //                                 </span>
-    //                             )}
-    //                         </>
-    //                     </div>
-    //                     <div className="flex gap-2 justify-end">{buttons}</div>
-    //                 </div>
-    //             </div>
-    //         </Form>
-    //     </div>
-    // )
+                    <div className="flex-2 min-w-100 space-y-4">
+                        {/* <div className="border bg-bg-light rounded p-3  space-y-2">
+                            <>
+                                {fields.length ? (
+                                    fields
+                                ) : (
+                                    <span className="italic text-muted-alt">
+                                        This app does not have specific configuration options
+                                    </span>
+                                )}
+                            </>
+                        </div> */}
+                        <div className="flex gap-2 justify-end">{buttons}</div>
+                    </div>
+                </div>
+            </Form>
+        </div>
+    )
 }
