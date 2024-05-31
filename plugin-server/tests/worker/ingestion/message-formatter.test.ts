@@ -124,6 +124,7 @@ describe('MessageFormatter', () => {
             // Strings where the whole template is an object should be formatted as JSON
             ['{{person}}', {}],
             ['{{event.properties}}', {}],
+            ['{{event.properties.$browser}}', {}],
             // Special escaping
             ['{{event}}', { event: { ...event, eventUuid: '**)', event: 'text](yes!), [new link' } }], // Special escaping
             [

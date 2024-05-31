@@ -6,6 +6,8 @@ exports[`MessageFormatter webhook formatting options format json {
   missing: '{{event.properties.missing}}'
 } {} 1`] = `"{\\"event_properties\\":{\\"$browser\\":\\"Chrome\\"},\\"person_link\\":\\"http://localhost:8000/project/123/person/WALL-E\\",\\"missing\\":null}"`;
 
+exports[`MessageFormatter webhook formatting options format json {{event.properties.$browser}} {} 1`] = `"\\"Chrome\\""`;
+
 exports[`MessageFormatter webhook formatting options format json {{event.properties}} {} 1`] = `"{\\"$browser\\":\\"Chrome\\"}"`;
 
 exports[`MessageFormatter webhook formatting options format json {{event}} { event: [Object] } 1`] = `"{\\"uuid\\":\\"**)\\",\\"event\\":\\"text](yes!), [new link\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
