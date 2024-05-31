@@ -263,6 +263,16 @@ describe('runComposeWebhook', () => {
         mockPluginConfig = {
             id: 123,
             plugin_id: 100,
+            plugin: {
+                config_schema: [
+                    {
+                        key: 'input',
+                        name: 'input',
+                        type: 'string',
+                        required: true,
+                    },
+                ],
+            },
             team_id: 2,
             enabled: false,
             vm: {
