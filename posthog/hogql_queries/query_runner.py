@@ -49,7 +49,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InsightActorsQueryOptions,
 )
-from posthog.schema_helpers import to_json
+from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
@@ -438,11 +438,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "hogql",
             )
 
+    def get_cache_payload(self) -> dict:
+        return {
+            "query_runner": self.__class__.__name__,
+            "query": to_dict(self.query),
+            "team_id": self.team.pk,
+            "hogql_modifiers": to_dict(self.modifiers),
+            "limit_context": self._limit_context_aliased_for_cache,
+            "timezone": self.team.timezone,
+            "version": 2,
+        }
+
     def get_cache_key(self) -> str:
-        modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
-        return generate_cache_key(
-            f"query_{bytes.decode(to_json(self.query))}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
-        )
+        return generate_cache_key(f"query_{to_json(self.get_cache_payload())}")
 
     @abstractmethod
     def _is_stale(self, cached_result_package):

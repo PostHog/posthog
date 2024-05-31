@@ -68,6 +68,36 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
+    def test_cache_payload(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        cache_payload = runner.get_cache_payload()
+
+        # changes to the cache payload have a significant impact, as they'll
+        # result in new cache keys, which effectively invalidates our cache.
+        # this causes increased load on the cluster and increased cache
+        # memory usage (until old cache items are evicted).
+        self.assertEqual(
+            cache_payload,
+            {
+                "hogql_modifiers": {
+                    "inCohortVia": "auto",
+                    "materializationMode": "legacy_null_as_null",
+                    "personsArgMaxVersion": "auto",
+                    "personsOnEventsMode": "disabled",
+                },
+                "limit_context": "query",
+                "query": {"some_attr": "bla"},
+                "query_runner": "TestQueryRunner",
+                "team_id": 42,
+                "timezone": "UTC",
+                "version": 2,
+            },
+        )
+
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call

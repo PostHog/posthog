@@ -15,7 +15,7 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
-def to_json(query: BaseModel) -> bytes:
+def to_dict(query: BaseModel) -> dict:
     klass: Any = type(query)
 
     class ExtendedQuery(klass):
@@ -95,9 +95,13 @@ def to_json(query: BaseModel) -> bytes:
     # generate a dict from the pydantic model
     instance_dict = query.model_dump(exclude_none=True, exclude_defaults=True)
 
+    return instance_dict
+
+
+def to_json(obj: dict) -> bytes:
     # pydantic doesn't sort keys reliably, so use orjson to serialize to json
     option = orjson.OPT_SORT_KEYS
-    json_string = orjson.dumps(instance_dict, default=JSONEncoder().default, option=option)
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
 
     return json_string
 
