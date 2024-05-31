@@ -24,6 +24,7 @@ import {
     defaultConfigForPlugin,
     determineInvisibleFields,
     determineRequiredFields,
+    getConfigSchemaArray,
     getPluginConfigFormData,
 } from './configUtils'
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -240,6 +241,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             (s) => [s.pluginFromPluginId, s.pluginConfig],
             (pluginFromId, pluginConfig) => pluginConfig?.plugin_info || pluginFromId,
         ],
+        pluginConfigSchema: [(s) => [s.plugin], (plugin) => getConfigSchemaArray(plugin?.config_schema || {})],
         loading: [
             (s) => [s.pluginFromPluginIdLoading, s.pluginConfigLoading],
             (pluginLoading, pluginConfigLoading) => pluginLoading || pluginConfigLoading,
@@ -293,12 +295,24 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     forms(({ asyncActions, values }) => ({
         configuration: {
             errors: (formdata) => {
-                return Object.fromEntries(
-                    values.requiredFields.map((field) => [
-                        field,
-                        formdata[field] ? undefined : 'This field is required',
-                    ])
-                )
+                const errors = {}
+
+                for (const field of values.pluginConfigSchema ?? []) {
+                    if (!field.key) {
+                        continue
+                    }
+                    if (field.required && !formdata[field.key]) {
+                        errors[field.key] = 'This field is required'
+                    } else if (field.type === 'json') {
+                        try {
+                            JSON.parse(formdata[field.key])
+                        } catch (e) {
+                            errors[field.key] = 'Invalid JSON'
+                        }
+                    }
+                }
+
+                return errors
             },
             submit: async (formdata) => {
                 await asyncActions.updatePluginConfig(formdata)
