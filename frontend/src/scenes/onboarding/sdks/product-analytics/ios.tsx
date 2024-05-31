@@ -1,6 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallIOSInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function IOSCaptureSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Swift}>{`PostHogSDK.shared.capture("Test Event")`}</CodeSnippet>
@@ -12,6 +13,7 @@ export function ProductAnalyticsIOSInstructions(): JSX.Element {
             <SDKInstallIOSInstructions />
             <h3>Send an event</h3>
             <IOSCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }
