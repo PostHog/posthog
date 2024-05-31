@@ -646,6 +646,14 @@ class Resolver(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
+                # We support a special 'all' cohort
+                # Consider trying to embed this code inside the cohort code to avoid this leaking
+                if node.right.value == "all":
+                    return self.visit(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq, left=ast.Constant(value=True), right=ast.Constant(value=True)
+                        )
+                    )
                 return self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
@@ -654,6 +662,13 @@ class Resolver(CloningVisitor):
                     )
                 )
             elif node.op == ast.CompareOperationOp.NotInCohort:
+                # This would return nothing if it was the all cohort
+                if node.right.value == "all":
+                    return self.visit(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq, left=ast.Constant(value=True), right=ast.Constant(value=False)
+                        )
+                    )
                 return self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotIn,

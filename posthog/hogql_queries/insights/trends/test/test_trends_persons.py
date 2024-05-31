@@ -377,7 +377,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[1]), "person3")
         self.assertEqual(get_event_count(result[1]), 1)
 
-    @skip("fails, as 'all' cohort can't be resolved")
     def test_trends_all_cohort_breakdown_persons(self):
         self._create_events()
         cohort1 = _create_cohort(
@@ -395,13 +394,13 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
+        self.assertEqual(get_event_count(result[0]), 3)
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="all")
 
         self.assertEqual(len(result), 3)
         self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
+        self.assertEqual(get_event_count(result[0]), 3)
         self.assertEqual(get_distinct_id(result[1]), "person2")
         self.assertEqual(get_event_count(result[1]), 2)
         self.assertEqual(get_distinct_id(result[2]), "person3")
