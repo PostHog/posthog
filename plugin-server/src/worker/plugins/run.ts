@@ -463,10 +463,10 @@ async function formatConfigTemplates(
 
     Object.keys(templatedConfig).forEach((key) => {
         // If the field is a json field then we template it as such
-        const type = schemaObject[key]?.type
+        const { type, templating } = schemaObject[key] ?? {}
         const template = templatedConfig[key]
 
-        if (type) {
+        if (type && templating) {
             if (type === 'string' && typeof template === 'string') {
                 templatedConfig[key] = webhookFormatter.format(template)
             }
