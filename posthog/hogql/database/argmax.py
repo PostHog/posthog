@@ -1,6 +1,8 @@
 from typing import Optional
 from collections.abc import Callable
 
+
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.parser import parse_expr
 
 
@@ -11,7 +13,7 @@ def argmax_select(
     argmax_field: str,
     deleted_field: Optional[str] = None,
     timestamp_field_to_clamp: Optional[str] = None,
-):
+) -> "SelectQuery":
     from posthog.hogql import ast
 
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(

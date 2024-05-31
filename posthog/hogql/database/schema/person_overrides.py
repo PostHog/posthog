@@ -1,4 +1,3 @@
-from typing import Any
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -9,6 +8,8 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,
     FieldOrTable,
+    LazyTableToAdd,
+    LazyJoinToAdd,
 )
 
 from posthog.hogql.errors import ResolutionError
@@ -34,25 +35,23 @@ def select_from_person_overrides_table(requested_fields: dict[str, list[str | in
 
 
 def join_with_person_overrides_table(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, Any],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_ids")
 
-    join_expr = ast.JoinExpr(table=select_from_person_overrides_table(requested_fields))
+    join_expr = ast.JoinExpr(table=select_from_person_overrides_table(join_to_add.fields_accessed))
     join_expr.join_type = "LEFT OUTER JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "event_person_id"]),
-            right=ast.Field(chain=[to_table, "old_person_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "event_person_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "old_person_id"]),
         ),
         constraint_type="ON",
     )
@@ -75,8 +74,8 @@ class RawPersonOverridesTable(Table):
 class PersonOverridesTable(Table):
     fields: dict[str, FieldOrTable] = PERSON_OVERRIDES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], modifiers: HogQLQueryModifiers):
-        return select_from_person_overrides_table(requested_fields)
+    def lazy_select(self, table_to_add: LazyTableToAdd, modifiers: HogQLQueryModifiers):
+        return select_from_person_overrides_table(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context):
         return "person_overrides"
