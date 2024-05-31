@@ -256,12 +256,48 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """,
                 {"total_array": total_array},
             )
+
+        select = [
+            self._get_date_subqueries(),
+            parse_expr("groupArray(day_start) as _days_for_count"),
+        ]
+
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothingIntervals is not None
+            and self.query.trendsFilter.smoothingIntervals > 1
+        ):
+            rolling_average = ast.Alias(
+                alias="total",
+                expr=parse_expr(
+                    """
+                    arrayMap(
+                        i -> floor(arrayAvg(
+                            arraySlice(
+                                total_array,
+                                greatest(i-{smoothing_interval} + 1, 1),
+                                least(i, {smoothing_interval})
+                            )
+                        )),
+                        arrayEnumerate(total_array)
+                    )
+                """,
+                    {
+                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
+                        "total_array": total_array,
+                    },
+                ),
+            )
+            select = [
+                *select,
+                ast.Alias(alias="total_array", expr=total_array),
+                rolling_average,
+            ]
+        else:
+            select.append(ast.Alias(alias="total", expr=total_array))
+
         query = ast.SelectQuery(
-            select=[
-                self._get_date_subqueries(),
-                parse_expr("groupArray(day_start) as _days_for_count"),
-                ast.Alias(alias="total", expr=total_array),
-            ],
+            select=select,
             select_from=ast.JoinExpr(table=inner_query),
         )
 
@@ -312,34 +348,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 placeholders={"inner_query": inner_query},
             ),
         )
-
-        if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothingIntervals is not None
-            and self.query.trendsFilter.smoothingIntervals > 1
-        ):
-            rolling_average = ast.Alias(
-                alias="count",
-                expr=ast.Call(
-                    name="floor",
-                    args=[
-                        ast.WindowFunction(
-                            name="avg",
-                            args=[ast.Call(name="sum", args=[ast.Field(chain=["total"])])],
-                            over_expr=ast.WindowExpr(
-                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
-                                frame_method="ROWS",
-                                frame_start=ast.WindowFrameExpr(
-                                    frame_type="PRECEDING",
-                                    frame_value=int(self.query.trendsFilter.smoothingIntervals - 1),
-                                ),
-                                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
-                            ),
-                        )
-                    ],
-                ),
-            )
-            query.select = [rolling_average]
 
         query.group_by = []
         query.order_by = []
