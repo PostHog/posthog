@@ -139,6 +139,9 @@ def execute_bytecode(
                 case Operation.FIELD:
                     chain = [stack.pop() for _ in range(next_token())]
                     stack.append(get_nested_value(fields, chain))
+                case Operation.PROPERTY:
+                    chain = [stack.pop() for _ in range(next_token())]
+                    stack.append(get_nested_value(stack.pop(), chain))
                 case Operation.POP:
                     stack.pop()
                 case Operation.RETURN:
@@ -186,6 +189,21 @@ def execute_bytecode(
                             raise HogVMException(f"Unsupported function call: {name}")
 
                         stack.append(STL[name](name, args, team, stdout, timeout))
+                case Operation.DICT:
+                    count = next_token()
+                    elems = stack[-(count * 2) :]
+                    stack = stack[: -(count * 2)]
+                    stack.append({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
+                case Operation.ARRAY:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(elems)
+                case Operation.TUPLE:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(tuple(elems))
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 

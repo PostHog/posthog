@@ -46,3 +46,7 @@ class Operation(int, Enum):
     JUMP = 39
     JUMP_IF_FALSE = 40
     DECLARE_FN = 41
+    DICT = 42
+    ARRAY = 43
+    TUPLE = 44
+    PROPERTY = 45

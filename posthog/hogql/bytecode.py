@@ -157,10 +157,10 @@ class BytecodeBuilder(Visitor):
         return [*chain, Operation.FIELD, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [Operation.INTEGER, node.index, Operation.FIELD, 1]
+        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.PROPERTY, 1]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.property), Operation.FIELD, 1]
+        return [*self.visit(node.array), *self.visit(node.property), Operation.PROPERTY, 1]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:
@@ -278,6 +278,31 @@ class BytecodeBuilder(Visitor):
         bytecode = create_bytecode(node.body, all_known_functions, node.params)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
+
+    def visit_dict(self, node: ast.Dict):
+        response = []
+        for key, value in node.items:
+            response.extend(self.visit(key))
+            response.extend(self.visit(value))
+        response.append(Operation.DICT)
+        response.append(len(node.items))
+        return response
+
+    def visit_array(self, node: ast.Array):
+        response = []
+        for item in node.exprs:
+            response.extend(self.visit(item))
+        response.append(Operation.ARRAY)
+        response.append(len(node.exprs))
+        return response
+
+    def visit_tuple(self, node: ast.Tuple):
+        response = []
+        for item in node.exprs:
+            response.extend(self.visit(item))
+        response.append(Operation.TUPLE)
+        response.append(len(node.exprs))
+        return response
 
 
 def execute_hog(

@@ -1,6 +1,5 @@
 from typing import Any, Optional
 from collections.abc import Callable
-import pytest
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
@@ -9,7 +8,7 @@ from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
 
 
-@pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
+# @pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
 class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
         fields = {
@@ -455,3 +454,47 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run_program("return 1;return 2;;"), 1)
         self.assertEqual(self._run_program("return 1;return 2;return 3;"), 1)
         self.assertEqual(self._run_program("return 1;return 2;return 3;;"), 1)
+
+    def test_bytecode_dicts(self):
+        self.assertEqual(self._run_program("return {};"), {})
+        self.assertEqual(self._run_program("return {'key': 'value'};"), {"key": "value"})
+        self.assertEqual(
+            self._run_program("return {'key': 'value', 'other': 'thing'};"), {"key": "value", "other": "thing"}
+        )
+        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}};"), {"key": {"otherKey": "value"}})
+        self.assertEqual(self._run_program("return {key: 'value'};"), {None: "value"})
+        self.assertEqual(self._run_program("var key := 3; return {key: 'value'};"), {3: "value"})
+
+        self.assertEqual(self._run_program("return {'key': 'value'}.key;"), "value")
+        self.assertEqual(self._run_program("return {'key': 'value'}['key'];"), "value")
+        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}}.key.otherKey;"), "value")
+        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}}['key'].otherKey;"), "value")
+
+    def test_bytecode_arrays(self):
+        self.assertEqual(self._run_program("return [];"), [])
+        self.assertEqual(self._run_program("return [1, 2, 3];"), [1, 2, 3])
+        self.assertEqual(self._run_program("return [1, '2', 3];"), [1, "2", 3])
+        self.assertEqual(self._run_program("return [1, [2, 3], 4];"), [1, [2, 3], 4])
+        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5];"), [1, [2, [3, 4]], 5])
+
+        self.assertEqual(self._run_program("var a := [1, 2, 3]; return a[1];"), 2)
+        self.assertEqual(self._run_program("return [1, 2, 3][1];"), 2)
+        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5][1][1][1];"), 4)
+        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;"), 5)
+        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5].1.1.1;"), 4)
+
+    def test_bytecode_tuples(self):
+        # self.assertEqual(self._run_program("return (,);"), ())
+        self.assertEqual(self._run_program("return (1, 2, 3);"), (1, 2, 3))
+        self.assertEqual(self._run_program("return (1, '2', 3);"), (1, "2", 3))
+        self.assertEqual(self._run_program("return (1, (2, 3), 4);"), (1, (2, 3), 4))
+        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5);"), (1, (2, (3, 4)), 5))
+        self.assertEqual(self._run_program("var a := (1, 2, 3); return a[1];"), 2)
+        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];"), 4)
+        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5).1.1.1;"), 4)
+        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;"), 5)
+
+    def test_bytecode_nested(self):
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r.2.d.2;"), 42)
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r[2].d[2];"), 42)
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r.2['d'][2];"), 42)
