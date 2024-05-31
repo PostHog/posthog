@@ -79,7 +79,7 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
             group_fields=["id"],
             argmax_field="version",
             deleted_field="is_deleted",
-            no_future_field="created_at",
+            timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         return select
