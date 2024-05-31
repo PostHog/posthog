@@ -61,6 +61,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
                FROM raw_persons
                GROUP BY id
                HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
+               AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
             )
             """
             ),
@@ -84,6 +85,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             group_fields=["id"],
             argmax_field="version",
             deleted_field="is_deleted",
+            timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
