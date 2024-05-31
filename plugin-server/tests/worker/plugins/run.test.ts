@@ -333,10 +333,10 @@ describe('runComposeWebhook', () => {
 
     it('calls composeWebhook with PostHogEvent format and templated config', async () => {
         mockPluginConfig.config = {
-            input: 'The event {{event.event}} was triggered!',
+            input: 'The event {event.event} was triggered!',
             headers: {
-                'X-PostHog-Event': '{{event.event}}',
-                'X-PostHog-Project': '{{project.id}}',
+                'X-PostHog-Event': '{event.event}',
+                'X-PostHog-Project': '{project.id}',
             },
             json: '"{{person.properties}}"',
         }
