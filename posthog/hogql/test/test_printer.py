@@ -749,21 +749,22 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
             )
+            query = self._select(
+                "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
+                context,
+            )
             self.assertEqual(
-                self._select(
-                    "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
-                    context,
-                ),
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
-                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 "
-                f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING "
-                f"ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi "
-                f"ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person "
-                f"WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), "
-                f"(SELECT person.id AS id, max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) "
-                f"GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) "
-                f"SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, events__pdi.person_id) "
-                f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                query,
+                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT "
+                f"argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id "
+                f"AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY "
+                f"person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), "
+                f"0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person "
+                f"WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id "
+                f"AS id, max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, "
+                f"person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             context = HogQLContext(
@@ -783,7 +784,8 @@ class TestPrinter(BaseTest):
                 f"ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), "
+                f"plus(now64(6, %(hogql_val_0)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
@@ -802,7 +804,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, "
+                f"person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
@@ -820,7 +823,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, "
+                f"person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
