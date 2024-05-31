@@ -63,7 +63,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                         code,
                         verification: res.verification,
                         redirect_url: redirectUrl,
-                        scopes: scopes.split(','),
+                        scopes: scopes.split(' '),
                     }
                 },
 
@@ -71,13 +71,14 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     if (!values.authentication) {
                         return null
                     }
-                    const { redirect_url, verification, code } = values.authentication
+                    const { redirect_url, verification, code, scopes } = values.authentication
 
                     // TODO: Validate redirectUrl is in list of approved if toolbar
 
                     await api.create('/api/client_authorization/confirm', {
                         code,
                         verification,
+                        scopes,
                     })
 
                     if (redirect_url) {

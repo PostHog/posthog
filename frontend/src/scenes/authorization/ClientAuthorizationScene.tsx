@@ -1,6 +1,7 @@
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ApiScopesList } from 'scenes/settings/user/PersonalAPIKeys'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +20,14 @@ export function ClientAuthorizationScene(): JSX.Element {
     if (!authentication && authenticationLoading) {
         return <SpinnerOverlay />
     }
+
+    // TODO: Move to logic
+    const scopesObject: Record<string, string> =
+        authentication?.scopes?.reduce((acc, scope) => {
+            const [resource, method] = scope.split(':')
+            acc[resource] = method
+            return acc
+        }, {}) || {}
 
     return (
         <div className="h-full flex items-center justify-center">
@@ -47,10 +56,18 @@ export function ClientAuthorizationScene(): JSX.Element {
                             ?
                         </p>
                         <p>
-                            The client will have access to all the data in the project <b>{currentTeam?.name}</b>. If
-                            you are in any doubt or did not start an authorization flow from a trusted client then do
-                            not authorize and contact PostHog Support
+                            The client will have access to data in the project <b>{currentTeam?.name}</b>. If you are in
+                            any doubt or did not start an authorization flow from a trusted client then do not authorize
+                            and contact PostHog Support
                         </p>
+
+                        <div className="my-2">
+                            <h3>Requested scopes</h3>
+
+                            <div className="border rounded overflow-y-auto max-h-100 p-2">
+                                <ApiScopesList scopeValues={scopesObject} onlyShowListedValues />
+                            </div>
+                        </div>
 
                         <div className="flex justify-end gap-2">
                             <LemonButton type="secondary" to={urls.projectHomepage()}>

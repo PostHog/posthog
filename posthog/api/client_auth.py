@@ -14,6 +14,8 @@ from posthog.models import User
 
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
+from posthog.models.api_scopes import ALL_API_SCOPES
+
 DEFAULT_CLIENT_AUTHENTICATION_TIME = timedelta(days=7)
 
 
@@ -35,6 +37,14 @@ class ClientAuthenticationAnonStartRateThrottle(AnonRateThrottle):
 class ConfirmAuthSerializer(serializers.Serializer):
     code: serializers.CharField = serializers.CharField(max_length=128, required=True)
     verification: serializers.CharField = serializers.CharField(max_length=128, required=True)
+    scopes: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=False)
+
+    def validate_scopes(self, value):
+        for scope in value:
+            if scope not in ALL_API_SCOPES:
+                raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        return value
 
 
 def start_client_auth_flow() -> tuple[str, str]:
@@ -46,7 +56,7 @@ def start_client_auth_flow() -> tuple[str, str]:
     return (code, verification)
 
 
-def confirm_client_auth_flow(code: str, verification: str, user: User) -> str:
+def confirm_client_auth_flow(code: str, verification: str, user: User, scopes: list[str]) -> str:
     known_verification = cache.get(f"client-authorization/flows/{code}")
 
     if not known_verification:
@@ -61,7 +71,7 @@ def confirm_client_auth_flow(code: str, verification: str, user: User) -> str:
         {"id": user.id},
         DEFAULT_CLIENT_AUTHENTICATION_TIME,
         PosthogJwtAudience.CLIENT,
-        scopes=["*"],  # TODO: Change this?
+        scopes=scopes,
     )
 
     cache.set(f"client-authorization/tokens/{code}", access_token, timeout=60)
@@ -93,7 +103,7 @@ class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        confirm_client_auth_flow(data["code"], data["verification"], cast(User, request.user))
+        confirm_client_auth_flow(data["code"], data["verification"], cast(User, request.user), data["scopes"])
 
         return JsonResponse({"status": "authorized"})
 
