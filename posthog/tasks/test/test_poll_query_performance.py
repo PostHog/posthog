@@ -61,7 +61,7 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         self, mock_logger_error: MagicMock
     ) -> None:
         redis_client = get_client()
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, "NOT RIGHT")
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, "NOT RIGHT")
         posthog.tasks.tasks.poll_query_performance("DIFFERENT TIME")
         mock_logger_error.assert_called_once_with("Poll query performance task terminating: another poller is running")
 
@@ -71,14 +71,17 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         self, mock_apply_async: MagicMock, mock_logger_error: MagicMock
     ) -> None:
         redis_client = get_client()
-        key = b"1234"
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, key)
+        key = 1234
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(key))
         posthog.tasks.tasks.poll_query_performance(key)
 
         mock_logger_error.assert_not_called()
         mock_apply_async.assert_called_once()
         self.assertTrue(0 < mock_apply_async.call_args.kwargs["countdown"] < 2)
-        self.assertEqual(redis_client.get(Polling.SINGLETON_REDIS_KEY), mock_apply_async.call_args.kwargs["args"][0])
+        self.assertEqual(
+            redis_client.get(Polling._SINGLETON_REDIS_KEY),
+            Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0]),
+        )
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
@@ -87,14 +90,15 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         self, mock_delay: MagicMock, mock_logger_error: MagicMock
     ) -> None:
         redis_client = get_client()
-        key = b"1234"
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, key)
+        key = 1234
+        encoded_key = Polling._encode_redis_key(key)
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, encoded_key)
         posthog.tasks.tasks.poll_query_performance(key)
 
         mock_logger_error.assert_not_called()
-        key = int(1e9).to_bytes(8, "big")
-        mock_delay.assert_called_once_with(key)
-        self.assertEqual(redis_client.get(Polling.SINGLETON_REDIS_KEY), key)
+        new_key = int(1e9)
+        mock_delay.assert_called_once_with(new_key)
+        self.assertEqual(redis_client.get(Polling._SINGLETON_REDIS_KEY), new_key.to_bytes(8, "big"))
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
@@ -104,7 +108,7 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     ) -> None:
         redis_client = get_client()
         key = int(1e9).to_bytes(8, "big")
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, key)
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, key)
         for _ in range(3):
             posthog.tasks.tasks.start_poll_query_performance()
             mock_delay.assert_not_called()
@@ -117,8 +121,8 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         self, mock_delay: MagicMock, mock_logger_error: MagicMock
     ) -> None:
         redis_client = get_client()
-        key = int(1e9).to_bytes(8, "big")
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, key)
+        key = int(1e9)
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(key))
         posthog.tasks.tasks.start_poll_query_performance()
         mock_delay.assert_called_once_with(key)
         mock_logger_error.assert_called_once_with("Restarting poll query performance because of a long delay")
@@ -130,8 +134,8 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         self, mock_delay: MagicMock, mock_logger_error: MagicMock
     ) -> None:
         redis_client = get_client()
-        key = b"A VERY LONG AND BIG NUMBER"
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, key)
+        key = 2**63  # in the future
+        redis_client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(key))
         posthog.tasks.tasks.start_poll_query_performance()
         mock_delay.assert_called_once_with(key)
         mock_logger_error.assert_called_once_with("Restarting poll query performance because key is in future")

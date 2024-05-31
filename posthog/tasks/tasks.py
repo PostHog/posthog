@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from redis import Redis
 from structlog import get_logger
 
 from posthog.cloud_utils import is_cloud
@@ -510,7 +511,7 @@ def calculate_cohort() -> None:
 
 
 class Polling:
-    SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
+    _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
     SOFT_TIME_LIMIT_SECONDS = 10
@@ -521,33 +522,39 @@ class Polling:
     ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
 
     @staticmethod
-    def encode_redis_key(time_ns: int) -> bytes:
+    def _encode_redis_key(time_ns: int) -> bytes:
         return time_ns.to_bytes(8, "big")
 
     @staticmethod
-    def decode_redis_key(time_ns: bytes) -> int:
-        return int.from_bytes(time_ns, "big")
+    def _decode_redis_key(time_ns: bytes | None) -> int:
+        return 0 if time_ns is None else int.from_bytes(time_ns, "big")
+
+    @staticmethod
+    def set_last_run_time(client: Redis, time_ns: int) -> None:
+        client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(time_ns))
+
+    @staticmethod
+    def get_last_run_time(client: Redis) -> int:
+        return Polling._decode_redis_key(client.get(Polling._SINGLETON_REDIS_KEY))
 
 
 @shared_task(
     ignore_result=True,
-    max_retries=1,
+    max_retries=0,
     soft_time_limit=Polling.SOFT_TIME_LIMIT_SECONDS,
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
-def poll_query_performance(last_update: Optional[bytes]) -> None:
+def poll_query_performance(last_known_run_time_ns: int) -> None:
     start_time_ns = time.time_ns()
-    # redis uses byte strings so convert this time to a byte string
-    start_time_str = Polling.encode_redis_key(start_time_ns)
-    from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
 
     try:
         redis_client = get_client()
-        # Last update being None represents an initial run
-        if redis_client.get(Polling.SINGLETON_REDIS_KEY) != last_update:
+        if Polling.get_last_run_time(redis_client) != last_known_run_time_ns:
             logger.error("Poll query performance task terminating: another poller is running")
             return
-        redis_client.set(Polling.SINGLETON_REDIS_KEY, start_time_str)
+        Polling.set_last_run_time(redis_client, start_time_ns)
+        from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
+
         poll_query_performance_nontask()
     except Exception as e:
         logger.error("Poll query performance failed", error=e)
@@ -555,11 +562,11 @@ def poll_query_performance(last_update: Optional[bytes]) -> None:
     elapsed_ns = time.time_ns() - start_time_ns
     if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
         # right again right away if more than time_between_runs has elapsed
-        poll_query_performance.delay(start_time_str)
+        poll_query_performance.delay(start_time_ns)
     else:
         # delay until time_between_runs has elapsed
         poll_query_performance.apply_async(
-            args=[start_time_str],
+            args=[start_time_ns],
             countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
         )
 
@@ -567,25 +574,21 @@ def poll_query_performance(last_update: Optional[bytes]) -> None:
 @shared_task(ignore_result=True, max_retries=1)
 def start_poll_query_performance() -> None:
     redis_client = get_client()
-    start_time_str = redis_client.get(Polling.SINGLETON_REDIS_KEY)
+    last_run_start_time_ns = Polling.get_last_run_time(redis_client)
     now_ns: int = time.time_ns()
     try:
-        if start_time_str is None:
-            poll_query_performance.delay(start_time_str)
-        else:
-            last_run_start_time_ns: int = Polling.decode_redis_key(start_time_str)
-            # The key should never be in the future
-            # If the key is in the future or more than 15 seconds in the past, start a worker
-            if last_run_start_time_ns > now_ns + Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
-                logger.error("Restarting poll query performance because key is in future")
-                poll_query_performance.delay(start_time_str)
-            elif now_ns - last_run_start_time_ns > Polling.ASSUME_TASK_DEAD_NANOSECONDS:
-                logger.error("Restarting poll query performance because of a long delay")
-                poll_query_performance.delay(start_time_str)
+        # The key should never be in the future
+        # If the key is in the future or more than 15 seconds in the past, start a worker
+        if last_run_start_time_ns > now_ns + Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+            logger.error("Restarting poll query performance because key is in future")
+            poll_query_performance.delay(last_run_start_time_ns)
+        elif now_ns - last_run_start_time_ns > Polling.ASSUME_TASK_DEAD_NANOSECONDS:
+            logger.error("Restarting poll query performance because of a long delay")
+            poll_query_performance.delay(last_run_start_time_ns)
 
     except Exception as e:
         logger.error("Restarting poll query performance because of an error", error=e)
-        poll_query_performance.delay(start_time_str)
+        poll_query_performance.delay(last_run_start_time_ns)
 
 
 @shared_task(ignore_result=True)
