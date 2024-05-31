@@ -51,6 +51,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),
     [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
     [Scene.Site]: () => import('./sites/Site'),
+    [Scene.Sites]: () => import('./sites/Sites'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),

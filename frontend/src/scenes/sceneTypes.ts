@@ -61,6 +61,7 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     Site = 'Site',
+    Sites = 'Sites',
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',

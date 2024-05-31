@@ -305,6 +305,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true,
         layout: 'app-raw',
     },
+    [Scene.Sites]: {
+        projectBased: true,
+        hideProjectNotice: true,
+    },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
@@ -567,6 +571,7 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     [urls.site(':url')]: Scene.Site,
+    [urls.sites()]: Scene.Sites,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.login2FA()]: Scene.Login2FA,
