@@ -1,78 +1,116 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`MessageFormatter webhook formatting options format json [ {}, [Object] ] {} 1`] = `
+Array [
+  Object {},
+  Object {
+    "list": Array [
+      "$pageview",
+      Object {
+        "person": Array [
+          "Link is http://localhost:8000/project/123/person/WALL-E",
+        ],
+      },
+    ],
+  },
+]
+`;
+
 exports[`MessageFormatter webhook formatting options format json {
   event_properties: '{{event.properties}}',
   person_link: '{{person.link}}',
   missing: '{{event.properties.missing}}'
-} {} 1`] = `"{\\"event_properties\\":{\\"$browser\\":\\"Chrome\\"},\\"person_link\\":\\"http://localhost:8000/project/123/person/WALL-E\\",\\"missing\\":null}"`;
-
-exports[`MessageFormatter webhook formatting options format json {{event.properties.$browser}} {} 1`] = `"\\"Chrome\\""`;
-
-exports[`MessageFormatter webhook formatting options format json {{event.properties}} {} 1`] = `"{\\"$browser\\":\\"Chrome\\"}"`;
-
-exports[`MessageFormatter webhook formatting options format json {{event}} { event: [Object] } 1`] = `"{\\"uuid\\":\\"**)\\",\\"event\\":\\"text](yes!), [new link\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
-
-exports[`MessageFormatter webhook formatting options format json {{person}} {} 1`] = `"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
-
-exports[`MessageFormatter webhook formatting options format json {{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}} { event: [Object] } 1`] = `"\\"test@posthog.com from Chrome on Pricing page with null, yes sir\\""`;
-
-exports[`MessageFormatter webhook formatting options format string {{ person.name}} did {{ event . event }} {} 1`] = `"test@posthog.com did $pageview"`;
-
-exports[`MessageFormatter webhook formatting options format string {{action.name\\}} got done by \\{{user.name\\}} {} 1`] = `"{{action.name}} got done by {{user.name}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{action.name}} {} 1`] = `"action1"`;
-
-exports[`MessageFormatter webhook formatting options format string {{action.name}} was done by {{user.name}} {} 1`] = `"action1 was done by test@posthog.com"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event.distinct_id}} {} 1`] = `"WALL-E"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event.event}} {} 1`] = `"$pageview"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event.name}} {} 1`] = `"$pageview"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event.uuid}} {} 1`] = `"123"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event}} { event: [Object] } 1`] = `"{\\"uuid\\":\\"**)\\",\\"event\\":\\"text](yes!), [new link\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{event}} {} 1`] = `"{\\"uuid\\":\\"123\\",\\"event\\":\\"$pageview\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/123/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{groups.missing}} {} 1`] = `"(event without group 'missing')"`;
-
-exports[`MessageFormatter webhook formatting options format string {{groups.organization.properties.plan}} {} 1`] = `"paid"`;
-
-exports[`MessageFormatter webhook formatting options format string {{groups.organization}} {} 1`] = `"{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{groups.project}} {} 1`] = `"{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{groups}} {} 1`] = `"{\\"organization\\":{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}},\\"project\\":{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{person.link}} {} 1`] = `"http://localhost:8000/project/123/person/WALL-E"`;
-
-exports[`MessageFormatter webhook formatting options format string {{person.properties.enjoys_broccoli_on_pizza}} { personProperties: [Object] } 1`] = `"false"`;
-
-exports[`MessageFormatter webhook formatting options format string {{person.properties.pizza_ingredient_ranking}} { personProperties: [Object] } 1`] = `"[\\"pineapple\\",\\"broccoli\\",\\"aubergine\\"]"`;
-
-exports[`MessageFormatter webhook formatting options format string {{person}} { personProperties: [Object], team: [Object] } 1`] = `"{\\"properties\\":{\\"imię\\":\\"Grzegorz\\",\\"nazwisko\\":\\"Brzęczyszczykiewicz\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{person}} {} 1`] = `"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
-
-exports[`MessageFormatter webhook formatting options format string {{source.name}} {} 1`] = `"action1"`;
-
-exports[`MessageFormatter webhook formatting options format string {{source.name}} was done by {{user.name}} {} 1`] = `"action1 was done by test@posthog.com"`;
-
-exports[`MessageFormatter webhook formatting options format string {{user.browser}} {} 1`] = `"Chrome"`;
-
-exports[`MessageFormatter webhook formatting options format string {{user.missing_property}} {} 1`] = `"null"`;
-
-exports[`MessageFormatter webhook formatting options format string {{user.name}} {} 1`] = `"test@posthog.com"`;
-
-exports[`MessageFormatter webhook formatting options format string {{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}} { event: [Object] } 1`] = `"test@posthog.com from Chrome on Pricing page with null, yes sir"`;
-
-exports[`MessageFormatter webhook formatting options should handle an advanced case 1`] = `
-"{
-  \\"event_properties\\": \\"json: {\\\\\\"array_item\\\\\\":[\\\\\\"item1\\\\\\",\\\\\\"item2\\\\\\"],\\\\\\"bad_string\\\\\\":\\\\\\"\\\\\\\\n\`\\\\\\\\\\\\\\"'\\\\\\\\\\\\\\\\\\\\\\"}\\",
-  \\"string_with_complex_properties\\": \\"This is a string with [\\\\\\"item1\\\\\\",\\\\\\"item2\\\\\\"] and \\\\n\`\\\\\\"'\\\\\\\\\\",
-  \\"bad_string\\": \\"\\\\n\`\\\\\\"'\\\\\\\\\\",
-  \\"object_in_string\\": {\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}
-}"
+} {} 1`] = `
+Object {
+  "event_properties": Object {
+    "$browser": "Chrome",
+  },
+  "missing": undefined,
+  "person_link": "http://localhost:8000/project/123/person/WALL-E",
+}
 `;
+
+exports[`MessageFormatter webhook formatting options format json {{event.properties.$browser}} {} 1`] = `"Chrome"`;
+
+exports[`MessageFormatter webhook formatting options format json {{event.properties}} {} 1`] = `
+Object {
+  "$browser": "Chrome",
+}
+`;
+
+exports[`MessageFormatter webhook formatting options format json {{event}} { event: [Object] } 1`] = `
+Object {
+  "distinct_id": "WALL-E",
+  "event": "text](yes!), [new link",
+  "link": "http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z",
+  "properties": Object {
+    "$browser": "Chrome",
+  },
+  "timestamp": "2021-10-31T00%3A44%3A00.000Z",
+  "uuid": "**)",
+}
+`;
+
+exports[`MessageFormatter webhook formatting options format json {{person}} {} 1`] = `
+Object {
+  "id": undefined,
+  "link": "http://localhost:8000/project/123/person/WALL-E",
+  "properties": Object {
+    "email": "test@posthog.com",
+  },
+}
+`;
+
+exports[`MessageFormatter webhook formatting options format json {user.name} from {user.browser} on {event.properties.page_title} page with {event.properties.fruit}, {event.properties.with space} { event: [Object] } 1`] = `"test@posthog.com from Chrome on Pricing page with null, yes sir"`;
+
+exports[`MessageFormatter webhook formatting options format string { person.name} did { event . event } {} 1`] = `"test@posthog.com did $pageview"`;
+
+exports[`MessageFormatter webhook formatting options format string {action.name\\} got done by \\{user.name\\} {} 1`] = `"{action.name} got done by {user.name}"`;
+
+exports[`MessageFormatter webhook formatting options format string {action.name} {} 1`] = `"action1"`;
+
+exports[`MessageFormatter webhook formatting options format string {action.name} was done by {user.name} {} 1`] = `"action1 was done by test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options format string {event.distinct_id} {} 1`] = `"WALL-E"`;
+
+exports[`MessageFormatter webhook formatting options format string {event.event} {} 1`] = `"$pageview"`;
+
+exports[`MessageFormatter webhook formatting options format string {event.name} {} 1`] = `"$pageview"`;
+
+exports[`MessageFormatter webhook formatting options format string {event.uuid} {} 1`] = `"123"`;
+
+exports[`MessageFormatter webhook formatting options format string {event} { event: [Object] } 1`] = `"{\\"uuid\\":\\"**)\\",\\"event\\":\\"text](yes!), [new link\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/**)/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options format string {event} {} 1`] = `"{\\"uuid\\":\\"123\\",\\"event\\":\\"$pageview\\",\\"timestamp\\":\\"2021-10-31T00%3A44%3A00.000Z\\",\\"distinct_id\\":\\"WALL-E\\",\\"link\\":\\"http://localhost:8000/project/123/events/123/2021-10-31T00%253A44%253A00.000Z\\",\\"properties\\":{\\"$browser\\":\\"Chrome\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options format string {groups.missing} {} 1`] = `"(event without group 'missing')"`;
+
+exports[`MessageFormatter webhook formatting options format string {groups.organization.properties.plan} {} 1`] = `"paid"`;
+
+exports[`MessageFormatter webhook formatting options format string {groups.organization} {} 1`] = `"{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}}"`;
+
+exports[`MessageFormatter webhook formatting options format string {groups.project} {} 1`] = `"{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}"`;
+
+exports[`MessageFormatter webhook formatting options format string {groups} {} 1`] = `"{\\"organization\\":{\\"index\\":1,\\"type\\":\\"organization\\",\\"key\\":\\"123\\",\\"properties\\":{\\"name\\":\\"PostHog\\",\\"plan\\":\\"paid\\"}},\\"project\\":{\\"index\\":2,\\"type\\":\\"project\\",\\"key\\":\\"234\\",\\"properties\\":{}}}"`;
+
+exports[`MessageFormatter webhook formatting options format string {person.link} {} 1`] = `"http://localhost:8000/project/123/person/WALL-E"`;
+
+exports[`MessageFormatter webhook formatting options format string {person.properties.enjoys_broccoli_on_pizza} { personProperties: [Object] } 1`] = `"false"`;
+
+exports[`MessageFormatter webhook formatting options format string {person.properties.pizza_ingredient_ranking} { personProperties: [Object] } 1`] = `"[\\"pineapple\\",\\"broccoli\\",\\"aubergine\\"]"`;
+
+exports[`MessageFormatter webhook formatting options format string {person} { personProperties: [Object], team: [Object] } 1`] = `"{\\"properties\\":{\\"imię\\":\\"Grzegorz\\",\\"nazwisko\\":\\"Brzęczyszczykiewicz\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
+
+exports[`MessageFormatter webhook formatting options format string {person} {} 1`] = `"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"},\\"link\\":\\"http://localhost:8000/project/123/person/WALL-E\\"}"`;
+
+exports[`MessageFormatter webhook formatting options format string {source.name} {} 1`] = `"action1"`;
+
+exports[`MessageFormatter webhook formatting options format string {source.name} was done by {user.name} {} 1`] = `"action1 was done by test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options format string {user.browser} {} 1`] = `"Chrome"`;
+
+exports[`MessageFormatter webhook formatting options format string {user.missing_property} {} 1`] = `"null"`;
+
+exports[`MessageFormatter webhook formatting options format string {user.name} {} 1`] = `"test@posthog.com"`;
+
+exports[`MessageFormatter webhook formatting options format string {user.name} from {user.browser} on {event.properties.page_title} page with {event.properties.fruit}, {event.properties.with space} { event: [Object] } 1`] = `"test@posthog.com from Chrome on Pricing page with null, yes sir"`;

@@ -1,10 +1,11 @@
 import { PostIngestionEvent, Team } from '../../types'
-import { getPropertyValueByPath } from '../../utils/utils'
+import { cloneObject, getPropertyValueByPath } from '../../utils/utils'
 
 // Sync with .../api/person.py and .../lib/constants.tsx
 const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'Email', 'name', 'Name', 'username', 'Username', 'UserName']
 
-const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\){{(.*?)(?<!\\)\}}/g
+const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\){{?(.*?)(?<!\\)}}?/g
+const TOKENS_REGEX_DOUBLE_BRACKETS_EXCLUDED = /(?<=(?<!\\){{)(.*?)(?=(?<!\\)}})/g
 
 export type MessageFormatterOptions = {
     event: PostIngestionEvent
@@ -14,8 +15,10 @@ export type MessageFormatterOptions = {
     sourceName: string
 }
 
-// This formatter is "simpler" in that it only supports parsing of a few tokens
 export class MessageFormatter {
+    // NOTE: This is our current solution for templating out inputs
+    // When we have Hog ready, it will essentially replace the "format" method
+
     private projectUrl: string
     private personLink: string
     private eventLink: string
@@ -32,22 +35,43 @@ export class MessageFormatter {
         this.sourceLink = `${this.projectUrl}${options.sourcePath}`
     }
 
-    format(template: string, mode: 'json' | 'string'): string {
-        // If mode is json it assumes that the content is stringified json. This is important for escaping string content for correct parsing
-        // otherwise it will just do standard json stringification
-        const message = this.getFormattedMessage(template, mode)
+    format(template: string): string {
+        // Takes a string and formats it with the event data
+        const message = this.getFormattedMessage(template)
         return message
     }
 
-    formatSafely(template: unknown, mode: 'json' | 'string'): unknown {
-        if (typeof template === 'string') {
-            return this.getFormattedMessage(template, mode)
-        }
+    formatRaw(template: string): any {
+        // Strings like "{{foo}}" are treated special and returned as the raw value
+        const match = template.match(TOKENS_REGEX_DOUBLE_BRACKETS_EXCLUDED)
 
-        return template
+        if (match) {
+            return this.getValueOfToken(match[0])
+        } else {
+            return this.format(template)
+        }
     }
 
-    private getFormattedMessage(template: string, mode: 'json' | 'string'): string {
+    formatJSON(template: object): object {
+        if (typeof template === 'string') {
+            return this.formatRaw(template)
+        }
+
+        const returnJSON = cloneObject(template) as any
+
+        // TODO: Support arrays
+        for (const [key, value] of Object.entries(returnJSON)) {
+            if (typeof value === 'string') {
+                returnJSON[key] = this.formatRaw(value)
+            } else if (value && typeof value === 'object') {
+                returnJSON[key] = this.formatJSON(value)
+            }
+        }
+
+        return returnJSON
+    }
+
+    private getFormattedMessage(template: string): string {
         try {
             const messageParts = template.split(TOKENS_REGEX_BRACKETS_INCLUDED)
 
@@ -58,29 +82,13 @@ export class MessageFormatter {
                 }
                 // Otherwise its a template part
                 const value = this.getValueOfToken(part)
-
-                if (mode === 'string') {
-                    // We always safely sanitize if in string mode
-                    return (messageParts[index] = typeof value === 'string' ? value : JSON.stringify(value ?? null))
-                }
-
-                // If the part before and after this one are surrounding it in quotes then we just return the object raw
-                if (messageParts[index - 1]?.endsWith('"') && messageParts[index + 1]?.startsWith('"')) {
-                    messageParts[index - 1] = messageParts[index - 1].slice(0, -1)
-                    messageParts[index + 1] = messageParts[index + 1].slice(1)
-
-                    // NOTE: Document why only JSON.stringify is used here
-                    // In this case we don't want to escape the sanitized value, rather we just return
-                    return (messageParts[index] = JSON.stringify(value ?? null))
-                }
-
-                return (messageParts[index] = this.sanitizeString(value))
+                return (messageParts[index] = typeof value === 'string' ? value : JSON.stringify(value ?? null))
             })
 
             const message = messageParts
                 .join('')
                 // Remove any escaped brackets
-                .replace(/\\({{|}})/g, '$1')
+                .replace(/\\({{?|}}?)/g, '$1')
 
             return message
         } catch (error) {

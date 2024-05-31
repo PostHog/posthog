@@ -54,23 +54,23 @@ describe('MessageFormatter', () => {
 
     describe('webhook formatting options', () => {
         const cases: [string, TestWebhookFormatterOptions][] = [
-            ['{{person}}', {}],
-            ['{{person.link}}', {}],
-            ['{{user.name}}', {}], // Alias for person name
-            ['{{user.browser}}', {}], // Otherwise just alias to event properties
-            ['{{action.name}}', {}],
-            ['{{action.name}} was done by {{user.name}}', {}],
-            ['{{source.name}}', {}],
-            ['{{source.name}} was done by {{user.name}}', {}],
+            ['{person}', {}],
+            ['{person.link}', {}],
+            ['{user.name}', {}], // Alias for person name
+            ['{user.browser}', {}], // Otherwise just alias to event properties
+            ['{action.name}', {}],
+            ['{action.name} was done by {user.name}', {}],
+            ['{source.name}', {}],
+            ['{source.name} was done by {user.name}', {}],
             // Handle escaping brackets
-            ['{{action.name\\}} got done by \\{{user.name\\}}', {}],
-            ['{{event}}', {}],
-            ['{{event.uuid}}', {}],
-            ['{{event.name}}', {}], // Alias for event name
-            ['{{event.event}}', {}],
-            ['{{event.distinct_id}}', {}],
+            ['{action.name\\} got done by \\{user.name\\}', {}],
+            ['{event}', {}],
+            ['{event.uuid}', {}],
+            ['{event.name}', {}], // Alias for event name
+            ['{event.event}', {}],
+            ['{event.distinct_id}', {}],
             [
-                '{{person}}',
+                '{person}',
                 {
                     personProperties: {
                         imię: 'Grzegorz',
@@ -80,21 +80,21 @@ describe('MessageFormatter', () => {
                 },
             ],
             [
-                '{{person.properties.enjoys_broccoli_on_pizza}}',
+                '{person.properties.enjoys_broccoli_on_pizza}',
                 {
                     personProperties: { enjoys_broccoli_on_pizza: false },
                 },
             ],
             [
-                '{{person.properties.pizza_ingredient_ranking}}',
+                '{person.properties.pizza_ingredient_ranking}',
                 {
                     personProperties: { pizza_ingredient_ranking: ['pineapple', 'broccoli', 'aubergine'] },
                 },
             ],
-            ['{{user.missing_property}}', {}],
-            ['{{event}}', { event: { ...event, eventUuid: '**)', event: 'text](yes!), [new link' } }], // Special escaping
+            ['{user.missing_property}', {}],
+            ['{event}', { event: { ...event, eventUuid: '**)', event: 'text](yes!), [new link' } }], // Special escaping
             [
-                '{{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}}',
+                '{user.name} from {user.browser} on {event.properties.page_title} page with {event.properties.fruit}, {event.properties.with space}',
                 {
                     event: {
                         ...event,
@@ -103,17 +103,17 @@ describe('MessageFormatter', () => {
                     },
                 },
             ],
-            ['{{groups}}', {}],
-            ['{{groups.missing}}', {}],
-            ['{{groups.organization}}', {}],
-            ['{{groups.organization.properties.plan}}', {}],
-            ['{{groups.project}}', {}], // No-name one
-            ['{{ person.name}} did {{ event . event }}', {}], // Weird spacing
+            ['{groups}', {}],
+            ['{groups.missing}', {}],
+            ['{groups.organization}', {}],
+            ['{groups.organization.properties.plan}', {}],
+            ['{groups.project}', {}], // No-name one
+            ['{ person.name} did { event . event }', {}], // Weird spacing
         ]
 
         it.each(cases)('format string %s %s', (template, options) => {
             const formatter = createFormatter(options)
-            const message = formatter.format(template, 'string')
+            const message = formatter.format(template)
             console.log('Template:', template)
             console.log('Output:', message)
             // For non-slack messages the text is always markdown
@@ -128,7 +128,7 @@ describe('MessageFormatter', () => {
             // Special escaping
             ['{{event}}', { event: { ...event, eventUuid: '**)', event: 'text](yes!), [new link' } }], // Special escaping
             [
-                '{{user.name}} from {{user.browser}} on {{event.properties.page_title}} page with {{event.properties.fruit}}, {{event.properties.with space}}',
+                '{user.name} from {user.browser} on {event.properties.page_title} page with {event.properties.fruit}, {event.properties.with space}',
                 {
                     event: {
                         ...event,
@@ -137,7 +137,7 @@ describe('MessageFormatter', () => {
                     },
                 },
             ],
-            // Object with a range of values
+            // Object with a range of raw values
             [
                 {
                     event_properties: '{{event.properties}}',
@@ -146,16 +146,25 @@ describe('MessageFormatter', () => {
                 },
                 {},
             ],
+            // Object with arrays
+            [
+                [
+                    {},
+                    {
+                        list: ['{{event.event}}', { person: ['Link is {person.link}'] }],
+                    },
+                ],
+                {},
+            ],
         ]
 
         it.each(jsonCases)('format json %s %s', (jsonTemplate, options) => {
             const formatter = createFormatter(options)
-            const message = formatter.format(JSON.stringify(jsonTemplate), 'json')
+            const message = formatter.formatJSON(jsonTemplate)
             console.log('Template:', jsonTemplate)
             console.log('Output:', message)
             // For non-slack messages the text is always markdown
             expect(message).toMatchSnapshot()
-            expect(() => JSON.parse(message)).not.toThrow()
         })
 
         it('should handle an advanced case', () => {
@@ -172,26 +181,15 @@ describe('MessageFormatter', () => {
                     },
                 },
             })
-            const message = formatter.format(
-                JSON.stringify(
-                    {
-                        event_properties: 'json: {{event.properties}}',
-                        string_with_complex_properties:
-                            'This is a string with {{event.properties.array_item}} and {{event.properties.bad_string}}',
-                        bad_string: '{{event.properties.bad_string}}',
-                        object_in_string: '{{groups.organization.properties}}',
-                    },
-                    null,
-                    2
-                ),
-                'json'
-            )
+            const message = formatter.formatJSON({
+                event_properties: 'json: {event.properties}',
+                string_with_complex_properties:
+                    'This is a string with {event.properties.array_item} and {event.properties.bad_string}',
+                bad_string: '{{event.properties.bad_string}}',
+                object_in_string: '{{groups.organization.properties}}',
+            })
             console.log('Message:', message)
-            expect(() => JSON.parse(message)).not.toThrow()
-            expect(message).toMatchSnapshot()
-            const parsed = JSON.parse(message)
-
-            expect(parsed).toMatchInlineSnapshot(`
+            expect(message).toMatchInlineSnapshot(`
                 Object {
                   "bad_string": "
                 \`\\"'\\\\",

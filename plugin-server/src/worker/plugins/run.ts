@@ -464,10 +464,17 @@ async function formatConfigTemplates(
     Object.keys(templatedConfig).forEach((key) => {
         // If the field is a json field then we template it as such
         const type = schemaObject[key]?.type
+        const template = templatedConfig[key]
 
         if (type) {
-            if (type === 'string' || type === 'json') {
-                templatedConfig[key] = webhookFormatter.formatSafely(templatedConfig[key], type)
+            if (type === 'string' && typeof template === 'string') {
+                templatedConfig[key] = webhookFormatter.format(template)
+            }
+
+            if (type === 'json' && typeof template === 'string') {
+                try {
+                    templatedConfig[key] = JSON.stringify(webhookFormatter.formatJSON(JSON.parse(template)))
+                } catch (error) {}
             }
 
             if (type === 'dictionary') {
@@ -475,7 +482,7 @@ async function formatConfigTemplates(
                 const dict: Record<string, string> = templatedConfig[key] as Record<string, string>
                 const templatedDictionary: Record<string, string> = {}
                 for (const [dictionaryKey, dictionaryValue] of Object.entries(dict)) {
-                    templatedDictionary[dictionaryKey] = webhookFormatter.format(dictionaryValue, 'string')
+                    templatedDictionary[dictionaryKey] = webhookFormatter.format(dictionaryValue)
                 }
                 templatedConfig[key] = templatedDictionary
             }
