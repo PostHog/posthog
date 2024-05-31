@@ -1,4 +1,5 @@
 import { LemonButton, LemonInput, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -23,18 +24,8 @@ export function PipelineHogFunctionConfiguration({
 
     const loadingOrSubmitting = false
 
-    // const {
-    //     plugin,
-    //     isNew,
-    //     isConfigurationSubmitting,
-    //     savedConfiguration,
-    //     hiddenFields,
-    //     requiredFields,
-    //     loading,
-    //     configurationChanged,
-    //     pluginFilteringEnabled,
-    // } = useValues(logic)
-    // const { submitConfiguration, resetConfiguration } = useActions(logic)
+    const { isConfigurationSubmitting, configurationChanged } = useValues(logic)
+    const { submitConfiguration, clearChanges } = useActions(logic)
 
     // if (!stage) {
     //     return <NotFound object="pipeline stage" />
@@ -114,18 +105,18 @@ export function PipelineHogFunctionConfiguration({
             <LemonButton
                 type="secondary"
                 htmlType="reset"
-                // onClick={() => resetConfiguration(savedConfiguration || {})}
-                // disabledReason={
-                //     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-                // }
+                onClick={() => clearChanges()}
+                disabledReason={
+                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
+                }
             >
                 Clear changes
             </LemonButton>
             <LemonButton
                 type="primary"
                 htmlType="submit"
-                // onClick={submitConfiguration}
-                // loading={isConfigurationSubmitting}
+                onClick={submitConfiguration}
+                loading={isConfigurationSubmitting}
             >
                 {templateId ? 'Create' : 'Save'}
             </LemonButton>

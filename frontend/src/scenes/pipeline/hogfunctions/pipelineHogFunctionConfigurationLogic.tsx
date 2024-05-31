@@ -1,6 +1,8 @@
-import { kea, key, path, props } from 'kea'
+import { afterMount, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { FilterType, HogFunctionTemplateType, HogFunctionType, PluginConfigFilters, PluginConfigTypeNew } from '~/types'
 
@@ -160,14 +162,27 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     //     ],
     // })),
     forms(({ asyncActions, values }) => ({
-        hogFunction: {
-            defaults: null as HogFunctionType | null,
+        configuration: {
+            defaults: {} as HogFunctionType,
             errors: (data) => {
-                return {}
+                return {
+                    name: !data.name ? 'Name is required' : null,
+                }
             },
             submit: async (data) => {
                 await asyncActions.updateHogFunction(data)
             },
+        },
+    })),
+
+    listeners(({ actions, values }) => ({
+        loadTemplateSuccess: ({ template }) => {
+            if (template) {
+                actions.resetConfiguration(template as HogFunctionType)
+            }
+        },
+        clearChanges: () => {
+            actions.resetConfiguration(values.hogFunction ?? (values.template as HogFunctionType))
         },
     })),
     // // TODO: Add this back in once we have a plan for handling automatic url changes
@@ -184,38 +199,37 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     //         actions.resetConfiguration()
     //     },
     // })),
-    // afterMount(({ props, actions, cache }) => {
-    //     if (props.pluginConfigId) {
-    //         actions.loadPluginConfig() // comes with plugin info
-    //     } else if (props.pluginId) {
-    //         cache.configFromUrl = router.values.hashParams.configuration
+    afterMount(({ props, actions, cache }) => {
+        if (props.templateId) {
+            actions.loadTemplate() // comes with plugin info
+        } else if (props.id) {
+            cache.configFromUrl = router.values.hashParams.configuration
+            actions.loadHogFunction()
+        }
+    }),
 
-    //         actions.loadPlugin()
-    //     }
-    // }),
+    subscriptions(({ props, values, actions, cache }) => ({
+        configuration: (configuration) => {
+            if (props.templateId) {
+                // Sync state to the URL bar if new
+                cache.ignoreUrlChange = true
+                router.actions.replace(router.values.location.pathname, undefined, {
+                    configuration,
+                })
+            }
+        },
+        template: (template) => {
+            if (template && props.templateId) {
+                // Sync state from the URL bar if new
 
-    // subscriptions(({ values, actions, cache }) => ({
-    //     configuration: (configuration) => {
-    //         if (values.isNew) {
-    //             // Sync state to the URL bar if new
-    //             cache.ignoreUrlChange = true
-    //             router.actions.replace(router.values.location.pathname, undefined, {
-    //                 configuration,
-    //             })
-    //         }
-    //     },
-    //     pluginFromPluginId: (plugin) => {
-    //         if (plugin && values.isNew) {
-    //             // Sync state from the URL bar if new
-
-    //             // Hash params never hit the server so are relatively safe
-    //             if (cache.configFromUrl) {
-    //                 actions.resetConfiguration({
-    //                     ...values.configuration,
-    //                     ...cache.configFromUrl,
-    //                 })
-    //             }
-    //         }
-    //     },
-    // })),
+                // Hash params never hit the server so are relatively safe
+                if (cache.configFromUrl) {
+                    actions.resetConfiguration({
+                        ...cache.configFromUrl,
+                        ...values.hogFunction,
+                    })
+                }
+            }
+        },
+    })),
 ])
