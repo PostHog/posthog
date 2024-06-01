@@ -75,13 +75,13 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
     reducers({
         showSource: [
-            true,
+            false,
             {
                 setShowSource: (_, { showSource }) => showSource,
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -151,7 +151,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: ({ template }) => {
             if (template) {
-                console.log('RESETTING FORM', template, cache.configFromUrl)
                 const form: HogFunctionType = {
                     inputs: {},
                     ...template,
@@ -195,8 +194,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 router.actions.replace(router.values.location.pathname, undefined, {
                     configuration,
                 })
-
-                console.log(configuration)
             }
         },
     })),

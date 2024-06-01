@@ -252,7 +252,6 @@ export function PipelineHogFunctionConfiguration({
                                                     showOptional={!schema.required}
                                                 >
                                                     {({ value, onChange }) => {
-                                                        console.log('schema', schema, 'value', value)
                                                         return (
                                                             <HogFunctionInput
                                                                 schema={schema}
@@ -264,7 +263,11 @@ export function PipelineHogFunctionConfiguration({
                                                 </LemonField>
                                             </div>
                                         )
-                                    })}
+                                    }) ?? (
+                                        <span className="italic text-muted-alt">
+                                            This function does not require any input variables.
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>

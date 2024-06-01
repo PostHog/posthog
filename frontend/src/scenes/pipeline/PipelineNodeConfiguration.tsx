@@ -10,8 +10,6 @@ import { PipelineBackend } from './types'
 export function PipelineNodeConfiguration(): JSX.Element {
     const { stage, node } = useValues(pipelineNodeLogic)
 
-    console.log({ stage, node })
-
     if (!stage) {
         return <NotFound object="pipeline app stage" />
     }
