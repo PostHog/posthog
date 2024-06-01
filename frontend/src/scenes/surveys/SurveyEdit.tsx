@@ -43,7 +43,7 @@ export default function SurveyEdit(): JSX.Element {
         urlMatchTypeValidationError,
         writingHTMLDescription,
         hasTargetingSet,
-        selectedQuestion,
+        selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
@@ -52,7 +52,7 @@ export default function SurveyEdit(): JSX.Element {
         setSurveyValue,
         setWritingHTMLDescription,
         resetTargeting,
-        setSelectedQuestion,
+        setSelectedPageIndex,
         setSelectedSection,
         setFlagPropertyErrors,
     } = useActions(surveyLogic)
@@ -70,7 +70,7 @@ export default function SurveyEdit(): JSX.Element {
             return clone.map((child) => ({ ...child }))
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
-        setSelectedQuestion(newIndex)
+        setSelectedPageIndex(newIndex)
     }
 
     return (
@@ -171,9 +171,9 @@ export default function SurveyEdit(): JSX.Element {
                                             strategy={verticalListSortingStrategy}
                                         >
                                             <LemonCollapse
-                                                activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                                activeKey={selectedPageIndex === null ? undefined : selectedPageIndex}
                                                 onChange={(index) => {
-                                                    setSelectedQuestion(index)
+                                                    setSelectedPageIndex(index)
                                                 }}
                                                 panels={[
                                                     ...survey.questions.map(
@@ -189,7 +189,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 <SurveyEditQuestionHeader
                                                                     index={index}
                                                                     survey={survey}
-                                                                    setSelectedQuestion={setSelectedQuestion}
+                                                                    setSelectedPageIndex={setSelectedPageIndex}
                                                                     setSurveyValue={setSurveyValue}
                                                                 />
                                                             ),
@@ -214,7 +214,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
-                                                                                  setSelectedQuestion(
+                                                                                  setSelectedPageIndex(
                                                                                       survey.questions.length - 1
                                                                                   )
                                                                                   setSurveyValue('appearance', {
@@ -312,7 +312,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.questions,
                                                         { ...defaultSurveyFieldValues.open.questions[0] },
                                                     ])
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add question
@@ -333,7 +333,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -647,9 +647,9 @@ export default function SurveyEdit(): JSX.Element {
             <LemonDivider vertical />
             <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
-                    activePreview={selectedQuestion || 0}
+                    previewPageIndex={selectedPageIndex || 0}
                     survey={survey}
-                    setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
                     isEditingSurvey={isEditingSurvey}
                 />
             </div>
