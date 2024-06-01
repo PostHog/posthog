@@ -220,6 +220,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 <PlayerPersonMeta />
 
                                 <LemonSegmentedButton
+                                    data-attr="session-recording-player-view-choice"
                                     size="xsmall"
                                     value={playerView}
                                     onChange={setPlayerView}
