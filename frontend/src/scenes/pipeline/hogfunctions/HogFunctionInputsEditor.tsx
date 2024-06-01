@@ -1,5 +1,5 @@
 import { IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
@@ -31,8 +31,14 @@ export function HogFunctionInputsEditor({ value, onChange }: HogFunctionInputsEd
                 }
 
                 return (
-                    <div className="flex items-center gap-2 border rounded p-1" key={index}>
-                        <div className="flex-1 flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap border rounded p-1" key={index}>
+                        <div className="flex-1 flex items-center gap-2 flex-wrap">
+                            <LemonInput
+                                size="small"
+                                value={input.name}
+                                onChange={(name) => _onChange({ name })}
+                                placeholder="Variable name"
+                            />
                             <LemonSelect
                                 size="small"
                                 options={typeList.map((type) => ({
@@ -40,21 +46,42 @@ export function HogFunctionInputsEditor({ value, onChange }: HogFunctionInputsEd
                                     value: type,
                                 }))}
                                 value={input.type}
+                                className="w-30"
                                 onChange={(type) => _onChange({ type })}
                             />
 
                             <LemonInput
-                                size="small"
-                                value={input.name}
-                                onChange={(name) => _onChange({ name })}
-                                placeholder="Variable name"
-                            />
-                            <LemonInput
+                                className="flex-1 min-w-30"
                                 size="small"
                                 value={input.label}
                                 onChange={(label) => _onChange({ label })}
-                                placeholder="Variable label"
+                                placeholder="Display label"
                             />
+                            <LemonCheckbox
+                                size="small"
+                                checked={input.required}
+                                onChange={(required) => _onChange({ required })}
+                                label="Required"
+                                bordered
+                            />
+                            <LemonCheckbox
+                                size="small"
+                                checked={input.secret}
+                                onChange={(secret) => _onChange({ secret })}
+                                label="Secret"
+                                bordered
+                            />
+                            {input.type === 'choice' && (
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={input.choices?.map((choice) => choice.value)}
+                                    onChange={(choices) =>
+                                        _onChange({ choices: choices.map((value) => ({ label: value, value })) })
+                                    }
+                                    placeholder="Choices"
+                                />
+                            )}
                         </div>
                         <LemonButton
                             icon={<IconX />}
