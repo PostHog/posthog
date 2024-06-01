@@ -41,7 +41,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const prorationAmount = useMemo(
         () =>
             upgradePlan?.unit_amount_usd
-                ? parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))
+                ? (parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(0)
                 : 0,
         [upgradePlan, daysRemaining, daysTotal]
     )
