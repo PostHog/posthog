@@ -71,13 +71,13 @@ export function PayGateMini({
         })
     }
 
-    if (billingLoading) {
-        return null
-    }
+    // if (billingLoading) {
+    //     return null
+    // }
 
-    if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
-        return null // Don't show anything if paid features are explicitly disabled
-    }
+    // if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
+    //     return null // Don't show anything if paid features are explicitly disabled
+    // }
 
     if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
         return (
@@ -194,14 +194,13 @@ const renderUsageLimitMessage = (
                 </p>
             </div>
         )
-    } else {
-        return (
-            <>
-                <p>{featureInfo.description}</p>
-                <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
-            </>
-        )
     }
+    return (
+        <>
+            <p>{featureInfo.description}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+        </>
+    )
 }
 
 const renderGateVariantMessage = (
@@ -217,13 +216,12 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
-    } else {
-        return (
-            <>
-                Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-            </>
-        )
     }
+    return (
+        <>
+            Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+        </>
+    )
 }
 
 const GrandfatheredMessage = (): JSX.Element => {

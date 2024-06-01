@@ -1,6 +1,7 @@
-import { LemonButton, LemonInput, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -10,6 +11,8 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { EntityTypes } from '~/types'
 
+import { HogFunctionInput } from './HogFunctionInputs'
+import { HogFunctionInputsEditor } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
 
 export function PipelineHogFunctionConfiguration({
@@ -21,25 +24,23 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-
-    const loadingOrSubmitting = false
-
-    const { isConfigurationSubmitting, configurationChanged } = useValues(logic)
-    const { submitConfiguration, clearChanges } = useActions(logic)
+    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, missing } =
+        useValues(logic)
+    const { submitConfiguration, clearChanges, setShowSource } = useActions(logic)
 
     // if (!stage) {
     //     return <NotFound object="pipeline stage" />
     // }
 
-    // if (loading && !plugin) {
-    //     return <SpinnerOverlay />
-    // }
+    if (loading && !missing) {
+        return <SpinnerOverlay />
+    }
 
-    // if (!plugin) {
-    //     return <NotFound object={`pipeline ${stage}`} />
-    // }
+    if (missing) {
+        return <NotFound object="Hog function" />
+    }
 
-    // const loadingOrSubmitting = loading || isConfigurationSubmitting
+    // const loading = loading || isConfigurationSubmitting
 
     // const configSchemaArray = getConfigSchemaArray(plugin.config_schema)
     // const fields = configSchemaArray.map((fieldConfig, index) => (
@@ -86,7 +87,7 @@ export function PipelineHogFunctionConfiguration({
     //                 }
     //                 help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
     //             >
-    //                 <PluginField fieldConfig={fieldConfig} disabled={loadingOrSubmitting} />
+    //                 <PluginField fieldConfig={fieldConfig} disabled={loading} />
     //             </LemonField>
     //         ) : (
     //             <>
@@ -147,7 +148,7 @@ export function PipelineHogFunctionConfiguration({
                                             label="Enabled"
                                             onChange={() => onChange(!value)}
                                             checked={value}
-                                            disabled={loadingOrSubmitting}
+                                            disabled={loading}
                                             bordered
                                         />
                                     )}
@@ -158,14 +159,14 @@ export function PipelineHogFunctionConfiguration({
                                 label="Name"
                                 info="Customising the name can be useful if multiple instances of the same type are used."
                             >
-                                <LemonInput type="text" disabled={loadingOrSubmitting} />
+                                <LemonInput type="text" disabled={loading} />
                             </LemonField>
                             <LemonField
                                 name="description"
                                 label="Description"
                                 info="Add a description to share context with other team members"
                             >
-                                <LemonTextArea disabled={loadingOrSubmitting} />
+                                <LemonTextArea disabled={loading} />
                             </LemonField>
                         </div>
 
@@ -221,17 +222,52 @@ export function PipelineHogFunctionConfiguration({
                     </div>
 
                     <div className="flex-2 min-w-100 space-y-4">
-                        {/* <div className="border bg-bg-light rounded p-3  space-y-2">
-                            <>
-                                {fields.length ? (
-                                    fields
-                                ) : (
-                                    <span className="italic text-muted-alt">
-                                        This app does not have specific configuration options
-                                    </span>
-                                )}
-                            </>
-                        </div> */}
+                        <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h4 className="m-0">Function configuration</h4>
+
+                                <LemonButton size="small" type="secondary" onClick={() => setShowSource(!showSource)}>
+                                    {showSource ? 'Hide source code' : 'Show source code'}
+                                </LemonButton>
+                            </div>
+
+                            {showSource ? (
+                                <div className="space-y-2">
+                                    <LemonField name="inputs_schema" label="Input variables">
+                                        <HogFunctionInputsEditor />
+                                    </LemonField>
+
+                                    <LemonField name="hog" label="Hog code">
+                                        <p>Coming soon!</p>
+                                    </LemonField>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {configuration?.inputs_schema?.map((schema) => {
+                                        return (
+                                            <div key={schema.name}>
+                                                <LemonField
+                                                    name={`inputs.${schema.name}`}
+                                                    label={schema.label || schema.name}
+                                                    showOptional={!schema.required}
+                                                >
+                                                    {({ value, onChange }) => {
+                                                        console.log('schema', schema, 'value', value)
+                                                        return (
+                                                            <HogFunctionInput
+                                                                schema={schema}
+                                                                value={value?.value}
+                                                                onChange={(val) => onChange({ value: val })}
+                                                            />
+                                                        )
+                                                    }}
+                                                </LemonField>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
                         <div className="flex gap-2 justify-end">{buttons}</div>
                     </div>
                 </div>

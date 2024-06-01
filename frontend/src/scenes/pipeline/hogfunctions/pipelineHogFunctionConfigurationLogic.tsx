@@ -1,8 +1,9 @@
-import { afterMount, kea, key, listeners, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 
 import { FilterType, HogFunctionTemplateType, HogFunctionType, PluginConfigFilters, PluginConfigTypeNew } from '~/types'
 
@@ -54,6 +55,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         return id ?? templateId ?? 'new'
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
+    actions({
+        clearChanges: true,
+        upsertHogFunction: (data: HogFunctionType) => ({ data }),
+        setShowSource: (showSource: boolean) => ({ showSource }),
+    }),
     // connect(() => ({
     //     values: [
     //         teamLogic,
@@ -66,6 +72,15 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     //         ['canEnableNewDestinations'],
     //     ],
     // })),
+
+    reducers({
+        showSource: [
+            true,
+            {
+                setShowSource: (_, { showSource }) => showSource,
+            },
+        ],
+    }),
     loaders(({ props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
@@ -92,75 +107,33 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         return null
                     }
 
-                    throw new Error('Template not found')
+                    return await api.hogFunctions.get(props.id)
                 },
 
-                updateHogFunction: async (data) => {
-                    if (!props.id) {
-                        return null
+                upsertHogFunction: async ({ data }) => {
+                    const payload = {
+                        ...data,
+                        filters: data.filters ? sanitizeFilters(data.filters) : null,
                     }
 
-                    throw new Error('Template not found')
+                    if (!props.id) {
+                        return await api.hogFunctions.create(payload)
+                    }
+                    return await api.hogFunctions.update(props.id, payload)
                 },
             },
         ],
     })),
-    // selectors(() => ({
-    //     plugin: [
-    //         (s) => [s.pluginFromPluginId, s.pluginConfig],
-    //         (pluginFromId, pluginConfig) => pluginConfig?.plugin_info || pluginFromId,
-    //     ],
-    //     pluginConfigSchema: [(s) => [s.plugin], (plugin) => getConfigSchemaArray(plugin?.config_schema || {})],
-    //     loading: [
-    //         (s) => [s.pluginFromPluginIdLoading, s.pluginConfigLoading],
-    //         (pluginLoading, pluginConfigLoading) => pluginLoading || pluginConfigLoading,
-    //     ],
-    //     savedConfiguration: [
-    //         (s) => [s.pluginConfig, s.plugin],
-    //         (pluginConfig, plugin) => {
-    //             if (!pluginConfig || !plugin) {
-    //                 return {}
-    //             }
-    //             if (pluginConfig) {
-    //                 return getConfigurationFromPluginConfig(pluginConfig)
-    //             }
-    //             if (plugin) {
-    //                 return getDefaultConfiguration(plugin)
-    //             }
-    //         },
-    //     ],
-    //     requiredFields: [
-    //         (s) => [s.plugin, s.configuration],
-    //         (plugin, configuration): string[] => {
-    //             if (!plugin || !configuration) {
-    //                 return []
-    //             }
-    //             return determineRequiredFields((fieldName) => configuration[fieldName], plugin)
-    //         },
-    //     ],
-    //     hiddenFields: [
-    //         (s) => [s.plugin, s.configuration],
-    //         (plugin, configuration): string[] => {
-    //             if (!plugin || !configuration) {
-    //                 return []
-    //             }
-    //             return determineInvisibleFields((fieldName) => configuration[fieldName], plugin)
-    //         },
-    //     ],
-    //     isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
-    //     stage: [(_, p) => [p.stage], (stage) => stage],
-
-    //     pluginFilteringEnabled: [
-    //         (s) => [s.featureFlags, s.pluginConfig, s.plugin],
-    //         (featureFlags, pluginConfig, plugin): boolean => {
-    //             const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
-    //             return !!(
-    //                 (pluginFilteringEnabled || pluginConfig?.filters) &&
-    //                 plugin?.capabilities?.methods?.includes('composeWebhook')
-    //             )
-    //         },
-    //     ],
-    // })),
+    selectors(() => ({
+        loading: [
+            (s) => [s.hogFunctionLoading, s.templateLoading],
+            (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
+        ],
+        missing: [
+            (s) => [s.loading, s.hogFunction, s.template],
+            (loading, hogFunction, template) => !loading && !hogFunction && !template,
+        ],
+    })),
     forms(({ asyncActions, values }) => ({
         configuration: {
             defaults: {} as HogFunctionType,
@@ -170,15 +143,21 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 }
             },
             submit: async (data) => {
-                await asyncActions.updateHogFunction(data)
+                await asyncActions.upsertHogFunction(data)
             },
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: ({ template }) => {
             if (template) {
-                actions.resetConfiguration(template as HogFunctionType)
+                console.log('RESETTING FORM', template, cache.configFromUrl)
+                const form: HogFunctionType = {
+                    inputs: {},
+                    ...template,
+                    ...(cache.configFromUrl || {}),
+                }
+                actions.resetConfiguration(form)
             }
         },
         clearChanges: () => {
@@ -201,9 +180,9 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     // })),
     afterMount(({ props, actions, cache }) => {
         if (props.templateId) {
+            cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
-            cache.configFromUrl = router.values.hashParams.configuration
             actions.loadHogFunction()
         }
     }),
@@ -216,19 +195,8 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 router.actions.replace(router.values.location.pathname, undefined, {
                     configuration,
                 })
-            }
-        },
-        template: (template) => {
-            if (template && props.templateId) {
-                // Sync state from the URL bar if new
 
-                // Hash params never hit the server so are relatively safe
-                if (cache.configFromUrl) {
-                    actions.resetConfiguration({
-                        ...cache.configFromUrl,
-                        ...values.hogFunction,
-                    })
-                }
+                console.log(configuration)
             }
         },
     })),

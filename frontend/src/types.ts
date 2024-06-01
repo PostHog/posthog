@@ -4035,16 +4035,31 @@ export type OnboardingProduct = {
     scene: Scene
 }
 
+export type HogFunctionInputSchemaType = {
+    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    name: string
+    label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    default?: any
+    secret?: boolean
+    description?: string
+}
+
 export type HogFunctionType = {
     id: string
     name: string
     description: string
-    inputs_schema: string
-    inputs: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    inputs: Record<string, {
+        value: any,
+        bytecode?: any,
+    }>
     hog: string
     enabled: boolean
     // TODO: Rewrite these
     filters?: PluginConfigFilters | null
+    template?: HogFunctionTemplateType
 }
 
 export type HogFunctionTemplateType = {
