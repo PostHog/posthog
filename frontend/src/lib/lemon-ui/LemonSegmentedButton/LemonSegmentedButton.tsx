@@ -23,6 +23,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
+    'data-attr'?: string
 }
 
 interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
@@ -38,6 +39,7 @@ export function LemonSegmentedButton<T extends React.Key>({
     size,
     fullWidth,
     className,
+    'data-attr': dataAttr,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLDivElement,
@@ -60,6 +62,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                 } as LemonSegmentedButtonCSSProperties
             }
             ref={containerRef}
+            data-attr={dataAttr}
         >
             {sliderWidth > 0 && (
                 <div
