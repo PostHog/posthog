@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { billingJson } from '~/mocks/fixtures/_billing_v2'
-import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_v2_with_100_percent_discount.json'
-import billingJsonWithDiscount from '~/mocks/fixtures/_billing_v2_with_discount.json'
+import { billingJson } from '~/mocks/fixtures/_billing'
+import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
+import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
@@ -35,7 +35,7 @@ export default meta
 export const _BillingV2 = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },
@@ -47,7 +47,7 @@ export const _BillingV2 = (): JSX.Element => {
 export const BillingV2WithDiscount = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJsonWithDiscount,
             },
         },
@@ -59,7 +59,7 @@ export const BillingV2WithDiscount = (): JSX.Element => {
 export const BillingV2WithLimitAnd100PercentDiscount = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJsonWith100PercentDiscount,
             },
         },
@@ -71,7 +71,7 @@ export const BillingV2WithLimitAnd100PercentDiscount = (): JSX.Element => {
 export const BillingUnsubscribeModal = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },
@@ -82,7 +82,7 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
 export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
             '/api/organizations/@current/plugins/exports_unsubscribe_configs/': exportsUnsubscribeConfigs,

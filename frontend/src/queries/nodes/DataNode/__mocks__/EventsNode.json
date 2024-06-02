@@ -103,7 +103,7 @@
                     "8929-insight-editor-panels": false
                 },
                 "$console_log_recording_enabled_server_side": true,
-                "pathname": "/api/billing-v2/",
+                "pathname": "/api/billing/",
                 "method": "GET",
                 "duration": 266,
                 "status": 404,

@@ -161,7 +161,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </p>
                     <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <div className=" grid @4xl:grid-cols-2 gap-3">
+                            <div className="grid @4xl:grid-cols-2 gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
                                     const identifier = String(JSON.stringify(step))
                                     return (
