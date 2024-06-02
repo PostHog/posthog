@@ -58,7 +58,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                 ) : (
                     <>
                         <LemonField name="name" label="Name">
-                            <LemonInput placeholder="e.g. High error rate" />
+                            <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
                         </LemonField>
 
                         <LemonField
@@ -66,7 +66,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                             label="Who do you want to notify about anomalies"
                             help="Enter comma separated email addresses of the users you want notify about anomalies"
                         >
-                            <LemonInput data-attr="alert-emails" placeholder="Enter an email address" />
+                            <LemonInput data-attr="alert-notification-targets" placeholder="Enter an email address" />
                         </LemonField>
                         <LemonField name="anomaly_condition" label="Anomaly condition">
                             {({ value, onChange }) => (
@@ -75,6 +75,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                                         Lower threshold
                                         <LemonInput
                                             type="number"
+                                            data-attr="alert-lower-threshold"
                                             className="w-20"
                                             value={value?.absolute_threshold?.lower}
                                             onChange={(newLower) => {
@@ -92,6 +93,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                                         <LemonInput
                                             type="number"
                                             className="w-20"
+                                            data-attr="alert-upper-threshold"
                                             value={value?.absolute_threshold?.upper}
                                             onChange={(newUpper) => {
                                                 const newValue = { ...value }

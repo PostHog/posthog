@@ -64,7 +64,10 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     const isAlertAvailableForInsight = isBoldNumberDisplay(insight.filters)
     if (!isAlertAvailableForInsight) {
         return (
-            <LemonButton disabledReason="Insights are only availabe for trends represented as a number. Change the insight representation to add alerts.">
+            <LemonButton
+                data-attr="disabled-alerts-button"
+                disabledReason="Insights are only availabe for trends represented as a number. Change the insight representation to add alerts."
+            >
                 Alerts
             </LemonButton>
         )
