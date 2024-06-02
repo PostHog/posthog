@@ -1233,6 +1233,41 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_first_time_retention_weeks(self):
+        self._create_first_time_retention_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "period": "Week",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_TIME,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 7)
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [1, 0, 0],
+                [4, 4],
+                [0],
+            ],
+        )
+
     def test_retention_with_properties(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])

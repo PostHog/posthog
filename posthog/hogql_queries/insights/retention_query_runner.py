@@ -161,13 +161,18 @@ class RetentionQueryRunner(QueryRunner):
                     if(
                         has(
                             {target_timestamps} as _target_timestamps,
-                            toStartOfDay(min(events.timestamp))
+                            {min_timestamp}
                         ),
                         _target_timestamps,
                         []
                     )
                 """,
-                {"target_timestamps": target_timestamps},
+                {
+                    "target_timestamps": target_timestamps,
+                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
+                        parse_expr("min(events.timestamp)")
+                    ),
+                },
             )
             is_in_breakdown_value = parse_expr("target_timestamps[1] = breakdown_value_timestamp")
             is_first_intervals_from_base = parse_expr("target_timestamps[1] = date_range[breakdown_values + 1]")
