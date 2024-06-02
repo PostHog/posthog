@@ -11,7 +11,7 @@ describe('Alerts', () => {
             )
         )
         createInsight('insight')
-        cy.get('[data-attr=insight-header-more]').click()
+        cy.get('[data-attr=more-button]').click()
         // Alerts should be disabled for trends represented with graphs
         cy.get('[data-attr=disabled-alerts-button]').should('exist')
 
@@ -22,7 +22,7 @@ describe('Alerts', () => {
         cy.get('[data-attr=insight-save-button]').contains('Save').click()
         cy.url().should('not.include', '/edit')
 
-        cy.get('[data-attr=insight-header-more]').click()
+        cy.get('[data-attr=more-button]').click()
         cy.contains('Alerts').click()
         cy.contains('New alert').click()
 
@@ -37,7 +37,7 @@ describe('Alerts', () => {
         cy.reload()
 
         // Check the alert has the same values as when it was created
-        cy.get('[data-attr=insight-header-more]').click()
+        cy.get('[data-attr=more-button]').click()
         cy.contains('Alerts').click()
         cy.contains('Manage alerts').click()
         cy.get('[data-attr=alert-list-item]').contains('Alert name').click()

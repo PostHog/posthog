@@ -94,7 +94,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More
-                            data-attr="insight-header-more"
                             overlay={
                                 <>
                                     {hasDashboardItemId && (
