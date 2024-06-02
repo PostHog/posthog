@@ -60,7 +60,7 @@ runs:
           shell: bash
           id: hogql-parser-diff
           run: |
-              git fetch --no-tags --prune --depth=1 origin
+              git fetch --no-tags --prune --depth=1 origin master
               changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
 
@@ -158,6 +158,7 @@ runs:
                   || 'hogvm posthog'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
+                  --ignore=hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS

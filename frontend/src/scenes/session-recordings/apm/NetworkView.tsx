@@ -56,7 +56,7 @@ function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null
     return (
         <div className="flex flex-row justify-around">
             <MethodTag item={item} label={false} />
-            <StatusTag item={item} label={false} />
+            <StatusTag item={item} detailed={false} />
         </div>
     )
 }
@@ -137,7 +137,7 @@ function WaterfallMeta(): JSX.Element | null {
 
 export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string }): JSX.Element {
     const logic = networkViewLogic({ sessionRecordingId })
-    const { isLoading, currentPage } = useValues(logic)
+    const { isLoading, currentPage, hasPageViews } = useValues(logic)
 
     if (isLoading) {
         return (
@@ -157,6 +157,11 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
                         className="NetworkView__table"
                         size="small"
                         dataSource={currentPage}
+                        emptyState={
+                            hasPageViews
+                                ? 'error displaying network data'
+                                : 'network data does not include any "navigation" events'
+                        }
                         columns={[
                             {
                                 title: 'URL',

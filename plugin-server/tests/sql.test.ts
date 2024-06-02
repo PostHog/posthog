@@ -59,6 +59,7 @@ describe('sql', () => {
             team_id: 2,
             created_at: expect.anything(),
             updated_at: expect.anything(),
+            filters: null,
         }
 
         const rows1 = await getPluginConfigRows(hub)

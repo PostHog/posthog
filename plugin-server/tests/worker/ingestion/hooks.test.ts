@@ -106,11 +106,11 @@ describe('hooks', () => {
                     },
                     \\"data\\": {
                         \\"eventUuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                        \\"distinctId\\": \\"WALL-E\\",
-                        \\"timestamp\\": \\"2024-01-01T00:00:00.000Z\\",
                         \\"event\\": \\"foo\\",
                         \\"teamId\\": 1,
+                        \\"distinctId\\": \\"WALL-E\\",
                         \\"properties\\": {},
+                        \\"timestamp\\": \\"2024-01-01T00:00:00.000Z\\",
                         \\"elementsList\\": [],
                         \\"person\\": {
                             \\"uuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
