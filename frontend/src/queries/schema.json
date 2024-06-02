@@ -1570,7 +1570,7 @@
             ],
             "type": "string"
         },
-        "ClickhouseQueryStatus": {
+        "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
                 "active_cpu_time": {
@@ -4149,6 +4149,9 @@
                 "materializationMode": {
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
+                },
+                "optimizeJoinedFilters": {
+                    "type": "boolean"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
@@ -6794,7 +6797,7 @@
                     "type": "boolean"
                 },
                 "query_progress": {
-                    "$ref": "#/definitions/ClickhouseQueryStatus"
+                    "$ref": "#/definitions/ClickhouseQueryProgress"
                 },
                 "results": {},
                 "start_time": {

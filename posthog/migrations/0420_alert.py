@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0418_pluginconfig_filters"),
+        ("posthog", "0419_remove_organization_available_features"),
     ]
 
     operations = [

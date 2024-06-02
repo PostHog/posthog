@@ -55,15 +55,10 @@ posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignme
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "settings"  [union-attr]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
-posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/database/schema/person_distinct_ids.py:0: error: Argument 1 to "select_from_person_distinct_ids_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
-posthog/hogql/database/schema/person_distinct_id_overrides.py:0: error: Argument 1 to "select_from_person_distinct_id_overrides_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_REGION'  [misc]
