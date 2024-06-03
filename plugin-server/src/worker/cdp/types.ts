@@ -1,8 +1,12 @@
-import { Team } from '../../types'
+import { PluginConfigFilters } from '../../types'
 
 export type HogFunctionInvocationContext = {
     project: {
         id: number
+        name: string
+        url: string
+    }
+    source?: {
         name: string
         url: string
     }
@@ -41,5 +45,32 @@ export type HogFunctionInvocation = {
     // }
 
     context: HogFunctionInvocationContext
-    team: Team
+}
+
+// Mostly copied from frontend types
+export type HogFunctionInputSchemaType = {
+    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    name: string
+    // label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    // default?: any
+    // secret?: boolean
+    // description?: string
+}
+
+export type HogFunctionType = {
+    id: string
+    team_id: number
+    name: string
+    enabled: boolean
+    bytecode: any
+    inputs: Record<
+        string,
+        {
+            value: any
+            bytecode?: any
+        }
+    >
+    filters?: PluginConfigFilters | null
 }

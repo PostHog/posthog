@@ -24,6 +24,8 @@ import { createRedisPool } from '../../utils/utils'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { HogExecutor } from './hog-executor'
+import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation } from './types'
 import { convertToHogFunctionInvocationContext } from './utils'
 
@@ -61,6 +63,8 @@ export class CdpProcessedEventsConsumer {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     groupTypeManager: GroupTypeManager
+    hogFunctionManager: HogFunctionManager
+    hogExecutor: HogExecutor
     topic: string
     consumerGroupId: string
     isStopping = false
@@ -96,6 +100,8 @@ export class CdpProcessedEventsConsumer {
         this.teamManager = new TeamManager(postgres, config)
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
+        this.hogFunctionManager = new HogFunctionManager(postgres, config)
+        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
@@ -113,7 +119,7 @@ export class CdpProcessedEventsConsumer {
     public async consume(invocation: HogFunctionInvocation): Promise<void> {
         console.log('INVOKING')
 
-        return Promise.resolve()
+        await this.hogExecutor.executeMatchingFunctions(invocation)
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
@@ -163,6 +169,7 @@ export class CdpProcessedEventsConsumer {
                                     const context = convertToHogFunctionInvocationContext(
                                         clickHouseEvent,
                                         team,
+                                        this.config.SITE_URL ?? 'http://localhost:8000',
                                         groupTypes
                                     )
 

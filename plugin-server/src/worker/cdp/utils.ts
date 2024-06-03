@@ -8,8 +8,11 @@ import { HogFunctionInvocationContext } from './types'
 export function convertToHogFunctionInvocationContext(
     event: RawClickHouseEvent,
     team: Team,
+    siteUrl: string,
     groupTypes?: GroupTypeToColumnIndex
 ): HogFunctionInvocationContext {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
@@ -35,12 +38,14 @@ export function convertToHogFunctionInvocationContext(
             }
         }
     }
-
     const context: HogFunctionInvocationContext = {
+        // TODO:
+        // source: {
+        // },
         project: {
             id: team.id,
             name: team.name,
-            url: 'TODO',
+            url: projectUrl,
         },
         event: {
             // TODO: Element chain!
@@ -50,14 +55,16 @@ export function convertToHogFunctionInvocationContext(
             properties,
             timestamp: clickHouseTimestampToISO(event.timestamp),
             // TODO: generate url
-            url: 'url',
+            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(
+                clickHouseTimestampToISO(event.timestamp)
+            )}`,
         },
         person: event.person_id
             ? {
                   uuid: event.person_id,
                   properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-                  // TODO: This
-                  url: 'url',
+                  // TODO: IS this distinct_id or person_id?
+                  url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
               }
             : undefined,
         groups,
