@@ -175,7 +175,8 @@ export const FEATURE_FLAGS = {
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
-    SURVEYS_WIDGETS: 'surveys-widgets', // owner: @liyiy
+    SURVEYS_WIDGETS: 'surveys-widgets', // owner: #team-feature-success
+    SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
