@@ -296,6 +296,7 @@ export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
     SQL: urls.insightNew(
         undefined,
         undefined,

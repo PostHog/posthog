@@ -5,6 +5,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
@@ -79,26 +80,39 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
 
-def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str) -> list[Any]:
-    connection = psycopg2.connect(
-        host=host,
-        port=int(port),
-        dbname=database,
-        user=user,
-        password=password,
-        sslmode="prefer",
-        sslrootcert="/tmp/no.txt",
-        sslcert="/tmp/no.txt",
-        sslkey="/tmp/no.txt",
-    )
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+def get_postgres_schemas(
+    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+) -> list[Any]:
+    def get_schemas(postgres_host: str, postgres_port: int):
+        connection = psycopg2.connect(
+            host=postgres_host,
+            port=postgres_port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="prefer",
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
         )
-        result = cursor.fetchall()
-        result = [row[0] for row in result]
 
-    connection.close()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            result = cursor.fetchall()
+            result = [row[0] for row in result]
 
-    return result
+        connection.close()
+
+        return result
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))

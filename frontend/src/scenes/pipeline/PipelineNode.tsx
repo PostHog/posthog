@@ -19,6 +19,7 @@ export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineSta
     [PipelineTab.Destinations]: PipelineStage.Destination,
     [PipelineTab.SiteApps]: PipelineStage.SiteApp,
     [PipelineTab.ImportApps]: PipelineStage.ImportApp,
+    [PipelineTab.DataImport]: PipelineStage.DataImport,
 }
 
 const paramsToProps = ({
@@ -46,14 +47,10 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab, node } = useValues(pipelineNodeLogic)
+    const { currentTab } = useValues(pipelineNodeLogic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
-    }
-
-    if (node.name === 'new') {
-        return <PipelineNodeConfiguration />
     }
 
     const tabToContent: Record<PipelineNodeTab, JSX.Element> = {

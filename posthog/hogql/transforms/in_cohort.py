@@ -237,7 +237,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=1),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
 
@@ -377,7 +378,8 @@ class InCohortResolver(TraversingVisitor):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=1),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
             new_join = cast(

@@ -6,6 +6,15 @@ import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
+import {
+    CommonFilters,
+    HeatmapFilters,
+    HeatmapFixedPositionMode,
+    HeatmapJsData,
+    HeatmapJsDataPoint,
+    HeatmapRequestType,
+} from 'lib/components/heatmaps/types'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/heatmaps/utils'
 import { dateFilterToText } from 'lib/utils'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
@@ -13,13 +22,7 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import {
-    CountedHTMLElement,
-    ElementsEventType,
-    HeatmapElement,
-    HeatmapRequestType,
-    HeatmapResponseType,
-} from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -32,31 +35,6 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     previous: undefined,
     results: [],
 }
-
-export type CommonFilters = {
-    date_from?: string
-    date_to?: string
-}
-
-export type HeatmapFilters = {
-    enabled: boolean
-    type?: string
-    viewportAccuracy?: number
-    aggregation?: HeatmapRequestType['aggregation']
-}
-
-export type HeatmapJsDataPoint = {
-    x: number
-    y: number
-    value: number
-}
-
-export type HeatmapJsData = {
-    data: HeatmapJsDataPoint[]
-    max: number
-    min: number
-}
-export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -124,18 +102,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         commonFilters: [
-            {} as CommonFilters,
+            { date_from: '-7d' } as CommonFilters,
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
         ],
         heatmapFilters: [
-            {
-                enabled: true,
-                type: 'click',
-                viewportAccuracy: 0.9,
-                aggregation: 'total_count',
-            } as HeatmapFilters,
+            DEFAULT_HEATMAP_FILTERS,
             { persist: true },
             {
                 setHeatmapFilters: (_, { filters }) => filters,
@@ -225,7 +198,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        results: [
+                            // if url is present we are paginating and merge results, otherwise we only use the new results
+                            ...(url ? values.elementStats?.results || [] : []),
+                            ...(paginatedResults.results || []),
+                        ],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
@@ -444,17 +421,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         viewportRange: [
             (s) => [s.heatmapFilters, s.windowWidth],
-            (heatmapFilters, windowWidth): { max: number; min: number } => {
-                const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
-                const extraPixels = windowWidth - windowWidth * viewportAccuracy
+            (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
+        ],
 
-                const minWidth = Math.max(0, windowWidth - extraPixels)
-                const maxWidth = windowWidth + extraPixels
-
-                return {
-                    min: Math.round(minWidth),
-                    max: Math.round(maxWidth),
+        heatmapTooltipLabel: [
+            (s) => [s.heatmapFilters],
+            (heatmapFilters) => {
+                if (heatmapFilters.aggregation === 'unique_visitors') {
+                    return 'visitors'
                 }
+                return heatmapFilters.type + 's'
             },
         ],
 
@@ -554,10 +530,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             return await response.json()
         },
+
         enableHeatmap: () => {
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
+
         disableHeatmap: () => {
             actions.resetElementStats()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
@@ -569,6 +547,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.maybeLoadHeatmap()
             actions.maybeLoadClickmap()
         },
+
         maybeLoadClickmap: async ({ delayMs }, breakpoint) => {
             await breakpoint(delayMs)
             if (values.heatmapEnabled && values.clickmapsEnabled) {

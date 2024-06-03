@@ -35,7 +35,19 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
 
-        return serialize_fields(view.hogql_definition().fields, context)
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name)
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]

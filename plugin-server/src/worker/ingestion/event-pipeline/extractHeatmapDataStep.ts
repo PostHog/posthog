@@ -2,6 +2,7 @@ import { URL } from 'url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
@@ -91,14 +92,6 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
 
     let heatmapData = $heatmap_data as HeatmapData | null
 
-    if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
-        return drop('invalid_distinct_id')
-    }
-
-    if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        return drop('invalid_viewport_dimensions')
-    }
-
     if ($prev_pageview_pathname && $current_url) {
         // We are going to add the scroll depth info derived from the previous pageview to the current pageview's heatmap data
         if (!heatmapData) {
@@ -117,8 +110,23 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
 
     let heatmapEvents: RawClickhouseHeatmapEvent[] = []
 
-    if (!heatmapData) {
+    if (!heatmapData || Object.entries(heatmapData).length === 0) {
         return []
+    }
+
+    if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
+        return drop('invalid_distinct_id')
+    }
+
+    if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
+        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+            parent: event.event,
+            teamId: teamId,
+            eventTimestamp: timestamp,
+            $viewport_height,
+            $viewport_width,
+        })
+        return drop('invalid_viewport_dimensions')
     }
 
     Object.entries(heatmapData).forEach(([url, items]) => {

@@ -694,8 +694,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
-    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.query(teamId).addPathComponent(queryId)
+    public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
+        const apiRequest = this.query(teamId).addPathComponent(queryId)
+        if (showProgress) {
+            return apiRequest.withQueryString('showProgress=true')
+        }
+        return apiRequest
     }
 
     // Notebooks
@@ -926,6 +930,17 @@ const api = {
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
+        },
+        async listMatchingPluginConfigs(
+            actionId: ActionType['id']
+        ): Promise<PaginatedResponse<PluginConfigWithPluginInfoNew>> {
+            return await new ApiRequest()
+                .actionsDetail(actionId)
+                .withAction('plugin_configs')
+                .withQueryString({
+                    limit: 1000,
+                })
+                .get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
@@ -2084,8 +2099,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string): Promise<QueryStatus> {
-            return await new ApiRequest().queryStatus(queryId).get()
+        async get(queryId: string, showProgress: boolean): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get()
         },
     },
 

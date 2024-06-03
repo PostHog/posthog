@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Optional
+from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     VirtualTable,
+    LazyJoinToAdd,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
@@ -166,9 +167,7 @@ class WhereClauseExtractor:
 
 
 def join_with_events_table_session_duration(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, Any],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
@@ -182,7 +181,7 @@ def join_with_events_table_session_duration(
 
     if isinstance(select_query, ast.SelectQuery):
         compare_operators = (
-            WhereClauseExtractor(node.where, from_table, node.type, context).compare_operators
+            WhereClauseExtractor(node.where, join_to_add.from_table, node.type, context).compare_operators
             if node.where and node.type
             else []
         )
@@ -199,13 +198,14 @@ def join_with_events_table_session_duration(
 
     join_expr = ast.JoinExpr(table=select_query)
     join_expr.join_type = "INNER JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "$session_id"]),
-            right=ast.Field(chain=[to_table, "id"]),
-        )
+            left=ast.Field(chain=[join_to_add.from_table, "$session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "id"]),
+        ),
+        constraint_type="ON",
     )
 
     return join_expr

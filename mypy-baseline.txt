@@ -1,6 +1,7 @@
 posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" has incompatible type "Callable[[HeartbeatDetails, Any], Any]"; expected "Callable[[type[Never], Any], Any]"  [arg-type]
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
+posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/zendesk/talk_api.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -47,23 +48,17 @@ posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incomp
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Expr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "settings"  [union-attr]
-posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
-posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
-posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/database/schema/person_distinct_ids.py:0: error: Argument 1 to "select_from_person_distinct_ids_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
-posthog/hogql/database/schema/person_distinct_id_overrides.py:0: error: Argument 1 to "select_from_person_distinct_id_overrides_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_REGION'  [misc]
@@ -181,8 +176,6 @@ posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "group_by"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | Any | None" has no attribute "append"  [union-attr]
-ee/billing/billing_manager.py:0: error: TypedDict "CustomerInfo" has no key "available_product_features"  [typeddict-item]
-ee/billing/billing_manager.py:0: note: Did you mean "available_features"?
 posthog/hogql/resolver.py:0: error: Argument 1 of "visit" is incompatible with supertype "Visitor"; supertype defines the argument type as "AST"  [override]
 posthog/hogql/resolver.py:0: note: This violates the Liskov substitution principle
 posthog/hogql/resolver.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
@@ -217,8 +210,6 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "JoinExpr | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "join_type"  [union-attr]
-posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "JoinConstraint | None")  [assignment]
-posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "JoinConstraint | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SampleExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "SampleExpr | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "SelectQuery | SelectUnionQuery | Field | None"; expected "AST"  [arg-type]
@@ -230,11 +221,13 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Argument 1 to "append" of "list" has incompatible type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None"; expected "SelectQueryType | SelectUnionQueryType"  [arg-type]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "JoinExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "JoinExpr | None"; expected "Expr"  [arg-type]
-posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "JoinConstraint | None")  [assignment]
-posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "JoinConstraint | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SampleExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "SampleExpr | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 2 to "convert_hogqlx_tag" has incompatible type "int | None"; expected "int"  [arg-type]
+posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/demo/matrix/taxonomy_inference.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
@@ -510,6 +503,13 @@ posthog/hogql/test/test_resolver.py:0: error: Incompatible types in assignment (
 posthog/hogql/test/test_resolver.py:0: error: "TestResolver" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/test/test_resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
 posthog/hogql/test/test_resolver.py:0: error: "TestResolver" has no attribute "snapshot"  [attr-defined]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "next_join"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "constraint"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinConstraint | Any | None" has no attribute "constraint_type"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinConstraint | Any | None" has no attribute "expr"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "next_join"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "constraint"  [union-attr]
+posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinConstraint | Any | None" has no attribute "constraint_type"  [union-attr]
 posthog/hogql/test/test_resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
 posthog/hogql/test/test_resolver.py:0: error: "TestResolver" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/test/test_resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
@@ -563,6 +563,10 @@ posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attrib
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/ai.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
+posthog/hogql/ai.py:0: note: Possible overload variants:
+posthog/hogql/ai.py:0: note: def __getitem__(self, SupportsIndex, /) -> Any
+posthog/hogql/ai.py:0: note: def __getitem__(self, slice, /) -> tuple[Any, ...]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
@@ -581,10 +585,8 @@ posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (exp
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Dashboard")  [assignment]
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Insight")  [assignment]
 posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
-posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "str | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
@@ -668,7 +670,6 @@ posthog/api/search.py:0: error: Argument "extra_fields" to "class_queryset" has 
 posthog/api/search.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]
 posthog/api/search.py:0: error: Argument 1 to "reduce" has incompatible type "Callable[[SearchVector, SearchVector], CombinedExpression]"; expected "Callable[[SearchVector, SearchVector], SearchVector]"  [arg-type]
 posthog/api/search.py:0: error: Incompatible return value type (got "CombinedExpression", expected "SearchVector")  [return-value]
-posthog/api/query.py:0: error: Argument "user_id" to "enqueue_process_query_task" has incompatible type "int | AutoField[Combinable | int | str | None, int] | Any"; expected "int"  [arg-type]
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "ForeignObjectRel" of "Field[Any, Any] | ForeignObjectRel | GenericForeignKey" has no attribute "cached_col"  [union-attr]
@@ -716,6 +717,7 @@ posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not define
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
+posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]

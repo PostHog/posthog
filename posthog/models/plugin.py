@@ -252,8 +252,20 @@ class PluginConfig(models.Model):
     # Used in the frontend
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
-    # Used in the frontend to hide pluginConfgis that user deleted
+    # Used in the frontend to hide pluginConfigs that user deleted
     deleted: models.BooleanField = models.BooleanField(default=False, null=True)
+
+    # If set we will filter the plugin triggers for this event
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
+
+    # DEPRECATED - this never actually got used - filters is the way to go
+    match_action = models.ForeignKey(
+        "posthog.Action",
+        on_delete=models.SET_NULL,
+        related_name="plugin_configs",
+        blank=True,
+        null=True,
+    )
 
 
 class PluginAttachment(models.Model):

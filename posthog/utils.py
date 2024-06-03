@@ -67,6 +67,7 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
 
@@ -1014,6 +1015,10 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
 
 def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
+
+
+def cache_requested_by_client(request: Request) -> bool:
+    return _request_has_key_set("use_cache", request)
 
 
 def _request_has_key_set(key: str, request: Request) -> bool:

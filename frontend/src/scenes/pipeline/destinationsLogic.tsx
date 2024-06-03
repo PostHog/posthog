@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -15,13 +16,21 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user', 'hasAvailableFeature'],
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+        ],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -143,9 +152,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, asyncActions }) => ({
+    listeners(({ values, actions, asyncActions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (!checkPermissions(PipelineStage.Destination, enabled)) {
+            if (enabled && !values.canEnableNewDestinations) {
+                lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }
             if (destination.backend === PipelineBackend.Plugin) {

@@ -2,7 +2,7 @@ from copy import copy, deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -85,19 +85,19 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
 
 
 def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str | None:
-    if isinstance(field_or_table, ast.BooleanDatabaseField):
+    if isinstance(field_or_table, BooleanDatabaseField):
         return "Boolean"
-    if isinstance(field_or_table, ast.IntegerDatabaseField):
+    if isinstance(field_or_table, IntegerDatabaseField):
         return "Integer"
-    if isinstance(field_or_table, ast.FloatDatabaseField):
+    if isinstance(field_or_table, FloatDatabaseField):
         return "Float"
-    if isinstance(field_or_table, ast.StringDatabaseField):
+    if isinstance(field_or_table, StringDatabaseField):
         return "String"
-    if isinstance(field_or_table, ast.DateTimeDatabaseField):
+    if isinstance(field_or_table, DateTimeDatabaseField):
         return "DateTime"
-    if isinstance(field_or_table, ast.DateDatabaseField):
+    if isinstance(field_or_table, DateDatabaseField):
         return "Date"
-    if isinstance(field_or_table, ast.StringJSONDatabaseField):
+    if isinstance(field_or_table, StringJSONDatabaseField):
         return "Object"
     if isinstance(field_or_table, ast.ExpressionField):
         return "Expression"
@@ -247,7 +247,12 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
         keys.append(field_name)
         details.append(convert_field_or_table_to_type_string(field_or_table))
 
-    extend_responses(keys=keys, suggestions=suggestions, details=details)
+    extend_responses(
+        keys=keys,
+        suggestions=suggestions,
+        details=details,
+        insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
+    )
 
     available_functions = ALL_EXPOSED_FUNCTION_NAMES
     extend_responses(

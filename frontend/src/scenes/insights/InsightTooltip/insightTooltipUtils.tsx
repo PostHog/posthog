@@ -86,17 +86,17 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM YYYY',
 }
 
-export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
-    // Number of days
-    if (Number.isInteger(dayInput)) {
-        return pluralize(dayInput as number, 'day')
+export function getFormattedDate(input?: string | number, interval: IntervalType = 'day'): string {
+    // Number of intervals (i.e. days, weeks)
+    if (Number.isInteger(input)) {
+        return pluralize(input as number, interval)
     }
-    const day = dayjs(dayInput)
+    const day = dayjs(input)
     // Dayjs formatted day
-    if (dayInput !== undefined && day.isValid()) {
+    if (input !== undefined && day.isValid()) {
         return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
-    return String(dayInput)
+    return String(input)
 }
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {

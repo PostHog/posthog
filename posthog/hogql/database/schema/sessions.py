@@ -1,4 +1,5 @@
-from typing import cast, Any, Optional, TYPE_CHECKING
+import re
+from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -13,9 +14,11 @@ from posthog.hogql.database.models import (
     LazyTable,
     FloatDatabaseField,
     BooleanDatabaseField,
+    LazyTableToAdd,
+    LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
-from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
@@ -121,6 +124,24 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
+    def arg_min_merge_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])]),
+                ast.Constant(value="null"),
+            ],
+        )
+
+    def arg_max_merge_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])]),
+                ast.Constant(value="null"),
+            ],
+        )
+
     aggregate_fields: dict[str, ast.Expr] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
@@ -134,29 +155,16 @@ def select_from_sessions_table(
                 )
             ],
         ),
-        "$entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
-        "$entry_pathname": ast.Call(
-            name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
-        ),
-        "$exit_current_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
-        "$exit_pathname": ast.Call(
-            name="path",
-            args=[
-                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
-            ],
-        ),
-        "$entry_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-        "$entry_utm_campaign": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]
-        ),
-        "$entry_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-        "$entry_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
-        "$entry_utm_content": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]),
-        "$entry_referring_domain": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
-        ),
-        "$entry_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-        "$entry_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+        "$entry_current_url": arg_min_merge_field("entry_url"),
+        "$exit_current_url": arg_max_merge_field("exit_url"),
+        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
+        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
+        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
+        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
+        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
+        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
+        "$entry_gclid": arg_min_merge_field("initial_gclid"),
+        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
@@ -166,6 +174,14 @@ def select_from_sessions_table(
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
+    aggregate_fields["$entry_pathname"] = ast.Call(
+        name="path",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
+    aggregate_fields["$exit_pathname"] = ast.Call(
+        name="path",
+        args=[aggregate_fields["$exit_current_url"]],
+    )
     aggregate_fields["$session_duration"] = ast.Call(
         name="dateDiff",
         args=[
@@ -234,8 +250,13 @@ def select_from_sessions_table(
 class SessionsTable(LazyTable):
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node: ast.SelectQuery):
-        return select_from_sessions_table(requested_fields, node, context)
+    def lazy_select(
+        self,
+        table_to_add: LazyTableToAdd,
+        context,
+        node: ast.SelectQuery,
+    ):
+        return select_from_sessions_table(table_to_add.fields_accessed, node, context)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -250,22 +271,23 @@ class SessionsTable(LazyTable):
 
 
 def join_events_table_to_sessions_table(
-    from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: ast.SelectQuery
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
+    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "$session_id"]),
-            right=ast.Field(chain=[to_table, "session_id"]),
-        )
+            left=ast.Field(chain=[join_to_add.from_table, "$session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id"]),
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
@@ -290,6 +312,15 @@ def get_lazy_session_table_properties(search: Optional[str]):
             return PropertyType.Boolean
         return PropertyType.String
 
+    search_words = re.findall(r"\w+", search.lower()) if search else None
+
+    def is_match(field_name: str) -> bool:
+        if field_name in hidden_fields:
+            return False
+        if not search_words:
+            return True
+        return all(word in field_name.lower() for word in search_words)
+
     results = [
         {
             "id": field_name,
@@ -301,7 +332,7 @@ def get_lazy_session_table_properties(search: Optional[str]):
             "tags": [],
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
-        if (not search or search.lower() in field_name.lower()) and field_name not in hidden_fields
+        if is_match(field_name)
     ]
     return results
 

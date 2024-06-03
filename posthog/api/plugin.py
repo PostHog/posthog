@@ -21,6 +21,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import FiltersSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -314,7 +315,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         queryset = queryset.select_related("organization")
 
-        if self.action == "get" or self.action == "list":
+        if self.action == "retrieve" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
         else:
@@ -367,7 +368,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         plugin_configs = PluginConfig.objects.filter(
             Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
         )
-        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+        return Response(
+            PluginConfigSerializer(plugin_configs, many=True, context=super().get_serializer_context()).data
+        )
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
@@ -578,6 +581,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
+            "filters",
         ]
         read_only_fields = [
             "id",
@@ -646,20 +650,16 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # error details instead.
         return None
 
+    def validate_filters(self, value: dict) -> dict:
+        serializer = FiltersSerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
         _fix_formdata_config_json(self.context["request"], validated_data)
-        # Legacy pipeline UI doesn't show multiple plugin configs per plugin, so we don't allow it
-        # pipeline 3000 UI does, but to keep things simple we for now pass this flag to not break old users
-        # name field is something that only the new UI sends
-        if "config" not in validated_data or "name" not in validated_data["config"]:
-            existing_config = PluginConfig.objects.filter(
-                team_id=validated_data["team_id"], plugin_id=validated_data["plugin"]
-            )
-            if existing_config.exists():
-                return self.update(existing_config.first(), validated_data)  # type: ignore
 
         validated_data["web_token"] = generate_random_token()
         plugin_config = super().create(validated_data)

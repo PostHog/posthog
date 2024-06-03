@@ -117,6 +117,7 @@ function RecordingsLists(): JSX.Element {
         showOtherRecordings,
         recordingsCount,
         isRecordingsListCollapsed,
+        sessionSummaryLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -128,10 +129,15 @@ function RecordingsLists(): JSX.Element {
         resetFilters,
         toggleShowOtherRecordings,
         toggleRecordingsListCollapsed,
+        summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
+    }
+
+    const onSummarizeClick = (recording: SessionRecordingType): void => {
+        summarizeSession(recording.id)
     }
 
     const lastScrollPositionRef = useRef(0)
@@ -268,6 +274,8 @@ function RecordingsLists(): JSX.Element {
                                               onClick={() => onRecordingClick(rec)}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
+                                              summariseFn={onSummarizeClick}
+                                              sessionSummaryLoading={sessionSummaryLoading}
                                           />
                                       </div>
                                   ))
@@ -383,7 +391,16 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
-                        {activeSessionRecordingId ? (
+                        {!activeSessionRecordingId ? (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        ) : (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeSessionRecordingId}
@@ -402,15 +419,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                                         : undefined
                                 }
                             />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
                         )}
                     </div>
                 </div>

@@ -130,7 +130,7 @@ class BillingManager:
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: dict[str, Any] = {"available_features": []}
+            response: dict[str, Any] = {"available_product_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -196,7 +196,7 @@ class BillingManager:
         else:
             products = self.get_default_products(organization)
             response = {
-                "available_features": [],
+                "available_product_features": [],
                 "products": products["products"],
             }
 
@@ -220,6 +220,17 @@ class BillingManager:
             owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
             user = owner_membership.user
             self.update_billing(organization, {"org_customer_email": user.email})
+        except Exception as e:
+            capture_exception(e)
+
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        try:
+            admin_emails = list(
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("email", flat=True)
+            )
+            self.update_billing(organization, {"org_admin_emails": admin_emails})
         except Exception as e:
             capture_exception(e)
 
@@ -344,11 +355,6 @@ class BillingManager:
                 org_modified = True
                 sync_org_quota_limits(organization)
 
-        available_features = data.get("available_features", None)
-        if available_features and available_features != organization.available_features:
-            organization.available_features = data["available_features"]
-            org_modified = True
-
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
             organization.available_product_features = data["available_product_features"]
@@ -373,7 +379,7 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = customer_trust_scores
+            organization.customer_trust_scores.update(org_customer_trust_scores)
             org_modified = True
 
         if org_modified:

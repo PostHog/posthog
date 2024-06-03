@@ -29,6 +29,7 @@ export type SettingSectionId =
     | 'organization-members'
     | 'organization-authentication'
     | 'organization-rbac'
+    | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
     | 'user-api-keys'
@@ -68,6 +69,7 @@ export type SettingId =
     | 'authentication-domains'
     | 'organization-rbac'
     | 'organization-delete'
+    | 'organization-proxy'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -77,6 +79,8 @@ export type SettingId =
     | 'theme'
     | 'replay-ai-config'
     | 'heatmaps'
+    | 'hedgehog-mode'
+    | 'persons-join-mode'
 
 export type Setting = {
     id: SettingId
