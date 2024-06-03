@@ -607,25 +607,26 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
-
-                                            <LemonField.Pure label="User sends events">
-                                                <EventSelect
-                                                    onChange={(includedEvents) => {
-                                                        setSurveyValue('events', includedEvents)
-                                                    }}
-                                                    selectedEvents={survey.events || []}
-                                                    addElement={
-                                                        <LemonButton
-                                                            size="small"
-                                                            type="secondary"
-                                                            icon={<IconPlus />}
-                                                            sideIcon={null}
-                                                        >
-                                                            Add event
-                                                        </LemonButton>
-                                                    }
-                                                />
-                                            </LemonField.Pure>
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
+                                                <LemonField.Pure label="User sends events">
+                                                    <EventSelect
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('events', includedEvents)
+                                                        }}
+                                                        selectedEvents={survey.events || []}
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
                                         </>
                                     )}
                                 </LemonField.Pure>
