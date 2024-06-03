@@ -77,16 +77,6 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const showingResults = query.showResults ?? true
     const embedded = query.embedded ?? false
 
-    console.log('InsightViz', {
-        insightProps,
-        dataNodeLogicProps,
-        isFunnels,
-        isHorizontalAlways,
-        showingFilters,
-        showingResults,
-        embedded,
-    })
-
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
