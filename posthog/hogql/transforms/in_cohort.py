@@ -92,15 +92,14 @@ class MultipleInCohortResolver(TraversingVisitor):
             arg = node.right
             if not isinstance(arg, ast.Constant):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
+            if node.op == ast.CompareOperationOp.NotInCohort:
+                raise QueryError("NOT IN COHORT is not supported by this cohort mode")
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 int_cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
                     "id", "is_static", "version"
                 )
                 if len(int_cohorts) == 1:
-                    if node.op == ast.CompareOperationOp.NotInCohort:
-                        raise QueryError("NOT IN COHORT is not supported by this cohort mode")
-
                     id = int_cohorts[0][0]
                     is_static = int_cohorts[0][1]
                     version = int_cohorts[0][2] or 0
@@ -116,9 +115,6 @@ class MultipleInCohortResolver(TraversingVisitor):
                     "id", "is_static", "version"
                 )
                 if len(str_cohorts) == 1:
-                    if node.op == ast.CompareOperationOp.NotInCohort:
-                        raise QueryError("NOT IN COHORT is not supported by this cohort mode")
-
                     id = str_cohorts[0][0]
                     is_static = str_cohorts[0][1]
                     version = str_cohorts[0][2] or 0
@@ -313,7 +309,10 @@ class InCohortResolver(TraversingVisitor):
 
             if isinstance(arg.value, str):
                 if arg.value == "all":
-                    node.op = ast.CompareOperationOp.Eq
+                    if ast.CompareOperationOp.InCohort == node.op:
+                        node.op = ast.CompareOperationOp.Eq
+                    else:
+                        node.op = ast.CompareOperationOp.NotEq
                     node.left = ast.Constant(value=1)
                     node.right = ast.Constant(value=1)
                     return

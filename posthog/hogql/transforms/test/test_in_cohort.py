@@ -158,6 +158,39 @@ class TestInCohort(BaseTest):
         self.assertEqual((response.results or [])[0][0], random_uuid)
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_in_cohort_all(self):
+        snapshot = []
+        for inCohortVia in (x.value for x in InCohortVia if x.value != "auto"):
+            response = execute_hogql_query(
+                f"SELECT event FROM events WHERE person_id IN COHORT 'all'",
+                self.team,
+                modifiers=HogQLQueryModifiers(inCohortVia=inCohortVia),
+                pretty=False,
+            )
+            snapshot.append(f"InCohortVia: {inCohortVia}")
+            snapshot.append(pretty_print_response_in_tests(response, self.team.pk))
+            snapshot.append("\n")
+        assert "\n".join(snapshot) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_not_in_cohort_all(self):
+        snapshot = []
+        # leftjoin_conjoined does not support not in cohort
+        for inCohortVia in (x.value for x in InCohortVia if x.value not in ("auto", "leftjoin_conjoined")):
+            response = execute_hogql_query(
+                f"SELECT event FROM events WHERE person_id NOT IN COHORT 'all'",
+                self.team,
+                modifiers=HogQLQueryModifiers(inCohortVia=inCohortVia),
+                pretty=False,
+            )
+            snapshot.append(f"InCohortVia: {inCohortVia}")
+            snapshot.append(pretty_print_response_in_tests(response, self.team.pk))
+            snapshot.append("\n")
+        assert "\n".join(snapshot) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_conjoined_error(self):
         with self.assertRaises(QueryError) as e:
