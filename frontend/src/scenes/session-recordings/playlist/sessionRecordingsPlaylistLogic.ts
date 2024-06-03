@@ -231,6 +231,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                         hog_ql_filtering: values.useHogQLFiltering,
+                        universal_filtering: values.useUniversalFiltering,
                     }
 
                     if (values.artificialLag && !params.date_to) {

@@ -757,11 +757,12 @@ def list_recordings(
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+        universal_filtering = request.GET.get("universal_filtering", "false") == "true"
 
         if has_hog_ql_filtering:
             with timer("load_recordings_from_hogql"):
                 (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team
+                    filter=filter, team=team, universal=universal_filtering
                 ).run()
         else:
             # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs

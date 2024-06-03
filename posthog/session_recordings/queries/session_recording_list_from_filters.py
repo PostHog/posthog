@@ -25,6 +25,7 @@ class SessionRecordingListFromFilters:
 
     _team: Team
     _filter: SessionRecordingsFilter
+    _universal: bool
 
     BASE_QUERY: str = """
         SELECT s.session_id,
@@ -80,10 +81,12 @@ class SessionRecordingListFromFilters:
         self,
         team: Team,
         filter: SessionRecordingsFilter,
+        universal: bool,
         **_,
     ):
         self._team = team
         self._filter = filter
+        self._universal = universal
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
@@ -119,6 +122,9 @@ class SessionRecordingListFromFilters:
     def _order_by_clause(self) -> ast.Field:
         order = self._filter.target_entity_order or "start_time"
         return ast.Field(chain=[order])
+
+    def _universal_operand(self) -> ast.And | ast.Or:
+        return ast.And if self._filter.filter_group.operand == "and" else ast.Or
 
     def _where_predicates(self) -> ast.And:
         exprs: list[ast.Expr] = [
