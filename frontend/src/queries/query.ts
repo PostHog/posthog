@@ -29,9 +29,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
-    isPathsQuery,
     isPersonsNode,
-    isRetentionQuery,
     isStickinessQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
@@ -176,18 +174,6 @@ export async function query<N extends DataNode>(
     const allFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
 
     const hogQLInsightsFlagEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
-    const hogQLInsightsLifecycleFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE])
-    const hogQLInsightsPathsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS])
-    const hogQLInsightsRetentionFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
-    const hogQLInsightsTrendsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
-    const hogQLInsightsStickinessFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS])
-    const hogQLInsightsFunnelsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS])
     const hogQLInsightsLiveCompareEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE])
 
     async function fetchLegacyUrl(): Promise<Record<string, any>> {
@@ -231,15 +217,7 @@ export async function query<N extends DataNode>(
                 methodOptions
             )
         } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
-            if (
-                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
-                (hogQLInsightsPathsFlagEnabled &&
-                    (isPathsQuery(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl))) ||
-                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
-                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
-                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
-                (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
-            ) {
+            if (hogQLInsightsFlagEnabled) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     const legacyFunction = (): any => {
                         try {
