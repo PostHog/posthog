@@ -402,7 +402,7 @@ export async function printResponse(response, { compact = true, color = true, ve
 
 let clients = new Set()
 
-function reloadLiveServer() {
+export function reloadLiveServer() {
     clients.forEach((client) => client.write(`data: reload\n\n`))
 }
 
@@ -412,10 +412,9 @@ export function startDevServer(absWorkingDir) {
         console.log(`👀 Starting dev server`)
         server = startServer({ absWorkingDir })
         return server
-    } else {
-        console.log(`🛳 Starting production build`)
-        return null
     }
+    console.log(`🛳 Starting production build`)
+    return null
 }
 
 export function startServer(opts = {}) {
