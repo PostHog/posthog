@@ -47,20 +47,28 @@ const activitySceneLogic = kea<activitySceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.tab],
-            (tab): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.Activity,
-                        name: `Activity`,
-                        path: urls.activity(),
-                    },
-                    {
-                        key: tab,
-                        name: capitalizeFirstLetter(tab),
-                    },
-                ]
-            },
+            (s) => [s.tab, s.featureFlags],
+            (tab, featureFlags): Breadcrumb[] =>
+                featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
+                    ? // Explore and Live as separate tabs
+                      [
+                          {
+                              key: Scene.Activity,
+                              name: `Activity`,
+                              path: urls.activity(),
+                          },
+                          {
+                              key: tab,
+                              name: capitalizeFirstLetter(tab),
+                          },
+                      ]
+                    : // There's no Live, so no tabs to worry about
+                      [
+                          {
+                              key: Scene.Activity,
+                              name: `Activity`,
+                          },
+                      ],
         ],
     }),
     urlToAction(({ actions }) => ({
