@@ -3,7 +3,7 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/events/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { elementsToAction } from 'scenes/activity/events/createActionFromEvent'
+import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'

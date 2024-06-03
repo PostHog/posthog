@@ -6,7 +6,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { liveEventsTableLogic } from 'scenes/activity/live-events/liveEventsTableLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
 import type { LiveEvent } from '~/types'
 

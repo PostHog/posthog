@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { activitySceneLogicType } from './ActivitySceneType'
-import { EventsScene } from './events/EventsScene'
-import { LiveEventsTable } from './live-events/LiveEventsTable'
+import { EventsScene } from './explore/EventsScene'
+import { LiveEventsTable } from './live/LiveEventsTable'
 
 const ACTIVITY_TABS: LemonTab<ActivityTab>[] = [
     {
