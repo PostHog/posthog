@@ -1818,12 +1818,14 @@
                   alias: "a"
                   type: {
                     data_type: "int"
+                    nullable: False
                   }
                 },
                 b: {
                   alias: "b"
                   type: {
                     data_type: "int"
+                    nullable: False
                   }
                 }
               }
@@ -1922,12 +1924,14 @@
                     alias: "a"
                     type: {
                       data_type: "int"
+                      nullable: False
                     }
                   },
                   b: {
                     alias: "b"
                     type: {
                       data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2705,11 +2709,13 @@
           arg_types: [
             {
               data_type: "datetime"
+              nullable: False
             }
           ]
           name: "max"
           return_type: {
             data_type: "unknown"
+            nullable: True
           }
         }
       }
@@ -2744,18 +2750,21 @@
           {
             type: {
               data_type: "int"
+              nullable: False
             }
             value: 1
           },
           {
             type: {
               data_type: "int"
+              nullable: False
             }
             value: 1
           }
         ]
         type: {
           data_type: "bool"
+          nullable: False
         }
       },
       {
@@ -2763,29 +2772,34 @@
           {
             type: {
               data_type: "int"
+              nullable: False
             }
             value: 1
           },
           {
             type: {
               data_type: "int"
+              nullable: False
             }
             value: 1
           }
         ]
         type: {
           data_type: "bool"
+          nullable: False
         }
       },
       {
         expr: {
           type: {
             data_type: "bool"
+            nullable: False
           }
           value: True
         }
         type: {
           data_type: "bool"
+          nullable: False
         }
       }
     ]
@@ -2806,47 +2820,55 @@
       {
         type: {
           data_type: "int"
+          nullable: False
         }
         value: 1
       },
       {
         type: {
           data_type: "str"
+          nullable: False
         }
         value: "boo"
       },
       {
         type: {
           data_type: "bool"
+          nullable: False
         }
         value: True
       },
       {
         type: {
           data_type: "float"
+          nullable: False
         }
         value: 1.1232
       },
       {
         type: {
           data_type: "unknown"
+          nullable: True
         }
       },
       {
         type: {
           data_type: "date"
+          nullable: False
         }
         value: 2020-01-10
       },
       {
         type: {
           data_type: "datetime"
+          nullable: False
         }
         value: 2020-01-10 00:00:00+00:00
       },
       {
         type: {
           data_type: "uuid"
+          nullable: False
         }
         value: 00000000-0000-4000-8000-000000000000
       },
@@ -2855,7 +2877,9 @@
           data_type: "array"
           item_type: {
             data_type: "unknown"
+            nullable: True
           }
+          nullable: False
         }
         value: []
       },
@@ -2864,7 +2888,9 @@
           data_type: "array"
           item_type: {
             data_type: "int"
+            nullable: False
           }
+          nullable: False
         }
         value: [
           1,
@@ -2877,14 +2903,19 @@
           item_types: [
             {
               data_type: "int"
+              nullable: False
             },
             {
               data_type: "int"
+              nullable: False
             },
             {
               data_type: "int"
+              nullable: False
             }
           ]
+          nullable: False
+          repeat: False
         }
         value: (1, 2, 3)
       }
@@ -3018,11 +3049,13 @@
       right: {
         type: {
           data_type: "str"
+          nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        nullable: False
       }
     }
   }
@@ -3151,11 +3184,13 @@
       right: {
         type: {
           data_type: "str"
+          nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        nullable: False
       }
     }
   }
@@ -3316,11 +3351,13 @@
       right: {
         type: {
           data_type: "str"
+          nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        nullable: False
       }
     }
   }
@@ -3502,11 +3539,13 @@
       right: {
         type: {
           data_type: "str"
+          nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        nullable: False
       }
     }
   }
