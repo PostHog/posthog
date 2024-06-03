@@ -44,7 +44,6 @@ export interface BatchExportBasedNode extends PipelineNodeBase {
 export interface HogFunctionBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.HogFunction
     id: string
-    config: HogFunctionType
 }
 
 // Stage: Transformations
@@ -92,7 +91,7 @@ function isPluginConfig(
 }
 
 export function convertToPipelineNode<S extends PipelineStage>(
-    candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration,
+    candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType,
     stage: S
 ): S extends PipelineStage.Transformation
     ? Transformation
@@ -104,7 +103,20 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? ImportApp
     : never {
     let node: PipelineNode
-    if (isPluginConfig(candidate)) {
+    // check if type is a hog function
+    if ('hog' in candidate) {
+        node = {
+            stage: stage as PipelineStage.Destination,
+            backend: PipelineBackend.HogFunction,
+            interval: 'realtime',
+            id: `hog-${candidate.id}`,
+            name: candidate.name,
+            description: candidate.description,
+            enabled: candidate.enabled,
+            created_at: candidate.created_at,
+            updated_at: candidate.created_at,
+        }
+    } else if (isPluginConfig(candidate)) {
         const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
             stage: stage,
             backend: PipelineBackend.Plugin,

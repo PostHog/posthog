@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BatchExportConfiguration,
     HogFunctionTemplateType,
+    HogFunctionType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -130,6 +131,15 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
+        hogFunctions: [
+            [] as HogFunctionType[],
+            {
+                loadHogFunctions: async () => {
+                    // TODO: Support pagination?
+                    return (await api.hogFunctions.list()).results
+                },
+            },
+        ],
     })),
     selectors({
         loading: [
@@ -138,25 +148,39 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 s.pluginConfigsLoading,
                 s.batchExportConfigsLoading,
                 s.hogFunctionTemplatesLoading,
+                s.hogFunctionsLoading,
             ],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionTemplatesLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionTemplatesLoading,
+            (
+                pluginsLoading,
+                pluginConfigsLoading,
+                batchExportConfigsLoading,
+                hogFunctionTemplatesLoading,
+                hogFunctionsLoading
+            ) =>
+                pluginsLoading ||
+                pluginConfigsLoading ||
+                batchExportConfigsLoading ||
+                hogFunctionTemplatesLoading ||
+                hogFunctionsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.user],
-            (pluginConfigs, plugins, batchExportConfigs, user): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
+            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user): Destination[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const rawBatchExports = Object.values(batchExportConfigs).filter(
                     (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
                 )
-                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
-                    pluginConfigs
-                )
-                    .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration>((pluginConfig) => ({
-                        ...pluginConfig,
-                        plugin_info: plugins[pluginConfig.plugin] || null,
-                    }))
-                    .concat(rawBatchExports)
+
+                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
+                    Object.values(pluginConfigs)
+                        .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType>(
+                            (pluginConfig) => ({
+                                ...pluginConfig,
+                                plugin_info: plugins[pluginConfig.plugin] || null,
+                            })
+                        )
+                        .concat(rawBatchExports)
+                        .concat(hogFunctions)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
@@ -203,5 +227,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         actions.loadPluginConfigs()
         actions.loadBatchExports()
         actions.loadHogFunctionTemplates()
+        actions.loadHogFunctions()
     }),
 ])
