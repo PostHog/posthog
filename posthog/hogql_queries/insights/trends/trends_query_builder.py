@@ -70,7 +70,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return full_query
 
-    def _get_date_subqueries(self) -> list[ast.SelectQuery]:
+    def _get_date_subqueries(self) -> ast.Expr:
         return parse_expr(
             """
             arrayMap(
@@ -257,7 +257,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 {"total_array": total_array},
             )
 
-        select = [
+        select: list[ast.Expr] = [
             self._get_date_subqueries(),
             parse_expr("groupArray(day_start) as _days_for_count"),
         ]
