@@ -1,6 +1,8 @@
 from typing import Any, Optional
 from collections.abc import Callable
 
+import pytest
+
 from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.bytecode import create_bytecode
@@ -8,7 +10,7 @@ from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
 
 
-# @pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
+@pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
 class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
         fields = {
