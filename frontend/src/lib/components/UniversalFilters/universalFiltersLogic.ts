@@ -3,7 +3,6 @@ import {
     createDefaultPropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -49,14 +48,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         }),
         removeGroupValue: (index: number) => ({ index }),
 
-        addGroupFilter: (
-            taxonomicGroup: TaxonomicFilterGroup,
-            propertyKey: TaxonomicFilterValue,
-            itemPropertyFilterType: any
-        ) => ({
+        addGroupFilter: (taxonomicGroup: TaxonomicFilterGroup, propertyKey: TaxonomicFilterValue, item: any) => ({
             taxonomicGroup,
             propertyKey,
-            itemPropertyFilterType,
+            item,
         }),
         updateGroupFilter: (index: number, filter: UniversalFilterValue) => ({ index, filter }),
         removeGroupFilter: (index: number) => ({ index }),
@@ -92,10 +87,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         replaceGroupValue: () => props.onChange(values.filterGroup),
         removeGroupValue: () => props.onChange(values.filterGroup),
 
-        addGroupFilter: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+        addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             const newValues = [...values.filterGroup.values]
 
-            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+            const propertyType = item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 const newPropertyFilter = createDefaultPropertyFilter(
                     {},
@@ -107,11 +102,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
                 newValues.push(newPropertyFilter)
             } else {
-                const entityType = itemPropertyFilterType ?? taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+                const entityType = item.PropertyFilterType ?? taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
                 if (entityType) {
                     const newEntityFilter: ActionFilter = {
-                        id: getDefaultEventName(),
-                        name: getDefaultEventLabel(),
+                        id: propertyKey,
+                        name: item?.name ?? '',
                         type: entityType,
                     }
 

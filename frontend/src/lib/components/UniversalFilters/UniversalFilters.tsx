@@ -82,7 +82,7 @@ export function UniversalFilters({
                     overlay={
                         <TaxonomicFilter
                             onChange={(taxonomicGroup, value, item) => {
-                                addGroupFilter(taxonomicGroup, value, item?.propertyFilterType)
+                                addGroupFilter(taxonomicGroup, value, item)
                                 setDropdownOpen(false)
                             }}
                             taxonomicGroupTypes={[
@@ -136,10 +136,10 @@ const UniversalFilterRow = ({
     onRemove: () => void
     taxonomicPropertyFilterGroupTypes: UniversalFiltersProps['taxonomicPropertyFilterGroupTypes']
 }): JSX.Element => {
-    const { actions } = useValues(actionsModel)
-    const [open, setOpen] = useState<boolean>(false)
-
     const isEntity = isActionFilter(filter)
+
+    const { actions } = useValues(actionsModel)
+    const [open, setOpen] = useState<boolean>(!isEntity)
 
     return (
         <Popover

@@ -23,7 +23,6 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
     onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
-    // propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
     filters: AnyPropertyFilter[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
