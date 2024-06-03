@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -312,7 +313,7 @@ class StartBatchExportRunInputs:
     include_events: list[str] | None = None
 
 
-RecordsTotalCount = int
+RecordsTotalCount = int | None
 BatchExportRunId = str
 
 
@@ -333,27 +334,34 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
         inputs.data_interval_end,
     )
 
+    delta = dt.datetime.fromisoformat(inputs.data_interval_end) - dt.datetime.fromisoformat(inputs.data_interval_start)
     async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
+        try:
+            count = await asyncio.wait_for(
+                get_rows_count(
+                    client=client,
+                    team_id=inputs.team_id,
+                    interval_start=inputs.data_interval_start,
+                    interval_end=inputs.data_interval_end,
+                    exclude_events=inputs.exclude_events,
+                    include_events=inputs.include_events,
+                ),
+                timeout=(delta / 12).total_seconds(),
+            )
+        except asyncio.TimeoutError:
+            count = None
 
-    if count > 0:
+    if count is not None and count > 0:
         logger.info(
             "Batch export for range %s - %s will export %s rows",
             inputs.data_interval_start,
             inputs.data_interval_end,
             count,
         )
-    else:
+    elif count is not None:
         logger.info(
             "Batch export for range %s - %s has no rows to export",
             inputs.data_interval_start,
