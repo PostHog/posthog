@@ -184,6 +184,21 @@ def execute_bytecode(
                     chain = [next_token() for _ in range(next_token())]
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     set_nested_value(stack[property_index + stack_start], chain, stack.pop())
+                case Operation.DICT:
+                    count = next_token()
+                    elems = stack[-(count * 2) :]
+                    stack = stack[: -(count * 2)]
+                    stack.append({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
+                case Operation.ARRAY:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(elems)
+                case Operation.TUPLE:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(tuple(elems))
                 case Operation.JUMP:
                     count = next_token()
                     ip += count
@@ -215,21 +230,6 @@ def execute_bytecode(
                             raise HogVMException(f"Unsupported function call: {name}")
 
                         stack.append(STL[name](name, args, team, stdout, timeout))
-                case Operation.DICT:
-                    count = next_token()
-                    elems = stack[-(count * 2) :]
-                    stack = stack[: -(count * 2)]
-                    stack.append({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
-                case Operation.ARRAY:
-                    count = next_token()
-                    elems = stack[-count:]
-                    stack = stack[:-count]
-                    stack.append(elems)
-                case Operation.TUPLE:
-                    count = next_token()
-                    elems = stack[-count:]
-                    stack = stack[:-count]
-                    stack.append(tuple(elems))
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 

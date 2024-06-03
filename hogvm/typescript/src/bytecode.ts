@@ -46,6 +46,11 @@ export const enum Operation {
     JUMP = 39,
     JUMP_IF_FALSE = 40,
     DECLARE_FN = 41,
+    DICT = 42,
+    ARRAY = 43,
+    TUPLE = 44,
+    GET_PROPERTY = 45,
+    SET_PROPERTY_LOCAL = 46,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -67,6 +72,17 @@ function getNestedValue(obj: any, chain: any[]): any {
         return obj
     }
     return null
+}
+function setNestedValue(obj: any, chain: any[], value: any): void {
+    if (typeof obj !== 'object' || obj === null) {
+        throw new Error(`Can not set ${chain} on non-object: ${obj}`)
+    }
+    for (let i = 0; i < chain.length - 1; i++) {
+        const key = chain[i]
+        obj = obj[key]
+    }
+    const lastKey = chain[chain.length - 1]
+    obj[lastKey] = value
 }
 
 interface VMState {
@@ -145,6 +161,8 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
 
     const startTime = Date.now()
     let temp: any
+    let tempArray: any[]
+    let tempObj: Record<string, any> = {}
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
@@ -322,6 +340,42 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
             case Operation.SET_LOCAL:
                 temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
                 stack[next() + temp] = popStack()
+                break
+            case Operation.GET_PROPERTY:
+                temp = next()
+                tempArray = []
+                for (let i = 0; i < temp; i++) {
+                    tempArray.push(popStack())
+                }
+                stack.push(getNestedValue(popStack(), tempArray))
+                break
+            case Operation.SET_PROPERTY_LOCAL:
+                temp = next()
+                tempArray = []
+                for (let i = 0; i < temp; i++) {
+                    tempArray.push(popStack())
+                }
+                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
+                setNestedValue(stack[next() + temp], tempArray, popStack())
+                break
+            case Operation.DICT:
+                temp = next() * 2 // number of elements to remove from the stack
+                tempArray = stack.splice(stack.length - temp, temp)
+                tempObj = {}
+                for (let i = 0; i < tempArray.length; i += 2) {
+                    tempObj[tempArray[i]] = tempArray[i + 1]
+                }
+                stack.push(tempObj)
+                break
+            case Operation.ARRAY:
+                temp = next()
+                tempArray = stack.splice(stack.length - temp, temp)
+                stack.push(tempArray)
+                break
+            case Operation.TUPLE:
+                temp = next()
+                tempArray = stack.splice(stack.length - temp, temp)
+                stack.push(tempArray)
                 break
             case Operation.JUMP:
                 temp = next()
