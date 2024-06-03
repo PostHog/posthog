@@ -42,7 +42,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[list[str]] = None,
+        breakdown_values_override: Optional[list[str | int]] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
