@@ -279,8 +279,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     `,
                 }
                 const responseJSON = await api.query(query)
-                // TODO I don't like how we lose our types here
-                console.log('responseJSON', responseJSON)
+                // TODO:Dylan - I don't like how we lose our types here
+                // would be cool if we could parse this in a more type-safe way
                 const { results } = responseJSON
 
                 let total = 0
@@ -292,8 +292,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     const index = question.scale === 10 ? value : value - 1
                     data[index] = count
                 })
-
-                console.log('data', data, total)
 
                 return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
             },
@@ -728,19 +726,18 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionIdx = Object.keys(surveyRatingResults)[0]
                     const questionResults = surveyRatingResults[questionIdx]
 
-                    // Check if there is no data
+                    // If we don't have any results, return 'No data available' instead of NaN.
+                    // Context: https://posthog.slack.com/archives/C034XD440RK/p1717193765035719
                     if (questionResults.total === 0) {
                         return 'No data available'
                     }
 
-                    // Proceed with NPS calculation if there is data
                     const data: number[] = questionResults.data
                     if (data.length === 11) {
                         const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
                         const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
                         const detractors = data.slice(0, 7).reduce((a, b) => a + b, 0)
                         const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
-                        console.log('NPS Score:', npsScore.toFixed(1))
                         return npsScore.toFixed(1)
                     }
                 }

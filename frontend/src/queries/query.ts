@@ -115,8 +115,6 @@ async function executeQuery<N extends DataNode>(
 
     const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
-    console.log('query data', { queryNode, methodOptions, refresh, queryId, setPollResponse, isAsyncQuery })
-
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
     if (!response.query_async) {
@@ -470,7 +468,6 @@ export async function legacyInsightQuery({
     methodOptions,
     refresh,
 }: LegacyInsightQueryParams): Promise<[Response, string]> {
-    console.log('legacyInsightQuery', { filters, currentTeamId, methodOptions, refresh })
     const [apiUrl, data] = legacyInsightQueryData({ filters, currentTeamId, refresh })
     let fetchResponse: Response
     if (

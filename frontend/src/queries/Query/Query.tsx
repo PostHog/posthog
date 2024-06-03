@@ -98,7 +98,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
-        // console.log('query', query)
         component = (
             <InsightViz
                 query={query}
@@ -123,9 +122,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
-
-    console.log('component', component)
-    console.log('props', props)
 
     if (component) {
         return (
