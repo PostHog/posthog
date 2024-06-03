@@ -240,7 +240,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
-                return [ProductKey.FEATURE_FLAGS].includes(productKey)
+                return productKey && [ProductKey.FEATURE_FLAGS].includes(productKey as ProductKey)
             },
         ],
         isStepKeyInvalid: [
