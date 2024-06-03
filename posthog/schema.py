@@ -3527,8 +3527,7 @@ class StickinessQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     stickinessFilter: Optional[StickinessFilter] = Field(
-        default_factory=lambda: StickinessFilter.model_validate({"compare": False}),
-        description="Properties specific to the stickiness insight",
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -3582,10 +3581,7 @@ class TrendsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
-    trendsFilter: Optional[TrendsFilter] = Field(
-        default_factory=lambda: TrendsFilter.model_validate({"display": "ActionsLineGraph"}),
-        description="Properties specific to the trends insight",
-    )
+    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
 class FilterType(BaseModel):
@@ -3658,8 +3654,7 @@ class FunnelsQuery(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
-        default_factory=lambda: FunnelsFilter.model_validate({"exclusions": []}),
-        description="Properties specific to the funnels insight",
+        default=None, description="Properties specific to the funnels insight"
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -3919,8 +3914,7 @@ class LifecycleQuery(BaseModel):
     )
     kind: Literal["LifecycleQuery"] = "LifecycleQuery"
     lifecycleFilter: Optional[LifecycleFilter] = Field(
-        default_factory=lambda: LifecycleFilter.model_validate({"showLegend": False}),
-        description="Properties specific to the lifecycle insight",
+        default=None, description="Properties specific to the lifecycle insight"
     )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

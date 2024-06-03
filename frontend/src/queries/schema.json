@@ -3768,9 +3768,6 @@
                 },
                 "funnelsFilter": {
                     "$ref": "#/definitions/FunnelsFilter",
-                    "default": {
-                        "exclusions": []
-                    },
                     "description": "Properties specific to the funnels insight"
                 },
                 "interval": {
@@ -5011,9 +5008,6 @@
                 },
                 "lifecycleFilter": {
                     "$ref": "#/definitions/LifecycleFilter",
-                    "default": {
-                        "showLegend": false
-                    },
                     "description": "Properties specific to the lifecycle insight"
                 },
                 "modifiers": {
@@ -7487,9 +7481,6 @@
                 },
                 "stickinessFilter": {
                     "$ref": "#/definitions/StickinessFilter",
-                    "default": {
-                        "compare": false
-                    },
                     "description": "Properties specific to the stickiness insight"
                 }
             },
@@ -7923,9 +7914,6 @@
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
-                    "default": {
-                        "display": "ActionsLineGraph"
-                    },
                     "description": "Properties specific to the trends insight"
                 }
             },
