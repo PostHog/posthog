@@ -123,7 +123,7 @@ export function TaxonomicPropertyFilter({
 
     const { ref: wrapperRef, size } = useResizeBreakpoints({
         0: 'tiny',
-        300: 'small',
+        350: 'small',
         550: 'medium',
     })
 

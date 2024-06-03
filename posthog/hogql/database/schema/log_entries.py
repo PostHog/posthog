@@ -6,6 +6,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     LazyTable,
     FieldOrTable,
+    LazyTableToAdd,
 )
 
 LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {
@@ -32,8 +33,10 @@ class LogEntriesTable(Table):
 class ReplayConsoleLogsLogEntriesTable(LazyTable):
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
-        fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        fields: list[ast.Expr] = [
+            ast.Field(chain=["log_entries", *chain]) for name, chain in table_to_add.fields_accessed.items()
+        ]
 
         return ast.SelectQuery(
             select=fields,
@@ -55,8 +58,10 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
 class BatchExportLogEntriesTable(LazyTable):
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
-        fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        fields: list[ast.Expr] = [
+            ast.Field(chain=["log_entries", *chain]) for name, chain in table_to_add.fields_accessed.items()
+        ]
 
         return ast.SelectQuery(
             select=fields,

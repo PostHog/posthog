@@ -26,6 +26,7 @@ export enum Scene {
     ReplayFilePlayback = 'ReplayFilePlayback',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
+    pipelineNodeDataWarehouseNew = 'pipelineNodeDataWarehouseNew',
     PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',

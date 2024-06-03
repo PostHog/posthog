@@ -88,7 +88,7 @@ export function PropertyFilters({
                     <>&#8627;</>
                 </div>
             )}
-            <div className="PropertyFilters__content">
+            <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (

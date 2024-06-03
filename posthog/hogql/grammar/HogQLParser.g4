@@ -125,8 +125,6 @@ winFrameExtend
 winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | numberLiteral PRECEDING | numberLiteral FOLLOWING);
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
 
-
-
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
@@ -145,11 +143,12 @@ columnExpr
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
-    | TRIM LPAREN (BOTH | LEADING | TRAILING) STRING_LITERAL FROM columnExpr RPAREN       # ColumnExprTrim
+    | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
+    | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -189,7 +188,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
+    // Note: difference with ClickHouse: we also support "AS string" as a shortcut for naming columns
     | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
@@ -214,7 +213,7 @@ hogqlxTagElement
     | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' STRING_LITERAL
+    :   identifier '=' string
     |   identifier '=' LBRACE columnExpr RBRACE
     |   identifier
     ;
@@ -283,5 +282,14 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
+enumValue: string EQ_SINGLE numberLiteral;
 placeholder: LBRACE identifier RBRACE;
+
+string: STRING_LITERAL | templateString;
+templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
+stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
+
+// These are magic "full template strings", which are used to parse "full text field" templates without the surrounding SQL.
+// We will need to add F' to the start of the string to change the lexer's mode.
+fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
+stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
