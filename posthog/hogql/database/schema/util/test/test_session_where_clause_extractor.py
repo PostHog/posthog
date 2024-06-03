@@ -2,7 +2,7 @@ from typing import Union, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -28,7 +28,7 @@ def parse(
     return parsed
 
 
-class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
+class TestSessionWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     @property
     def inliner(self):
         team = self.team

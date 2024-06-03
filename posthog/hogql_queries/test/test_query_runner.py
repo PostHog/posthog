@@ -89,6 +89,7 @@ class TestQueryRunner(BaseTest):
                     "inCohortVia": "auto",
                     "materializationMode": "legacy_null_as_null",
                     "personsArgMaxVersion": "auto",
+                    "optimizeJoinedFilters": False,
                     "personsOnEventsMode": "disabled",
                 },
                 "limit_context": "query",
@@ -108,7 +109,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_7d24771ea5182ac75c9e3eb793935ca2")
+        self.assertEqual(cache_key, "cache_a013c195ba35b507fb17d3d54c5da8d6")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -122,7 +123,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_b40c7f719decbcc00d26d2ced2f09ed7")
+        self.assertEqual(cache_key, "cache_3b757b09fd05d83c7310d92978a4a0d4")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -133,7 +134,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_0e0767a9656f2871ce6caede66d1cf15")
+        self.assertEqual(cache_key, "cache_dde0923ea2284e85867b0c8772bfed03")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()
