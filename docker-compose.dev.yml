@@ -95,6 +95,14 @@ services:
             - '1080:1080'
             - '1025:1025'
 
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - LISTEN_PORT=2080
+
     # Optional capture
     capture:
         profiles: ['capture-rs']

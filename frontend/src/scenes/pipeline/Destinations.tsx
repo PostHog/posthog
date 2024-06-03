@@ -57,10 +57,14 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                         title: 'App',
                         width: 0,
                         render: function RenderAppInfo(_, destination) {
-                            if (destination.backend === 'plugin') {
-                                return <RenderApp plugin={destination.plugin} />
+                            switch (destination.backend) {
+                                case 'plugin':
+                                    return <RenderApp plugin={destination.plugin} />
+                                case 'batch_export':
+                                    return <RenderBatchExportIcon type={destination.service.type} />
+                                default:
+                                    return null
                             }
-                            return <RenderBatchExportIcon type={destination.service.type} />
                         },
                     },
                     {

@@ -4038,3 +4038,46 @@ export type OnboardingProduct = {
     url: string
     scene: Scene
 }
+
+export type HogFunctionInputSchemaType = {
+    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    name: string
+    label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    default?: any
+    secret?: boolean
+    description?: string
+}
+
+export type HogFunctionType = {
+    id: string
+    name: string
+    description: string
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+    enabled: boolean
+    hog: string
+
+    inputs_schema: HogFunctionInputSchemaType[]
+    inputs: Record<
+        string,
+        {
+            value: any
+            bytecode?: any
+        }
+    >
+    // TODO: Rewrite these
+    filters?: PluginConfigFilters | null
+    template?: HogFunctionTemplateType
+}
+
+export type HogFunctionTemplateType = {
+    id: string
+    name: string
+    description: string
+    hog: string
+    inputs_schema?: string
+    filters?: PluginConfigFilters | null
+}
