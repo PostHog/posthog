@@ -2184,7 +2184,11 @@ const api = {
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        console.log('url', url)
+        console.log('data', data)
+        console.log('options', options)
         const res = await api.createResponse(url, data, options)
+        console.log('res', res)
         return await getJSONOrNull(res)
     },
 

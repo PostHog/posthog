@@ -214,6 +214,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
+                                    console.log('data', data, 'duration', duration)
                                     return { data, duration }
                                 } catch (error: any) {
                                     const duration = performance.now() - now

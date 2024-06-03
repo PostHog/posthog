@@ -279,6 +279,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     `,
                 }
                 const responseJSON = await api.query(query)
+                // TODO I don't like how we lose our types here
+                console.log('responseJSON', responseJSON)
                 const { results } = responseJSON
 
                 let total = 0
@@ -290,6 +292,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const index = question.scale === 10 ? value : value - 1
                     data[index] = count
                 })
+
+                console.log('data', data, total)
 
                 return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
             },
@@ -722,12 +726,21 @@ export const surveyLogic = kea<surveyLogicType>([
             (surveyRatingResults) => {
                 if (surveyRatingResults) {
                     const questionIdx = Object.keys(surveyRatingResults)[0]
-                    const questionResults: number[] = surveyRatingResults[questionIdx].data
-                    if (questionResults.length === 11) {
-                        const promoters = questionResults.slice(9, 11).reduce((a, b) => a + b, 0)
-                        const passives = questionResults.slice(7, 9).reduce((a, b) => a + b, 0)
-                        const detractors = questionResults.slice(0, 7).reduce((a, b) => a + b, 0)
+                    const questionResults = surveyRatingResults[questionIdx]
+
+                    // Check if there is no data
+                    if (questionResults.total === 0) {
+                        return 'No data available'
+                    }
+
+                    // Proceed with NPS calculation if there is data
+                    const data: number[] = questionResults.data
+                    if (data.length === 11) {
+                        const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
+                        const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
+                        const detractors = data.slice(0, 7).reduce((a, b) => a + b, 0)
                         const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
+                        console.log('NPS Score:', npsScore.toFixed(1))
                         return npsScore.toFixed(1)
                     }
                 }
