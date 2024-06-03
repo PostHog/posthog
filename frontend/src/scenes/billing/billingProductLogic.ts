@@ -1,7 +1,6 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { confirmUpgradeModalLogic } from 'lib/components/ConfirmUpgradeModal/confirmUpgradeModalLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -37,8 +36,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'setScrollToProductKey',
                 'deactivateProductSuccess',
             ],
-            confirmUpgradeModalLogic,
-            ['showConfirmUpgradeModal'],
         ],
     }),
     actions({
@@ -331,15 +328,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            if (values.currentAndUpgradePlans.upgradePlan?.flat_rate) {
-                actions.showConfirmUpgradeModal(
-                    values.currentAndUpgradePlans.upgradePlan,
-                    () => actions.handleProductUpgrade(product, plan, redirectPath),
-                    () => actions.setBillingProductLoading(null)
-                )
-            } else {
-                actions.handleProductUpgrade(product, plan, redirectPath)
-            }
+            actions.handleProductUpgrade(product, plan, redirectPath)
         },
         handleProductUpgrade: ({ plan, product, redirectPath }) => {
             window.location.href = `/api/billing/activation?products=${product.type}:${plan?.plan_key}${

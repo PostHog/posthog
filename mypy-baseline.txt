@@ -48,17 +48,17 @@ posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incomp
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Expr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/storage/object_storage.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_REGION'  [misc]
@@ -224,6 +224,10 @@ posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has inco
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SampleExpr | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "SampleExpr | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 2 to "convert_hogqlx_tag" has incompatible type "int | None"; expected "int"  [arg-type]
+posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
+posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/demo/matrix/taxonomy_inference.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
