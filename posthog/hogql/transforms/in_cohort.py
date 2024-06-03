@@ -73,7 +73,8 @@ class MultipleInCohortResolver(TraversingVisitor):
             return
 
         cohorts = self._resolve_cohorts(compare_operations)
-        self._add_join(cohorts=cohorts, select=node, compare_operations=compare_operations)
+        if cohorts is not None:
+            self._add_join(cohorts=cohorts, select=node, compare_operations=compare_operations)
 
         for compare_node in compare_operations:
             compare_node.op = ast.CompareOperationOp.Eq
@@ -82,7 +83,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
     def _resolve_cohorts(
         self, compare_operations: list[ast.CompareOperation]
-    ) -> list[tuple[int, StaticOrDynamic, int]]:
+    ) -> list[tuple[int, StaticOrDynamic, int]] | None:
         from posthog.models import Cohort
 
         cohorts: list[tuple[int, StaticOrDynamic, int]] = []
@@ -109,6 +110,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
+                if arg.value == "all":
+                    return None
                 str_cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
                     "id", "is_static", "version"
                 )
@@ -309,6 +312,11 @@ class InCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
+                if arg.value == "all":
+                    node.op = ast.CompareOperationOp.Eq
+                    node.left = ast.Constant(value=1)
+                    node.right = ast.Constant(value=1)
+                    return
                 cohorts2 = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
                     "id", "is_static", "version"
                 )
