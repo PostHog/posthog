@@ -67,11 +67,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         exploreUrl: [
             (s) => [s.actorsQuery, s.featureFlags],
             (actorsQuery, featureFlags): string | null => {
-                if (
-                    !actorsQuery ||
-                    (!featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] &&
-                        !featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
-                ) {
+                if (!actorsQuery || !featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]) {
                     return null
                 }
                 const query: DataTableNode = {
