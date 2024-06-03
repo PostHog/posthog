@@ -160,7 +160,7 @@ class TrendsQueryRunner(QueryRunner):
             if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.cohort:
                 if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
                     self.query.breakdownFilter = None
-                else:
+                elif isinstance(self.query.breakdownFilter.breakdown, list):
                     self.query.breakdownFilter.breakdown = [
                         x for x in self.query.breakdownFilter.breakdown if x != "all"
                     ]
