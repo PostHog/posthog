@@ -176,7 +176,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 handleQuestionValueChange('description', val)
                             }}
                             onTabChange={handleTabChange}
-                            initialActiveTab={initialDescriptionContentType}
+                            activeTab={initialDescriptionContentType}
                         />
                     )}
                 </LemonField>

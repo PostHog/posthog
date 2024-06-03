@@ -1,13 +1,12 @@
 import { IconLock } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
 
-import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 export function PresentationTypeCard({
@@ -52,35 +51,22 @@ export function HTMLEditor({
     value,
     onChange,
     onTabChange,
-    initialActiveTab,
+    activeTab,
     textPlaceholder,
 }: {
     value?: string
     onChange: (value: any) => void
     onTabChange: (key: SurveyQuestionDescriptionContentType) => void
-    initialActiveTab: SurveyQuestionDescriptionContentType | undefined
+    activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
 }): JSX.Element {
     const { surveysHTMLAvailable } = useValues(surveysLogic)
-    const { activeTabKey } = useValues(surveyLogic)
-    const { setActiveTab } = useActions(surveyLogic)
-
-    // Initialize the tab state; useful for when user opens the editor for the first time,
-    // or for when they're editing an existing survey question.
-    if (activeTabKey !== initialActiveTab) {
-        setActiveTab(initialActiveTab ?? 'text')
-    }
-
-    const handleTabChange = (key: SurveyQuestionDescriptionContentType): void => {
-        setActiveTab(key)
-        onTabChange(key)
-    }
 
     return (
         <>
             <LemonTabs
-                activeKey={activeTabKey as SurveyQuestionDescriptionContentType}
-                onChange={handleTabChange}
+                activeKey={activeTab}
+                onChange={onTabChange}
                 tabs={[
                     {
                         key: 'text',

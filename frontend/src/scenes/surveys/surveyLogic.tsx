@@ -140,7 +140,6 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
-        setActiveTab: (key: string) => ({ key }),
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
@@ -495,12 +494,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        activeTabKey: [
-            'text',
-            {
-                setActiveTab: (_, { key }) => key,
             },
         ],
         surveyMissing: [

@@ -284,7 +284,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   }
                                                                                   onChange={handleChange}
                                                                                   onTabChange={onTabChange}
-                                                                                  initialActiveTab={
+                                                                                  activeTab={
                                                                                       initialThankYouMessageDescriptionContentType
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
