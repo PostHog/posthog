@@ -166,17 +166,9 @@ describe('insightDataLogic', () => {
             }).toMatchValues({ isHogQLInsight: false })
         })
 
-        it('returns true with generic flag enabled', () => {
+        it('returns true with flag enabled', () => {
             theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
                 [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
-            expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
-        })
-
-        it('returns true with specific flag enabled', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]: true,
             })
 
             expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
