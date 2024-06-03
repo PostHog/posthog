@@ -15,14 +15,14 @@
   <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/community">Community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://posthog.com/changelog">Changelog</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug reports</a> 
 </p>
 
+
 <p align="center">
   <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
-    <img src="https://img.youtube.com/vi/2jQco8hEvTI/0.jpg" alt="PostHog Demonstration">
+    <img src="https://github.com/PostHog/posthog/assets/154479/c3d23228-f2e5-4ec6-bcf0-6000ab5633f3.jpg" alt="PostHog Demonstration">
   </a>
-  <em>See PostHog in action</em>
 </p>
 
-## PostHog is an all-in-one, open source platform for building better products
+## PostHog is an all-in-one, open source platform for building successful products
 
 - Specify events manually, or use autocapture to get started quickly
 - Analyze data with ready-made visualizations, or do it yourself with SQL
