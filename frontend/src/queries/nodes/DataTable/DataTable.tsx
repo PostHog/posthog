@@ -431,11 +431,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ) : null,
     ].filter((x) => !!x)
 
-    const isReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
+    const isAutoReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
-        showReload && isReloadAvailable ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData && isReloadAvailable ? <AutoLoad key="auto-load" /> : null,
-        showElapsedTime && isReloadAvailable ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
+        showReload ? <Reload key="reload" /> : null,
+        showReload && canLoadNewData && isAutoReloadAvailable ? <AutoLoad key="auto-load" /> : null,
+        showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
