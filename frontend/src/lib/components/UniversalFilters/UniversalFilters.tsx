@@ -1,7 +1,6 @@
-import { IconChevronDown, IconFilter, IconPlusSmall } from '@posthog/icons'
+import { IconChevronDown, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Popover } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 
@@ -9,15 +8,14 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
-import { EntityFilterInfo } from '../EntityFilterInfo'
-import { PropertyFilterButton } from '../PropertyFilters/components/PropertyFilterButton'
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isUniversalGroupFilterLike } from './utils'
+import { isActionFilter, isUniversalGroupFilterLike } from './utils'
 
 export interface UniversalGroupFilterGroup {
     type: FilterLogicalOperator
@@ -141,28 +139,14 @@ const UniversalFilterRow = ({
     const { actions } = useValues(actionsModel)
     const [open, setOpen] = useState<boolean>(false)
 
-    const isPropertyFilter = isValidPropertyFilter(filter) // TODO: maybe won't be valid initially
+    const isEntity = isActionFilter(filter)
 
     return (
         <Popover
             visible={open}
             onClickOutside={() => setOpen(false)}
             overlay={
-                isPropertyFilter ? (
-                    <TaxonomicPropertyFilter
-                        pageKey={pageKey}
-                        index={0}
-                        filters={[filter]}
-                        onComplete={() => {
-                            if (isValidPropertyFilter(filter) && !filter.key) {
-                                onRemove()
-                            }
-                        }}
-                        setFilter={(_, property) => onChange(property)}
-                        disablePopover={false}
-                        taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
-                    />
-                ) : (
+                isEntity ? (
                     <PropertyFilters
                         pageKey={pageKey}
                         propertyFilters={filter.properties}
@@ -177,30 +161,24 @@ const UniversalFilterRow = ({
                                 : []
                         }
                     />
+                ) : (
+                    <TaxonomicPropertyFilter
+                        pageKey={pageKey}
+                        index={0}
+                        filters={[filter]}
+                        onComplete={() => {
+                            if (isValidPropertyFilter(filter) && !filter.key) {
+                                onRemove()
+                            }
+                        }}
+                        setFilter={(_, property) => onChange(property)}
+                        disablePopover={false}
+                        taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
+                    />
                 )
             }
         >
-            <PropertyFilterButton
-                onClick={isPropertyFilter ? () => setOpen(!open) : undefined}
-                onClose={() => onRemove()}
-                item={filter}
-            >
-                {isPropertyFilter ? null : (
-                    <div className="flex items-center space-x-1">
-                        <EntityFilterInfo filter={filter} />
-                        <LemonButton
-                            size="xsmall"
-                            icon={
-                                <IconWithCount count={filter.properties?.length || 0} showZero={false}>
-                                    <IconFilter />
-                                </IconWithCount>
-                            }
-                            className="p-0.5"
-                            onClick={() => setOpen(!open)}
-                        />
-                    </div>
-                )}
-            </PropertyFilterButton>
+            <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} item={filter} />
         </Popover>
     )
 }
