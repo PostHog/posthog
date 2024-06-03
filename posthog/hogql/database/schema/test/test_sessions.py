@@ -1,6 +1,8 @@
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.property_definition import PropertyType
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -229,4 +231,52 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
                 (0, "s5"),
             ],
             response.results or [],
+        )
+
+
+class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
+    def test_all(self):
+        results = get_lazy_session_table_properties(None)
+        self.assertEqual(len(results), 19)
+        self.assertEqual(
+            results[0],
+            {
+                "id": "$start_timestamp",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$start_timestamp",
+                "property_type": PropertyType.Datetime,
+                "tags": [],
+            },
+        )
+
+    def test_source(self):
+        results = get_lazy_session_table_properties("source")
+        self.assertEqual(
+            results,
+            [
+                {
+                    "id": "$entry_utm_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_utm_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                },
+                {
+                    "id": "$entry_gad_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_gad_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                },
+            ],
+        )
+
+    def test_entry_utm(self):
+        results = get_lazy_session_table_properties("entry utm")
+        self.assertEqual(
+            [result["name"] for result in results],
+            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
         )

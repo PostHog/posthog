@@ -164,6 +164,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
+    [Scene.pipelineNodeDataWarehouseNew]: {
+        projectBased: true,
+        name: 'Data warehouse new source',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/data-warehouse',
+    },
     [Scene.PipelineNodeNew]: {
         projectBased: true,
         name: 'Pipeline new step',
@@ -519,6 +525,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
     [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,

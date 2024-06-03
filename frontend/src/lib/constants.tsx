@@ -167,14 +167,7 @@ export const FEATURE_FLAGS = {
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     HOGQL_INSIGHTS: 'hogql-insights-preview', // owner: @mariusandra
-    HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
-    HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
-    HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
-    HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
-    HOGQL_INSIGHTS_STICKINESS: 'hogql-insights-stickiness', // owner: @Gilbert09
-    HOGQL_INSIGHTS_FUNNELS: 'hogql-insights-funnels', // owner: @thmsobrmlr
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
-    HOGQL_IN_INSIGHT_SERIALIZATION: 'hogql-in-insight-serialization', // owner: @Twixes
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
