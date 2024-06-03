@@ -19,6 +19,7 @@ import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
+import { CdpProcessedEventsConsumer } from '../worker/cdp/cdp-processed-events-consumer'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
@@ -105,6 +106,8 @@ export async function startPluginsServer(
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
+    const shutdownCallbacks: (() => Promise<void>)[] = []
+
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
     // (default 60 seconds) to allow for the person to be created in the
@@ -157,6 +160,7 @@ export async function startPluginsServer(
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             personOverridesPeriodicTask?.stop(),
+            ...shutdownCallbacks.map((cb) => cb()),
         ])
 
         if (piscina) {
@@ -492,6 +496,25 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
+        }
+
+        if (capabilities.cdpProcessedEvents) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+
+            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
+            const consumer = new CdpProcessedEventsConsumer(serverConfig, postgres, false)
+            await consumer.start()
+
+            if (consumer.batchConsumer) {
+                shutdownOnConsumerExit(consumer.batchConsumer)
+            }
+
+            shutdownCallbacks.push(async () => {
+                await consumer.stop()
+            })
+            healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.personOverrides) {
