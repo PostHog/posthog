@@ -91,7 +91,7 @@ export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
     live_mode: false,
     filter_test_accounts: false,
     date_from: '-3d',
-    filterGroups: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
+    filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {

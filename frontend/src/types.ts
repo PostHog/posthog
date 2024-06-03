@@ -973,7 +973,7 @@ export interface RecordingUniversalFilters {
     date_from?: string | null
     date_to?: string | null
     filter_test_accounts?: boolean
-    filterGroups: UniversalGroupFilterGroup
+    filter_group: UniversalGroupFilterGroup
 }
 
 export interface SessionRecordingsResponse {

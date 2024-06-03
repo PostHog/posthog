@@ -53,12 +53,12 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
                             ],
                         }
                     }
-                    const filterGroups = [
+                    const group = [
                         ...state.values,
                         { type: FilterLogicalOperator.And, values: [{} as EmptyPropertyFilter] },
                     ]
 
-                    return { ...state, values: filterGroups }
+                    return { ...state, values: group }
                 },
                 removeFilterGroup: (state, { filterGroup }) => {
                     const filteredGroups = [...state.values]

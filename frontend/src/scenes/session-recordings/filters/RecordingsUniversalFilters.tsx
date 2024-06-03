@@ -50,13 +50,13 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                 </div>
                 <div>
                     <AndOrFilterSelect
-                        value={universalFilters.filterGroups.type}
+                        value={universalFilters.filter_group.type}
                         onChange={(value) => {
                             setUniversalFilters({
                                 ...universalFilters,
-                                filterGroups: {
+                                filter_group: {
                                     type: value,
-                                    values: universalFilters.filterGroups.values,
+                                    values: universalFilters.filter_group.values,
                                 },
                             })
                         }}
@@ -67,11 +67,11 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
             </div>
             <div className="p-2">
                 <UniversalFilters
-                    group={universalFilters.filterGroups}
+                    group={universalFilters.filter_group}
                     onChange={(filterGroup) => {
                         setUniversalFilters({
                             ...universalFilters,
-                            filterGroups: filterGroup,
+                            filter_group: filterGroup,
                         })
                     }}
                     pageKey="session-recordings"
