@@ -9,6 +9,7 @@ from posthog.hogql.errors import ResolutionError, NotImplementedError
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.base import ConstantType
 
 
 class FieldOrTable(BaseModel):
@@ -27,37 +28,69 @@ class DatabaseField(FieldOrTable):
     nullable: Optional[bool] = None
     hidden: bool = False
 
+    def is_nullable(self) -> bool:
+        return not not self.nullable
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType()
+
 
 class IntegerDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import IntegerType
+
+        return IntegerType(nullable=self.is_nullable())
 
 
 class FloatDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import FloatType
+
+        return FloatType(nullable=self.is_nullable())
 
 
 class StringDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class StringJSONDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DateType
+
+        return DateType(nullable=self.is_nullable())
 
 
 class DateTimeDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DateTimeType
+
+        return DateTimeType(nullable=self.is_nullable())
 
 
 class BooleanDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import BooleanType
+
+        return BooleanType(nullable=self.is_nullable())
 
 
 class ExpressionField(DatabaseField):
