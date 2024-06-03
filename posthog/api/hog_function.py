@@ -102,10 +102,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         if item_type == "string":
                             item["bytecode"] = generate_template_bytecode(value)
                         elif item_type in ["dictionary", "json"]:
-                            # Iterate over the object
-                            if item_type == "json":
-                                value = json.loads(value)
-                                item["value"] = value
                             item["bytecode"] = generate_template_bytecode_for_object(value)
                 except Exception as e:
                     raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
