@@ -1,42 +1,28 @@
+import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFilters, UniversalGroupFilterGroup } from 'lib/components/UniversalFilters/UniversalFilters'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { useState } from 'react'
+import { UniversalFilters } from 'lib/components/UniversalFilters/UniversalFilters'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
-interface HogQLRecordingFilters {
-    /**
-     * live mode is front end only, sets date_from and date_to to the last hour
-     */
-    live_mode?: boolean
-    date_from?: string | null
-    date_to?: string | null
-    filter_test_accounts?: boolean
-    filterGroups: UniversalGroupFilterGroup
-}
+import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 
-export const HogQLFilters = (): JSX.Element => {
-    const [filters, setFilters] = useState<HogQLRecordingFilters>({
-        live_mode: false,
-        filter_test_accounts: false,
-        date_from: '-3d',
-        filterGroups: DEFAULT_UNIVERSAL_GROUP_FILTER,
-    })
+export const RecordingsUniversalFilters = (): JSX.Element => {
+    const { universalFilters } = useValues(sessionRecordingsPlaylistLogic)
+    const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="divide-y bg-bg-light rounded border">
             <div className="flex justify-between px-2 py-1.5">
                 <div className="flex space-x-2">
                     <DateFilter
-                        dateFrom={filters.date_from ?? '-3d'}
-                        dateTo={filters.date_to}
-                        disabled={filters.live_mode}
+                        dateFrom={universalFilters.date_from ?? '-3d'}
+                        dateTo={universalFilters.date_to}
+                        disabled={universalFilters.live_mode}
                         onChange={(changedDateFrom, changedDateTo) => {
-                            setFilters({
-                                ...filters,
+                            setUniversalFilters({
+                                ...universalFilters,
                                 date_from: changedDateFrom,
                                 date_to: changedDateTo,
                             })
@@ -53,21 +39,24 @@ export const HogQLFilters = (): JSX.Element => {
                         size="small"
                     />
                     <TestAccountFilter
-                        filters={filters}
+                        filters={universalFilters}
                         onChange={(testFilters) =>
-                            setFilters({ ...filters, filter_test_accounts: testFilters.filter_test_accounts })
+                            setUniversalFilters({
+                                ...universalFilters,
+                                filter_test_accounts: testFilters.filter_test_accounts,
+                            })
                         }
                     />
                 </div>
                 <div>
                     <AndOrFilterSelect
-                        value={filters.filterGroups.type}
+                        value={universalFilters.filterGroups.type}
                         onChange={(value) => {
-                            setFilters({
-                                ...filters,
+                            setUniversalFilters({
+                                ...universalFilters,
                                 filterGroups: {
                                     type: value,
-                                    values: filters.filterGroups.values,
+                                    values: universalFilters.filterGroups.values,
                                 },
                             })
                         }}
@@ -78,10 +67,10 @@ export const HogQLFilters = (): JSX.Element => {
             </div>
             <div className="p-2">
                 <UniversalFilters
-                    group={filters.filterGroups}
+                    group={universalFilters.filterGroups}
                     onChange={(filterGroup) => {
-                        setFilters({
-                            ...filters,
+                        setUniversalFilters({
+                            ...universalFilters,
                             filterGroups: filterGroup,
                         })
                     }}

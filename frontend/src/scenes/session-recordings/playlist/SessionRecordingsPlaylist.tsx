@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
-import { HogQLFilters } from '../filters/HogQLFilters'
+import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
@@ -119,6 +119,7 @@ function RecordingsLists(): JSX.Element {
         recordingsCount,
         isRecordingsListCollapsed,
         sessionSummaryLoading,
+        useUniversalFiltering,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -206,25 +207,27 @@ function RecordingsLists(): JSX.Element {
                             </span>
                         </Tooltip>
                     </span>
-                    <LemonButton
-                        tooltip="Filter recordings"
-                        size="small"
-                        active={showFilters}
-                        icon={
-                            <IconWithCount count={totalFiltersCount}>
-                                <IconFilter />
-                            </IconWithCount>
-                        }
-                        onClick={() => {
-                            if (notebookNode) {
-                                notebookNode.actions.toggleEditing()
-                            } else {
-                                setShowFilters(!showFilters)
+                    {(!useUniversalFiltering || notebookNode) && (
+                        <LemonButton
+                            tooltip="Filter recordings"
+                            size="small"
+                            active={showFilters}
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
                             }
-                        }}
-                    >
-                        Filter
-                    </LemonButton>
+                            onClick={() => {
+                                if (notebookNode) {
+                                    notebookNode.actions.toggleEditing()
+                                } else {
+                                    setShowFilters(!showFilters)
+                                }
+                            }}
+                        >
+                            Filter
+                        </LemonButton>
+                    )}
                     <LemonButton
                         tooltip="Playlist settings"
                         size="small"
@@ -353,9 +356,9 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         matchingEventsMatchType,
         pinnedRecordings,
         isRecordingsListCollapsed,
+        useUniversalFiltering,
     } = useValues(logic)
     const { toggleRecordingsListCollapsed } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -364,13 +367,11 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const notebookNode = useNotebookNode()
 
-    const hasUniversalFilters = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]
-
     return (
-        <div className="h-full space-y-2">
-            {hasUniversalFilters && <HogQLFilters />}
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <div className="h-full space-y-2">
+                {useUniversalFiltering && <RecordingsUniversalFilters />}
 
-            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
                 <div
                     ref={playlistRef}
                     data-attr="session-recordings-playlist"
@@ -428,7 +429,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         )}
                     </div>
                 </div>
-            </BindLogic>
-        </div>
+            </div>
+        </BindLogic>
     )
 }
