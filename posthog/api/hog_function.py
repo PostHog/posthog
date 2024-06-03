@@ -17,7 +17,6 @@ logger = structlog.get_logger(__name__)
 
 
 def generate_template_bytecode(value: str) -> list[Any]:
-    print("generating bytecode for", value)
     return create_bytecode(parse_string_template(value))
 
 

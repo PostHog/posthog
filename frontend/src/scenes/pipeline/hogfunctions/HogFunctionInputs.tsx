@@ -67,10 +67,10 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
 }
 
 function JsonConfigField(props: {
-    onChange?: (value: any) => void
+    onChange?: (value: string) => void
     className: string
     autoFocus: boolean
-    value: any
+    value?: string | object
 }): JSX.Element {
     const suggestions = useAutocompleteOptions()
     const [monaco, setMonaco] = useState<Monaco>()
@@ -124,7 +124,7 @@ function JsonConfigField(props: {
         <CodeEditor
             className="border rounded min-h-60"
             language="json"
-            value={props.value}
+            value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
             onChange={(v) => props.onChange?.(v ?? '')}
             options={{
                 lineNumbers: 'off',

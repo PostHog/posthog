@@ -28,7 +28,7 @@ export function PipelineHogFunctionConfiguration({
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
     const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
         useValues(logic)
-    const { submitConfiguration, clearChanges, setShowSource } = useActions(logic)
+    const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -43,7 +43,7 @@ export function PipelineHogFunctionConfiguration({
             <LemonButton
                 type="secondary"
                 htmlType="reset"
-                onClick={() => clearChanges()}
+                onClick={() => resetForm()}
                 disabledReason={
                     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }

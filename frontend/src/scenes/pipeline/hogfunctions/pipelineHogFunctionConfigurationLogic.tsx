@@ -65,8 +65,8 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
     actions({
-        clearChanges: true,
         setShowSource: (showSource: boolean) => ({ showSource }),
+        resetForm: true,
     }),
     // connect(() => ({
     //     values: [
@@ -179,7 +179,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         inputErrors[input.name] = 'This field is required'
                     }
 
-                    if (input.type === 'json' && inputs[input.name]) {
+                    if (input.type === 'json' && typeof inputs[input.name] === 'string') {
                         try {
                             JSON.parse(inputs[input.name].value)
                         } catch (e) {
@@ -198,27 +198,17 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        loadTemplateSuccess: ({ template }) => {
-            if (template) {
-                const form: HogFunctionType = {
-                    inputs: {},
-                    ...template,
-                    ...(cache.configFromUrl || {}),
-                }
-                actions.resetConfiguration(form)
-            }
+        loadTemplateSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: () => actions.resetForm(),
+        resetForm: () => {
+            const savedValue = values.hogFunction ?? values.template
+            actions.resetConfiguration({
+                ...savedValue,
+                inputs: (savedValue as any)?.inputs ?? {},
+                ...(cache.configFromUrl || {}),
+            })
         },
-        loadHogFunctionSuccess: ({ hogFunction }) => {
-            if (hogFunction) {
-                actions.resetConfiguration({
-                    ...hogFunction,
-                    inputs: hogFunction.inputs ?? {},
-                })
-            }
-        },
-        clearChanges: () => {
-            actions.resetConfiguration(values.hogFunction ?? (values.template as HogFunctionType))
-        },
+
         submitConfigurationSuccess: ({ configuration }) => {
             if (!props.id) {
                 router.actions.replace(
@@ -256,7 +246,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
-            console.log(configuration)
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true
