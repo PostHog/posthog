@@ -258,17 +258,20 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.JUMP, -len(response) - 2])
         return response
 
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        self._declare_local(node.name)
+        if node.expr:
+            return self.visit(node.expr)
+        return [Operation.NULL]
+
     def visit_variable_assignment(self, node: ast.VariableAssignment):
-        if node.is_declaration:
-            self._declare_local(node.name)
-            if node.expr:
-                return self.visit(node.expr)
-            return [Operation.NULL]
-        else:
+        if isinstance(node.left, ast.Field) and len(node.left.chain) == 1:
+            name = node.left.chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == node.name:
-                    return [*self.visit(cast(AST, node.expr)), Operation.SET_LOCAL, index]
-            raise NotImplementedError(f"Variable `{node.name}` not declared in this scope")
+                if local.name == name:
+                    return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
+        raise NotImplementedError(f"Can not assign to this type of variable")
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:

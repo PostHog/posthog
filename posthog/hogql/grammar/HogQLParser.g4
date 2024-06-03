@@ -13,7 +13,7 @@ declaration
 expression: columnExpr;
 
 varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
-varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
+varAssignment: expression COLON EQ_SINGLE expression SEMICOLON ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt

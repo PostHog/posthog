@@ -146,7 +146,7 @@ def serializedATN():
         53,0,179,5,1,0,0,0,180,181,5,92,0,0,181,185,3,150,75,0,182,183,5,
         111,0,0,183,184,5,118,0,0,184,186,3,4,2,0,185,182,1,0,0,0,185,186,
         1,0,0,0,186,187,1,0,0,0,187,188,5,145,0,0,188,7,1,0,0,0,189,190,
-        3,150,75,0,190,191,5,111,0,0,191,192,5,118,0,0,192,193,3,4,2,0,193,
+        3,4,2,0,190,191,5,111,0,0,191,192,5,118,0,0,192,193,3,4,2,0,193,
         194,5,145,0,0,194,9,1,0,0,0,195,200,3,150,75,0,196,197,5,112,0,0,
         197,199,3,150,75,0,198,196,1,0,0,0,199,202,1,0,0,0,200,198,1,0,0,
         0,200,201,1,0,0,0,201,11,1,0,0,0,202,200,1,0,0,0,203,213,3,20,10,
@@ -1050,8 +1050,11 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def identifier(self):
-            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
+        def expression(self, i:int=None):
+            if i is None:
+                return self.getTypedRuleContexts(HogQLParser.ExpressionContext)
+            else:
+                return self.getTypedRuleContext(HogQLParser.ExpressionContext,i)
 
 
         def COLON(self):
@@ -1059,10 +1062,6 @@ class HogQLParser ( Parser ):
 
         def EQ_SINGLE(self):
             return self.getToken(HogQLParser.EQ_SINGLE, 0)
-
-        def expression(self):
-            return self.getTypedRuleContext(HogQLParser.ExpressionContext,0)
-
 
         def SEMICOLON(self):
             return self.getToken(HogQLParser.SEMICOLON, 0)
@@ -1086,7 +1085,7 @@ class HogQLParser ( Parser ):
         try:
             self.enterOuterAlt(localctx, 1)
             self.state = 189
-            self.identifier()
+            self.expression()
             self.state = 190
             self.match(HogQLParser.COLON)
             self.state = 191

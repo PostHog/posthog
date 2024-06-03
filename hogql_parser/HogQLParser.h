@@ -237,10 +237,10 @@ public:
   public:
     VarAssignmentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    IdentifierContext *identifier();
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
     antlr4::tree::TerminalNode *COLON();
     antlr4::tree::TerminalNode *EQ_SINGLE();
-    ExpressionContext *expression();
     antlr4::tree::TerminalNode *SEMICOLON();
 
 

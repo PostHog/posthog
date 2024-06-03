@@ -194,17 +194,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
-        return ast.VariableAssignment(
+        return ast.VariableDeclaration(
             name=ctx.identifier().getText(),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
-            is_declaration=True,
         )
 
     def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
         return ast.VariableAssignment(
-            name=ctx.identifier().getText(),
-            expr=self.visit(ctx.expression()),
-            is_declaration=False,
+            left=self.visit(ctx.expression(0)),
+            right=self.visit(ctx.expression(1)),
         )
 
     def visitStatement(self, ctx: HogQLParser.StatementContext):
