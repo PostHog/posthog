@@ -48,7 +48,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                     )
                 }
 
-                // Check addons first if no included in the check list about since their features are rolled up into the parent
+                // Check addons first (if not included in checkProductFirst) since their features are rolled up into the parent
                 const allAddons = billing?.products?.map((product) => product.addons).flat() || []
                 if (!foundProduct) {
                     foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.featureKey))
