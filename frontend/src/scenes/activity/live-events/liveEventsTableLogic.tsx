@@ -148,13 +148,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
 
             source.onerror = function (e) {
-                console.error(e)
+                console.error('Failed to poll events: ', e)
                 if (!cache.hasShownLiveStreamErrorToast) {
                     lemonToast.error(
                         `Cannot connect to the live event stream. Continuing to retry in the background…`,
                         { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }
                     )
-                    cache.hasShownLiveStreamErrorToast = true // Only show roughly once
+                    cache.hasShownLiveStreamErrorToast = true // Only show once
                 }
             }
 
