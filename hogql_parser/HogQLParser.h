@@ -28,18 +28,20 @@ public:
     TIMESTAMP = 82, TO = 83, TOP = 84, TOTALS = 85, TRAILING = 86, TRIM = 87, 
     TRUNCATE = 88, UNBOUNDED = 89, UNION = 90, USING = 91, VAR = 92, WEEK = 93, 
     WHEN = 94, WHERE = 95, WHILE = 96, WINDOW = 97, WITH = 98, YEAR = 99, 
-    ESCAPE_CHAR_SINGLE = 100, ESCAPE_CHAR_DOUBLE = 101, IDENTIFIER = 102, 
-    FLOATING_LITERAL = 103, OCTAL_LITERAL = 104, DECIMAL_LITERAL = 105, 
-    HEXADECIMAL_LITERAL = 106, STRING_LITERAL = 107, ARROW = 108, ASTERISK = 109, 
-    BACKQUOTE = 110, BACKSLASH = 111, COLON = 112, COMMA = 113, CONCAT = 114, 
-    DASH = 115, DOLLAR = 116, DOT = 117, EQ_DOUBLE = 118, EQ_SINGLE = 119, 
-    GT_EQ = 120, GT = 121, HASH = 122, IREGEX_SINGLE = 123, IREGEX_DOUBLE = 124, 
-    LBRACE = 125, LBRACKET = 126, LPAREN = 127, LT_EQ = 128, LT = 129, NOT_EQ = 130, 
-    NOT_IREGEX = 131, NOT_REGEX = 132, NULLISH = 133, PERCENT = 134, PLUS = 135, 
-    QUERY = 136, QUOTE_DOUBLE = 137, QUOTE_SINGLE = 138, REGEX_SINGLE = 139, 
-    REGEX_DOUBLE = 140, RBRACE = 141, RBRACKET = 142, RPAREN = 143, SEMICOLON = 144, 
-    SLASH = 145, UNDERSCORE = 146, MULTI_LINE_COMMENT = 147, SINGLE_LINE_COMMENT = 148, 
-    WHITESPACE = 149
+    ESCAPE_CHAR_COMMON = 100, IDENTIFIER = 101, FLOATING_LITERAL = 102, 
+    OCTAL_LITERAL = 103, DECIMAL_LITERAL = 104, HEXADECIMAL_LITERAL = 105, 
+    STRING_LITERAL = 106, ARROW = 107, ASTERISK = 108, BACKQUOTE = 109, 
+    BACKSLASH = 110, COLON = 111, COMMA = 112, CONCAT = 113, DASH = 114, 
+    DOLLAR = 115, DOT = 116, EQ_DOUBLE = 117, EQ_SINGLE = 118, GT_EQ = 119, 
+    GT = 120, HASH = 121, IREGEX_SINGLE = 122, IREGEX_DOUBLE = 123, LBRACE = 124, 
+    LBRACKET = 125, LPAREN = 126, LT_EQ = 127, LT = 128, NOT_EQ = 129, NOT_IREGEX = 130, 
+    NOT_REGEX = 131, NULLISH = 132, PERCENT = 133, PLUS = 134, QUERY = 135, 
+    QUOTE_DOUBLE = 136, QUOTE_SINGLE_TEMPLATE = 137, QUOTE_SINGLE_TEMPLATE_FULL = 138, 
+    QUOTE_SINGLE = 139, REGEX_SINGLE = 140, REGEX_DOUBLE = 141, RBRACE = 142, 
+    RBRACKET = 143, RPAREN = 144, SEMICOLON = 145, SLASH = 146, UNDERSCORE = 147, 
+    MULTI_LINE_COMMENT = 148, SINGLE_LINE_COMMENT = 149, WHITESPACE = 150, 
+    STRING_TEXT = 151, STRING_ESCAPE_TRIGGER = 152, FULL_STRING_TEXT = 153, 
+    FULL_STRING_ESCAPE_TRIGGER = 154
   };
 
   enum {
@@ -65,7 +67,9 @@ public:
     RuleTableFunctionExpr = 65, RuleTableIdentifier = 66, RuleTableArgList = 67, 
     RuleDatabaseIdentifier = 68, RuleFloatingLiteral = 69, RuleNumberLiteral = 70, 
     RuleLiteral = 71, RuleInterval = 72, RuleKeyword = 73, RuleKeywordForAlias = 74, 
-    RuleAlias = 75, RuleIdentifier = 76, RuleEnumValue = 77, RulePlaceholder = 78
+    RuleAlias = 75, RuleIdentifier = 76, RuleEnumValue = 77, RulePlaceholder = 78, 
+    RuleString = 79, RuleTemplateString = 80, RuleStringContents = 81, RuleFullTemplateString = 82, 
+    RuleStringContentsFull = 83
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -163,7 +167,12 @@ public:
   class AliasContext;
   class IdentifierContext;
   class EnumValueContext;
-  class PlaceholderContext; 
+  class PlaceholderContext;
+  class StringContext;
+  class TemplateStringContext;
+  class StringContentsContext;
+  class FullTemplateStringContext;
+  class StringContentsFullContext; 
 
   class  ProgramContext : public antlr4::ParserRuleContext {
   public:
@@ -1450,7 +1459,7 @@ public:
 
     antlr4::tree::TerminalNode *TRIM();
     antlr4::tree::TerminalNode *LPAREN();
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *FROM();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RPAREN();
@@ -1466,6 +1475,15 @@ public:
     ColumnExprTagElementContext(ColumnExprContext *ctx);
 
     HogqlxTagElementContext *hogqlxTagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprTemplateStringContext : public ColumnExprContext {
+  public:
+    ColumnExprTemplateStringContext(ColumnExprContext *ctx);
+
+    TemplateStringContext *templateString();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1769,7 +1787,7 @@ public:
     virtual size_t getRuleIndex() const override;
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *EQ_SINGLE();
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *LBRACE();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
@@ -2220,7 +2238,7 @@ public:
   public:
     EnumValueContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *STRING_LITERAL();
+    StringContext *string();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     NumberLiteralContext *numberLiteral();
 
@@ -2245,6 +2263,84 @@ public:
   };
 
   PlaceholderContext* placeholder();
+
+  class  StringContext : public antlr4::ParserRuleContext {
+  public:
+    StringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *STRING_LITERAL();
+    TemplateStringContext *templateString();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContext* string();
+
+  class  TemplateStringContext : public antlr4::ParserRuleContext {
+  public:
+    TemplateStringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *QUOTE_SINGLE_TEMPLATE();
+    antlr4::tree::TerminalNode *QUOTE_SINGLE();
+    std::vector<StringContentsContext *> stringContents();
+    StringContentsContext* stringContents(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  TemplateStringContext* templateString();
+
+  class  StringContentsContext : public antlr4::ParserRuleContext {
+  public:
+    StringContentsContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *STRING_ESCAPE_TRIGGER();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+    antlr4::tree::TerminalNode *STRING_TEXT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContentsContext* stringContents();
+
+  class  FullTemplateStringContext : public antlr4::ParserRuleContext {
+  public:
+    FullTemplateStringContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *QUOTE_SINGLE_TEMPLATE_FULL();
+    antlr4::tree::TerminalNode *EOF();
+    std::vector<StringContentsFullContext *> stringContentsFull();
+    StringContentsFullContext* stringContentsFull(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  FullTemplateStringContext* fullTemplateString();
+
+  class  StringContentsFullContext : public antlr4::ParserRuleContext {
+  public:
+    StringContentsFullContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FULL_STRING_ESCAPE_TRIGGER();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+    antlr4::tree::TerminalNode *FULL_STRING_TEXT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  StringContentsFullContext* stringContentsFull();
 
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;

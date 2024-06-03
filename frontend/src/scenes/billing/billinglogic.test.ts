@@ -15,10 +15,10 @@ describe('billingLogic', () => {
         initKeaTests()
         useMocks({
             get: {
-                'api/billing-v2/': {
+                'api/billing/': {
                     results: billingResponseWithBillingLimits,
                 },
-                'api/billing-v2/get_invoices': {
+                'api/billing/get_invoices': {
                     results: [{}],
                 },
             },

@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
 import { Action, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
@@ -115,10 +116,8 @@ export async function fetchAllActionsGroupedByTeam(
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
-    const rawPluginsWithActionMatching = await fetchPluginConfigsWithMatchActions(client)
-    const pluginConfigActionMatchIds = rawPluginsWithActionMatching.map(({ match_action_id }) => match_action_id)
-
-    const additionalActionIds = [...restHookActionIds, ...pluginConfigActionMatchIds]
+    const pluginConfigFiltersActionIds = await fetchPluginConfigsRelatedActionIds(client)
+    const additionalActionIds = [...restHookActionIds, ...pluginConfigFiltersActionIds]
 
     const rawActions = (
         await client.query<RawAction>(
@@ -211,17 +210,30 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     return action.post_to_slack || action.hooks.length > 0 ? action : null
 }
 
-export async function fetchPluginConfigsWithMatchActions(
-    postgres: PostgresRouter
-): Promise<Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[]> {
-    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[] } = await postgres.query(
+async function fetchPluginConfigsRelatedActionIds(postgres: PostgresRouter): Promise<number[]> {
+    // TODO: Do we need to trigger a reload when the plugin config changes?
+    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'filters'>[] } = await postgres.query(
         PostgresUse.COMMON_READ,
-        `SELECT id, team_id, match_action_id 
+        `SELECT id, team_id, filters 
             FROM posthog_pluginconfig
-            WHERE match_action_id IS NOT NULL 
+            WHERE filters IS NOT NULL 
             AND enabled`,
         undefined,
-        'fetchPluginConfigsWithMatchActions'
+        'fetchPluginConfigsRelatedActionIds'
     )
-    return rows
+
+    const actionIds: number[] = []
+
+    for (const row of rows) {
+        try {
+            row.filters?.actions?.forEach((filter) => {
+                actionIds.push(parseInt(filter.id))
+            })
+        } catch (e) {
+            // Badly formatted actions in the list
+            captureException(e)
+        }
+    }
+
+    return actionIds
 }

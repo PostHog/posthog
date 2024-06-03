@@ -581,7 +581,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
@@ -590,7 +590,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event
         JOIN
           (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
@@ -623,7 +623,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
@@ -632,7 +632,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event)
      WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
   GROUP BY breakdown_values,
