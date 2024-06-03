@@ -26,6 +26,8 @@ class TestQuery(BaseModel):
 
 
 class TestQueryRunner(BaseTest):
+    maxDiff = None
+
     def setup_test_query_runner_class(self):
         """Setup required methods and attributes of the abstract base class."""
 
@@ -90,7 +92,7 @@ class TestQueryRunner(BaseTest):
                     "personsOnEventsMode": "disabled",
                 },
                 "limit_context": "query",
-                "query": {"some_attr": "bla"},
+                "query": {"kind": "TestQuery", "some_attr": "bla"},
                 "query_runner": "TestQueryRunner",
                 "team_id": 42,
                 "timezone": "UTC",
