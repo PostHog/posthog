@@ -84,7 +84,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             {
                 addEvents: (state, { events }) => {
                     if (events.length > 0) {
-                        return Date.now()
+                        return performance.now()
                     }
                     return state
                 },
@@ -135,15 +135,15 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 },
             })
 
-            const batch: Record<string, any>[] = []
+            cache.batch = []
             source.onmessage = function (event: any) {
                 lemonToast.dismiss(ERROR_TOAST_ID)
                 const eventData = JSON.parse(event.data)
-                batch.push(eventData)
+                cache.batch.push(eventData)
                 // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
-                if (batch.length >= 10 || Date.now() - (values.lastBatchTimestamp || 0) > 300) {
-                    actions.addEvents(batch)
-                    batch.length = 0
+                if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
+                    actions.addEvents(cache.batch)
+                    cache.batch.length = 0
                 }
             }
 
