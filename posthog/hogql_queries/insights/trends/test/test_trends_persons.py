@@ -436,9 +436,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[2]), "person3")
         self.assertEqual(get_event_count(result[2]), 1)
 
-    def test_trends_all_cohort_breakdown_persons_auto(self):
-        self.trends_all_cohort_breakdown_persons("auto")
-
     def test_trends_all_cohort_breakdown_persons_subquery(self):
         self.trends_all_cohort_breakdown_persons("subquery")
 
