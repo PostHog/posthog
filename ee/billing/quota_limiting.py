@@ -309,8 +309,11 @@ def set_org_usage_summary(
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
+            org_usage_data = organization.usage or {}
+            org_field_usage = org_usage_data.get(field, {}) or {}
+            org_usage = org_field_usage.get("usage")
             # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-            if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):
+            if org_usage != resource_usage.get("usage"):
                 resource_usage["todays_usage"] = 0
             else:
                 resource_usage["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
