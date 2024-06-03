@@ -640,19 +640,7 @@ interface InsightVizNodeViewProps {
 
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
-    /**
-     * Date range for the query
-     *
-     * @default {"date_from": "-7d"}
-     */
-    // :TRICKY: We can't set the default to an empty dict, as otherwise
-    // datamodel-code-generator does not generate a model with a factory.
-    //
-    // This would cause a different serialization of an empty and a missing
-    // prop, which we don't want for stable cache keys.
-    //
-    // As a workaround we simply set any prop to its default, so that a
-    // factory is used to instantiate an empty model for a missing prop.
+    /** Date range for the query */
     dateRange?: InsightDateRange
     /**
      * Exclude internal and test users by applying the respective filters

@@ -71,6 +71,13 @@ class TestSchemaHelpers(TestCase):
         self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
         self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})
 
+    def test_serializes_empty_and_missing_date_range_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "dateRange": {}})
+
+        self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})
+
     def test_serializes_series_without_frontend_only_props(self):
         query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
 

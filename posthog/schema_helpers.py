@@ -31,11 +31,6 @@ def to_json(query: BaseModel) -> bytes:
                 if get_origin(field_info.annotation) == Literal:
                     dumped[name] = getattr(self, name)
 
-            ###
-            # Frontend only settings like which graph type is displayed, that don't affect
-            # the generated dataset should be removed.
-            #
-            # Keep this in sync with the frontend side "cleanInsightQuery" function.
             if isinstance(
                 self,
                 (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery),
@@ -46,6 +41,11 @@ def to_json(query: BaseModel) -> bytes:
                     if name not in dumped:
                         continue
 
+                    ###
+                    # Frontend only settings like which graph type is displayed, that don't affect
+                    # the generated dataset should be removed.
+                    #
+                    # Keep this in sync with the frontend side "cleanInsightQuery" function.
                     if name == "series":
                         # remove frontend-only props from series
                         dumped["series"] = [
@@ -81,12 +81,11 @@ def to_json(query: BaseModel) -> bytes:
                             else:
                                 dumped[insightFilterKey]["display"] = canonical_display
 
-                        # remove empty insight filters, so that empty and not existing filter serialize to the same json
-                        if len(dumped[insightFilterKey]) == 0:
-                            del dumped[insightFilterKey]
-                    elif name == "breakdownFilter":
-                        if len(dumped["breakdownFilter"]) == 0:
-                            del dumped["breakdownFilter"]
+                    ###
+                    # Remove empty nested models, so that empty and not existing models serialize to the same json.
+                    filterKeys = [insightFilterKey, "breakdownFilter", "dateRange"]
+                    if name in filterKeys and len(dumped[name]) == 0:
+                        del dumped[name]
 
             return dumped
 

@@ -3753,9 +3753,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4678,9 +4675,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4731,9 +4725,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4784,9 +4775,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4837,9 +4825,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4890,9 +4875,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4984,9 +4966,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -5305,9 +5284,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7022,9 +6998,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7424,9 +7397,6 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7854,9 +7824,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
