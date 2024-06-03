@@ -4050,13 +4050,20 @@ export type HogFunctionType = {
     id: string
     name: string
     description: string
-    inputs_schema: HogFunctionInputSchemaType[]
-    inputs: Record<string, {
-        value: any,
-        bytecode?: any,
-    }>
-    hog: string
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
     enabled: boolean
+    hog: string
+
+    inputs_schema: HogFunctionInputSchemaType[]
+    inputs: Record<
+        string,
+        {
+            value: any
+            bytecode?: any
+        }
+    >
     // TODO: Rewrite these
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType

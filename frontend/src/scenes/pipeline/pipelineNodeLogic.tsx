@@ -67,22 +67,19 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         ],
 
         nodeBackend: [
-            (_, p) => [p.id],
-            (id): PipelineBackend => {
-                return typeof id === 'string'
-                    ? id.indexOf('hog-') === 0
-                        ? PipelineBackend.HogFunction
-                        : PipelineBackend.BatchExport
-                    : PipelineBackend.Plugin
+            (s) => [s.node],
+            (node): PipelineBackend => {
+                return node.backend
             },
         ],
         node: [
-            (s, p) => [p.id, s.nodeBackend],
-            (id, nodeBackend): PipelineNodeLimitedType => {
-                return {
-                    backend: nodeBackend,
-                    id: id,
-                }
+            (_, p) => [p.id],
+            (id): PipelineNodeLimitedType => {
+                return typeof id === 'string'
+                    ? id.indexOf('hog-') === 0
+                        ? { backend: PipelineBackend.HogFunction, id: `${id}`.replace('hog-', '') }
+                        : { backend: PipelineBackend.BatchExport, id }
+                    : { backend: PipelineBackend.Plugin, id }
             },
         ],
         tabs: [

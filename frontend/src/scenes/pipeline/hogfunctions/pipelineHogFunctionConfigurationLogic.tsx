@@ -4,8 +4,17 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
-import { FilterType, HogFunctionTemplateType, HogFunctionType, PluginConfigFilters, PluginConfigTypeNew } from '~/types'
+import {
+    FilterType,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PipelineNodeTab,
+    PipelineStage,
+    PluginConfigFilters,
+    PluginConfigTypeNew,
+} from '~/types'
 
 import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
 import { HOG_FUNCTION_TEMPLATES } from './templates/hog-templates'
@@ -124,22 +133,13 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         ],
     })),
-    selectors(() => ({
-        loading: [
-            (s) => [s.hogFunctionLoading, s.templateLoading],
-            (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
-        ],
-        missing: [
-            (s) => [s.loading, s.hogFunction, s.template],
-            (loading, hogFunction, template) => !loading && !hogFunction && !template,
-        ],
-    })),
     forms(({ asyncActions, values }) => ({
         configuration: {
             defaults: {} as HogFunctionType,
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : null,
+                    ...values.inputFormErrors,
                 }
             },
             submit: async (data) => {
@@ -147,8 +147,35 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         },
     })),
+    selectors(() => ({
+        loading: [
+            (s) => [s.hogFunctionLoading, s.templateLoading],
+            (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
+        ],
+        loaded: [(s) => [s.hogFunction, s.template], (hogFunction, template) => !!hogFunction || !!template],
 
-    listeners(({ actions, values, cache }) => ({
+        inputFormErrors: [
+            (s) => [s.configuration],
+            (configuration) => {
+                const inputs = configuration.inputs ?? {}
+                const inputErrors = {}
+
+                configuration.inputs_schema?.forEach((input) => {
+                    if (input.required && !inputs[input.name]) {
+                        inputErrors[input.name] = 'This field is required'
+                    }
+                })
+
+                return Object.keys(inputErrors).length > 0
+                    ? {
+                          inputs: inputErrors,
+                      }
+                    : null
+            },
+        ],
+    })),
+
+    listeners(({ actions, values, cache, props }) => ({
         loadTemplateSuccess: ({ template }) => {
             if (template) {
                 const form: HogFunctionType = {
@@ -159,8 +186,23 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 actions.resetConfiguration(form)
             }
         },
+        loadHogFunctionSuccess: ({ hogFunction }) => {
+            if (hogFunction) {
+                actions.resetConfiguration({
+                    ...hogFunction,
+                    inputs: hogFunction.inputs ?? {},
+                })
+            }
+        },
         clearChanges: () => {
             actions.resetConfiguration(values.hogFunction ?? (values.template as HogFunctionType))
+        },
+        upsertHogFunctionSuccess: ({ hogFunction }) => {
+            if (!props.id) {
+                router.actions.replace(
+                    urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
+                )
+            }
         },
     })),
     // // TODO: Add this back in once we have a plan for handling automatic url changes
@@ -186,8 +228,9 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         }
     }),
 
-    subscriptions(({ props, values, actions, cache }) => ({
+    subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            console.log(configuration)
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

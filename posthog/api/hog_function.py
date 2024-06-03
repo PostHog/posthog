@@ -13,11 +13,11 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = HogFunction
         fields = [
+            "id",
             "name",
             "description",
             "created_at",
@@ -34,6 +34,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     class Meta:
         model = HogFunction
         fields = [
+            "id",
             "name",
             "description",
             "created_at",
@@ -48,25 +49,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "filters",
         ]
         read_only_fields = [
+            "id",
             "created_at",
             "created_by",
             "updated_at",
             "bytecode",
             "bytecode_error",
-            "inputs_schema",
-            "inputs",
-            "filters",
         ]
 
     def validate(self, attrs):
-        request = self.context["request"]
         team = self.context["get_team"]()
-
         attrs["team"] = team
-        attrs["created_by"] = request.user
-        attrs["last_modified_by"] = request.user
-
-        attrs["team"] = team
+        return attrs
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]

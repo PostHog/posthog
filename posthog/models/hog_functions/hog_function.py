@@ -57,5 +57,5 @@ class HogFunction(UUIDModel):
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
     get_client().publish(
         "reload-hog-function",
-        json.dumps({"teamId": instance.team_id, "hogFunctionId": instance.id}),
+        json.dumps({"teamId": instance.team_id, "hogFunctionId": str(instance.id)}),
     )

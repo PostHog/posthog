@@ -26,15 +26,15 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, missing } =
+    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
         useValues(logic)
     const { submitConfiguration, clearChanges, setShowSource } = useActions(logic)
 
-    if (loading && !missing) {
+    if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
-    if (missing) {
+    if (!loaded) {
         return <NotFound object="Hog function" />
     }
 
