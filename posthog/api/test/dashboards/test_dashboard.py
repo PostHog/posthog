@@ -1304,6 +1304,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "select": ["*"],
                         },
                     },
+                    "query_status": None,
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

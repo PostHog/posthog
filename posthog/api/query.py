@@ -83,7 +83,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
-            if "query_async" in result:
+            if result.get("query_status") and result["query_status"].get("complete") is False:
                 response_status = status.HTTP_202_ACCEPTED
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:

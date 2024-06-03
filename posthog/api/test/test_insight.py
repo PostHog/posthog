@@ -1562,8 +1562,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "force_async"}
             ).json()
             self.assertNotIn("code", response)
-            self.assertTrue(response.get("query_async"))
-            self.assertFalse(response.get("complete"))  # Just checking that recalculation was initiated
+            self.assertIs(response.get("query_status", {}).get("query_async"), True)
+            self.assertIs(
+                response.get("query_status", {}).get("complete"), False
+            )  # Just checking that recalculation was initiated
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(

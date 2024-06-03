@@ -104,8 +104,8 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         self.assertEqual(cache_key, "cache_f824b242d459b9deafa2340cb9575e93")
 
-    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
-    def test_cache_response(self, mock_enqueue_process_query_task):
+    @mock.patch("django.db.transaction.on_commit")
+    def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -143,7 +143,7 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
-            mock_enqueue_process_query_task.assert_called_once()
+            mock_on_commit.assert_called_once()
 
     def test_modifier_passthrough(self):
         try:
