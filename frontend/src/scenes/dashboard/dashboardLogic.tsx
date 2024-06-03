@@ -119,7 +119,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions({
-        loadDashboard: (payload: { refresh?: boolean; action: string }) => payload,
+        loadDashboard: (payload: { refresh?: boolean | 'async'; action: string }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
@@ -787,7 +787,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: false,
+                        refresh: 'async',
                         action: 'initial_load',
                     })
                 }

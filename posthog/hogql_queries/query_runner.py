@@ -369,6 +369,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def calculate(self) -> R:
         raise NotImplementedError()
 
+    def kick_off_async_calculation(
+        self, *, refresh: bool = False, cache_key: str, user: Optional[User] = None
+    ) -> QueryStatus:
+        return enqueue_process_query_task(
+            team=self.team,
+            user=user,
+            query_json=self.query.model_dump(),
+            query_id=cache_key,  # Use cache key as query ID to avoid duplicates
+            refresh_requested=refresh,
+        )
+
     def check_cache(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse | QueryStatus]:
@@ -432,10 +443,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation
-            return self.kick_off_async_calculation(refresh=True, user=user)
+            return self.kick_off_async_calculation(refresh=True, cache_key=cache_key, user=user)
         elif execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
-            results = self.check_cache(execution_mode=execution_mode, cache_key=cache_key)
+            results = self.check_cache(execution_mode=execution_mode, cache_key=cache_key, user=user)
             if results is not None:
                 return results
 
@@ -458,15 +469,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
-
-    def kick_off_async_calculation(self, *, refresh: bool = False, user: Optional[User] = None) -> QueryStatus:
-        return enqueue_process_query_task(
-            team=self.team,
-            user=user,
-            query_json=self.query.model_dump(),
-            query_id=None,  # TODO: Do we need to pass this?
-            refresh_requested=refresh,
-        )
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
