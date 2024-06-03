@@ -129,7 +129,7 @@ if (isMainThread) {
         await buildInParallel(configs, { onBuildComplete })
     } else {
         let runningBuilds = 0
-        configs.map((config, i) => {
+        configs.map((_, i) => {
             const worker = new Worker(__filename, { argv: [i].concat(process.argv.slice(2)) })
             worker.on('error', (err) => {
                 throw err
@@ -137,13 +137,13 @@ if (isMainThread) {
             worker.on('message', (msg) => {
                 if (msg == 'start') {
                     if (runningBuilds == 0) {
-                        server?.pauseServer()
+                        server.pauseServer()
                     }
                     runningBuilds++
                 } else if (msg == 'complete') {
                     runningBuilds--
                     if (runningBuilds == 0) {
-                        server?.resumeServer()
+                        server.resumeServer()
                         reloadLiveServer()
                     }
                 }
