@@ -966,13 +966,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     session_id: currentSessionId(),
                 })}`
 
-                actions.setRefreshStatus(insight.short_id, true, true)
-
                 try {
                     breakpoint()
 
-                    const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-                    const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
+                    let refreshedInsightResponse: Response | undefined
+                    let refreshedInsight: InsightModel = insight
+                    if (!insight.query_status) {
+                        // If the insight already has query status, we can operate based on that
+                        actions.setRefreshStatus(insight.short_id, true, true)
+
+                        refreshedInsightResponse = await api.getResponse(apiUrl, methodOptions)
+                        refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
+                    }
 
                     if (refreshedInsight.query_status) {
                         actions.setRefreshStatus(insight.short_id, false, true)
@@ -986,6 +991,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         session_id: currentSessionId(),
                                     }
                                 )}`
+                                // TODO: We get the insight again here to get everything in the right format (e.g. because of result vs results)
                                 const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                                 const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
                                 dashboardsModel.actions.updateDashboardInsight(
@@ -1002,26 +1008,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshStatus(insight.short_id)
                     }
 
-                    breakpoint()
-                    dashboardsModel.actions.updateDashboardInsight(
-                        refreshedInsight,
-                        [],
-                        props.id ? [props.id] : undefined
-                    )
+                    if (refreshedInsightResponse) {
+                        breakpoint()
+                        dashboardsModel.actions.updateDashboardInsight(
+                            refreshedInsight,
+                            [],
+                            props.id ? [props.id] : undefined
+                        )
 
-                    void captureTimeToSeeData(values.currentTeamId, {
-                        type: 'insight_load',
-                        context: 'dashboard',
-                        primary_interaction_id: dashboardQueryId,
-                        query_id: queryId,
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                        api_response_bytes: getResponseBytes(refreshedInsightResponse),
-                        insights_fetched: 1,
-                        insights_fetched_cached: 0,
-                        api_url: apiUrl,
-                    })
-                    totalResponseBytes += getResponseBytes(refreshedInsightResponse)
+                        void captureTimeToSeeData(values.currentTeamId, {
+                            type: 'insight_load',
+                            context: 'dashboard',
+                            primary_interaction_id: dashboardQueryId,
+                            query_id: queryId,
+                            status: 'success',
+                            time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+                            api_response_bytes: getResponseBytes(refreshedInsightResponse),
+                            insights_fetched: 1,
+                            insights_fetched_cached: 0,
+                            api_url: apiUrl,
+                        })
+                        totalResponseBytes += getResponseBytes(refreshedInsightResponse)
+                    }
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
                         cancelled = true

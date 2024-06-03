@@ -370,14 +370,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise NotImplementedError()
 
     def kick_off_async_calculation(
-        self, *, refresh: bool = False, cache_key: str, user: Optional[User] = None
+        self, *, cache_key: str, refresh_requested: bool = False, user: Optional[User] = None
     ) -> QueryStatus:
         return enqueue_process_query_task(
             team=self.team,
             user=user,
             query_json=self.query.model_dump(),
             query_id=cache_key,  # Use cache key as query ID to avoid duplicates
-            refresh_requested=refresh,
+            refresh_requested=refresh_requested,
         )
 
     def check_cache(
@@ -416,8 +416,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously
-                self.kick_off_async_calculation(user=user)
-                # TODO: We might want to return the query status as well
+                query_status = self.kick_off_async_calculation(cache_key=cache_key, user=user)
+                cached_response.query_status = query_status
                 return cached_response
         else:
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
@@ -427,7 +427,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously
-                return self.kick_off_async_calculation(user=user)
+                return self.kick_off_async_calculation(cache_key=cache_key, user=user)
 
         # Nothing useful out of cache, nor async query status
         return None
@@ -442,8 +442,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         CachedResponse: type[CR] = self.cached_response_type
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-            # We should always kick off async calculation
-            return self.kick_off_async_calculation(refresh=True, cache_key=cache_key, user=user)
+            # We should always kick off async calculation and disregard the cache
+            return self.kick_off_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
         elif execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
             results = self.check_cache(execution_mode=execution_mode, cache_key=cache_key, user=user)
