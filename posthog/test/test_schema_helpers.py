@@ -1,4 +1,3 @@
-import json
 from typing import Any
 from parameterized import parameterized
 
@@ -7,19 +6,19 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     EventPropertyFilter,
+    EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     FunnelStepReference,
     FunnelsQuery,
     FunnelVizType,
-    FunnelLayout,
     PersonPropertyFilter,
     PropertyOperator,
     StepOrderValue,
     BreakdownAttributionType,
     TrendsQuery,
 )
-from posthog.schema_helpers import to_json
+from posthog.schema_helpers import to_dict
 
 
 base_trends: dict[str, Any] = {"series": []}
@@ -39,8 +38,8 @@ class TestSchemaHelpers(TestCase):
         q1 = EventPropertyFilter(key="abc", operator=PropertyOperator.gt)
         q2 = PersonPropertyFilter(key="abc", operator=PropertyOperator.gt)
 
-        self.assertNotEqual(to_json(q1), to_json(q2))
-        self.assertIn('"type":"event"', str(to_json(q1)))
+        self.assertNotEqual(to_dict(q1), to_dict(q2))
+        self.assertIn("'type': 'event'", str(to_dict(q1)))
 
     def test_serializes_to_same_json_for_default_value(self):
         """
@@ -53,16 +52,70 @@ class TestSchemaHelpers(TestCase):
         q2 = EventPropertyFilter(key="abc", operator=None)
         q3 = EventPropertyFilter(key="abc", operator=PropertyOperator.exact)
 
-        self.assertEqual(to_json(q1), to_json(q2))
-        self.assertEqual(to_json(q2), to_json(q3))
-        self.assertNotIn("operator", str(to_json(q1)))
+        self.assertEqual(to_dict(q1), to_dict(q2))
+        self.assertEqual(to_dict(q2), to_dict(q3))
+        self.assertNotIn("operator", str(to_dict(q1)))
+
+    def test_serializes_empty_and_missing_insight_filter_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
+
+        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_empty_and_missing_breakdown_filter_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "breakdownFilter": {}})
+
+        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_empty_and_missing_date_range_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "dateRange": {}})
+
+        self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_series_without_frontend_only_props(self):
+        query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
+
+        result_dict = to_dict(query)
+
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
+
+    def test_serializes_insight_filter_without_frontend_only_props(self):
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
+
+        result_dict = to_dict(query)
+
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_display_with_canonic_alternatives(self):
+        # time series (gets removed as ActionsLineGraph is the default)
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
+        self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
+
+        # cumulative time series
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
+        self.assertEqual(
+            to_dict(query),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
+        )
+
+        # total value
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
+        self.assertEqual(
+            to_dict(query),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
+        )
 
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
-        self.assertEqual(to_json(q1), to_json(q2))
+        self.assertEqual(to_dict(q1), to_dict(q2))
         if num_keys == 0:
-            self.assertEqual(key in json.loads(to_json(q1)), False)
+            self.assertEqual(key in to_dict(q1), False)
         else:
-            self.assertEqual(num_keys, len(json.loads(to_json(q1))[key].keys()))
+            self.assertEqual(num_keys, len(to_dict(q1)[key].keys()))
 
     @parameterized.expand(
         [
@@ -70,7 +123,7 @@ class TestSchemaHelpers(TestCase):
             ({"date_to": "2024-02-02"}, {"date_to": "2024-02-02"}, 1),
         ]
     )
-    def test_date_range(self, f1, f2, num_keys):
+    def test_serializes_date_range(self, f1, f2, num_keys):
         q1 = TrendsQuery(**base_funnel, dateRange=f1)
         q2 = TrendsQuery(**base_funnel, dateRange=f2)
 
@@ -81,10 +134,10 @@ class TestSchemaHelpers(TestCase):
             # general: missing filter
             (None, {}, 0),
             ({}, {"display": "ActionsLineGraph"}, 0),
-            ({"display": "ActionsAreaGraph"}, {"display": "ActionsAreaGraph"}, 1),
+            ({"display": "BoldNumber"}, {"display": "BoldNumber"}, 1),
         ]
     )
-    def test_trends_filter(self, f1, f2, num_keys):
+    def test_serializes_trends_filter(self, f1, f2, num_keys):
         q1 = TrendsQuery(**base_funnel, trendsFilter=f1)
         q2 = TrendsQuery(**base_funnel, trendsFilter=f2)
 
@@ -159,11 +212,15 @@ class TestSchemaHelpers(TestCase):
             # hidden_legend_breakdowns
             # ({}, {"hidden_legend_breakdowns": []}, 0),
             # layout
-            ({}, {"layout": FunnelLayout.vertical}, 0),
-            ({"layout": FunnelLayout.horizontal}, {"layout": FunnelLayout.horizontal}, 1),
+            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 0),
+            (
+                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                1,
+            ),
         ]
     )
-    def test_funnels_filter(self, f1, f2, num_keys):
+    def test_serializes_funnels_filter(self, f1, f2, num_keys):
         q1 = FunnelsQuery(**base_funnel, funnelsFilter=f1)
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 

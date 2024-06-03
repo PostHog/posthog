@@ -3749,16 +3749,10 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "default": {
-                        "breakdown_type": "event"
-                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -3768,9 +3762,6 @@
                 },
                 "funnelsFilter": {
                     "$ref": "#/definitions/FunnelsFilter",
-                    "default": {
-                        "exclusions": []
-                    },
                     "description": "Properties specific to the funnels insight"
                 },
                 "interval": {
@@ -4684,9 +4675,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4737,9 +4725,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4790,9 +4775,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4843,9 +4825,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4896,9 +4875,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4990,9 +4966,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -5011,9 +4984,6 @@
                 },
                 "lifecycleFilter": {
                     "$ref": "#/definitions/LifecycleFilter",
-                    "default": {
-                        "showLegend": false
-                    },
                     "description": "Properties specific to the lifecycle insight"
                 },
                 "modifiers": {
@@ -5314,9 +5284,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7031,9 +6998,6 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7433,9 +7397,6 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7487,9 +7448,6 @@
                 },
                 "stickinessFilter": {
                     "$ref": "#/definitions/StickinessFilter",
-                    "default": {
-                        "compare": false
-                    },
                     "description": "Properties specific to the stickiness insight"
                 }
             },
@@ -7862,16 +7820,10 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "default": {
-                        "breakdown_type": "event"
-                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
-                    "default": {
-                        "date_from": "-7d"
-                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7923,9 +7875,6 @@
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
-                    "default": {
-                        "display": "ActionsLineGraph"
-                    },
                     "description": "Properties specific to the trends insight"
                 }
             },
