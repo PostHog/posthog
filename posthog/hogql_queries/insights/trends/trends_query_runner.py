@@ -243,9 +243,9 @@ class TrendsQueryRunner(QueryRunner):
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
-                    cohort_name = "all users" if str(value) == "0" else Cohort.objects.get(pk=value).name
-                    label = cohort_name
-                    value = value
+                    is_all = value == "all" or str(value) == "0"
+                    label = "all users" if is_all else Cohort.objects.get(pk=value).name
+                    value = "all" if is_all else value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL:
                     label = BREAKDOWN_OTHER_DISPLAY
                 elif value == BREAKDOWN_NULL_STRING_LABEL:
