@@ -67,6 +67,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             validated_inputs = {}
 
             for schema in inputs_schema:
+                # TODO: Generate bytecode for json and dict fields too
                 name: str = schema["name"]
                 item = inputs.get(schema["name"])
                 value = item.get("value") if item else None

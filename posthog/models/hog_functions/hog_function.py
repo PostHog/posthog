@@ -4,7 +4,6 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
-from posthog.hogql.errors import BaseHogQLError
 from posthog.models.utils import UUIDModel
 from posthog.redis import get_client
 
@@ -22,6 +21,7 @@ class HogFunction(UUIDModel):
     hog: models.TextField = models.TextField()
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
 
+    # TODO: Rename to "variables"
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
