@@ -30,7 +30,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[list[str]]
+    breakdown_values_override: Optional[list[str | int]]
     limit_context: LimitContext
 
     def __init__(
