@@ -6,9 +6,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { HogQueryEditor } from 'scenes/debug/HogDebug'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { NodeKind } from '~/queries/schema'
 import { EntityTypes } from '~/types'
 
 import { HogFunctionInput } from './HogFunctionInputs'
@@ -238,7 +240,18 @@ export function PipelineHogFunctionConfiguration({
                                     </LemonField>
 
                                     <LemonField name="hog" label="Hog code">
-                                        <p>Coming soon!</p>
+                                        {({ value, onChange }) => (
+                                            // TODO: Fix this so we don't have to click "update and run"
+                                            <HogQueryEditor
+                                                query={{
+                                                    kind: NodeKind.HogQuery,
+                                                    code: value ?? '',
+                                                }}
+                                                setQuery={(q) => {
+                                                    onChange(q.code)
+                                                }}
+                                            />
+                                        )}
                                     </LemonField>
                                 </div>
                             ) : (

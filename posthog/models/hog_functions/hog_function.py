@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.hogql.errors import BaseHogQLError
 from posthog.models.utils import UUIDModel
 from posthog.redis import get_client
 
@@ -30,6 +31,26 @@ class HogFunction(UUIDModel):
 
     def __str__(self):
         return self.name
+
+    def refresh_bytecode(self):
+        from posthog.hogql.bytecode import create_bytecode, parse_program
+
+        try:
+            program = parse_program(self.hog)
+            new_bytecode = create_bytecode(program)
+            if new_bytecode != self.bytecode or self.bytecode_error is not None:
+                self.bytecode = new_bytecode
+                self.bytecode_error = None
+        except BaseHogQLError as e:
+            # There are several known cases when bytecode generation can fail. Instead of spamming
+            # Sentry with errors, ignore those cases for now.
+            if self.bytecode is not None or self.bytecode_error != str(e):
+                self.bytecode = None
+                self.bytecode_error = str(e)
+
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=HogFunction)
