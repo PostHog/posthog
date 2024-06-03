@@ -1,3 +1,4 @@
+import re
 from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
@@ -311,6 +312,15 @@ def get_lazy_session_table_properties(search: Optional[str]):
             return PropertyType.Boolean
         return PropertyType.String
 
+    search_words = re.findall(r"\w+", search.lower()) if search else None
+
+    def is_match(field_name: str) -> bool:
+        if field_name in hidden_fields:
+            return False
+        if not search_words:
+            return True
+        return all(word in field_name.lower() for word in search_words)
+
     results = [
         {
             "id": field_name,
@@ -322,7 +332,7 @@ def get_lazy_session_table_properties(search: Optional[str]):
             "tags": [],
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
-        if (not search or search.lower() in field_name.lower()) and field_name not in hidden_fields
+        if is_match(field_name)
     ]
     return results
 

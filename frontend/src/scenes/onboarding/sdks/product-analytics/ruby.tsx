@@ -1,6 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallRubyInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function RubyCaptureSnippet(): JSX.Element {
     return (
@@ -16,6 +17,7 @@ export function ProductAnalyticsRubyInstructions(): JSX.Element {
             <SDKInstallRubyInstructions />
             <h3>Send an Event</h3>
             <RubyCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }

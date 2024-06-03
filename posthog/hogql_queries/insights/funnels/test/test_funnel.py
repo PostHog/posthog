@@ -21,7 +21,7 @@ from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import (
     ActorsQuery,
     BreakdownFilter,
-    DateRange,
+    InsightDateRange,
     EventsNode,
     FunnelsActorsQuery,
     FunnelsQuery,
@@ -3659,7 +3659,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
-                dateRange=DateRange(
+                dateRange=InsightDateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3692,7 +3692,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="test'1"), EventsNode()],
-                dateRange=DateRange(
+                dateRange=InsightDateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
