@@ -2546,8 +2546,11 @@ export interface Survey {
 
 export enum SurveyUrlMatchType {
     Exact = 'exact',
+    NotExact = 'not_exact',
     Contains = 'icontains',
+    NotContains = 'not_icontains',
     Regex = 'regex',
+    NotRegex = 'not_regex',
 }
 
 export enum SurveyType {

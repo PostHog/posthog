@@ -13,8 +13,11 @@ export const SurveyQuestionLabel = {
 
 export const SurveyUrlMatchTypeLabels = {
     [SurveyUrlMatchType.Contains]: '∋ contains',
+    [SurveyUrlMatchType.NotContains]: "∌ doesn't contain",
     [SurveyUrlMatchType.Regex]: '∼ matches regex',
+    [SurveyUrlMatchType.NotRegex]: "≁ doesn't match regex",
     [SurveyUrlMatchType.Exact]: '= equals',
+    [SurveyUrlMatchType.NotExact]: "≠ doesn't equal",
 }
 
 export const defaultSurveyAppearance = {
