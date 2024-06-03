@@ -3749,9 +3749,6 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "default": {
-                        "breakdown_type": "event"
-                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
@@ -7853,9 +7850,6 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "default": {
-                        "breakdown_type": "event"
-                    },
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {

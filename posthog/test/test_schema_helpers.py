@@ -57,6 +57,53 @@ class TestSchemaHelpers(TestCase):
         self.assertEqual(to_json(q2), to_json(q3))
         self.assertNotIn("operator", str(to_json(q1)))
 
+    def test_serializes_empty_and_missing_insight_filter_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
+
+        self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_empty_and_missing_breakdown_filter_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "breakdownFilter": {}})
+
+        self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_series_without_frontend_only_props(self):
+        query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
+
+        result_dict = json.loads(to_json(query))
+
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
+
+    def test_serializes_insight_filter_without_frontend_only_props(self):
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
+
+        result_dict = json.loads(to_json(query))
+
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+
+    def test_serializes_display_with_canonic_alternatives(self):
+        # time series (gets removed as ActionsLineGraph is the default)
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
+        self.assertEqual(json.loads(to_json(query)), {"kind": "TrendsQuery", "series": []})
+
+        # cumulative time series
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
+        self.assertEqual(
+            json.loads(to_json(query)),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
+        )
+
+        # total value
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
+        self.assertEqual(
+            json.loads(to_json(query)),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
+        )
+
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
         self.assertEqual(to_json(q1), to_json(q2))
         if num_keys == 0:
@@ -70,7 +117,7 @@ class TestSchemaHelpers(TestCase):
             ({"date_to": "2024-02-02"}, {"date_to": "2024-02-02"}, 1),
         ]
     )
-    def test_date_range(self, f1, f2, num_keys):
+    def test_serializes_date_range(self, f1, f2, num_keys):
         q1 = TrendsQuery(**base_funnel, dateRange=f1)
         q2 = TrendsQuery(**base_funnel, dateRange=f2)
 
@@ -84,7 +131,7 @@ class TestSchemaHelpers(TestCase):
             ({"display": "BoldNumber"}, {"display": "BoldNumber"}, 1),
         ]
     )
-    def test_trends_filter(self, f1, f2, num_keys):
+    def test_serializes_trends_filter(self, f1, f2, num_keys):
         q1 = TrendsQuery(**base_funnel, trendsFilter=f1)
         q2 = TrendsQuery(**base_funnel, trendsFilter=f2)
 
@@ -167,48 +214,8 @@ class TestSchemaHelpers(TestCase):
             ),
         ]
     )
-    def test_funnels_filter(self, f1, f2, num_keys):
+    def test_serializes_funnels_filter(self, f1, f2, num_keys):
         q1 = FunnelsQuery(**base_funnel, funnelsFilter=f1)
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 
         self._assert_filter("funnelsFilter", num_keys, q1, q2)
-
-    def test_removes_frontend_only_props_from_series(self):
-        query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
-
-        result_dict = json.loads(to_json(query))
-
-        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
-
-    def test_removes_frontend_only_props_from_insight_filter(self):
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
-
-        result_dict = json.loads(to_json(query))
-
-        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
-
-    def test_replaces_display_with_canonic_alternatie(self):
-        # time series (gets removed as ActionsLineGraph is the default)
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
-        self.assertEqual(json.loads(to_json(query)), {"kind": "TrendsQuery", "series": []})
-
-        # cumulative time series
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
-        self.assertEqual(
-            json.loads(to_json(query)),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
-        )
-
-        # total value
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
-        self.assertEqual(
-            json.loads(to_json(query)),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
-        )
-
-    def test_serializes_empty_and_missing_filter_equally(self):
-        q1 = TrendsQuery(**base_trends)
-        q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
-
-        self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
-        self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})

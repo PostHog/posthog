@@ -722,19 +722,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
-    /**
-     * Breakdown of the events and actions
-     *
-     * @default {"breakdown_type": "event"}
-     */
-    // :TRICKY: We can't set the default to an empty dict, as otherwise
-    // datamodel-code-generator does not generate a model with a factory.
-    //
-    // This would cause a different serialization of an empty and a missing
-    // prop, which we don't want for stable cache keys.
-    //
-    // As a workaround we simply set any prop to its default, so that a
-    // factory is used to instantiate an empty model for a missing prop.
+    /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
 }
 
@@ -795,19 +783,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     series: AnyEntityNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
-    /**
-     * Breakdown of the events and actions
-     *
-     * @default {"breakdown_type": "event"}
-     */
-    // :TRICKY: We can't set the default to an empty dict, as otherwise
-    // datamodel-code-generator does not generate a model with a factory.
-    //
-    // This would cause a different serialization of an empty and a missing
-    // prop, which we don't want for stable cache keys.
-    //
-    // As a workaround we simply set any prop to its default, so that a
-    // factory is used to instantiate an empty model for a missing prop.
+    /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
 }
 

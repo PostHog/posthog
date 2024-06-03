@@ -3536,10 +3536,7 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(
-        default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
-        description="Breakdown of the events and actions",
-    )
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
         description="Date range for the query",
@@ -3642,10 +3639,7 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(
-        default_factory=lambda: BreakdownFilter.model_validate({"breakdown_type": "event"}),
-        description="Breakdown of the events and actions",
-    )
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[InsightDateRange] = Field(
         default_factory=lambda: InsightDateRange.model_validate({"date_from": "-7d"}),
         description="Date range for the query",

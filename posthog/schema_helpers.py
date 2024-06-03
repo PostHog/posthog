@@ -84,6 +84,9 @@ def to_json(query: BaseModel) -> bytes:
                         # remove empty insight filters, so that empty and not existing filter serialize to the same json
                         if len(dumped[insightFilterKey]) == 0:
                             del dumped[insightFilterKey]
+                    elif name == "breakdownFilter":
+                        if len(dumped["breakdownFilter"]) == 0:
+                            del dumped["breakdownFilter"]
 
             return dumped
 
