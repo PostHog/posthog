@@ -1,4 +1,4 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -6,6 +6,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
+
+const ERROR_TOAST_ID = 'live-stream-error'
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
@@ -24,6 +26,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
+        showLiveStreamErrorToast: true,
     })),
     reducers({
         events: [
@@ -101,7 +104,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setFilters: () => {
             actions.clearEvents()
             actions.updateEventsConnection()
@@ -134,6 +137,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             const batch: Record<string, any>[] = []
             source.onmessage = function (event: any) {
+                lemonToast.dismiss(ERROR_TOAST_ID)
                 const eventData = JSON.parse(event.data)
                 batch.push(eventData)
                 // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
@@ -143,8 +147,15 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 }
             }
 
-            source.onerror = function () {
-                lemonToast.error('Failed to connect to live events stream. Please refresh and try again.')
+            source.onerror = function (e) {
+                console.error(e)
+                if (!cache.hasShownLiveStreamErrorToast) {
+                    lemonToast.error(
+                        `Cannot connect to the live event stream. Continuing to retry in the background…`,
+                        { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }
+                    )
+                    cache.hasShownLiveStreamErrorToast = true // Only show roughly once
+                }
             }
 
             actions.updateEventsSource(source)

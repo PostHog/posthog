@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -9,32 +9,26 @@ import React from 'react'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { activitySceneLogicType } from './ActivitySceneType'
 import { EventsScene } from './events/EventsScene'
 import { LiveEventsTable } from './live-events/LiveEventsTable'
 
-export enum ActivityTab {
-    ExploreEvents = 'explore',
-    LiveEvents = 'live',
-}
-
-const tabs: Record<
-    ActivityTab,
-    { url: string; label: LemonTab<any>['label']; content: JSX.Element; buttons?: React.ReactNode }
-> = {
-    [ActivityTab.ExploreEvents]: {
-        url: urls.exploreEvents(),
+const ACTIVITY_TABS: LemonTab<ActivityTab>[] = [
+    {
+        key: ActivityTab.ExploreEvents,
         label: 'Explore',
         content: <EventsScene />,
+        link: urls.activity(ActivityTab.ExploreEvents),
     },
-    [ActivityTab.LiveEvents]: {
-        url: urls.liveEvents(),
+    {
+        key: ActivityTab.LiveEvents,
         label: 'Live',
         content: <LiveEventsTable />,
+        link: urls.activity(ActivityTab.LiveEvents),
     },
-}
+]
 
 const activitySceneLogic = kea<activitySceneLogicType>([
     path(['scenes', 'events', 'activitySceneLogic']),
@@ -60,65 +54,33 @@ const activitySceneLogic = kea<activitySceneLogicType>([
                     {
                         key: Scene.Activity,
                         name: `Activity`,
-                        path: tabs.explore.url,
+                        path: urls.activity(),
                     },
                     {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
-                        path: tabs[tab].url,
                     },
                 ]
             },
         ],
-        enabledTabs: [
-            () => [],
-            (): ActivityTab[] => {
-                return Object.keys(tabs) as ActivityTab[]
-            },
-        ],
     }),
-    actionToUrl(() => ({
-        setTab: ({ tab }) => {
-            const tabUrl = tabs[tab as ActivityTab]?.url || tabs.explore.url
-            if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
-                // don't clear the parameters if we're already on the right page
-                // otherwise we can't use a url with parameters as a landing page
-                return
-            }
-            return tabUrl
+    urlToAction(({ actions }) => ({
+        [urls.activity(':tab')]: ({ tab }) => {
+            actions.setTab(tab as ActivityTab)
         },
     })),
-    urlToAction(({ actions, values }) => {
-        return Object.fromEntries(
-            Object.entries(tabs).map(([key, tab]) => [
-                tab.url,
-                () => {
-                    if (values.tab !== key) {
-                        actions.setTab(key as ActivityTab)
-                    }
-                },
-            ])
-        )
-    }),
 ])
 
 export function ActivityScene(): JSX.Element {
-    const { tab, enabledTabs } = useValues(activitySceneLogic)
+    const { tab } = useValues(activitySceneLogic)
     const { setTab } = useActions(activitySceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const lemonTabs: LemonTab<ActivityTab>[] = enabledTabs.map((key) => ({
-        key: key as ActivityTab,
-        label: <span data-attr={`activity-${key}-tab`}>{tabs[key].label}</span>,
-        content: tabs[key].content,
-    }))
-
     return (
         <>
-            <PageHeader tabbedPage buttons={<>{tabs[tab].buttons}</>} />
-
+            <PageHeader tabbedPage />
             {featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? (
-                <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
+                <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={ACTIVITY_TABS} />
             ) : (
                 <EventsScene />
             )}

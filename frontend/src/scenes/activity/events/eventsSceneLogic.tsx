@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { Node } from '~/queries/schema'
+import { ActivityTab } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
@@ -31,7 +32,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: () => [
-            urls.exploreEvents(),
+            urls.activity(ActivityTab.ExploreEvents),
             {},
             objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
@@ -39,7 +40,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.exploreEvents()]: (_, __, { q: queryParam }): void => {
+        [urls.activity(ActivityTab.ExploreEvents)]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {

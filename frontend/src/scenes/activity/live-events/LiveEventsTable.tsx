@@ -1,14 +1,14 @@
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live-events/liveEventsTableLogic'
 
-import { LiveEvent } from '~/types'
+import type { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -40,27 +40,30 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
-    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div data-attr="manage-events-table">
-            <LemonBanner className="mb-4" type="info">
-                Live events is a beta feature and may not be fully accurate.{' '}
-                <Link onClick={() => openSupportForm({ kind: 'feedback' })}>Contact us</Link> if you need help with this
-                feature.
-            </LemonBanner>
-            <div className="mb-2 flex w-full justify-between items-center">
+            <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
-                    <Tooltip title="This number represents the current number of unique users on events being send to PostHog.">
+                    <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
                         <div className="flex flex-justify-center items-center bg-white px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-50" />
+                                <span
+                                    className={clsx(
+                                        'absolute inline-flex h-full w-full rounded-full bg-danger',
+                                        stats?.users_on_product != null && 'animate-ping'
+                                    )}
+                                    // Unfortunately we can't use the `opacity-50` class, because we use Tailwind's
+                                    // `important: true` and because of that Tailwind's `opacity` completely overrides
+                                    // the animation (see https://github.com/tailwindlabs/tailwindcss/issues/9225)
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ opacity: 0.75 }}
+                                />
                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
                             </span>
-                            <p className="mb-0 text-sm">
-                                Live users on product:{' '}
-                                <b>{stats?.users_on_product ? `${stats?.users_on_product}` : '-'}</b>
-                            </p>
+                            <span className="text-sm cursor-default">
+                                Users active right now: <b>{stats?.users_on_product ?? '—'}</b>
+                            </span>
                         </div>
                     </Tooltip>
                 </div>
@@ -73,7 +76,7 @@ export function LiveEventsTable(): JSX.Element {
                                 <IconPauseFilled className="w-4 h-4" />
                             )
                         }
-                        type="primary"
+                        type="secondary"
                         onClick={streamPaused ? resumeStream : pauseStream}
                     >
                         {streamPaused ? 'Play' : 'Pause'}
@@ -87,9 +90,15 @@ export function LiveEventsTable(): JSX.Element {
                 dataSource={events}
                 useURLForSorting={false}
                 emptyState={
-                    <div className="flex flex-col justify-center items-center space-y-3 py-10">
-                        <Spinner className="w-6 h-6" textColored />
-                        <p className="font-medium text-base">Loading live events</p>
+                    <div className="flex flex-col justify-center items-center gap-4 p-6">
+                        {!streamPaused ? (
+                            <Spinner className="text-4xl" textColored />
+                        ) : (
+                            <IconPauseFilled className="text-4xl" />
+                        )}
+                        <span className="text-lg font-title font-semibold leading-tight">
+                            {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
+                        </span>
                     </div>
                 }
                 nouns={['event', 'events']}
