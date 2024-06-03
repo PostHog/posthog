@@ -70,16 +70,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Cohort',
         defaultDocsPath: '/docs/data/cohorts',
     },
-    [Scene.ExploreEvents]: {
-        projectBased: true,
-        name: 'Activity',
-        defaultDocsPath: '/docs/data/events',
-    },
-    [Scene.LiveEvents]: {
-        projectBased: true,
-        name: 'Activity',
-        defaultDocsPath: '/docs/data/events',
-    },
     [Scene.Activity]: {
         projectBased: true,
         name: 'Activity',
