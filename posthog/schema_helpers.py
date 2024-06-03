@@ -20,27 +20,22 @@ def to_json(query: BaseModel) -> bytes:
 
     class ExtendedQuery(klass):
         @model_serializer(mode="wrap")
-        def include_literals(self, next_serializer):
-            """
-            Our schema is generated with `Literal` fields for type, kind, etc. These
-            are stripped by the `exclude_defaults=True` option, so we add them back in
-            here.
-            """
+        def serialize_query(self, next_serializer):
             dumped = next_serializer(self)
+
+            ###
+            # Our schema is generated with `Literal` fields for type, kind, etc. These
+            # are stripped by the `exclude_defaults=True` option, so we add them back in
+            # here.
             for name, field_info in self.model_fields.items():
                 if get_origin(field_info.annotation) == Literal:
                     dumped[name] = getattr(self, name)
-            return dumped
 
-        @model_serializer(mode="wrap")
-        def clean_insight_queries(self, next_serializer):
-            """
-            Frontend only settings like which graph type is displayed, that don't affect
-            the generated dataset should be removed.
-            """
+            ###
+            # Frontend only settings like which graph type is displayed, that don't affect
+            # the generated dataset should be removed.
+            #
             # Keep this in sync with the frontend side "cleanInsightQuery" function.
-            dumped = next_serializer(self)
-
             if isinstance(
                 self,
                 (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery),

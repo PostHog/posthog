@@ -175,26 +175,30 @@ class TestSchemaHelpers(TestCase):
 
         result_dict = json.loads(to_json(query))
 
-        self.assertEqual(result_dict, {"series": [{"name": "$pageview"}]})
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
 
     def test_removes_frontend_only_props_from_insight_filter(self):
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
 
         result_dict = json.loads(to_json(query))
 
-        self.assertEqual(result_dict, {"series": []})
+        self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
 
     def test_replaces_display_with_canonic_alternatie(self):
         # time series (gets removed as ActionsLineGraph is the default)
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
-        self.assertEqual(json.loads(to_json(query)), {"series": []})
+        self.assertEqual(json.loads(to_json(query)), {"kind": "TrendsQuery", "series": []})
 
         # cumulative time series
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
         self.assertEqual(
-            json.loads(to_json(query)), {"series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}}
+            json.loads(to_json(query)),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
         )
 
         # total value
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
-        self.assertEqual(json.loads(to_json(query)), {"series": [], "trendsFilter": {"display": "ActionsBarValue"}})
+        self.assertEqual(
+            json.loads(to_json(query)),
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
+        )
