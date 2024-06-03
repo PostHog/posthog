@@ -65,7 +65,7 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                     />
                 </div>
             </div>
-            <div className="p-2">
+            <div className="flex gap-2 p-2">
                 <UniversalFilters
                     group={universalFilters.filter_group}
                     onChange={(filterGroup) => {

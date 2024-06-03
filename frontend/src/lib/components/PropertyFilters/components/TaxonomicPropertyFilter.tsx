@@ -72,12 +72,9 @@ export function TaxonomicPropertyFilter({
             onComplete?.()
         }
     }
-    // const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
-    // const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
-        // propertyFilterLogic: builtPropertyFilterLogic,
         filters,
         setFilter,
         filterIndex: index,

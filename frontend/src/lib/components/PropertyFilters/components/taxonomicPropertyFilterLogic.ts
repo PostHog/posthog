@@ -26,8 +26,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key]),
     connect((props: TaxonomicPropertyFilterLogicProps) => ({
         values: [
-            // props.propertyFilterLogic,
-            // ['filters'],
             taxonomicFilterLogic({
                 taxonomicFilterLogicKey: props.pageKey,
                 taxonomicGroupTypes: props.taxonomicGroupTypes,

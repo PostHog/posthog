@@ -1,11 +1,14 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    createDefaultPropertyFilter,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
-import { createDefaultPropertyFilter, taxonomicFilterTypeToPropertyFilterType } from '../PropertyFilters/utils'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { UniversalFilterValue, UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'

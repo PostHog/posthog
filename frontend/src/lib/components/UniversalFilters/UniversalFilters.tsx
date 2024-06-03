@@ -54,23 +54,19 @@ export function UniversalFilters({
     useMountedLogic(actionsModel)
 
     return (
-        <div>
-            <div>Root Type: {filterGroup.type}</div>
-            <div>Values: {JSON.stringify(filterGroup.values)}</div>
+        <>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <div className="border">
-                        <UniversalFilters
-                            key={index}
-                            pageKey={`${pageKey}.group_${index}`}
-                            group={filterOrGroup}
-                            onChange={(group) => replaceGroupValue(index, group)}
-                            allowGroups={false} // only ever allow a single level of group nesting
-                            allowFilters={true}
-                            taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
-                            taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
-                        />
-                    </div>
+                    <UniversalFilters
+                        key={index}
+                        pageKey={`${pageKey}.group_${index}`}
+                        group={filterOrGroup}
+                        onChange={(group) => replaceGroupValue(index, group)}
+                        allowGroups={false} // only ever allow a single level of group nesting
+                        allowFilters={true}
+                        taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
+                        taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
+                    />
                 ) : (
                     <UniversalFilterRow
                         key={index}
@@ -88,7 +84,7 @@ export function UniversalFilters({
                     overlay={
                         <TaxonomicFilter
                             onChange={(taxonomicGroup, value, item) => {
-                                addGroupFilter(taxonomicGroup, value, item)
+                                addGroupFilter(taxonomicGroup, value, item?.propertyFilterType)
                                 setDropdownOpen(false)
                             }}
                             taxonomicGroupTypes={[
@@ -125,7 +121,7 @@ export function UniversalFilters({
                     </LemonButton>
                 </LemonDropdown>
             )}
-        </div>
+        </>
     )
 }
 
