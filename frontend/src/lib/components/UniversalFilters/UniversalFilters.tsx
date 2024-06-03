@@ -30,11 +30,11 @@ export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 type UniversalFiltersProps = {
     pageKey: string
     group: UniversalGroupFilterGroup | null
-    allowGroups: boolean
-    allowFilters: boolean
     onChange: (group: UniversalGroupFilterGroup) => void
     taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
     taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
+    allowGroups?: boolean
+    allowFilters?: boolean
 }
 
 export function UniversalFilters({
@@ -42,13 +42,9 @@ export function UniversalFilters({
     group = null,
     allowGroups = false,
     allowFilters = false,
-    onChange = (group: UniversalGroupFilterGroup) => console.log(group),
-    taxonomicEntityFilterGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-    taxonomicPropertyFilterGroupTypes = [
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.SessionProperties,
-    ],
+    onChange,
+    taxonomicEntityFilterGroupTypes,
+    taxonomicPropertyFilterGroupTypes,
 }: UniversalFiltersProps): JSX.Element {
     const logic = universalFiltersLogic({ pageKey, group, onChange })
     const { filterGroup } = useValues(logic)

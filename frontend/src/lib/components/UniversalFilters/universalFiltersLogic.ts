@@ -10,7 +10,7 @@ import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/t
 import { UniversalFilterValue, UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
-const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalGroupFilterGroup = {
+export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalGroupFilterGroup = {
     type: FilterLogicalOperator.And,
     values: [
         {

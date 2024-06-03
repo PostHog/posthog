@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
+import { HogQLFilters } from '../filters/HogQLFilters'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
@@ -354,6 +355,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         isRecordingsListCollapsed,
     } = useValues(logic)
     const { toggleRecordingsListCollapsed } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -362,8 +364,12 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const notebookNode = useNotebookNode()
 
+    const hasUniversalFilters = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]
+
     return (
-        <>
+        <div className="h-full space-y-2">
+            {hasUniversalFilters && <HogQLFilters />}
+
             <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
                 <div
                     ref={playlistRef}
@@ -423,6 +429,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     </div>
                 </div>
             </BindLogic>
-        </>
+        </div>
     )
 }
