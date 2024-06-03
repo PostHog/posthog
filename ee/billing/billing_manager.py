@@ -60,6 +60,7 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 def compute_usage_per_tier(current_usage: int, projected_usage: int, tiers, limit):
     remaining_usage = current_usage
+    # Units available under the current billing limit
     limited_remaining_usage = limit or current_usage
     remaining_projected_usage = projected_usage or 0
     previous_tier: Optional[dict[str, Any]] = None
@@ -80,9 +81,10 @@ def compute_usage_per_tier(current_usage: int, projected_usage: int, tiers, limi
         flat_amount_usd = Decimal(tier.get("flat_amount_usd") or 0)
         unit_amount_usd = Decimal(tier.get("unit_amount_usd") or 0)
         usage_this_tier = int(min(remaining_usage, tier_max_usage))
+        # Get the units avaiable in this tier according to the billing limit
         limited_usage_this_tier = int(min(limited_remaining_usage, tier_max_usage))
-        limited_remaining_usage -= usage_this_tier
-        limited_remaining_usage = max(limited_remaining_usage, 0)
+        # The user can have used more units than their billing limits allow.
+        limited_remaining_usage = max(limited_remaining_usage - usage_this_tier, 0)
         remaining_usage -= usage_this_tier
         current_amount_usd = Decimal(unit_amount_usd * limited_usage_this_tier + flat_amount_usd).quantize(
             Decimal("0.01")
