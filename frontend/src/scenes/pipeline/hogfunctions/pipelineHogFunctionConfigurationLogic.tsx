@@ -66,7 +66,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
     actions({
         clearChanges: true,
-        upsertHogFunction: (data: HogFunctionType) => ({ data }),
         setShowSource: (showSource: boolean) => ({ showSource }),
     }),
     // connect(() => ({
@@ -90,7 +89,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         ],
     }),
-    loaders(({ props, actions }) => ({
+    loaders(({ props }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -118,34 +117,13 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
 
                     return await api.hogFunctions.get(props.id)
                 },
-
-                upsertHogFunction: async ({ data }) => {
-                    const payload = {
-                        ...data,
-                        filters: data.filters ? sanitizeFilters(data.filters) : null,
-                    }
-
-                    try {
-                        if (!props.id) {
-                            return await api.hogFunctions.create(payload)
-                        }
-                        return await api.hogFunctions.update(props.id, payload)
-                    } catch (e) {
-                        const maybeValidationError = (e as any).data
-                        if (maybeValidationError?.type === 'validation_error') {
-                            actions.setConfigurationManualErrors({
-                                [maybeValidationError.attr]: maybeValidationError.detail,
-                            })
-                        }
-                        throw e
-                    }
-                },
             },
         ],
     })),
-    forms(({ asyncActions, values }) => ({
+    forms(({ values, props, actions }) => ({
         configuration: {
             defaults: {} as HogFunctionType,
+            alwaysShowErrors: true,
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : null,
@@ -153,7 +131,25 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 }
             },
             submit: async (data) => {
-                await asyncActions.upsertHogFunction(data)
+                const payload = {
+                    ...data,
+                    filters: data.filters ? sanitizeFilters(data.filters) : null,
+                }
+
+                try {
+                    if (!props.id) {
+                        return await api.hogFunctions.create(payload)
+                    }
+                    return await api.hogFunctions.update(props.id, payload)
+                } catch (e) {
+                    const maybeValidationError = (e as any).data
+                    if (maybeValidationError?.type === 'validation_error') {
+                        actions.setConfigurationManualErrors({
+                            [maybeValidationError.attr]: maybeValidationError.detail,
+                        })
+                    }
+                    throw e
+                }
             },
         },
     })),
@@ -207,10 +203,14 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         clearChanges: () => {
             actions.resetConfiguration(values.hogFunction ?? (values.template as HogFunctionType))
         },
-        upsertHogFunctionSuccess: ({ hogFunction }) => {
+        submitConfigurationSuccess: ({ configuration }) => {
             if (!props.id) {
                 router.actions.replace(
-                    urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
+                    urls.pipelineNode(
+                        PipelineStage.Destination,
+                        `hog-${configuration.id}`,
+                        PipelineNodeTab.Configuration
+                    )
                 )
             }
         },
