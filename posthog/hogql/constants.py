@@ -29,14 +29,15 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
-# Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+# Max limit for all SELECT queries, and the default for CSV exports
+# Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
+MAX_SELECT_RETURNED_ROWS = 50000
 # Max limit for heatmaps which don't really need 1 billion so have their own max
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 
-CSV_EXPORT_LIMIT = 10000
+CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
