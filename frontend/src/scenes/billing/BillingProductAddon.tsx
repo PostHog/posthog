@@ -189,7 +189,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             ${prorationAmount} charged today (pro-rated),
                             <br />
                             then {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} starting next
-                            invoice
+                            invoice.
                         </p>
                     )}
                 </div>
