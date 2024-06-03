@@ -144,9 +144,17 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 } catch (e) {
                     const maybeValidationError = (e as any).data
                     if (maybeValidationError?.type === 'validation_error') {
-                        actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
-                        })
+                        if (maybeValidationError.attr.includes('inputs__')) {
+                            actions.setConfigurationManualErrors({
+                                inputs: {
+                                    [maybeValidationError.attr.split('__')[1]]: maybeValidationError.detail,
+                                },
+                            })
+                        } else {
+                            actions.setConfigurationManualErrors({
+                                [maybeValidationError.attr]: maybeValidationError.detail,
+                            })
+                        }
                     }
                     throw e
                 }
@@ -169,6 +177,14 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 configuration.inputs_schema?.forEach((input) => {
                     if (input.required && !inputs[input.name]) {
                         inputErrors[input.name] = 'This field is required'
+                    }
+
+                    if (input.type === 'json' && inputs[input.name]) {
+                        try {
+                            JSON.parse(inputs[input.name].value)
+                        } catch (e) {
+                            inputErrors[input.name] = 'Invalid JSON'
+                        }
                     }
                 })
 

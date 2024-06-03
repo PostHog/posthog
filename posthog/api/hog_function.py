@@ -1,3 +1,6 @@
+import copy
+import json
+from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
@@ -11,6 +14,25 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+
+def generate_template_bytecode(value: str) -> list[Any]:
+    print("generating bytecode for", value)
+    return create_bytecode(parse_string_template(value))
+
+
+def generate_template_bytecode_for_object(obj: Any) -> Any:
+    """
+    Clones an object, compiling any string values to bytecode templates
+    """
+    if isinstance(obj, dict):
+        return {key: generate_template_bytecode_for_object(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [generate_template_bytecode_for_object(item) for item in obj]
+    elif isinstance(obj, str):
+        return generate_template_bytecode(obj)
+    else:
+        return obj
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -70,16 +92,24 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # TODO: Generate bytecode for json and dict fields too
                 name: str = schema["name"]
                 item = inputs.get(schema["name"])
+                item_type = schema.get("type")
                 value = item.get("value") if item else None
 
                 if not value and schema.get("required"):
-                    raise serializers.ValidationError({inputs: {name: "This field is required."}})
+                    raise serializers.ValidationError({"inputs": {name: "This field is required."}})
 
-                if value and schema.get("type") in ["string"]:
-                    call = parse_string_template(value)
-                    bytecode = create_bytecode(call)
-
-                    item["bytecode"] = bytecode
+                try:
+                    if value:
+                        if item_type == "string":
+                            item["bytecode"] = generate_template_bytecode(value)
+                        elif item_type in ["dictionary", "json"]:
+                            # Iterate over the object
+                            if item_type == "json":
+                                value = json.loads(value)
+                                item["value"] = value
+                            item["bytecode"] = generate_template_bytecode_for_object(value)
+                except Exception as e:
+                    raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
 
                 validated_inputs[name] = item
 
