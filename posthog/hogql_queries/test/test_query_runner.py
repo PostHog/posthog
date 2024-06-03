@@ -26,6 +26,8 @@ class TestQuery(BaseModel):
 
 
 class TestQueryRunner(BaseTest):
+    maxDiff = None
+
     def setup_test_query_runner_class(self):
         """Setup required methods and attributes of the abstract base class."""
 
@@ -68,6 +70,36 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
+    def test_cache_payload(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        cache_payload = runner.get_cache_payload()
+
+        # changes to the cache payload have a significant impact, as they'll
+        # result in new cache keys, which effectively invalidates our cache.
+        # this causes increased load on the cluster and increased cache
+        # memory usage (until old cache items are evicted).
+        self.assertEqual(
+            cache_payload,
+            {
+                "hogql_modifiers": {
+                    "inCohortVia": "auto",
+                    "materializationMode": "legacy_null_as_null",
+                    "personsArgMaxVersion": "auto",
+                    "personsOnEventsMode": "disabled",
+                },
+                "limit_context": "query",
+                "query": {"kind": "TestQuery", "some_attr": "bla"},
+                "query_runner": "TestQueryRunner",
+                "team_id": 42,
+                "timezone": "UTC",
+                "version": 2,
+            },
+        )
+
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -76,7 +108,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_9ec4601658411f9463234bf079d8f5b6")
+        self.assertEqual(cache_key, "cache_7d24771ea5182ac75c9e3eb793935ca2")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -90,7 +122,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_73b92e9e9263aec396fcbf8e296037c5")
+        self.assertEqual(cache_key, "cache_b40c7f719decbcc00d26d2ced2f09ed7")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -101,7 +133,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_426bf3a1a0a1d8eb3073c65028f3b485")
+        self.assertEqual(cache_key, "cache_0e0767a9656f2871ce6caede66d1cf15")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()
