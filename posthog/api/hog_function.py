@@ -7,7 +7,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program
+from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -61,8 +61,32 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         team = self.context["get_team"]()
         attrs["team"] = team
 
+        if attrs.get("inputs"):
+            inputs = attrs["inputs"]
+            inputs_schema = attrs.get("inputs_schema")
+            validated_inputs = {}
+
+            for schema in inputs_schema:
+                name: str = schema["name"]
+                item = inputs.get(schema["name"])
+                value = item.get("value") if item else None
+
+                if not value and schema.get("required"):
+                    raise serializers.ValidationError({inputs: {name: "This field is required."}})
+
+                if value and schema.get("type") in ["string"]:
+                    call = parse_string_template(value)
+                    bytecode = create_bytecode(call)
+
+                    item["bytecode"] = bytecode
+
+                validated_inputs[name] = item
+
+            attrs["inputs"] = validated_inputs
+
         # Attempt to compile the hog
         try:
+            # TODO: Also generate the bytecode for the inputs templating...
             program = parse_program(attrs["hog"])
             attrs["bytecode"] = create_bytecode(program)
         except Exception as e:
