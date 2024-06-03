@@ -27,6 +27,7 @@ declare global {
     }
 }
 
+/** Copied from https://github.com/DefinitelyTyped/DefinitelyTyped/blob/aaf94a0a/types/event-source-polyfill/index.d.ts#L43 */
 export declare class EventSource {
     static readonly CLOSED: number
     static readonly CONNECTING: number
