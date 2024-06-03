@@ -6886,6 +6886,16 @@
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
             "type": "object"
         },
+        "QueryStatusResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
+                }
+            },
+            "required": ["query_status"],
+            "type": "object"
+        },
         "QueryTiming": {
             "additionalProperties": false,
             "properties": {

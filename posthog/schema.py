@@ -826,6 +826,13 @@ class QueryStatus(BaseModel):
     team_id: int
 
 
+class QueryStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query_status: QueryStatus
+
+
 class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

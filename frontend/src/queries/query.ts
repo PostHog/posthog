@@ -114,7 +114,7 @@ export async function pollForResults(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = await api.queryStatus.get(queryId, showProgress)
+        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse
@@ -144,16 +144,16 @@ async function executeQuery<N extends DataNode>(
 
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
-    if (!response.query_async) {
+    if (!response.query_status?.query_async) {
         // Executed query synchronously
         return response
     }
-    if (response.complete || response.error) {
+    if (response.query_status?.complete || response.query_status?.error) {
         // Async query returned immediately
         return response.results
     }
 
-    const statusResponse = await pollForResults(response.id, showProgress, methodOptions, setPollResponse)
+    const statusResponse = await pollForResults(response.query_status.id, showProgress, methodOptions, setPollResponse)
     return statusResponse.results
 }
 

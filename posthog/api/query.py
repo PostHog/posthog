@@ -31,7 +31,7 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     TeamRateThrottle,
 )
-from posthog.schema import QueryRequest, QueryResponseAlternative
+from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -79,6 +79,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 self.team,
                 data.query,
                 execution_mode=execution_mode,
+                query_id=client_query_id,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -94,14 +95,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     @extend_schema(
         description="(Experimental)",
-        responses={
-            200: OpenApiResponse(description="Query status"),
-        },
+        responses={200: QueryStatusResponse},
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         query_status = get_query_status(
             team_id=self.team.pk, query_id=pk, show_progress=request.query_params.get("showProgress", False)
         )
+        query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
@@ -112,7 +112,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
-        return JsonResponse(query_status.model_dump(), safe=False, status=http_code)
+        return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
     @extend_schema(
         description="(Experimental)",

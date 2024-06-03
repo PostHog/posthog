@@ -947,6 +947,10 @@ interface CachedQueryResponseMixin {
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
 
+export interface QueryStatusResponse {
+    query_status: QueryStatus
+}
+
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */

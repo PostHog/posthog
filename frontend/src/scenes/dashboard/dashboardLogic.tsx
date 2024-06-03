@@ -980,7 +980,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     if (refreshedInsight.query_status) {
-                        actions.setRefreshStatus(insight.short_id, false, true)
                         pollForResults(refreshedInsight.query_status.id, false, methodOptions)
                             .then(async () => {
                                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams(

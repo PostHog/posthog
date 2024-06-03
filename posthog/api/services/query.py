@@ -42,6 +42,7 @@ def process_query_dict(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    query_id: Optional[str] = None,
 ) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -53,6 +54,7 @@ def process_query_dict(
         limit_context=limit_context,
         execution_mode=execution_mode,
         user=user,
+        query_id=query_id,
     )
 
 
@@ -64,6 +66,7 @@ def process_query_model(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    query_id: Optional[str] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -78,6 +81,7 @@ def process_query_model(
                 limit_context=limit_context,
                 execution_mode=execution_mode,
                 user=user,
+                query_id=query_id,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -136,6 +140,6 @@ def process_query_model(
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
-        result = query_runner.run(execution_mode=execution_mode, user=user)
+        result = query_runner.run(execution_mode=execution_mode, user=user, query_id=query_id)
 
     return result
