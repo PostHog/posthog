@@ -13,7 +13,6 @@ from posthog.schema import (
     FunnelStepReference,
     FunnelsQuery,
     FunnelVizType,
-    FunnelLayout,
     PersonPropertyFilter,
     PropertyOperator,
     StepOrderValue,
@@ -82,7 +81,7 @@ class TestSchemaHelpers(TestCase):
             # general: missing filter
             (None, {}, 0),
             ({}, {"display": "ActionsLineGraph"}, 0),
-            ({"display": "ActionsAreaGraph"}, {"display": "ActionsAreaGraph"}, 1),
+            ({"display": "BoldNumber"}, {"display": "BoldNumber"}, 1),
         ]
     )
     def test_trends_filter(self, f1, f2, num_keys):
@@ -160,8 +159,12 @@ class TestSchemaHelpers(TestCase):
             # hidden_legend_breakdowns
             # ({}, {"hidden_legend_breakdowns": []}, 0),
             # layout
-            ({}, {"layout": FunnelLayout.vertical}, 0),
-            ({"layout": FunnelLayout.horizontal}, {"layout": FunnelLayout.horizontal}, 1),
+            ({}, {"breakdownAttributionType": BreakdownAttributionType.first_touch}, 0),
+            (
+                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                {"breakdownAttributionType": BreakdownAttributionType.last_touch},
+                1,
+            ),
         ]
     )
     def test_funnels_filter(self, f1, f2, num_keys):
@@ -202,3 +205,10 @@ class TestSchemaHelpers(TestCase):
             json.loads(to_json(query)),
             {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
         )
+
+    def test_serializes_empty_and_missing_filter_equally(self):
+        q1 = TrendsQuery(**base_trends)
+        q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
+
+        self.assertEqual(json.loads(to_json(q1)), {"kind": "TrendsQuery", "series": []})
+        self.assertEqual(json.loads(to_json(q2)), {"kind": "TrendsQuery", "series": []})
