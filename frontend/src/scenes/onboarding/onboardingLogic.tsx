@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -239,13 +238,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowReverseProxyStep: [
-            (s) => [s.product, s.featureFlags, s.productKey],
-            (_product, featureFlags: FeatureFlagsSet, productKey) => {
-                const productsWithReverseProxy = []
-                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
-                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
-                }
-                return productsWithReverseProxy.includes(productKey as ProductKey)
+            (s) => [s.productKey],
+            (productKey) => {
+                return [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS].includes(productKey)
             },
         ],
         isStepKeyInvalid: [
