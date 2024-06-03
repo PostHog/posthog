@@ -127,14 +127,21 @@ if (isMainThread) {
     if (!isDev) {
         await buildInParallel(configs, { onBuildComplete })
     } else {
+        let runningBuilds = 0
         configs.map((config, i) => {
             const worker = new Worker(__filename, { argv: [i].concat(process.argv.slice(2)) })
             worker.on('error', (err) => {
                 throw err
             })
-            worker.on('message', () => {
-                console.log('build done', i)
-                reloadLiveServer()
+            worker.on('message', (msg) => {
+                if (msg == 'start') {
+                    runningBuilds++
+                } else if (msg == 'complete') {
+                    runningBuilds--
+                }
+                if (runningBuilds == 0) {
+                    reloadLiveServer()
+                }
             })
         })
     }
@@ -142,9 +149,12 @@ if (isMainThread) {
     const config = configs[parseInt(process.argv[2])]
     await buildOrWatch({
         ...config,
+        onBuildStart: async () => {
+            parentPort.postMessage('start')
+        },
         onBuildComplete: async (config, buildResponse) => {
             await onBuildComplete(config, buildResponse)
-            parentPort.postMessage('')
+            parentPort.postMessage('complete')
         },
     })
 }
