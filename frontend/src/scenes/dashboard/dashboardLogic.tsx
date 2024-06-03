@@ -87,31 +87,32 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = []
     const activePromises: Promise<void>[] = []
-    const remainingTasks = [...tasks] // Clone the tasks array to manage remaining tasks
+    const remainingTasks = [...tasks]
 
-    const enqueueTask = (): void => {
-        while (activePromises.length < limit && remainingTasks.length > 0) {
-            const task = remainingTasks.shift() // Get the next task and remove it from remaining
-            if (task) {
-                const promise = task()
-                    .then((result) => {
-                        results.push(result)
-                        void activePromises.splice(activePromises.indexOf(promise), 1) // Remove promise when done
-                    })
-                    .catch((error) => {
-                        void activePromises.splice(activePromises.indexOf(promise), 1) // Handle errors and remove promise
-                        console.error('Error executing task:', error)
-                    })
-                activePromises.push(promise)
-            }
-        }
+    const startTask = (task: () => Promise<T>): void => {
+        const promise = task()
+            .then((result) => {
+                results.push(result)
+            })
+            .catch((error) => {
+                console.error('Error executing task:', error)
+            })
+            .finally(() => {
+                void activePromises.splice(activePromises.indexOf(promise), 1)
+            })
+        activePromises.push(promise)
     }
 
-    enqueueTask() // Initial population of the activePromises array
+    for (let i = 0; i < limit && remainingTasks.length > 0; i++) {
+        startTask(remainingTasks.shift()!)
+    }
 
-    while (activePromises.length > 0) {
-        await Promise.race(activePromises)
-        enqueueTask() // Check and enqueue new tasks if there's room
+    while (remainingTasks.length > 0 || activePromises.length > 0) {
+        if (activePromises.length < limit && remainingTasks.length > 0) {
+            startTask(remainingTasks.shift()!)
+        } else {
+            await Promise.race(activePromises)
+        }
     }
 
     return results
