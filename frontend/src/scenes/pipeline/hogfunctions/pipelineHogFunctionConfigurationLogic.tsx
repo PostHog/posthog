@@ -131,9 +131,28 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 }
             },
             submit: async (data) => {
+                const sanitizedInputs = {}
+
+                data.inputs_schema?.forEach((input) => {
+                    if (input.type === 'json' && typeof data.inputs[input.name].value === 'string') {
+                        try {
+                            sanitizedInputs[input.name] = {
+                                value: JSON.parse(data.inputs[input.name].value),
+                            }
+                        } catch (e) {
+                            // Ignore
+                        }
+                    } else {
+                        sanitizedInputs[input.name] = {
+                            value: data.inputs[input.name].value,
+                        }
+                    }
+                })
+
                 const payload = {
                     ...data,
                     filters: data.filters ? sanitizeFilters(data.filters) : null,
+                    inputs: sanitizedInputs,
                 }
 
                 try {
