@@ -931,6 +931,17 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
+        async listMatchingPluginConfigs(
+            actionId: ActionType['id']
+        ): Promise<PaginatedResponse<PluginConfigWithPluginInfoNew>> {
+            return await new ApiRequest()
+                .actionsDetail(actionId)
+                .withAction('plugin_configs')
+                .withQueryString({
+                    limit: 1000,
+                })
+                .get()
+        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },

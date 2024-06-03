@@ -135,16 +135,18 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                                         <More
                                             overlay={
                                                 <>
-                                                    <LemonButton
-                                                        type="tertiary"
-                                                        data-attr={`reload-data-warehouse-${source.source_type}`}
-                                                        key={`reload-data-warehouse-${source.source_type}`}
-                                                        onClick={() => {
-                                                            reloadSource(source)
-                                                        }}
-                                                    >
-                                                        Reload
-                                                    </LemonButton>
+                                                    <Tooltip title="Start the data import for this schema again">
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                            key={`reload-data-warehouse-${source.source_type}`}
+                                                            onClick={() => {
+                                                                reloadSource(source)
+                                                            }}
+                                                        >
+                                                            Reload
+                                                        </LemonButton>
+                                                    </Tooltip>
 
                                                     <LemonButton
                                                         status="danger"
