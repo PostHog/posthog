@@ -354,14 +354,20 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
         except asyncio.TimeoutError:
             count = None
 
-    if count is not None and count > 0:
+    if count is None:
+        logger.info(
+            "Batch export for range %s - %s will continue without a count of rows to export",
+            inputs.data_interval_start,
+            inputs.data_interval_end,
+        )
+    elif count > 0:
         logger.info(
             "Batch export for range %s - %s will export %s rows",
             inputs.data_interval_start,
             inputs.data_interval_end,
             count,
         )
-    elif count is not None:
+    else:
         logger.info(
             "Batch export for range %s - %s has no rows to export",
             inputs.data_interval_start,
