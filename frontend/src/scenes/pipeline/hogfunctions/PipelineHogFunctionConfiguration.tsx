@@ -30,10 +30,6 @@ export function PipelineHogFunctionConfiguration({
         useValues(logic)
     const { submitConfiguration, clearChanges, setShowSource } = useActions(logic)
 
-    // if (!stage) {
-    //     return <NotFound object="pipeline stage" />
-    // }
-
     if (loading && !missing) {
         return <SpinnerOverlay />
     }
@@ -41,67 +37,6 @@ export function PipelineHogFunctionConfiguration({
     if (missing) {
         return <NotFound object="Hog function" />
     }
-
-    // const loading = loading || isConfigurationSubmitting
-
-    // const configSchemaArray = getConfigSchemaArray(plugin.config_schema)
-    // const fields = configSchemaArray.map((fieldConfig, index) => (
-    //     <React.Fragment key={fieldConfig.key || `__key__${index}`}>
-    //         {fieldConfig.key &&
-    //         fieldConfig.type &&
-    //         isValidField(fieldConfig) &&
-    //         !hiddenFields.includes(fieldConfig.key) ? (
-    //             <LemonField
-    //                 name={fieldConfig.key}
-    //                 label={
-    //                     <span className="flex flex-1 flex-row items-center">
-    //                         <span className="flex-1">
-    //                             {fieldConfig.secret && (
-    //                                 <Tooltip
-    //                                     placement="top-start"
-    //                                     title="This field is write-only. Its value won't be visible after saving."
-    //                                 >
-    //                                     <IconLock />
-    //                                 </Tooltip>
-    //                             )}
-    //                             {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}
-    //                             {fieldConfig.name || fieldConfig.key}
-    //                             {!requiredFields.includes(fieldConfig.key) ? (
-    //                                 <span className="text-muted-alt"> (optional)</span>
-    //                             ) : null}
-    //                         </span>
-
-    //                         {fieldConfig.templating && (
-    //                             <Tooltip
-    //                                 placement="bottom-start"
-    //                                 title={
-    //                                     <>
-    //                                         This field supports templating. You can include properties from the event,
-    //                                         person, related groups and more using curly brackets such as{' '}
-    //                                         <code> {'{event.event}'} </code>
-    //                                     </>
-    //                                 }
-    //                             >
-    //                                 <LemonTag type="completion">Supports templating</LemonTag>
-    //                             </Tooltip>
-    //                         )}
-    //                     </span>
-    //                 }
-    //                 help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
-    //             >
-    //                 <PluginField fieldConfig={fieldConfig} disabled={loading} />
-    //             </LemonField>
-    //         ) : (
-    //             <>
-    //                 {fieldConfig.type ? (
-    //                     <p className="text-danger">
-    //                         Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
-    //                     </p>
-    //                 ) : null}
-    //             </>
-    //         )}
-    //     </React.Fragment>
-    // ))
 
     const buttons = (
         <>
@@ -256,27 +191,29 @@ export function PipelineHogFunctionConfiguration({
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {configuration?.inputs_schema?.map((schema) => {
-                                        return (
-                                            <div key={schema.name}>
-                                                <LemonField
-                                                    name={`inputs.${schema.name}`}
-                                                    label={schema.label || schema.name}
-                                                    showOptional={!schema.required}
-                                                >
-                                                    {({ value, onChange }) => {
-                                                        return (
-                                                            <HogFunctionInput
-                                                                schema={schema}
-                                                                value={value?.value}
-                                                                onChange={(val) => onChange({ value: val })}
-                                                            />
-                                                        )
-                                                    }}
-                                                </LemonField>
-                                            </div>
-                                        )
-                                    }) ?? (
+                                    {configuration?.inputs_schema?.length ? (
+                                        configuration?.inputs_schema.map((schema) => {
+                                            return (
+                                                <div key={schema.name}>
+                                                    <LemonField
+                                                        name={`inputs.${schema.name}`}
+                                                        label={schema.label || schema.name}
+                                                        showOptional={!schema.required}
+                                                    >
+                                                        {({ value, onChange }) => {
+                                                            return (
+                                                                <HogFunctionInput
+                                                                    schema={schema}
+                                                                    value={value?.value}
+                                                                    onChange={(val) => onChange({ value: val })}
+                                                                />
+                                                            )
+                                                        }}
+                                                    </LemonField>
+                                                </div>
+                                            )
+                                        })
+                                    ) : (
                                         <span className="italic text-muted-alt">
                                             This function does not require any input variables.
                                         </span>

@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -43,6 +43,9 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/hogvm':
+    specifier: link:../hogvm/typescript
+    version: link:../hogvm/typescript
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
