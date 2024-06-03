@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
+from posthog.hogql_queries.insights.trends.test.test_trends_persons import _create_cohort
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
@@ -1814,6 +1815,46 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),
+        ]
+
+    def test_to_actors_query_options_breakdowns_cohort_all(self):
+        self._create_test_events()
+        cohort = _create_cohort(
+            team=self.team,
+            name="DE users",
+            groups=[{"properties": [{"key": "$geoip_country_code", "value": "DE", "type": "person"}]}],
+        )
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=["all", cohort.pk]),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.day is not None
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdown == [
+            BreakdownItem(label="all users", value="all"),
+            BreakdownItem(label="DE users", value=cohort.pk),
+        ]
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown="all"),
+        )
+        response = runner.to_actors_query_options()
+        assert response.breakdown == [
+            BreakdownItem(label="all users", value="all"),
         ]
 
     def test_to_actors_query_options_breakdowns_boolean(self):
