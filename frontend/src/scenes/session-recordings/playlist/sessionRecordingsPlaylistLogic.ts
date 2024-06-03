@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { convertUniversalFiltersToLegacyFilters } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,6 +15,7 @@ import posthog from 'posthog-js'
 
 import {
     DurationType,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -206,7 +208,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {} as Record<string, boolean>,
             {
                 loadEventsHaveSessionId: async () => {
-                    const events = values.filters.events
+                    const events = 'events' in values.filters ? values.filters.events : []
                     if (events === undefined || events.length === 0) {
                         return {}
                     }
@@ -225,8 +227,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as SessionRecordingsResponse,
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
+                    const filters = values.useUniversalFiltering
+                        ? convertUniversalFiltersToLegacyFilters(values.filters as RecordingUniversalFilters)
+                        : { ...values.filters, operand: FilterLogicalOperator.And }
+
                     const params = {
-                        ...values.filters,
+                        ...filters,
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,

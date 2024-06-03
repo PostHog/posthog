@@ -48,6 +48,10 @@ class SessionRecordingsMixin(BaseParamMixin):
         return json.loads(filter_group)
 
     @cached_property
+    def operand(self) -> list[Property]:
+        return self._data.get("operand", "and")
+
+    @cached_property
     def session_ids(self) -> Optional[list[str]]:
         # Can be ['a', 'b'] or "['a', 'b']" or "a,b"
         session_ids_str = self._data.get(SESSION_RECORDINGS_FILTER_IDS, None)

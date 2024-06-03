@@ -25,7 +25,6 @@ class SessionRecordingListFromFilters:
 
     _team: Team
     _filter: SessionRecordingsFilter
-    _universal_filtering: bool
 
     BASE_QUERY: str = """
         SELECT s.session_id,
@@ -81,12 +80,10 @@ class SessionRecordingListFromFilters:
         self,
         team: Team,
         filter: SessionRecordingsFilter,
-        universal_filtering: bool,
         **_,
     ):
         self._team = team
         self._filter = filter
-        self._universal_filtering = universal_filtering
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
@@ -124,10 +121,10 @@ class SessionRecordingListFromFilters:
         return ast.Field(chain=[order])
 
     def _universal_operand(self) -> ast.And | ast.Or:
-        return ast.And if not self._universal_filtering or self._filter.filter_group.operand == "and" else ast.Or
+        return ast.And if self._filter.operand == "and" else ast.Or
 
     def _where_predicates(self) -> ast.And:
-        exprs: list[ast.Expr] = [
+        mandatory_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -136,7 +133,7 @@ class SessionRecordingListFromFilters:
         ]
 
         if self._filter.date_from:
-            exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -144,7 +141,7 @@ class SessionRecordingListFromFilters:
                 )
             )
         if self._filter.date_to:
-            exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -153,7 +150,7 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.session_ids:
-            exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -161,9 +158,19 @@ class SessionRecordingListFromFilters:
                 )
             )
 
+        if self._filter.person_uuid:
+            mandatory_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self._filter.person_uuid),
+                )
+            )
+
+        conditional_exprs: list[ast.Expr] = []
         if self._filter.entities:
             events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
-            exprs.append(
+            conditional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "session_id"]),
@@ -174,16 +181,7 @@ class SessionRecordingListFromFilters:
         if self._filter.property_groups:
             # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
             # TODO: need to check multiple property types from replay queries
-            exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
-
-        if self._filter.person_uuid:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["person_id"]),
-                    right=ast.Constant(value=self._filter.person_uuid),
-                )
-            )
+            conditional_exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
 
         console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:
@@ -217,7 +215,7 @@ class SessionRecordingListFromFilters:
                 where=ast.And(exprs=console_logs_predicates),
             )
 
-            exprs.append(
+            conditional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -225,7 +223,7 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        return self._universal_operand(exprs=exprs)
+        return ast.And(exprs=[mandatory_exprs, self._universal_operand(exprs=conditional_exprs)])
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
