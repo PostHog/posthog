@@ -406,7 +406,7 @@ export function reloadLiveServer() {
     clients.forEach((client) => client.write(`data: reload\n\n`))
 }
 
-let server
+export let server
 export function startDevServer(absWorkingDir) {
     if (isDev) {
         console.log(`👀 Starting dev server`)

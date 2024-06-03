@@ -10,6 +10,7 @@ import {
     createHashlessEntrypoints,
     isDev,
     reloadLiveServer,
+    server,
     startDevServer,
 } from './utils.mjs'
 
@@ -135,12 +136,16 @@ if (isMainThread) {
             })
             worker.on('message', (msg) => {
                 if (msg == 'start') {
+                    if (runningBuilds == 0) {
+                        server?.pauseServer()
+                    }
                     runningBuilds++
                 } else if (msg == 'complete') {
                     runningBuilds--
-                }
-                if (runningBuilds == 0) {
-                    reloadLiveServer()
+                    if (runningBuilds == 0) {
+                        server?.resumeServer()
+                        reloadLiveServer()
+                    }
                 }
             })
         })
