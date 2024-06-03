@@ -899,3 +899,64 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
 
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+
+
+class TestActivationBillingAPI(APILicensedTest):
+    def test_activation_success(self):
+        url = "/api/billing-v2/activation"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activation", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    @patch("posthog.cloud_utils.get_cached_instance_license")
+    def test_activation_with_default_redirect_path(self, mock_get_cached_instance_license):
+        url = "/api/billing-v2/activation"
+        data = {
+            "products": "product_1:plan_1,product_2:plan_2",
+        }
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
+        self.assertRegex(response.url, url_pattern)
+
+    # @patch('ee.billing.billing_manager.BillingManager')
+    # def test_deactivate_success(self, mock_billing_manager):
+    #     mock_billing_manager_instance = mock_billing_manager.return_value
+    #     mock_billing_manager_instance.deactivate_products = MagicMock()
+
+    #     url = "/api/billing-v2/deactivate"
+    #     data = {"products": "product_1"}
+
+    #     response = self.client.get(url, data)
+    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    #     organization = self._get_org_required()
+    #     mock_billing_manager_instance.deactivate_products.assert_called_once_with(organization, "product_1")
+
+    # @patch("posthog.cloud_utils.get_cached_instance_license")
+    # @patch("your_module.BillingManager.deactivate_products")
+    # def test_deactivate_failure(self, mock_deactivate_products, mock_get_cached_instance_license):
+    #     mock_get_cached_instance_license.return_value = "fake_license"
+    #     error_message = {"error_message": "An error occurred", "code": "error_code", "link": "http://example.com"}
+    #     mock_deactivate_products.side_effect = Exception("Error", "Error occurred", error_message)
+
+    #     url = reverse('your_viewset_deactivate')
+    #     data = {
+    #         "products": "product_1"
+    #     }
+
+    #     response = self.client.get(url, data)
+    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    #     self.assertEqual(response.data["statusText"], "Error")
+    #     self.assertEqual(response.data["detail"], "An error occurred")
+    #     self.assertEqual(response.data["code"], "error_code")
+    #     self.assertEqual(response.data["link"], "http://example.com")
