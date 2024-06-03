@@ -430,7 +430,7 @@ export const redirects: Record<
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
-    '/events': urls.exploreEvents(),
+    '/events': preserveParams(urls.exploreEvents()),
     '/project/plugins': urls.projectApps(),
     '/actions': urls.actions(),
     '/organization/members': urls.settings('organization'),
