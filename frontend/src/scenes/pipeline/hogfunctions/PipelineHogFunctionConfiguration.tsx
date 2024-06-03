@@ -26,10 +26,22 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
-        useValues(logic)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        configurationAllErrors,
+        configurationErrors,
+    } = useValues(logic)
     const { submitConfiguration, clearChanges, setShowSource } = useActions(logic)
 
+    console.log({
+        configurationAllErrors,
+        configurationErrors,
+    })
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }

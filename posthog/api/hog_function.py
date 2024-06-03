@@ -6,6 +6,8 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.parser import parse_program
 from posthog.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +45,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "enabled",
             "hog",
             "bytecode",
-            "bytecode_error",
             "inputs_schema",
             "inputs",
             "filters",
@@ -54,12 +55,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "bytecode",
-            "bytecode_error",
         ]
 
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
+
+        # Attempt to compile the hog
+        try:
+            program = parse_program(attrs["hog"])
+            attrs["bytecode"] = create_bytecode(program)
+        except Exception as e:
+            raise serializers.ValidationError({"hog": str(e)})
+
         return attrs
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:

@@ -21,36 +21,13 @@ class HogFunction(UUIDModel):
 
     hog: models.TextField = models.TextField()
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
-    bytecode_error: models.TextField = models.TextField(blank=True, null=True)
 
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
 
-    # TODO: Add model link to the template?
-
     def __str__(self):
         return self.name
-
-    def refresh_bytecode(self):
-        from posthog.hogql.bytecode import create_bytecode, parse_program
-
-        try:
-            program = parse_program(self.hog)
-            new_bytecode = create_bytecode(program)
-            if new_bytecode != self.bytecode or self.bytecode_error is not None:
-                self.bytecode = new_bytecode
-                self.bytecode_error = None
-        except BaseHogQLError as e:
-            # There are several known cases when bytecode generation can fail. Instead of spamming
-            # Sentry with errors, ignore those cases for now.
-            if self.bytecode is not None or self.bytecode_error != str(e):
-                self.bytecode = None
-                self.bytecode_error = str(e)
-
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=HogFunction)

@@ -90,7 +90,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -125,10 +125,20 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         filters: data.filters ? sanitizeFilters(data.filters) : null,
                     }
 
-                    if (!props.id) {
-                        return await api.hogFunctions.create(payload)
+                    try {
+                        if (!props.id) {
+                            return await api.hogFunctions.create(payload)
+                        }
+                        return await api.hogFunctions.update(props.id, payload)
+                    } catch (e) {
+                        const maybeValidationError = (e as any).data
+                        if (maybeValidationError?.type === 'validation_error') {
+                            actions.setConfigurationManualErrors({
+                                [maybeValidationError.attr]: maybeValidationError.detail,
+                            })
+                        }
+                        throw e
                     }
-                    return await api.hogFunctions.update(props.id, payload)
                 },
             },
         ],
