@@ -1,5 +1,5 @@
 import { features, KafkaConsumer, librdkafkaVersion, Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
@@ -10,15 +10,6 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { GroupTypeToColumnIndex, PluginsServerConfig, RawClickHouseEvent, RedisPool, TeamId } from '../../types'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../utils/db/postgres'
-// import {
-//     allSettledWithConcurrency,
-//     bufferFileDir,
-//     getPartitionsForTopic,
-//     now,
-//     parseKafkaBatch,
-//     queryWatermarkOffsets,
-// } from './utils'
-import { convertToPostIngestionEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { createRedisPool } from '../../utils/utils'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
