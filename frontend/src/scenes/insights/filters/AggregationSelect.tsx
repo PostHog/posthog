@@ -120,18 +120,20 @@ export function AggregationSelect({
                                             Enter HogQL expression, such as:
                                             <ul className="list-disc ml-5">
                                                 <li className="pt-2">
-                                                    <CodeSnippet compact>distinct_id</CodeSnippet>
+                                                    <CodeSnippet variant="minimal">distinct_id</CodeSnippet>
                                                 </li>
                                                 <li className="pt-2">
-                                                    <CodeSnippet compact>properties.$session_id</CodeSnippet>
+                                                    <CodeSnippet variant="minimal">properties.$session_id</CodeSnippet>
                                                 </li>
                                                 <li className="pt-2">
-                                                    <CodeSnippet compact>
+                                                    <CodeSnippet variant="minimal">
                                                         concat(distinct_id, ' ', properties.$session_id)
                                                     </CodeSnippet>
                                                 </li>
                                                 <li className="pt-2">
-                                                    <CodeSnippet compact>if(1 &lt; 2, 'one', 'two')</CodeSnippet>
+                                                    <CodeSnippet variant="minimal">
+                                                        if(1 &lt; 2, 'one', 'two')
+                                                    </CodeSnippet>
                                                 </li>
                                             </ul>
                                         </div>

@@ -161,7 +161,7 @@ export function ProjectVariables(): JSX.Element {
                         Debug information
                     </h3>
                     <p>Include this snippet when opening a Feature request or Bug report on GitHub.</p>
-                    <CodeSnippet compact thing="debug info">
+                    <CodeSnippet variant="compact" thing="debug info">
                         {getPublicSupportSnippet(region, user)}
                     </CodeSnippet>
                 </div>

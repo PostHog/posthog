@@ -366,7 +366,7 @@ export function BodyDisplay({
             <pre>received: {displayContent}</pre>
         </>
     ) : (
-        <CodeSnippet language={language} wrap={true} thing="request body" compact={false}>
+        <CodeSnippet language={language} wrap={true} thing="request body">
             {displayContent}
         </CodeSnippet>
     )

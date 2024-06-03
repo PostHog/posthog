@@ -79,7 +79,7 @@ export interface CodeSnippetProps {
     children: string | undefined | null
     language?: Language
     wrap?: boolean
-    compact?: boolean
+    variant?: 'default' | 'compact' | 'minimal'
     actions?: JSX.Element
     style?: CSSProperties
     /** What is being copied. @example 'link' */
@@ -92,7 +92,7 @@ export function CodeSnippet({
     children: text,
     language = Language.Text,
     wrap = false,
-    compact = false,
+    variant = 'default',
     style,
     actions,
     thing = 'snippet',
@@ -119,7 +119,14 @@ export function CodeSnippet({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact')} style={style}>
+        <div
+            className={clsx(
+                'CodeSnippet',
+                variant === 'compact' && 'CodeSnippet--compact',
+                variant === 'minimal' && 'CodeSnippet--minimal'
+            )}
+            style={style}
+        >
             <div className="CodeSnippet__actions">
                 {actions}
                 <LemonButton
@@ -131,7 +138,7 @@ export function CodeSnippet({
                             void copyToClipboard(text, thing)
                         }
                     }}
-                    size={compact ? 'small' : 'medium'}
+                    size={variant !== 'default' ? 'small' : 'medium'}
                     noPadding
                 />
             </div>

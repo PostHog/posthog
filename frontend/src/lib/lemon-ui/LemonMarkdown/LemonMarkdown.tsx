@@ -26,7 +26,7 @@ export function LemonMarkdown({ children, lowKeyHeadings = false, className }: L
                         </Link>
                     ),
                     code: ({ language, value }) => (
-                        <CodeSnippet language={language || Language.Text} compact>
+                        <CodeSnippet language={language || Language.Text} variant="compact">
                             {value}
                         </CodeSnippet>
                     ),

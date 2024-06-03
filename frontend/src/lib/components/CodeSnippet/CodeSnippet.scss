@@ -15,6 +15,22 @@
         }
     }
 
+    &.CodeSnippet--minimal {
+        font-size: 0.8125rem;
+
+        .CodeSnippet__actions {
+            top: 0.25rem;
+            right: 0.25rem;
+            background: none !important;
+        }
+
+        pre {
+            padding: 0.25rem;
+            background: var(--bg-3000) !important;
+            border: none !important;
+        }
+    }
+
     .CodeSnippet__actions {
         position: absolute;
         top: 0.75rem;

@@ -69,18 +69,18 @@ export function HogQLEditor({
                             Enter HogQL expression, such as:
                             <ul className="list-disc ml-5">
                                 <li className="pt-2">
-                                    <CodeSnippet compact>properties.$geoip_country_name</CodeSnippet>
+                                    <CodeSnippet variant="minimal">properties.$geoip_country_name</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>toInt(properties.$browser_version) * 10</CodeSnippet>
+                                    <CodeSnippet variant="minimal">toInt(properties.$browser_version) * 10</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>
+                                    <CodeSnippet variant="minimal">
                                         concat(properties.name, ' &lt;', properties.email, '&gt;')
                                     </CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>is_identified ? 'user' : 'anon'</CodeSnippet>
+                                    <CodeSnippet variant="minimal">is_identified ? 'user' : 'anon'</CodeSnippet>
                                 </li>
                             </ul>
                         </div>
@@ -89,16 +89,18 @@ export function HogQLEditor({
                             Enter HogQL expression, such as:
                             <ul className="list-disc ml-5">
                                 <li className="pt-2">
-                                    <CodeSnippet>properties.$current_url</CodeSnippet>
+                                    <CodeSnippet variant="minimal">properties.$current_url</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>toInt(properties.`Long Field Name`) * 10</CodeSnippet>
+                                    <CodeSnippet variant="minimal">
+                                        toInt(properties.`Long Field Name`) * 10
+                                    </CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>concat(event, ' ', distinct_id)</CodeSnippet>
+                                    <CodeSnippet variant="minimal">concat(event, ' ', distinct_id)</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>if(1 &lt; 2, 'small', 'large')</CodeSnippet>
+                                    <CodeSnippet variant="minimal">if(1 &lt; 2, 'small', 'large')</CodeSnippet>
                                 </li>
                             </ul>
                         </div>
@@ -107,19 +109,21 @@ export function HogQLEditor({
                             Enter HogQL Expression, such as:
                             <ul className="list-disc ml-5">
                                 <li className="pt-2">
-                                    <CodeSnippet compact>properties.$current_url</CodeSnippet>
+                                    <CodeSnippet variant="minimal">properties.$current_url</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>person.properties.$geoip_country_name</CodeSnippet>
+                                    <CodeSnippet variant="minimal">person.properties.$geoip_country_name</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>toInt(properties.`Long Field Name`) * 10</CodeSnippet>
+                                    <CodeSnippet variant="minimal">
+                                        toInt(properties.`Long Field Name`) * 10
+                                    </CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>concat(event, ' ', distinct_id)</CodeSnippet>
+                                    <CodeSnippet variant="minimal">concat(event, ' ', distinct_id)</CodeSnippet>
                                 </li>
                                 <li className="pt-2">
-                                    <CodeSnippet compact>if(1 &lt; 2, 'small', 'large')</CodeSnippet>
+                                    <CodeSnippet variant="minimal">if(1 &lt; 2, 'small', 'large')</CodeSnippet>
                                 </li>
                             </ul>
                         </div>

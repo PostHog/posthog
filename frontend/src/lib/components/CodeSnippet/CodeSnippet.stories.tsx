@@ -21,15 +21,21 @@ Default.args = {
 
 export const CompactWithShortText: Story = BasicTemplate.bind({})
 CompactWithShortText.args = {
-    compact: true,
+    variant: 'compact',
     children: 'This is not long text',
 }
 
 export const CompactWithLongText: Story = BasicTemplate.bind({})
 CompactWithLongText.args = {
-    compact: true,
+    variant: 'compact',
     children:
         'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+}
+
+export const MinimalWithShortText: Story = BasicTemplate.bind({})
+MinimalWithShortText.args = {
+    variant: 'minimal',
+    children: 'This is not long text',
 }
 
 export const WithoutWrapping: Story = BasicTemplate.bind({})
