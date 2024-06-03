@@ -49,4 +49,5 @@ class Operation(int, Enum):
     DICT = 42
     ARRAY = 43
     TUPLE = 44
-    PROPERTY = 45
+    GET_PROPERTY = 45
+    SET_PROPERTY_LOCAL = 46

@@ -146,21 +146,30 @@ class BytecodeBuilder(Visitor):
         ]
 
     def visit_field(self, node: ast.Field):
-        if len(node.chain) == 1:
-            for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == node.chain[0]:
+        for index, local in reversed(list(enumerate(self.locals))):
+            if local.name == node.chain[0]:
+                if len(node.chain) == 1:
                     return [Operation.GET_LOCAL, index]
-
+                else:
+                    ops: list[str | int] = [Operation.GET_LOCAL, index]
+                    for element in node.chain[1:]:
+                        if isinstance(element, int):
+                            ops.extend([Operation.INTEGER, element])
+                        else:
+                            ops.extend([Operation.STRING, str(element)])
+                    ops.append(Operation.GET_PROPERTY)
+                    ops.append(len(node.chain) - 1)
+                    return ops
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
         return [*chain, Operation.FIELD, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.PROPERTY, 1]
+        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY, 1]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.array), *self.visit(node.property), Operation.PROPERTY, 1]
+        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY, 1]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:
@@ -264,12 +273,41 @@ class BytecodeBuilder(Visitor):
             return self.visit(node.expr)
         return [Operation.NULL]
 
+    def _deconstruct_tuple_array_fields(self, node: ast.Expr) -> list[str | int]:
+        if isinstance(node, ast.Field):
+            return [*node.chain]
+        if isinstance(node, ast.TupleAccess):
+            return [*self._deconstruct_tuple_array_fields(node.tuple), node.index]
+        if isinstance(node, ast.ArrayAccess):
+            if isinstance(node.property, ast.Constant):
+                value = node.property.value
+                if not isinstance(value, int) and not isinstance(value, str):
+                    value = str(value)
+                return [*self._deconstruct_tuple_array_fields(node.array), value]
+            raise NotImplementedError("Only constant array access is supported for now")
+        raise NotImplementedError(f"Can not assign to this type of variable")
+
     def visit_variable_assignment(self, node: ast.VariableAssignment):
-        if isinstance(node.left, ast.Field) and len(node.left.chain) == 1:
-            name = node.left.chain[0]
+        if isinstance(node.left, ast.TupleAccess) or isinstance(node.left, ast.ArrayAccess):
+            chain = self._deconstruct_tuple_array_fields(node.left)
+        elif isinstance(node.left, ast.Field):
+            chain = node.left.chain
+        else:
+            raise NotImplementedError(f"Can not assign to this type of expression")
+
+        if len(chain) >= 1:
+            name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
-                    return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+                    if len(chain) == 1:
+                        return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+                    return [
+                        *self.visit(cast(AST, node.right)),
+                        Operation.SET_PROPERTY_LOCAL,
+                        index,
+                        len(chain) - 1,
+                        *chain[1:],
+                    ]
             raise NotImplementedError(f"Variable `{name}` not declared in this scope")
         raise NotImplementedError(f"Can not assign to this type of variable")
 

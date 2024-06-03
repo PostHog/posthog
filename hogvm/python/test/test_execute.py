@@ -496,18 +496,59 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;"), 5)
 
     def test_bytecode_nested(self):
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r.2.d.2;"), 42)
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r[2].d[2];"), 42)
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; return r.2['d'][2];"), 42)
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;"), 3)
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];"), 42)
+        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];"), 6)
+        self.assertEqual(self._run_program("var r := {'d': (1, 3, 42, 6)}; return r.d.1;"), 3)
 
     def test_bytecode_nested_modify(self):
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; r.2.d.2 := 3; return r.2.d.2;"), 42)
         self.assertEqual(
-            self._run_program("var r := [1, 2, {'d': (1, 3, 42, 3)}]; r[2].d[2] := 3; return r[2].d[2];"), 42
+            self._run_program(
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                r.2.d.2 := 3;
+                return r.2.d.2;
+                """
+            ),
+            3,
         )
         self.assertEqual(
             self._run_program(
-                "var r := [1, 2, {'d': (1, 3, 42, 3)}]; r.2['d'] := ['a', 'b', 'c', 'd']; return r[2].d[2];"
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                r[2].d[2] := 3;
+                return r[2].d[2];
+                """
+            ),
+            3,
+        )
+        self.assertEqual(
+            self._run_program(
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                r[2].c := [666];
+                return r[2];
+                """
+            ),
+            {"d": [1, 3, 42, 3], "c": [666]},
+        )
+        self.assertEqual(
+            self._run_program(
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                r[2].d[2] := 3;
+                return r[2].d;
+                """
+            ),
+            [1, 3, 3, 3],
+        )
+        self.assertEqual(
+            self._run_program(
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                r.2['d'] := ['a', 'b', 'c', 'd'];
+                return r[2].d[2];
+                """
             ),
             "c",
         )
