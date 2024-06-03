@@ -25,7 +25,7 @@ class SessionRecordingListFromFilters:
 
     _team: Team
     _filter: SessionRecordingsFilter
-    _universal: bool
+    _universal_filtering: bool
 
     BASE_QUERY: str = """
         SELECT s.session_id,
@@ -81,12 +81,12 @@ class SessionRecordingListFromFilters:
         self,
         team: Team,
         filter: SessionRecordingsFilter,
-        universal: bool,
+        universal_filtering: bool,
         **_,
     ):
         self._team = team
         self._filter = filter
-        self._universal = universal
+        self._universal_filtering = universal_filtering
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
@@ -124,7 +124,7 @@ class SessionRecordingListFromFilters:
         return ast.Field(chain=[order])
 
     def _universal_operand(self) -> ast.And | ast.Or:
-        return ast.And if self._filter.filter_group.operand == "and" else ast.Or
+        return ast.And if not self._universal_filtering or self._filter.filter_group.operand == "and" else ast.Or
 
     def _where_predicates(self) -> ast.And:
         exprs: list[ast.Expr] = [
@@ -225,7 +225,7 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        return ast.And(exprs=exprs)
+        return self._universal_operand(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
@@ -244,7 +244,7 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+        return self._universal_operand(exprs=exprs) if exprs else Constant(value=True)
 
 
 class EventsSubQuery:
