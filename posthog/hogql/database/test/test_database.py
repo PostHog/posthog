@@ -174,7 +174,7 @@ class TestDatabase(BaseTest):
 
         assert table.source is not None
         assert table.source.id == source.source_id
-        assert table.source.status == "Active"
+        assert table.source.status == "Completed"
         assert table.source.source_type == "Stripe"
 
         assert table.schema_ is not None
