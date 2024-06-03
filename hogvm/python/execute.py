@@ -63,6 +63,7 @@ def execute_bytecode(
     team: Team | None = None,
 ) -> BytecodeResult:
     try:
+        result = None
         start_time = time.time()
         stack = []
         call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
@@ -235,7 +236,6 @@ def execute_bytecode(
 
         if len(stack) > 1:
             raise HogVMException("Invalid bytecode. More than one value left on stack")
-        result = None
         if len(stack) == 1:
             result = stack.pop()
         return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)

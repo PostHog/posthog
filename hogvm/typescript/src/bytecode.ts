@@ -161,6 +161,7 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
 
     const startTime = Date.now()
     let temp: any
+    let temp2: any
     let tempArray: any[]
     let tempObj: Record<string, any> = {}
 
@@ -350,13 +351,15 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
                 stack.push(getNestedValue(popStack(), tempArray))
                 break
             case Operation.SET_PROPERTY_LOCAL:
-                temp = next()
-                tempArray = []
+                temp2 = next() // property index
+                temp = next() // chain length
+                tempArray = [] // chain
                 for (let i = 0; i < temp; i++) {
-                    tempArray.push(popStack())
+                    tempArray.push(next())
                 }
-                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
-                setNestedValue(stack[next() + temp], tempArray, popStack())
+                // stack start
+                temp2 += callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
+                setNestedValue(stack[temp2], tempArray, popStack())
                 break
             case Operation.DICT:
                 temp = next() * 2 // number of elements to remove from the stack
