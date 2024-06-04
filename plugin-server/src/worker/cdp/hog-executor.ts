@@ -58,8 +58,8 @@ export class HogExecutor {
                 hogFunction.bytecode,
                 {
                     fields: fields,
-                    timeout: 100,
-                    maxAsyncSteps: 10,
+                    timeout: 100, // TODO: what should this be
+                    maxAsyncSteps: 10, // TODO: what should this be
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
