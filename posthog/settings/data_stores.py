@@ -125,7 +125,8 @@ READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB: str = "posthog_test"
+PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
+CLICKHOUSE_TEST_DB: str = f"posthog_test{f'_{PYTEST_XDIST_WORKER}' if PYTEST_XDIST_WORKER else ''}"
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
