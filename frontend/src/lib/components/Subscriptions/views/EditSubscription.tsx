@@ -337,9 +337,7 @@ export function EditSubscription({
                         <div>
                             <div className="flex items-baseline justify-between w-full">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-muted text-right">
-                                    <code>{currentTimezone}</code>
-                                </div>
+                                <div className="text-xs text-muted text-right">{currentTimezone}</div>
                             </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
