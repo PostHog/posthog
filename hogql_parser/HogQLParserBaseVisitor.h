@@ -71,10 +71,6 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitDict(HogQLParser::DictContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitKvPair(HogQLParser::KvPairContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -280,6 +276,10 @@ public:
   }
 
   virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprDict(HogQLParser::ColumnExprDictContext *ctx) override {
     return visitChildren(ctx);
   }
 
