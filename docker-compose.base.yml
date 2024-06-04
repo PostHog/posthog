@@ -25,7 +25,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.5.81-alpine}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:24.5.1.1763-alpine}
         restart: on-failure
 
     zookeeper:
