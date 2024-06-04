@@ -72,6 +72,11 @@
             "name": "Celery Threaded Pool",
             "consoleName": "Celery Threaded Pool",
             "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
             "request": "launch",
             "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
@@ -103,6 +108,11 @@
             "name": "Celery Redbeat Scheduler",
             "consoleName": "Celery Redbeat Scheduler",
             "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
             "request": "launch",
             "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
