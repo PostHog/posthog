@@ -998,7 +998,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
@@ -1095,7 +1094,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
