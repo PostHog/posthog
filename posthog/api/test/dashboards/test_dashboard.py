@@ -22,7 +22,6 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
-from posthog.utils import generate_cache_key
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -198,41 +197,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
-        filter = Filter(data=filter_dict)
 
-        item = Insight.objects.create(filters=filter_dict, team=self.team)
+        item = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="item11")
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
-        item2 = Insight.objects.create(filters=filter.to_dict(), team=self.team)
+        item2 = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="item22")
         DashboardTile.objects.create(dashboard=dashboard, insight=item2)
-        response = self.dashboard_api.get_dashboard(dashboard.pk)
+        response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
         self.assertEqual(response["tiles"][0]["insight"]["result"], None)
 
         # cache results
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        ).json()
-        item = Insight.objects.get(pk=item.pk)
-        self.assertAlmostEqual(item.caching_state.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertAlmostEqual(
-            parser.isoparse(response["last_refresh"]),
-            now(),
-            delta=timezone.timedelta(seconds=5),
-        )
-        self.assertEqual(
-            item.caching_state.cache_key,
-            generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"),
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{item.pk}?refresh=true").json()
 
-        response = self.dashboard_api.get_dashboard(dashboard.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{item2.pk}?refresh=true").json()
 
+        # Now the dashboard has data without having to refresh
+        response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
         self.assertAlmostEqual(
             Dashboard.objects.get().last_accessed_at,
             now(),
