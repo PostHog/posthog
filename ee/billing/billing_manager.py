@@ -161,7 +161,7 @@ class BillingManager:
                 usage_limit = usage.get("limit")
                 current_usage = usage.get("usage") or 0
 
-                product_usage = {}
+                product_usage: dict[str, Any] = {}
                 if organization and organization.usage:
                     product_usage = organization.usage.get(usage_key) or {}
 
