@@ -120,22 +120,17 @@ jobs:
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
               if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@v3
+              uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
+                  message: |
                       {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect general purpose temporal worker
@@ -145,22 +140,17 @@ jobs:
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
               if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@v3
+              uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
+                  message: |
                       {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-general-purpose",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker-general-purpose",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
@@ -170,20 +160,15 @@ jobs:
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@v3
+              uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
+                  message: |
                       {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-data-warehouse",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker-data-warehouse",
+                        "context": ${{ toJson(github) }}
                       }
