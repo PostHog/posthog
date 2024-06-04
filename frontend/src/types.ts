@@ -5,7 +5,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalGroupFilterGroup } from 'lib/components/UniversalFilters/UniversalFilters'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -973,7 +973,7 @@ export interface RecordingUniversalFilters {
     date_from?: string | null
     date_to?: string | null
     filter_test_accounts?: boolean
-    filter_group: UniversalGroupFilterGroup
+    filter_group: UniversalFiltersGroup
 }
 
 export interface SessionRecordingsResponse {

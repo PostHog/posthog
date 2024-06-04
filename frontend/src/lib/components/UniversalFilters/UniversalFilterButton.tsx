@@ -1,7 +1,7 @@
 import './UniversalFilterButton.scss'
 
 import { IconFilter, IconX } from '@posthog/icons'
-import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -11,56 +11,39 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
 import { UniversalFilterValue } from './UniversalFilters'
 import { isActionFilter } from './utils'
 
-export interface PropertyFilterButtonProps {
+export interface UniversalFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
     children?: React.ReactNode
-    item: UniversalFilterValue
+    filter: UniversalFilterValue
     disabledReason?: string
 }
 
-export const UniversalFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, item, disabledReason }, ref): JSX.Element {
+export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilterButtonProps>(
+    function UniversalFilterButton({ onClick, onClose, filter }, ref): JSX.Element {
         const closable = onClose !== undefined
 
-        const isEntity = isActionFilter(item)
+        const isEntity = isActionFilter(filter)
 
         const button = (
             <div
                 ref={ref as any}
-                onClick={disabledReason || isEntity ? undefined : onClick}
-                className={clsx('PropertyFilterButton PropertyFilterButton--clickable', {
-                    'PropertyFilterButton--closeable': closable,
+                onClick={isEntity ? undefined : onClick}
+                className={clsx('UniversalFilterButton UniversalFilterButton--clickable', {
+                    'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,
                 })}
-                aria-disabled={!!disabledReason}
             >
-                {isEntity ? (
-                    <div className="flex items-center space-x-1">
-                        <EntityFilterInfo filter={item} />
-                        <LemonButton
-                            size="xsmall"
-                            icon={
-                                <IconWithCount count={item.properties?.length || 0} showZero={false}>
-                                    <IconFilter />
-                                </IconWithCount>
-                            }
-                            className="p-0.5"
-                            onClick={disabledReason ? undefined : onClick}
-                        />
-                    </div>
-                ) : (
-                    <AnyPropertyLabel item={item} />
-                )}
+                {isEntity ? <EntityLabel filter={filter} onClick={onClick} /> : <PropertyLabel filter={filter} />}
 
-                {closable && !disabledReason && (
+                {closable && (
                     // The context below prevents close button from going into active status when filter popover is open
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
@@ -77,30 +60,50 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, PropertyFilte
             </div>
         )
 
-        if (disabledReason) {
-            return <Tooltip title={disabledReason}>{button}</Tooltip>
-        }
-
         return button
     }
 )
 
-const AnyPropertyLabel = ({ item }: { item: AnyPropertyFilter }): JSX.Element => {
+const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element => {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const label = formatPropertyLabel(
-        item,
+        filter,
         cohortsById,
-        (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
+        (s) => formatPropertyValueForDisplay(filter.key, s)?.toString() || '?'
     )
 
     return (
         <>
-            <PropertyFilterIcon type={item.type} />
-            <span className="PropertyFilterButton-content" title={label}>
+            <PropertyFilterIcon type={filter.type} />
+            <span className="UniversalFilterButton-content" title={label}>
                 {typeof label === 'string' ? midEllipsis(label, 32) : label}
             </span>
         </>
+    )
+}
+
+const EntityLabel = ({
+    filter,
+    onClick,
+}: {
+    filter: ActionFilter
+    onClick: UniversalFilterButtonProps['onClick']
+}): JSX.Element => {
+    return (
+        <div className="flex items-center space-x-1">
+            <EntityFilterInfo filter={filter} />
+            <LemonButton
+                size="xsmall"
+                icon={
+                    <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+                        <IconFilter />
+                    </IconWithCount>
+                }
+                className="p-0.5"
+                onClick={onClick}
+            />
+        </div>
     )
 }

@@ -17,18 +17,18 @@ import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isActionFilter, isUniversalGroupFilterLike } from './utils'
 
-export interface UniversalGroupFilterGroup {
+export interface UniversalFiltersGroup {
     type: FilterLogicalOperator
-    values: UniversalGroupFilterValue[]
+    values: UniversalFiltersGroupValue[]
 }
 
-export type UniversalGroupFilterValue = UniversalGroupFilterGroup | UniversalFilterValue
+export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
 export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 type UniversalFiltersProps = {
     pageKey: string
-    group: UniversalGroupFilterGroup | null
-    onChange: (group: UniversalGroupFilterGroup) => void
+    group: UniversalFiltersGroup | null
+    onChange: (group: UniversalFiltersGroup) => void
     taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
     taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
     allowGroups?: boolean
@@ -44,12 +44,14 @@ export function UniversalFilters({
     taxonomicEntityFilterGroupTypes,
     taxonomicPropertyFilterGroupTypes,
 }: UniversalFiltersProps): JSX.Element {
+    const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
+
+    useMountedLogic(cohortsModel)
+    useMountedLogic(actionsModel)
+
     const logic = universalFiltersLogic({ pageKey, group, onChange })
     const { filterGroup } = useValues(logic)
     const { addFilterGroup, replaceGroupValue, removeGroupValue, addGroupFilter } = useActions(logic)
-    const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
-    useMountedLogic(cohortsModel)
-    useMountedLogic(actionsModel)
 
     return (
         <>
@@ -130,9 +132,9 @@ const UniversalFilterRow = ({
     onRemove,
     taxonomicPropertyFilterGroupTypes,
 }: {
-    filter: AnyPropertyFilter | ActionFilter
+    filter: UniversalFilterValue
     pageKey: string
-    onChange: (property: AnyPropertyFilter | ActionFilter) => void
+    onChange: (property: UniversalFilterValue) => void
     onRemove: () => void
     taxonomicPropertyFilterGroupTypes: UniversalFiltersProps['taxonomicPropertyFilterGroupTypes']
 }): JSX.Element => {
@@ -178,7 +180,7 @@ const UniversalFilterRow = ({
                 )
             }
         >
-            <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} item={filter} />
+            <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} filter={filter} />
         </Popover>
     )
 }

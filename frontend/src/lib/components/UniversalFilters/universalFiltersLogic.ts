@@ -6,13 +6,13 @@ import {
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator } from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalFilterValue, UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
+import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
-export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalGroupFilterGroup = {
+export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
     values: [
         {
@@ -24,8 +24,8 @@ export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalGroupFilterGroup = {
 
 export type UniversalFiltersLogicProps = {
     pageKey: string
-    group: UniversalGroupFilterGroup | null
-    onChange: (group: UniversalGroupFilterGroup) => void
+    group: UniversalFiltersGroup | null
+    onChange: (group: UniversalFiltersGroup) => void
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
@@ -41,8 +41,8 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addFilterGroup: true,
 
         setGroupType: (type: FilterLogicalOperator) => ({ type }),
-        setGroupValues: (newValues: UniversalGroupFilterValue[]) => ({ newValues }),
-        replaceGroupValue: (index: number, value: AnyPropertyFilter | ActionFilter | UniversalGroupFilterValue) => ({
+        setGroupValues: (newValues: UniversalFiltersGroupValue[]) => ({ newValues }),
+        replaceGroupValue: (index: number, value: UniversalFiltersGroupValue) => ({
             index,
             value,
         }),

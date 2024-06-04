@@ -8,9 +8,9 @@ import {
 } from '~/types'
 
 import { isAnyPropertyfilter } from '../PropertyFilters/utils'
-import { UniversalFilterValue, UniversalGroupFilterGroup, UniversalGroupFilterValue } from './UniversalFilters'
+import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
 
-export function isUniversalGroupFilterLike(filter?: UniversalGroupFilterValue): filter is UniversalGroupFilterGroup {
+export function isUniversalGroupFilterLike(filter?: UniversalFiltersGroupValue): filter is UniversalFiltersGroup {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
 }
 
@@ -21,7 +21,7 @@ export function isActionFilter(filter: UniversalFilterValue): filter is ActionFi
 export function convertUniversalFiltersToLegacyFilters(
     universalFilters: RecordingUniversalFilters
 ): RecordingFilters & { operand: FilterLogicalOperator } {
-    const nestedFilters = universalFilters.filter_group.values[0] as UniversalGroupFilterGroup
+    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
     const operand = nestedFilters.type
     const filters = nestedFilters.values as UniversalFilterValue[]
 
