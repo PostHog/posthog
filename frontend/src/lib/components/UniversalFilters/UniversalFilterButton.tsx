@@ -16,7 +16,7 @@ import { ActionFilter, AnyPropertyFilter } from '~/types'
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
 import { UniversalFilterValue } from './UniversalFilters'
-import { isActionFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
     onClick?: () => void
@@ -30,18 +30,27 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
     function UniversalFilterButton({ onClick, onClose, filter }, ref): JSX.Element {
         const closable = onClose !== undefined
 
-        const isEntity = isActionFilter(filter)
+        const isEditable = isEditableFilter(filter)
+        const isAction = isActionFilter(filter)
+        const isEvent = isEventFilter(filter)
 
         const button = (
             <div
                 ref={ref as any}
-                onClick={isEntity ? undefined : onClick}
-                className={clsx('UniversalFilterButton UniversalFilterButton--clickable', {
+                onClick={isEditable ? onClick : undefined}
+                className={clsx('UniversalFilterButton', {
+                    'UniversalFilterButton--clickable': isEditable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,
                 })}
             >
-                {isEntity ? <EntityLabel filter={filter} onClick={onClick} /> : <PropertyLabel filter={filter} />}
+                {isEvent ? (
+                    <EventLabel filter={filter} onClick={onClick} />
+                ) : isAction ? (
+                    <EntityFilterInfo filter={filter} />
+                ) : (
+                    <PropertyLabel filter={filter} />
+                )}
 
                 {closable && (
                     // The context below prevents close button from going into active status when filter popover is open
@@ -84,7 +93,7 @@ const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element =
     )
 }
 
-const EntityLabel = ({
+const EventLabel = ({
     filter,
     onClick,
 }: {

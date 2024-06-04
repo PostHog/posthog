@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import {
     createDefaultPropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -8,7 +8,7 @@ import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/Ac
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActionFilter, FilterLogicalOperator } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterValue } from '../TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
@@ -23,15 +23,17 @@ export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
 }
 
 export type UniversalFiltersLogicProps = {
-    pageKey: string
+    rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
+    taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
     props({} as UniversalFiltersLogicProps),
-    key((props) => props.pageKey),
+    key((props) => props.rootKey),
 
     connect(() => ({
         values: [propertyDefinitionsModel, ['describeProperty']],
@@ -80,6 +82,16 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
             },
         ],
     })),
+
+    selectors({
+        rootKey: [(_, p) => [p.rootKey], (rootKey) => rootKey],
+        taxonomicEntityFilterGroupTypes: [(_, p) => [p.taxonomicEntityFilterGroupTypes], (types) => types],
+        taxonomicPropertyFilterGroupTypes: [(_, p) => [p.taxonomicPropertyFilterGroupTypes], (types) => types],
+        taxonomicGroupTypes: [
+            (_, p) => [p.taxonomicEntityFilterGroupTypes, p.taxonomicPropertyFilterGroupTypes],
+            (entityTypes, propertyTypes) => [...entityTypes, ...propertyTypes],
+        ],
+    }),
 
     listeners(({ props, values, actions }) => ({
         setGroupType: () => props.onChange(values.filterGroup),

@@ -1,14 +1,20 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFilters } from 'lib/components/UniversalFilters/UniversalFilters'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 
 export const RecordingsUniversalFilters = (): JSX.Element => {
+    useMountedLogic(cohortsModel)
+    useMountedLogic(actionsModel)
     const { universalFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
 
@@ -67,14 +73,8 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
             </div>
             <div className="flex gap-2 p-2">
                 <UniversalFilters
+                    rootKey="session-recordings"
                     group={universalFilters.filter_group}
-                    onChange={(filterGroup) => {
-                        setUniversalFilters({
-                            ...universalFilters,
-                            filter_group: filterGroup,
-                        })
-                    }}
-                    pageKey="session-recordings"
                     taxonomicEntityFilterGroupTypes={[
                         TaxonomicFilterGroupType.Events,
                         TaxonomicFilterGroupType.Actions,
@@ -84,8 +84,42 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.SessionProperties,
                     ]}
-                />
+                    onChange={(filterGroup) => {
+                        setUniversalFilters({
+                            ...universalFilters,
+                            filter_group: filterGroup,
+                        })
+                    }}
+                >
+                    <RecordingsUniversalFilterGroup />
+                    <UniversalFilters.AddFilterButton />
+                </UniversalFilters>
             </div>
         </div>
+    )
+}
+
+const RecordingsUniversalFilterGroup = (): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <>
+            {filterGroup.values.map((filterOrGroup, index) => {
+                return isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                        <RecordingsUniversalFilterGroup />
+                    </UniversalFilters.Group>
+                ) : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                    />
+                )
+            })}
+        </>
     )
 }

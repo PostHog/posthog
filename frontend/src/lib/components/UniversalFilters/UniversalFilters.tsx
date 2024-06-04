@@ -1,11 +1,8 @@
-import { IconChevronDown, IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Popover } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { getEventNamesForAction } from 'lib/utils'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
 import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
@@ -15,7 +12,7 @@ import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isActionFilter, isUniversalGroupFilterLike } from './utils'
+import { isEditableFilter, isEventFilter } from './utils'
 
 export interface UniversalFiltersGroup {
     type: FilterLogicalOperator
@@ -26,144 +23,99 @@ export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilter
 export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 type UniversalFiltersProps = {
-    pageKey: string
+    rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
     taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
-    allowGroups?: boolean
-    allowFilters?: boolean
+    children?: React.ReactNode
 }
 
-export function UniversalFilters({
-    pageKey = 'rootKey',
+function UniversalFilters({
+    rootKey,
     group = null,
-    allowGroups = false,
-    allowFilters = false,
     onChange,
     taxonomicEntityFilterGroupTypes,
     taxonomicPropertyFilterGroupTypes,
+    children,
 }: UniversalFiltersProps): JSX.Element {
-    const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
-
-    useMountedLogic(cohortsModel)
-    useMountedLogic(actionsModel)
-
-    const logic = universalFiltersLogic({ pageKey, group, onChange })
-    const { filterGroup } = useValues(logic)
-    const { addFilterGroup, replaceGroupValue, removeGroupValue, addGroupFilter } = useActions(logic)
-
     return (
-        <>
-            {filterGroup.values.map((filterOrGroup, index) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters
-                        key={index}
-                        pageKey={`${pageKey}.group_${index}`}
-                        group={filterOrGroup}
-                        onChange={(group) => replaceGroupValue(index, group)}
-                        allowGroups={false} // only ever allow a single level of group nesting
-                        allowFilters={true}
-                        taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
-                        taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
-                    />
-                ) : (
-                    <UniversalFilterRow
-                        key={index}
-                        pageKey={`${pageKey}.filter_${index}`}
-                        filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
-                        onChange={(value) => replaceGroupValue(index, value)}
-                        taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
-                    />
-                )
-            })}
-
-            {allowFilters && (
-                <LemonDropdown
-                    overlay={
-                        <TaxonomicFilter
-                            onChange={(taxonomicGroup, value, item) => {
-                                addGroupFilter(taxonomicGroup, value, item)
-                                setDropdownOpen(false)
-                            }}
-                            taxonomicGroupTypes={[
-                                ...taxonomicEntityFilterGroupTypes,
-                                ...taxonomicPropertyFilterGroupTypes,
-                            ]}
-                        />
-                    }
-                    visible={dropdownOpen}
-                    onClickOutside={() => setDropdownOpen(false)}
-                >
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        sideIcon={null}
-                        sideAction={
-                            allowGroups
-                                ? {
-                                      icon: <IconChevronDown />,
-                                      dropdown: {
-                                          overlay: (
-                                              <LemonButton fullWidth onClick={addFilterGroup}>
-                                                  Add filter group
-                                              </LemonButton>
-                                          ),
-                                      },
-                                  }
-                                : null
-                        }
-                        onClick={() => setDropdownOpen(!dropdownOpen)}
-                    >
-                        Add filter
-                    </LemonButton>
-                </LemonDropdown>
-            )}
-        </>
+        <BindLogic
+            logic={universalFiltersLogic}
+            props={{
+                rootKey,
+                group,
+                onChange,
+                taxonomicEntityFilterGroupTypes,
+                taxonomicPropertyFilterGroupTypes,
+            }}
+        >
+            {children}
+        </BindLogic>
     )
 }
 
-const UniversalFilterRow = ({
+function Group({
+    group,
+    index,
+    children,
+}: {
+    group: UniversalFiltersGroup
+    index: number
+    children: React.ReactNode
+}): JSX.Element {
+    const { rootKey, taxonomicEntityFilterGroupTypes, taxonomicPropertyFilterGroupTypes } =
+        useValues(universalFiltersLogic)
+    const { replaceGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <UniversalFilters
+            key={index}
+            rootKey={`${rootKey}.group_${index}`}
+            group={group}
+            onChange={(group) => replaceGroupValue(index, group)}
+            taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
+            taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
+        >
+            {children}
+        </UniversalFilters>
+    )
+}
+
+const Value = ({
+    index,
     filter,
-    pageKey,
     onChange,
     onRemove,
-    taxonomicPropertyFilterGroupTypes,
 }: {
+    index: number
     filter: UniversalFilterValue
-    pageKey: string
     onChange: (property: UniversalFilterValue) => void
     onRemove: () => void
-    taxonomicPropertyFilterGroupTypes: UniversalFiltersProps['taxonomicPropertyFilterGroupTypes']
 }): JSX.Element => {
-    const isEntity = isActionFilter(filter)
+    const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
-    const { actions } = useValues(actionsModel)
-    const [open, setOpen] = useState<boolean>(!isEntity)
+    const isEvent = isEventFilter(filter)
+    const isEditable = isEditableFilter(filter)
+
+    const [open, setOpen] = useState<boolean>(isEditable)
+
+    const pageKey = `${rootKey}.filter_${index}`
 
     return (
         <Popover
             visible={open}
             onClickOutside={() => setOpen(false)}
             overlay={
-                isEntity ? (
+                isEvent ? (
                     <PropertyFilters
                         pageKey={pageKey}
                         propertyFilters={filter.properties}
                         onChange={(properties) => onChange({ ...filter, properties })}
                         disablePopover
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        eventNames={
-                            filter.type === TaxonomicFilterGroupType.Events && filter.id
-                                ? [String(filter.id)]
-                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
-                                : []
-                        }
                     />
-                ) : (
+                ) : isEditable ? (
                     <TaxonomicPropertyFilter
                         pageKey={pageKey}
                         index={0}
@@ -177,10 +129,49 @@ const UniversalFilterRow = ({
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
                     />
-                )
+                ) : null
             }
         >
             <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} filter={filter} />
         </Popover>
     )
 }
+
+const AddFilterButton = (): JSX.Element => {
+    const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
+
+    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { addGroupFilter } = useActions(universalFiltersLogic)
+
+    return (
+        <LemonDropdown
+            overlay={
+                <TaxonomicFilter
+                    onChange={(taxonomicGroup, value, item) => {
+                        addGroupFilter(taxonomicGroup, value, item)
+                        setDropdownOpen(false)
+                    }}
+                    taxonomicGroupTypes={taxonomicGroupTypes}
+                />
+            }
+            visible={dropdownOpen}
+            onClickOutside={() => setDropdownOpen(false)}
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlusSmall />}
+                sideIcon={null}
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+            >
+                Add filter
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+UniversalFilters.Group = Group
+UniversalFilters.Value = Value
+UniversalFilters.AddFilterButton = AddFilterButton
+
+export default UniversalFilters

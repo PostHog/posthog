@@ -4,8 +4,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { convertUniversalFiltersToLegacyFilters } from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,8 +16,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
+    AnyPropertyFilter,
     DurationType,
     FilterLogicalOperator,
+    FilterType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -116,6 +120,37 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     posthog.capture('recording list filters changed', {
         ...partialFilters,
     })
+}
+function convertUniversalFiltersToLegacyFilters(
+    universalFilters: RecordingUniversalFilters
+): RecordingFilters & { operand: FilterLogicalOperator } {
+    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+    const operand = nestedFilters.type
+    const filters = nestedFilters.values as UniversalFilterValue[]
+
+    const properties: AnyPropertyFilter[] = []
+    const events: FilterType['events'] = []
+    const actions: FilterType['actions'] = []
+
+    filters.forEach((f) => {
+        if (isEventFilter(f)) {
+            events.push(f)
+        } else if (isActionFilter(f)) {
+            actions.push(f)
+        } else if (isAnyPropertyfilter(f)) {
+            properties.push(f)
+        }
+    })
+
+    // TODO: add console log and duration filtering
+
+    return {
+        ...universalFilters,
+        operand,
+        properties,
+        events,
+        actions,
+    }
 }
 
 export interface SessionRecordingPlaylistLogicProps {
@@ -651,16 +686,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return 0
                 }
 
+                const recordingFilters = filters as RecordingFilters
+
                 return (
-                    (filters?.actions?.length || 0) +
-                    (filters?.events?.length || 0) +
-                    (filters?.properties?.length || 0) +
-                    (equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ? 0 : 1) +
-                    (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
+                    (recordingFilters?.actions?.length || 0) +
+                    (recordingFilters?.events?.length || 0) +
+                    (recordingFilters?.properties?.length || 0) +
+                    (equal(recordingFilters.session_recording_duration, defaultFilters.session_recording_duration)
                         ? 0
                         : 1) +
-                    (filters.console_logs?.length || 0) +
-                    (filters.console_search_query?.length ? 1 : 0)
+                    (recordingFilters.date_from === defaultFilters.date_from &&
+                    recordingFilters.date_to === defaultFilters.date_to
+                        ? 0
+                        : 1) +
+                    (recordingFilters.console_logs?.length || 0) +
+                    (recordingFilters.console_search_query?.length ? 1 : 0)
                 )
             },
         ],
