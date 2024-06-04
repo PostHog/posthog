@@ -14,7 +14,7 @@ export enum Scene {
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     Cohort = 'Cohort',
-    Events = 'Events',
+    Activity = 'Activity',
     DataManagement = 'DataManagement',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',

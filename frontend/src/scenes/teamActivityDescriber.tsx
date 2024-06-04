@@ -227,6 +227,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    live_events_token: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

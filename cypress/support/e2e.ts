@@ -31,7 +31,6 @@ beforeEach(() => {
             decideResponse({
                 // Feature flag to be treated as rolled out in E2E tests, e.g.:
                 // 'toolbar-launch-side-action': true,
-                'hogql-insights-preview': true,
             })
         )
     )
