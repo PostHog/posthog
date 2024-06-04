@@ -935,6 +935,23 @@ class TestActivationBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_activation_with_plan_error(self):
+        url = "/api/billing-v2/activation"
+        data = {"plan": "plan"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "plan",
+                "code": "invalid_input",
+                "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
+                "type": "validation_error",
+            },
+        )
+
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):

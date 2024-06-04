@@ -88,8 +88,26 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return self.list(request, *args, **kwargs)
 
     class ActivationSerializer(serializers.Serializer):
-        products = serializers.CharField(required=True)
+        plan = serializers.CharField(required=False)
+        products = serializers.CharField(
+            required=False
+        )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
         redirect_path = serializers.CharField(required=False)
+
+        def validate(self, data):
+            plan = data.get("plan")
+            products = data.get("products")
+
+            if plan and not products:
+                raise ValidationError(
+                    {
+                        "plan": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead."
+                    }
+                )
+            if not products:
+                raise ValidationError({"products": "The 'products' parameter is required."})
+
+            return data
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
