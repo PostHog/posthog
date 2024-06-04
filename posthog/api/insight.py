@@ -38,10 +38,7 @@ from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import (
     InsightResult,
-    fetch_cached_insight_result,
-    synchronously_update_cache,
 )
-from posthog.caching.insights_api import should_refresh_insight
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
@@ -64,7 +61,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
 )
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    flagged_conversion_to_query_based,
+    conversion_to_query_based,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -549,41 +546,22 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        with flagged_conversion_to_query_based(insight):
-            if insight.query:
-                # Uses query
-                try:
-                    refresh_requested = refresh_requested_by_client(self.context["request"])
-                    execution_mode = (
-                        ExecutionMode.CALCULATION_ALWAYS
-                        if refresh_requested
-                        else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-                    )
-                    if refresh_requested and cache_requested_by_client(self.context["request"]):
-                        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
-
-                    return calculate_for_query_based_insight(
-                        insight,
-                        dashboard=dashboard,
-                        execution_mode=execution_mode,
-                    )
-                except ExposedHogQLError as e:
-                    raise ValidationError(str(e))
-            else:
-                # Uses legacy filters
-                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-                is_shared = self.context.get("is_shared", False)
-                refresh_insight_now, refresh_frequency = should_refresh_insight(
-                    insight,
-                    dashboard_tile,
-                    request=self.context["request"],
-                    is_shared=is_shared,
+        with conversion_to_query_based(insight):
+            try:
+                refresh_requested = refresh_requested_by_client(self.context["request"])
+                execution_mode = (
+                    ExecutionMode.CALCULATION_ALWAYS if refresh_requested else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                 )
-                if refresh_insight_now:
-                    INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
-                    return synchronously_update_cache(insight, dashboard, refresh_frequency=refresh_frequency)
+                if refresh_requested and cache_requested_by_client(self.context["request"]):
+                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
 
-                return fetch_cached_insight_result(dashboard_tile or insight, refresh_frequency)
+                return calculate_for_query_based_insight(
+                    insight,
+                    dashboard=dashboard,
+                    execution_mode=execution_mode,
+                )
+            except ExposedHogQLError as e:
+                raise ValidationError(str(e))
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:

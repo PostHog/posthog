@@ -99,7 +99,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
             ],
         },
         post: {
-            '/api/projects/:team_id/insights/trend/': (_, __, ctx) => [
+            '/api/projects/:team_id/query/': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(512),
                 ctx.json({
