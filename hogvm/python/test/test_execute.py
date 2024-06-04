@@ -119,7 +119,7 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
         except Exception as e:
-            assert str(e) == "Unexpected end of bytecode"
+            assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
 
@@ -139,12 +139,14 @@ class TestBytecodeExecute:
             return "zero"
 
         functions = {"stringify": stringify}
-        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions).result == "one"
-        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions).result == "two"
-        assert execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions).result == "zero"
+        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "one"
+        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "two"
+        assert (
+            execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "zero"
+        )
 
     def test_bytecode_variable_assignment(self):
-        program = parse_program("var a := 1 + 2; return a;")
+        program = parse_program("let a := 1 + 2; return a;")
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
@@ -159,12 +161,12 @@ class TestBytecodeExecute:
             op.POP,
         ]
 
-        assert self._run_program("var a := 1 + 2; return a;") == 3
+        assert self._run_program("let a := 1 + 2; return a;") == 3
         assert (
             self._run_program(
                 """
-                var a := 1 + 2;
-                var b := a + 4;
+                let a := 1 + 2;
+                let b := a + 4;
                 return b;
             """
             )
@@ -198,9 +200,9 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var a := true;
+                let a := true;
                 if (a) {
-                    var a := 3;
+                    let a := 3;
                     return a + 2;
                 } else {
                     return 2;
@@ -214,7 +216,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var a := 1;
+                let a := 1;
                 a := a + 3;
                 a := a * 2;
                 return a;
@@ -268,7 +270,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var i := -1;
+                let i := -1;
                 while (false) {
                     1 + 1;
                 }
@@ -288,7 +290,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var i := 0;
+                let i := 0;
                 while (call_three_times()) {
                     true;
                 }
@@ -303,7 +305,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var i := 0;
+                let i := 0;
                 while (i < 3) {
                     i := i + 1;
                 }
@@ -379,7 +381,7 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 fn add(a, b) {
-                    var c := a + b;
+                    let c := a + b;
                     return c;
                 }
                 fn divide(a, b) {
@@ -413,11 +415,11 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 fn doIt(a) {
-                    var url := 'basdfasdf';
-                    var second := 2 + 3;
+                    let url := 'basdfasdf';
+                    let second := 2 + 3;
                     return second;
                 }
-                var nr := doIt(1);
+                let nr := doIt(1);
                 return nr;
                 """
             )
@@ -428,11 +430,11 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 fn doIt() {
-                    var url := 'basdfasdf';
-                    var second := 2 + 3;
+                    let url := 'basdfasdf';
+                    let second := 2 + 3;
                     return second;
                 }
-                var nr := doIt();
+                let nr := doIt();
                 return nr;
                 """
             )
@@ -461,7 +463,7 @@ class TestBytecodeExecute:
         assert self._run_program("return {'key': 'value', 'other': 'thing'};") == {"key": "value", "other": "thing"}
         assert self._run_program("return {'key': {'otherKey': 'value'}};") == {"key": {"otherKey": "value"}}
         assert self._run_program("return {key: 'value'};") == {None: "value"}
-        assert self._run_program("var key := 3; return {key: 'value'};") == {3: "value"}
+        assert self._run_program("let key := 3; return {key: 'value'};") == {3: "value"}
 
         assert self._run_program("return {'key': 'value'}.key;") == "value"
         assert self._run_program("return {'key': 'value'}['key'];") == "value"
@@ -475,7 +477,7 @@ class TestBytecodeExecute:
         assert self._run_program("return [1, [2, 3], 4];") == [1, [2, 3], 4]
         assert self._run_program("return [1, [2, [3, 4]], 5];") == [1, [2, [3, 4]], 5]
 
-        assert self._run_program("var a := [1, 2, 3]; return a[1];") == 2
+        assert self._run_program("let a := [1, 2, 3]; return a[1];") == 2
         assert self._run_program("return [1, 2, 3][1];") == 2
         assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1];") == 4
         assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;") == 5
@@ -487,22 +489,22 @@ class TestBytecodeExecute:
         assert self._run_program("return (1, '2', 3);") == (1, "2", 3)
         assert self._run_program("return (1, (2, 3), 4);") == (1, (2, 3), 4)
         assert self._run_program("return (1, (2, (3, 4)), 5);") == (1, (2, (3, 4)), 5)
-        assert self._run_program("var a := (1, 2, 3); return a[1];") == 2
+        assert self._run_program("let a := (1, 2, 3); return a[1];") == 2
         assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];") == 4
         assert self._run_program("return (1, (2, (3, 4)), 5).1.1.1;") == 4
         assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;") == 5
 
     def test_bytecode_nested(self):
-        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;") == 3
-        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];") == 42
-        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];") == 6
-        assert self._run_program("var r := {'d': (1, 3, 42, 6)}; return r.d.1;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];") == 42
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];") == 6
+        assert self._run_program("let r := {'d': (1, 3, 42, 6)}; return r.d.1;") == 3
 
     def test_bytecode_nested_modify(self):
         assert (
             self._run_program(
                 """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r.2.d.2 := 3;
                 return r.2.d.2;
                 """
@@ -513,7 +515,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].d[2] := 3;
                 return r[2].d[2];
                 """
@@ -523,7 +525,7 @@ class TestBytecodeExecute:
 
         assert self._run_program(
             """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].c := [666];
                 return r[2];
                 """
@@ -531,7 +533,7 @@ class TestBytecodeExecute:
 
         assert self._run_program(
             """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].d[2] := 3;
                 return r[2].d;
                 """
@@ -540,7 +542,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r.2['d'] := ['a', 'b', 'c', 'd'];
                 return r[2].d[2];
                 """
@@ -551,8 +553,8 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                var r := [1, 2, {'d': [1, 3, 42, 3]}];
-                var g := 'd';
+                let r := [1, 2, {'d': [1, 3, 42, 3]}];
+                let g := 'd';
                 r.2[g] := ['a', 'b', 'c', 'd'];
                 return r[2].d[2];
                 """
@@ -563,7 +565,7 @@ class TestBytecodeExecute:
     def test_bytecode_nested_modify_dict(self):
         assert self._run_program(
             """
-                var event := {
+                let event := {
                     'event': '$pageview',
                     'properties': {
                         '$browser': 'Chrome',
@@ -576,7 +578,7 @@ class TestBytecodeExecute:
         ) == {"event": "$pageview", "properties": {"$browser": "Firefox", "$os": "Windows"}}
         assert self._run_program(
             """
-                var event := {
+                let event := {
                     'event': '$pageview',
                     'properties': {
                         '$browser': 'Chrome',
@@ -587,3 +589,16 @@ class TestBytecodeExecute:
                 return event;
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Firefox", "$os": "Windows"}}
+        assert self._run_program(
+            """
+                let event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                let config := {};
+                return event;
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
