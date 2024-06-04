@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.hogql.bytecode import to_bytecode, execute_hog
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.errors import NotImplementedError
@@ -125,6 +127,53 @@ class TestBytecode(BaseTest):
         self.assertEqual(
             to_bytecode("and('test', 'test2')"),
             [_H, op.STRING, "test2", op.STRING, "test", op.AND, 2],
+        )
+
+    @pytest.mark.skip(reason="C++ parsing is not working for these cases yet.")
+    def test_bytecode_objects(self):
+        self.assertEqual(
+            to_bytecode("[1, 2, 3]"),
+            [_H, op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.ARRAY, 3],
+        )
+        self.assertEqual(
+            to_bytecode("[1, 2, 3][1]"),
+            [_H, op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.ARRAY, 3, op.INTEGER, 1, op.GET_PROPERTY, 1],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b'}"),
+            [_H, op.STRING, "a", op.STRING, "b", op.DICT, 1],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b', 'c': 'd'}"),
+            [_H, op.STRING, "a", op.STRING, "b", op.STRING, "c", op.STRING, "d", op.DICT, 2],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b', 'c': {'a': 'b'}}"),
+            [
+                _H,
+                op.STRING,
+                "a",
+                op.STRING,
+                "b",
+                op.STRING,
+                "c",
+                op.STRING,
+                "a",
+                op.STRING,
+                "b",
+                op.DICT,
+                1,
+                op.DICT,
+                2,
+            ],
+        )
+        self.assertEqual(
+            to_bytecode("['a', 'b']"),
+            [_H, op.STRING, "a", op.STRING, "b", op.ARRAY, 2],
+        )
+        self.assertEqual(
+            to_bytecode("('a', 'b')"),
+            [_H, op.STRING, "a", op.STRING, "b", op.TUPLE, 2],
         )
 
     def test_bytecode_create_error(self):

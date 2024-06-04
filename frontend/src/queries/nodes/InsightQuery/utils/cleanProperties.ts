@@ -106,6 +106,11 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
         return { type: PropertyFilterType.HogQL, key: 'true' }
     }
 
+    // remove invalid properties without type
+    if (property['type'] === undefined) {
+        return { type: PropertyFilterType.HogQL, key: 'true' }
+    }
+
     // fix type typo
     if (property['type'] === 'events') {
         property['type'] = 'event'

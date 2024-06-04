@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { AvailableFeature, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -133,20 +133,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             />
 
             <div className="space-y-2">
-                <EditableField
-                    multiline
-                    name="description"
-                    markdown
-                    value={definition.description || ''}
-                    placeholder="Description (optional)"
-                    mode="view"
-                    data-attr="definition-description-view"
-                    className="definition-description"
-                    compactButtons
-                    maxLength={600}
-                    paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
-                />
-
+                {definition.description || isProperty || hasTaxonomyFeatures ? (
+                    <EditableField
+                        multiline
+                        name="description"
+                        markdown
+                        value={definition.description || ''}
+                        placeholder="Description (optional)"
+                        mode="view"
+                        data-attr="definition-description-view"
+                        className="definition-description"
+                        compactButtons
+                        maxLength={600}
+                    />
+                ) : null}
                 <ObjectTags
                     tags={definition.tags ?? []}
                     data-attr="definition-tags-view"

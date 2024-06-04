@@ -15,7 +15,10 @@ from sentry_sdk import capture_exception, configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.caching.fetch_from_cache import synchronously_update_cache
+from posthog.api.services.query import process_query_dict
+from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.exported_asset import (
     ExportedAsset,
     get_public_access_token,
@@ -184,7 +187,13 @@ def export_image(exported_asset: ExportedAsset) -> None:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
+                with conversion_to_query_based(exported_asset.insight):
+                    process_query_dict(
+                        exported_asset.team,
+                        exported_asset.insight.query,
+                        limit_context=LimitContext.QUERY_ASYNC,
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+                    )
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():
