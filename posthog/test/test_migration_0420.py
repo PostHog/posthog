@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import NonAtomicTestMigrations
 
 
@@ -5,7 +7,7 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0419_remove_organization_available_features"
     migrate_to = "0420_set_all_survey_responses_to_be_strings"
 
-    def setUpBeforeMigration(self, apps):
+    def setUpBeforeMigration(self, apps: Any) -> None:
         PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
 
         self.property_1 = PropertyDefinition.objects.create(
@@ -39,7 +41,10 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
             },
         ]
 
-    def test_migration(self):
+    def test_migration(self) -> None:
+        # Ensure self.apps is not None
+        assert self.apps is not None
+
         PropertyDefinition = self.apps.get_model("posthog", "PropertyDefinition")
 
         # Check updated properties
@@ -57,8 +62,12 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
         self.assertEqual(unchanged_property.property_type, "Numeric")
         self.assertTrue(unchanged_property.is_numerical)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        # Ensure self.apps is not None
+        assert self.apps is not None
+
         PropertyDefinition = self.apps.get_model("posthog", "PropertyDefinition")
         PropertyDefinition.objects.all().delete()
+        super().tearDown()
         super().tearDown()
         super().tearDown()
