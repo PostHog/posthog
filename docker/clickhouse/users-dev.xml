@@ -19,6 +19,7 @@
             with minimum number of errors.
             -->
             <load_balancing>random</load_balancing>
+            <mutations_sync>2</mutations_sync>
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 

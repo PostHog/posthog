@@ -1,5 +1,7 @@
 from datetime import datetime
 from freezegun import freeze_time
+
+from posthog import settings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
@@ -39,7 +41,9 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
+TEST_BUCKET = (
+    f"test_storage_bucket-posthog.hogql.datawarehouse.trendquery{settings.data_stores.PYTEST_XDIST_WORKER or ''}"
+)
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
