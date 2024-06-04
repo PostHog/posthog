@@ -30,9 +30,14 @@ class Declaration(AST):
 
 @dataclass(kw_only=True)
 class VariableAssignment(Declaration):
+    left: Expr
+    right: Expr
+
+
+@dataclass(kw_only=True)
+class VariableDeclaration(Declaration):
     name: str
     expr: Optional[Expr] = None
-    is_declaration: bool
 
 
 @dataclass(kw_only=True)
