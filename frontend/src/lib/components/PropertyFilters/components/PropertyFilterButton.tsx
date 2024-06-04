@@ -17,7 +17,7 @@ import { formatPropertyLabel } from '../utils'
 export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
-    children?: React.ReactNode
+    children?: string
     item: AnyPropertyFilter
     disabledReason?: string
 }
@@ -29,11 +29,9 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
 
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
-        const label = formatPropertyLabel(
-            item,
-            cohortsById,
-            (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
-        )
+        const label =
+            children ||
+            formatPropertyLabel(item, cohortsById, (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?')
 
         const ButtonComponent = clickable ? 'button' : 'div'
 
@@ -49,11 +47,9 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 aria-disabled={!!disabledReason}
             >
                 <PropertyFilterIcon type={item.type} />
-                {children || (
-                    <span className="PropertyFilterButton-content" title={label}>
-                        {midEllipsis(label, 32)}
-                    </span>
-                )}
+                <span className="PropertyFilterButton-content" title={label}>
+                    {midEllipsis(label, 32)}
+                </span>
                 {closable && !disabledReason && (
                     // The context below prevents close button from going into active status when filter popover is open
                     <PopoverReferenceContext.Provider value={null}>
