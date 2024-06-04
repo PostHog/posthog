@@ -5,21 +5,21 @@ from dateutil import parser
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
 from posthog.models.team import WeekStartDay
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import InsightDateRange, IntervalType
 from posthog.test.base import APIBaseTest
 
 
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-48h")
+        date_range = InsightDateRange(date_from="-48h")
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.day, now=now)
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-23T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-25T23:59:59.999999Z"))
 
     def test_parsed_date_hour(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-48h")
+        date_range = InsightDateRange(date_from="-48h")
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.hour, now=now)
 
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-23T00:00:00Z"))
@@ -29,7 +29,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_parsed_date_middle_of_hour(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="2021-08-23 05:00:00", date_to="2021-08-26 07:00:00")
+        date_range = InsightDateRange(date_from="2021-08-23 05:00:00", date_to="2021-08-26 07:00:00")
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.hour, now=now)
 
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-23 05:00:00Z"))
@@ -39,7 +39,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_parsed_date_week(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-7d")
+        date_range = InsightDateRange(date_from="-7d")
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.week, now=now)
 
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-18 00:00:00Z"))
@@ -49,13 +49,13 @@ class TestQueryDateRange(APIBaseTest):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         self.assertEqual(
             QueryDateRange(
-                team=self.team, date_range=DateRange(date_from="-20h"), interval=IntervalType.day, now=now
+                team=self.team, date_range=InsightDateRange(date_from="-20h"), interval=IntervalType.day, now=now
             ).all_values(),
             [parser.isoparse("2021-08-24T00:00:00Z"), parser.isoparse("2021-08-25T00:00:00Z")],
         )
         self.assertEqual(
             QueryDateRange(
-                team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.week, now=now
+                team=self.team, date_range=InsightDateRange(date_from="-20d"), interval=IntervalType.week, now=now
             ).all_values(),
             [
                 parser.isoparse("2021-08-01T00:00:00Z"),
@@ -67,7 +67,7 @@ class TestQueryDateRange(APIBaseTest):
         self.team.week_start_day = WeekStartDay.MONDAY
         self.assertEqual(
             QueryDateRange(
-                team=self.team, date_range=DateRange(date_from="-20d"), interval=IntervalType.week, now=now
+                team=self.team, date_range=InsightDateRange(date_from="-20d"), interval=IntervalType.week, now=now
             ).all_values(),
             [
                 parser.isoparse("2021-08-02T00:00:00Z"),
@@ -78,13 +78,13 @@ class TestQueryDateRange(APIBaseTest):
         )
         self.assertEqual(
             QueryDateRange(
-                team=self.team, date_range=DateRange(date_from="-50d"), interval=IntervalType.month, now=now
+                team=self.team, date_range=InsightDateRange(date_from="-50d"), interval=IntervalType.month, now=now
             ).all_values(),
             [parser.isoparse("2021-07-01T00:00:00Z"), parser.isoparse("2021-08-01T00:00:00Z")],
         )
         self.assertEqual(
             QueryDateRange(
-                team=self.team, date_range=DateRange(date_from="-3h"), interval=IntervalType.hour, now=now
+                team=self.team, date_range=InsightDateRange(date_from="-3h"), interval=IntervalType.hour, now=now
             ).all_values(),
             [
                 parser.isoparse("2021-08-24T21:00:00Z"),
@@ -96,7 +96,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(
+        date_range = InsightDateRange(
             date_from="2021-02-25T12:25:23.000Z", date_to="2021-04-25T10:59:23.000Z", explicitDate=True
         )
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.day, now=now)
@@ -106,7 +106,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_yesterday(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)
+        date_range = InsightDateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)
 
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.hour, now=now)
 
