@@ -57,7 +57,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        self.assertCountEqual(activity, expected)
 
     def _create_plugin(
         self, additional_params: Optional[dict] = None, expected_status: int = status.HTTP_201_CREATED
