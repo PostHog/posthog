@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -121,7 +119,6 @@ const GetHelp = (): JSX.Element => {
 
 export function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex h-full flex-col">
@@ -136,11 +133,7 @@ export function VerifyEmail(): JSX.Element {
                                     <MailHog className="w-full h-full" />
                                 </div>
                                 <p className="mb-6">An email has been sent with a link to verify your email address.</p>
-                                {featureFlags[FEATURE_FLAGS.EMAIL_VERIFICATION_TICKET_SUBMISSION] === 'test' ? (
-                                    <GetHelp />
-                                ) : (
-                                    <SupportButtons />
-                                )}
+                                <GetHelp />
                             </>
                         ) : view === 'verify' ? (
                             <>

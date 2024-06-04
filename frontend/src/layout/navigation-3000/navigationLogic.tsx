@@ -404,10 +404,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.Events,
+                              identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: urls.events(),
+                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
                       ]
                     : [

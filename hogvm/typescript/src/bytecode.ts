@@ -46,6 +46,11 @@ export const enum Operation {
     JUMP = 39,
     JUMP_IF_FALSE = 40,
     DECLARE_FN = 41,
+    DICT = 42,
+    ARRAY = 43,
+    TUPLE = 44,
+    GET_PROPERTY = 45,
+    SET_PROPERTY = 46,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -58,7 +63,10 @@ function like(string: string, pattern: string, caseInsensitive = false): boolean
 function getNestedValue(obj: any, chain: any[]): any {
     if (typeof obj === 'object' && obj !== null) {
         for (const key of chain) {
-            if (typeof key === 'number') {
+            // if obj is a map
+            if (obj instanceof Map) {
+                obj = obj.get(key) ?? null
+            } else if (typeof key === 'number') {
                 obj = obj[key]
             } else {
                 obj = obj[key] ?? null
@@ -67,6 +75,29 @@ function getNestedValue(obj: any, chain: any[]): any {
         return obj
     }
     return null
+}
+function setNestedValue(obj: any, chain: any[], value: any): void {
+    if (typeof obj !== 'object' || obj === null) {
+        throw new Error(`Can not set ${chain} on non-object: ${typeof obj}`)
+    }
+    for (let i = 0; i < chain.length - 1; i++) {
+        const key = chain[i]
+        if (obj instanceof Map) {
+            obj = obj.get(key) ?? null
+        } else if (Array.isArray(obj) && typeof key === 'number') {
+            obj = obj[key]
+        } else {
+            throw new Error(`Can not get ${chain} on element of type ${typeof obj}`)
+        }
+    }
+    const lastKey = chain[chain.length - 1]
+    if (obj instanceof Map) {
+        obj.set(lastKey, value)
+    } else if (Array.isArray(obj) && typeof lastKey === 'number') {
+        obj[lastKey] = value
+    } else {
+        throw new Error(`Can not set ${chain} on element of type ${typeof obj}`)
+    }
 }
 
 interface VMState {
@@ -145,6 +176,9 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
 
     const startTime = Date.now()
     let temp: any
+    let temp2: any
+    let tempArray: any[]
+    let tempMap: Map<string, any> = new Map()
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
@@ -322,6 +356,35 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
             case Operation.SET_LOCAL:
                 temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
                 stack[next() + temp] = popStack()
+                break
+            case Operation.GET_PROPERTY:
+                temp = popStack() // property
+                stack.push(getNestedValue(popStack(), [temp]))
+                break
+            case Operation.SET_PROPERTY:
+                temp = popStack() // value
+                temp2 = popStack() // field
+                setNestedValue(popStack(), [temp2], temp)
+                break
+            case Operation.DICT:
+                temp = next() * 2 // number of elements to remove from the stack
+                tempArray = stack.splice(stack.length - temp, temp)
+                tempMap = new Map()
+                for (let i = 0; i < tempArray.length; i += 2) {
+                    tempMap.set(tempArray[i], tempArray[i + 1])
+                }
+                stack.push(tempMap)
+                break
+            case Operation.ARRAY:
+                temp = next()
+                tempArray = stack.splice(stack.length - temp, temp)
+                stack.push(tempArray)
+                break
+            case Operation.TUPLE:
+                temp = next()
+                tempArray = stack.splice(stack.length - temp, temp)
+                ;(tempArray as any).__isHogTuple = true
+                stack.push(tempArray)
                 break
             case Operation.JUMP:
                 temp = next()

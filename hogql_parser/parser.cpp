@@ -1105,6 +1105,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Array", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(ctx->columnExprList()));
   }
 
+  VISIT_UNSUPPORTED(ColumnExprDict)
+
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
   VISIT_UNSUPPORTED(ColumnExprCast)

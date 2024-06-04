@@ -23,7 +23,7 @@ services:
             file: docker-compose.base.yml
             service: redis
         volumes:
-            - redis-data:/data    
+            - redis-data:/data
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -56,8 +56,12 @@ services:
             service: kafka
         depends_on:
             - zookeeper
+        environment:
+            KAFKA_LOG_RETENTION_MS: 3600000
+            KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+            KAFKA_LOG_RETENTION_HOURS: 1     
         volumes:
-            - kafka-data:/bitnami/kafka   
+            - kafka-data:/bitnami/kafka
 
     worker:
         extends:
