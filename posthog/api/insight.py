@@ -61,7 +61,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
 )
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    flagged_conversion_to_query_based,
+    conversion_to_query_based,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -546,7 +546,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        with flagged_conversion_to_query_based(insight):
+        with conversion_to_query_based(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = (

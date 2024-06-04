@@ -17,7 +17,7 @@ from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.api.services.query import process_query_model
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.exported_asset import (
     ExportedAsset,
@@ -187,7 +187,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                with flagged_conversion_to_query_based(exported_asset.insight):
+                with conversion_to_query_based(exported_asset.insight):
                     process_query_model(
                         exported_asset.team,
                         exported_asset.insight.query,

@@ -16,7 +16,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
@@ -59,7 +59,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with flagged_conversion_to_query_based(insight):
+        with conversion_to_query_based(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:

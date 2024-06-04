@@ -14,7 +14,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
@@ -112,7 +112,7 @@ def update_cache(caching_state_id: UUID):
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    with flagged_conversion_to_query_based(insight):
+    with conversion_to_query_based(insight):
         try:
             response = process_query_dict(
                 insight.team,
