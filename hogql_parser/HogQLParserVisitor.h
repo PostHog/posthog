@@ -47,8 +47,6 @@ public:
 
     virtual std::any visitBlock(HogQLParser::BlockContext *context) = 0;
 
-    virtual std::any visitDict(HogQLParser::DictContext *context) = 0;
-
     virtual std::any visitKvPair(HogQLParser::KvPairContext *context) = 0;
 
     virtual std::any visitKvPairList(HogQLParser::KvPairListContext *context) = 0;
@@ -152,6 +150,8 @@ public:
     virtual std::any visitColumnExprAlias(HogQLParser::ColumnExprAliasContext *context) = 0;
 
     virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *context) = 0;
+
+    virtual std::any visitColumnExprDict(HogQLParser::ColumnExprDictContext *context) = 0;
 
     virtual std::any visitColumnExprSubquery(HogQLParser::ColumnExprSubqueryContext *context) = 0;
 

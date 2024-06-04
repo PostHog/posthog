@@ -7,7 +7,6 @@ from unittest.mock import ANY, MagicMock, call, patch
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
@@ -505,63 +504,6 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/")
         response_data = response.json()
         self.assertEqual(response_data["primary_dashboard"], None)
-
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
-    def test_update_timezone_remove_cache(self):
-        # Seed cache with some insights
-        self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
-        ).json()
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "$pageview"}])},
-        )
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "user signed up"}])},
-        )
-
-        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
-        self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
-        # Verify cache was deleted
-        self.assertEqual(cache.get(response["filters_hash"]), None)
-
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
-    def test_update_modifiers_remove_cache(self):
-        self.client.patch(
-            f"/api/projects/{self.team.id}/",
-            {"modifiers": {"personsOnEventsMode": "person_id_no_override_properties_on_events"}},
-        )
-        # Seed cache with some insights
-        self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
-        ).json()
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "$pageview"}])},
-        )
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={"events": json.dumps([{"id": "user signed up"}])},
-        )
-
-        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/",
-            {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
-        )
-        # Verify cache was deleted
-        self.assertEqual(cache.get(response["filters_hash"]), None)
 
     def test_is_generating_demo_data(self):
         cache_key = f"is_generating_demo_data_{self.team.pk}"

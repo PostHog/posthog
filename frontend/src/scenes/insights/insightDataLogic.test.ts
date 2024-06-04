@@ -1,5 +1,4 @@
 import { expectLogic } from 'kea-test-utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -151,10 +150,6 @@ describe('insightDataLogic', () => {
 
     describe('isHogQLInsight', () => {
         it('returns false for non-insight query', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
             expectLogic(theInsightDataLogic, () => {
                 theInsightDataLogic.actions.setQuery({
                     kind: NodeKind.DataVisualizationNode,
@@ -167,10 +162,6 @@ describe('insightDataLogic', () => {
         })
 
         it('returns true with flag enabled', () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
             expectLogic(theInsightDataLogic).toMatchValues({ isHogQLInsight: true })
         })
     })
