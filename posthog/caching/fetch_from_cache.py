@@ -1,14 +1,9 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
-from django.utils.timezone import now
 from prometheus_client import Counter
 
-from posthog.caching.calculate_results import calculate_for_filter_based_insight
-from posthog.caching.insight_cache import update_cached_state
-from posthog.models import Insight
-from posthog.models.dashboard import Dashboard
 from posthog.schema import QueryTiming
 
 insight_cache_read_counter = Counter(
@@ -41,6 +36,7 @@ class NothingInCacheResult(InsightResult):
     columns: Optional[list] = None
 
 
+"""
 def synchronously_update_cache(
     insight: Insight,
     dashboard: Optional[Dashboard],
@@ -70,3 +66,4 @@ def synchronously_update_cache(
         timezone=insight.team.timezone,
         next_allowed_client_refresh=next_allowed_client_refresh,
     )
+"""

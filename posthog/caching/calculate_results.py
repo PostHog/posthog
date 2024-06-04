@@ -30,7 +30,6 @@ from posthog.models import (
 )
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
@@ -166,23 +165,6 @@ def calculate_for_query_based_insight(
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
         timings=response.get("timings"),
     )
-
-
-def calculate_for_filter_based_insight(
-    insight: Insight, dashboard: Optional[Dashboard]
-) -> tuple[str, str, list | dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
-    cache_key = generate_insight_filters_hash(insight, dashboard)
-    cache_type = get_cache_type(filter)
-
-    tag_queries(
-        team_id=insight.team_id,
-        insight_id=insight.pk,
-        cache_type=cache_type,
-        cache_key=cache_key,
-    )
-
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.team)
 
 
 def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> list[dict[str, Any]]:
