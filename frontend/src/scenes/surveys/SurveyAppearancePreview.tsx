@@ -7,25 +7,23 @@ import { NewSurvey } from './constants'
 
 export function SurveyAppearancePreview({
     survey,
-    activePreview,
-    questionIndex,
+    previewPageIndex,
 }: {
     survey: Survey | NewSurvey
-    activePreview: 'survey' | 'confirmation'
-    questionIndex: number
+    previewPageIndex: number
 }): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (surveyPreviewRef.current) {
-            renderSurveysPreview(survey, surveyPreviewRef.current, activePreview, questionIndex)
+            renderSurveysPreview(survey, surveyPreviewRef.current, previewPageIndex)
         }
 
         if (feedbackWidgetPreviewRef.current) {
             renderFeedbackWidgetPreview(survey, feedbackWidgetPreviewRef.current)
         }
-    }, [survey, activePreview, questionIndex])
+    }, [survey, previewPageIndex])
     return (
         <>
             <div ref={surveyPreviewRef} />
