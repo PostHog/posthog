@@ -159,7 +159,6 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     placement: DashboardPlacement | 'SavedInsightGrid'
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
-    doNotLoad?: boolean
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -261,7 +260,6 @@ function InsightCardInternal(
         moreButtons,
         placement,
         loadPriority,
-        doNotLoad,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -272,7 +270,6 @@ function InsightCardInternal(
         dashboardId: dashboardId,
         cachedInsight: insight,
         loadPriority,
-        doNotLoad,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
