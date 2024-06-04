@@ -73,6 +73,12 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    else:
+        parsed = parsed.astimezone(dt.timezone.utc)
+
     return parsed
 
 
