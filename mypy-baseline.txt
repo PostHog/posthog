@@ -150,7 +150,6 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "PathsFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "LifecycleFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
-posthog/hogql_queries/legacy_compatibility/feature_flag.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/demo/matrix/matrix.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
