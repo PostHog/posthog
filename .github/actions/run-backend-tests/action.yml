@@ -196,7 +196,7 @@ runs:
               pytest hogvm $PYTEST_ARGS
 
         - name: Run HogVM TypeScript tests
-          id: run-hogvm-python-tests
+          id: run-hogvm-typescript-tests
           if: ${{ inputs.segment == 'HogVM' }}
           shell: bash
           run: |
