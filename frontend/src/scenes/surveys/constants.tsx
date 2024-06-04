@@ -120,7 +120,6 @@ export interface NewSurvey
         | 'appearance'
         | 'targeting_flag_filters'
         | 'responses_limit'
-        | 'events'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -149,7 +148,6 @@ export const NEW_SURVEY: NewSurvey = {
     archived: false,
     appearance: defaultSurveyAppearance,
     responses_limit: null,
-    events: [],
 }
 
 export enum SurveyTemplateType {
