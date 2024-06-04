@@ -17,7 +17,6 @@ import { useEffect, useMemo } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -66,7 +65,6 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackChannels, slackChannelsLoading, slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
     const { loadSlackChannels } = useActions(integrationsLogic)
-    const { timezone: currentTimezone } = useValues(teamLogic)
 
     const emailDisabled = !preflight?.email_service_available
     const slackDisabled = !slackIntegration
@@ -94,6 +92,10 @@ export function EditSubscription({
         subscription.target_value &&
         subscription.target_type === 'slack' &&
         !isMemberOfSlackChannel(subscription.target_value)
+
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
+    const parts = formatter.formatToParts(new Date())
+    const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
 
     return (
         <Form
@@ -336,7 +338,7 @@ export function EditSubscription({
                             <div className="flex items-baseline justify-between w-full">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
                                 <div className="text-xs text-muted text-right">
-                                    Project timezone: <code>{currentTimezone}</code>
+                                    <code>{currentTimezone}</code>
                                 </div>
                             </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
