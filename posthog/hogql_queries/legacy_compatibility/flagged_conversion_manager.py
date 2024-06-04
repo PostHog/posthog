@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from sentry_sdk import capture_exception, set_tag
 
 from .filter_to_query import filter_to_query
 
@@ -16,12 +15,7 @@ def flagged_conversion_to_query_based(insight: "Insight") -> Iterator[None]:
     if insight.query is None and insight.filters is not None:
         # TRICKY: We're making it so that a `filters`-based insights is converted to a `query`-based one
         # and treated as such
-        try:
-            insight.query = filter_to_query(insight.filters).model_dump()
-        except:
-            # If `filter_to_query` failed, let's capture this and proceed with legacy filters
-            set_tag("filter_to_query_todo", True)
-            capture_exception()
+        insight.query = filter_to_query(insight.filters).model_dump()
 
         try:
             yield
