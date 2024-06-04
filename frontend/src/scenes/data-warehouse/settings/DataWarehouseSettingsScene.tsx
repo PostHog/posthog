@@ -3,7 +3,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehousePricingNotice } from '../DataWarehousePricingNotice'
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { DataWarehouseSourcesTable } from './DataWarehouseSourcesTable'
 
@@ -33,7 +33,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     </div>
                 }
             />
-            <DataWarehousePricingNotice />
+            <DataWarehouseBetaNotice />
             <DataWarehouseSourcesTable />
         </div>
     )

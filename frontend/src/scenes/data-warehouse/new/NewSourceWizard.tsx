@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SourceConfig } from '~/types'
 
-import { DataWarehousePricingNotice } from '../DataWarehousePricingNotice'
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -83,7 +83,7 @@ export function NewSourceWizard(): JSX.Element {
                     </>
                 }
             />
-            <DataWarehousePricingNotice />
+            <DataWarehouseBetaNotice />
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>
