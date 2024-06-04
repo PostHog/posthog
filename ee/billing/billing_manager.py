@@ -154,19 +154,19 @@ class BillingManager:
 
             # Extend the products with accurate usage_limit info
             for product in response["products"]:
-                usage_key = product.get("usage_key", None)
+                usage_key = product.get("usage_key")
                 if not usage_key:
                     continue
                 usage = response.get("usage_summary", {}).get(usage_key, {})
                 usage_limit = usage.get("limit")
                 current_usage = usage.get("usage") or 0
 
-                if (
-                    organization
-                    and organization.usage
-                    and organization.usage.get(usage_key, {}).get("todays_usage", None)
-                ):
-                    todays_usage = organization.usage[usage_key]["todays_usage"]
+                product_usage = {}
+                if organization and organization.usage:
+                    product_usage = organization.usage.get(usage_key) or {}
+
+                if product_usage.get("todays_usage"):
+                    todays_usage = product_usage["todays_usage"]
                     current_usage = current_usage + todays_usage
 
                 product["current_usage"] = current_usage
@@ -174,11 +174,9 @@ class BillingManager:
 
                 # Also update the tiers
                 if product.get("tiers"):
+                    usage_limit = product_usage.get("limit")
                     product["tiers"] = compute_usage_per_tier(
-                        current_usage,
-                        product["projected_usage"],
-                        product["tiers"],
-                        organization.usage[usage_key]["limit"],
+                        current_usage, product["projected_usage"], product["tiers"], usage_limit
                     )
                     product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
 
@@ -194,16 +192,12 @@ class BillingManager:
                         usage = response.get("usage_summary", {}).get(addon_usage_key, {})
                         usage_limit = usage.get("limit")
                         current_usage = usage.get("usage") or 0
-                        if (
-                            organization
-                            and organization.usage
-                            and organization.usage.get(usage_key, {}).get("todays_usage", None)
-                        ):
-                            todays_usage = organization.usage[usage_key]["todays_usage"]
+                        if product_usage.get("todays_usage"):
+                            todays_usage = product_usage["todays_usage"]
                             current_usage = current_usage + todays_usage
                     addon["current_usage"] = current_usage
                     addon["tiers"] = compute_usage_per_tier(
-                        current_usage, addon["projected_usage"], addon["tiers"], organization.usage[usage_key]["limit"]
+                        current_usage, addon["projected_usage"], addon["tiers"], product_usage.get("limit")
                     )
                     addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
         else:
