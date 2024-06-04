@@ -323,7 +323,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw0`.`kafka_person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test_gw2`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
   
       ENGINE = Kafka(
@@ -348,7 +348,7 @@
           -- set as a default value in the `person_overrides` table.
           -- created_at,
           version
-      FROM `posthog_test_gw0`.`person_overrides`
+      FROM `posthog_test_gw2`.`person_overrides`
   
   '''
 # ---
@@ -534,7 +534,7 @@
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
       
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw2', 'sharded_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test_gw0', 'sharded_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -705,7 +705,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw0.writable_heatmaps
+  TO posthog_test_gw2.writable_heatmaps
   AS SELECT
       session_id,
       team_id,
@@ -726,7 +726,7 @@
       _timestamp,
       _offset,
       _partition
-  FROM posthog_test_gw0.kafka_heatmaps
+  FROM posthog_test_gw2.kafka_heatmaps
   
   '''
 # ---
@@ -745,7 +745,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw2', 'sharded_ingestion_warnings', rand())
+  ) ENGINE = Distributed('posthog', 'posthog_test_gw0', 'sharded_ingestion_warnings', rand())
   
   '''
 # ---
@@ -1267,11 +1267,11 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw0.writeable_performance_events
+  TO posthog_test_gw2.writeable_performance_events
   AS SELECT
   uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
   ,_timestamp, _offset, _partition
-  FROM posthog_test_gw0.kafka_performance_events
+  FROM posthog_test_gw2.kafka_performance_events
   
   '''
 # ---
@@ -1445,7 +1445,7 @@
 # name: test_create_table_query[person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw2`.`person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test_gw0`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -1493,7 +1493,7 @@
       ENGINE = ReplicatedReplacingMergeTree(
           -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
           -- when the tests tear down and recreate the table.
-          '/clickhouse/tables/{uuid}noshard/posthog_test_gw2.person_overrides',
+          '/clickhouse/tables/{uuid}noshard/posthog_test_gw0.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1615,7 +1615,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw2', 'sharded_session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test_gw0', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -1682,7 +1682,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw0.writable_session_replay_events (
+  TO posthog_test_gw2.writable_session_replay_events (
   `session_id` String, `team_id` Int64, `distinct_id` String,
   `min_first_timestamp` DateTime64(6, 'UTC'),
   `max_last_timestamp` DateTime64(6, 'UTC'),
@@ -1724,7 +1724,7 @@
   sum(event_count) as event_count,
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   max(_timestamp) as _timestamp
-  FROM posthog_test_gw0.kafka_session_replay_events
+  FROM posthog_test_gw2.kafka_session_replay_events
   group by session_id, team_id
   
   '''
@@ -1784,7 +1784,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw0.writable_sessions
+  TO posthog_test_gw2.writable_sessions
   AS
   
   SELECT
@@ -1826,7 +1826,7 @@
   sumIf(1, event='$pageview') as pageview_count,
   sumIf(1, event='$autocapture') as autocapture_count
   
-  FROM posthog_test_gw0.sharded_events
+  FROM posthog_test_gw2.sharded_events
   WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
   GROUP BY `$session_id`, team_id
   
@@ -2230,7 +2230,7 @@
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
       
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw2', 'sharded_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test_gw0', 'sharded_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -2280,7 +2280,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw2', 'sharded_session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test_gw0', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -2614,7 +2614,7 @@
 # name: test_create_table_query_replicated_and_storage[person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw0`.`person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test_gw2`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -2662,7 +2662,7 @@
       ENGINE = ReplicatedReplacingMergeTree(
           -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
           -- when the tests tear down and recreate the table.
-          '/clickhouse/tables/{uuid}noshard/posthog_test_gw0.person_overrides',
+          '/clickhouse/tables/{uuid}noshard/posthog_test_gw2.person_overrides',
           '{replica}-{shard}',
           version
       )
