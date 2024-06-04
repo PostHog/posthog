@@ -44,14 +44,13 @@ export default function SurveyEdit(): JSX.Element {
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
-        surveysHTMLAvailable,
         isEditingSurvey,
         targetingFlagFilters,
         thankYouMessageDescriptionContentType,
     } = useValues(surveyLogic)
     const { setSurveyValue, resetTargeting, setSelectedPageIndex, setSelectedSection, setFlagPropertyErrors } =
         useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysHTMLAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
 
