@@ -323,6 +323,7 @@ class StartBatchExportRunInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
 
 
 RecordsTotalCount = int | None
@@ -360,6 +361,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
                     interval_end=inputs.data_interval_end,
                     exclude_events=inputs.exclude_events,
                     include_events=inputs.include_events,
+                    is_backfill=inputs.is_backfill,
                 ),
                 timeout=(delta / 12).total_seconds(),
             )

@@ -177,6 +177,24 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 
     assert len(workflows) == expected
 
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+
 
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
@@ -222,6 +240,24 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
 
     assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
@@ -285,6 +321,24 @@ async def test_backfill_batch_export_workflow_no_end_at(
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
 
     assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 

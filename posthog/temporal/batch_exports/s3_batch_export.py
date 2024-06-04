@@ -342,6 +342,7 @@ class S3InsertInputs:
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -460,6 +461,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
         )
 
         async with Heartbeatter() as heartbeatter:
@@ -630,6 +632,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -682,6 +685,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(

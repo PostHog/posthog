@@ -57,6 +57,7 @@ class BatchExportSchema(typing.TypedDict):
 class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -92,6 +93,7 @@ class S3BatchExportInputs:
     batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    is_backfill: bool = False
 
 
 @dataclass
@@ -113,6 +115,7 @@ class SnowflakeBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -134,6 +137,7 @@ class PostgresBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -162,6 +166,7 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
     use_json_type: bool = False
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -177,6 +182,7 @@ class HttpBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -188,6 +194,7 @@ class NoOpInputs:
     interval: str = "hour"
     arg: str = ""
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 DESTINATION_WORKFLOWS = {

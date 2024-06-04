@@ -191,6 +191,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         ]
 
         args = await client.data_converter.decode(schedule_action.args)
+        args[0]["is_backfill"] = True
 
         workflow_handle = await client.start_workflow(
             schedule_action.workflow,
