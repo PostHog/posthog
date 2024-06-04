@@ -647,6 +647,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_formula_with_breakdown_and_no_data(self):
         self._create_test_events()
 
+        # Neither side returns a response
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
@@ -655,7 +656,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+2*B"),
             BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
         )
-        self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0]["data"])
+        self.assertEqual(0, len(response.results))
+
+        # One returns a response, the other side doesn't
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleavexxx")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
+        )
+        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
@@ -838,20 +850,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 5
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]", '["",""]']
+        assert len(response.results) == 4
+        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]"]
 
         assert response.results[0]["label"] == "[10.0,17.5]"
         assert response.results[1]["label"] == "[17.5,25.0]"
         assert response.results[2]["label"] == "[25.0,32.5]"
         assert response.results[3]["label"] == "[32.5,40.01]"
-        assert response.results[4]["label"] == '["",""]'
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
         assert response.results[1]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
-        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
