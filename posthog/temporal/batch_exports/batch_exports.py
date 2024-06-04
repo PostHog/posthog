@@ -38,9 +38,9 @@ SELECT_QUERY_TEMPLATE = Template(
     $fields
     FROM events
     WHERE
-        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
-        AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
-        AND team_id = {team_id}
+        team_id = {team_id}
+        AND $timestamp_field >= toDateTime64({data_interval_start}, 6, 'UTC')
+        AND $timestamp_field < toDateTime64({data_interval_end}, 6, 'UTC')
         $timestamp
         $exclude_events
         $include_events
@@ -102,6 +102,7 @@ async def get_rows_count(
         order_by="",
         format="",
         distinct="",
+        timestamp_field="COALESCE(inserted_at, _timestamp)",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -211,6 +212,7 @@ def iter_records(
         order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
         format="FORMAT ArrowStream",
         distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
+        timestamp_field="COALESCE(inserted_at, _timestamp)",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -462,6 +464,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             check_window=inputs.failure_check_window,
             failure_threshold=inputs.failure_threshold,
         )
+
         if not is_over_failure_threshold:
             return
 

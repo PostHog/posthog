@@ -391,7 +391,7 @@ class BackfillBatchExportInputs:
     start_at: str
     end_at: str | None
     buffer_limit: int = 1
-    wait_delay: float = 5.0
+    start_delay: float = 1.0
 
 
 def backfill_export(
