@@ -342,12 +342,13 @@ function InsightCardInternal(
                         {useQueryDashboardCards &&
                         ['TRENDS', 'LIFECYCLE', 'STICKINESS', 'RETENTION'].includes(insight.filters.insight) ? (
                             <Query
-                                query={{ ...queryFromFilters(insight.filters), embedded: true }}
+                                query={queryFromFilters(insight.filters)}
                                 cachedResults={insight}
                                 context={{
                                     insightProps: insightLogicProps,
                                 }}
                                 readOnly
+                                embedded
                                 stale={stale}
                             />
                         ) : (
