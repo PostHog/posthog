@@ -371,14 +371,7 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_act
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Call")  [assignment]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Call", variable has type "Field")  [assignment]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument "select" to "SelectQuery" has incompatible type "list[Alias]"; expected "list[Expr]"  [arg-type]
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument "group_by" to "SelectQuery" has incompatible type "list[Field] | None"; expected "list[Expr] | None"  [arg-type]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument 2 to "parse_select" has incompatible type "dict[str, SelectQuery]"; expected "dict[str, Expr] | None"  [arg-type]
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
