@@ -11,8 +11,8 @@ from posthog.warehouse.util import database_sync_to_async
 class ExternalDataJob(CreatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
+        ERROR = "Error", "Error"
+        ACTIVE = "Active", "Active"
         CANCELLED = "Cancelled", "Cancelled"
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -57,9 +57,7 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
 @database_sync_to_async
 def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
     job = (
-        ExternalDataJob.objects.filter(
-            team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.COMPLETED
-        )
+        ExternalDataJob.objects.filter(team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.ACTIVE)
         .prefetch_related("pipeline")
         .order_by("-created_at")
         .first()
