@@ -559,3 +559,31 @@ class TestBytecodeExecute:
             )
             == "c"
         )
+
+    def test_bytecode_nested_modify_dict(self):
+        assert self._run_program(
+            """
+                var event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                event['properties']['$browser'] := 'Firefox';
+                return event;
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Firefox", "$os": "Windows"}}
+        assert self._run_program(
+            """
+                var event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                event.properties.$browser := 'Firefox';
+                return event;
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Firefox", "$os": "Windows"}}

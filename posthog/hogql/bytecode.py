@@ -289,31 +289,35 @@ class BytecodeBuilder(Visitor):
                 Operation.SET_PROPERTY,
             ]
 
-        if not isinstance(node.left, ast.Field):
-            raise NotImplementedError(f"Can not assign to this type of expression")
+        if isinstance(node.left, ast.Field) and len(node.left.chain) == 1:
+            name = node.left.chain[0]
+            for index, local in reversed(list(enumerate(self.locals))):
+                if local.name == name:
+                    return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
 
-        ops: list = []
-        chain = node.left.chain
-        name = chain[0]
-        if len(chain) == 1:
+        if isinstance(node.left, ast.Field) and len(node.left.chain) > 1:
+            chain = node.left.chain
+            name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
-                    ops.extend([*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index])
-                    break
-        else:
-            for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == name:
-                    ops.extend([Operation.GET_LOCAL, index])
-                    for element in chain[1:]:
+                    ops = [Operation.GET_LOCAL, index]
+                    for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
                         else:
                             ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
-                    break
 
-        if len(ops) == 0:
+                    if isinstance(chain[-1], int):
+                        ops.extend([Operation.INTEGER, chain[-1], *self.visit(node.right), Operation.SET_PROPERTY])
+                    else:
+                        ops.extend([Operation.STRING, str(chain[-1]), *self.visit(node.right), Operation.SET_PROPERTY])
+
+                    return ops
+
             raise NotImplementedError(f"Variable `{name}` not declared in this scope")
-        return ops
+
+        raise NotImplementedError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
