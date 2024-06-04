@@ -2,6 +2,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router/lib/utils'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -132,6 +133,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             />
 
             <div className="space-y-2">
+                {definition.description || isProperty || hasTaxonomyFeatures ? (
+                    <EditableField
+                        multiline
+                        name="description"
+                        markdown
+                        value={definition.description || ''}
+                        placeholder="Description (optional)"
+                        mode="view"
+                        data-attr="definition-description-view"
+                        className="definition-description"
+                        compactButtons
+                        maxLength={600}
+                    />
+                ) : null}
                 <ObjectTags
                     tags={definition.tags ?? []}
                     data-attr="definition-tags-view"
