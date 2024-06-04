@@ -657,8 +657,6 @@ posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "pr
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "soft_delete" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "update_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
