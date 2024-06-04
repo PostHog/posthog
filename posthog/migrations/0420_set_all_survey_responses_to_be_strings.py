@@ -15,11 +15,7 @@ class Migration(migrations.Migration):
         set property_type = 'String', is_numerical=False
         where name LIKE '$survey_response%' and property_type = 'Numeric'
             """,
-            reverse_sql="""
-                    update posthog_propertydefinition
-        set property_type = 'Numeric', is_numerical=True
-        where name LIKE '%$survey_response%' and property_type = 'String'
-                    """,
+            reverse_sql=migrations.RunSQL.noop,
             elidable=True,
         )
     ]
