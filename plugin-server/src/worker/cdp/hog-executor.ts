@@ -52,6 +52,7 @@ export class HogExecutor {
 
     async execute(hogFunction: HogFunctionType, fields: Record<string, any>, state?: VMState): Promise<any> {
         const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
+
         try {
             const res = exec(
                 hogFunction.bytecode,
@@ -93,7 +94,7 @@ export class HogExecutor {
                                 pluginConfigId: SPECIAL_CONFIG_ID,
                             })
 
-                            console.log(success)
+                            console.log(webhook, success)
 
                             // TODO: Temporary test code
                             if (!success) {
@@ -104,7 +105,7 @@ export class HogExecutor {
                                     timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
                                 })
 
-                                console.log(fetchResponse)
+                                console.log(webhook, fetchResponse, fetchResponse.status, await fetchResponse.text())
                                 break
                             }
                         default:
@@ -113,33 +114,6 @@ export class HogExecutor {
                 } catch (err) {
                     console.error(`Error executing async function: ${res.asyncFunctionName}`, err)
                 }
-            }
-
-            const example = {
-                result: undefined,
-                finished: false,
-                asyncFunctionName: 'fetch',
-                asyncFunctionArgs: [
-                    'http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937',
-                    {
-                        event: '{event}',
-                        groups: '{groups}',
-                        person: '{person}',
-                        source_url: '{source.link}',
-                    },
-                    'POST',
-                ],
-                state: {
-                    stack: [16],
-                    callStack: [[31, 0, 1]],
-                    declaredFunctions: {
-                        fibonacci: [4, 1],
-                    },
-                    ip: 26,
-                    ops: 13,
-                    asyncSteps: 1,
-                    syncDuration: 0,
-                },
             }
 
             // Handle the fetch call
