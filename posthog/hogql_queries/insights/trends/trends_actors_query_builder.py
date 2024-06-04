@@ -360,7 +360,7 @@ class TrendsActorsQueryBuilder:
             timings=self.timings,
             modifiers=self.modifiers,
             events_filter=self._events_where_expr(with_breakdown_expr=False),
-            breakdown_values_override=[str(self.breakdown_value)] if self.breakdown_value is not None else None,
+            breakdown_values_override=[self.breakdown_value] if self.breakdown_value is not None else None,
             limit_context=self.limit_context,
         )
 

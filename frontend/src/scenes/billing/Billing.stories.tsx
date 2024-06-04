@@ -17,7 +17,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-05-25',
+        mockDate: '2024-03-10',
     },
     decorators: [
         mswDecorator({

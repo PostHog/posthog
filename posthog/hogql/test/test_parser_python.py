@@ -18,6 +18,7 @@ from posthog.hogql.ast import (
     Function,
     Array,
     Dict,
+    VariableDeclaration,
 )
 
 from posthog.hogql.parser import parse_program
@@ -29,14 +30,13 @@ class TestParserPython(parser_test_factory("python")):
         return parse_program(program, placeholders=placeholders, start=None)
 
     def test_program_variable_declarations(self):
-        code = "var a := '123'; var b := a - 2; print(b);"
+        code = "let a := '123'; let b := a - 2; print(b);"
         program = self._program(code)
 
         expected = Program(
             declarations=[
-                VariableAssignment(is_declaration=True, name="a", expr=Constant(type=None, value="123")),
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
+                VariableDeclaration(
                     name="b",
                     expr=ArithmeticOperation(
                         type=None,
@@ -59,25 +59,23 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_variable_reassignment(self):
-        code = "var a := 3; a := 4;"
+        code = "let a := 3; a := 4;"
         program = self._program(code)
         expected = Program(
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
                     expr=Constant(start=None, end=None, type=None, value=3),
-                    is_declaration=True,
                 ),
                 VariableAssignment(
                     start=None,
                     end=None,
-                    name="a",
-                    expr=Constant(start=None, end=None, type=None, value=4),
-                    is_declaration=False,
+                    left=Field(chain=["a"]),
+                    right=Constant(start=None, end=None, type=None, value=4),
                 ),
             ],
         )
@@ -85,14 +83,13 @@ class TestParserPython(parser_test_factory("python")):
 
     def test_program_variable_declarations_with_sql_expr(self):
         code = """
-            var query := (select id, properties.email from events where timestamp > now() - interval 1 day);
-            var results := run(query);
+            let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
+            let results := run(query);
         """
         program = self._program(code)
         expected = Program(
             declarations=[
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(
                     name="query",
                     expr=SelectQuery(
                         type=None,
@@ -145,8 +142,7 @@ class TestParserPython(parser_test_factory("python")):
                         view_name=None,
                     ),
                 ),
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(
                     name="results",
                     expr=Call(
                         name="run",
@@ -162,7 +158,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_if(self):
         code = """
             if (a) {
-                var c := 3;
+                let c := 3;
             }
             else
                 print(d);
@@ -175,8 +171,7 @@ class TestParserPython(parser_test_factory("python")):
                     expr=Field(type=None, chain=["a"]),
                     then=Block(
                         declarations=[
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 name="c",
                                 expr=Constant(type=None, value=3),
                             )
@@ -200,7 +195,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_while(self):
         code = """
             while (a < 5) {
-                var c := 3;
+                let c := 3;
             }
         """
 
@@ -215,9 +210,7 @@ class TestParserPython(parser_test_factory("python")):
                         op=CompareOperationOp.Lt,
                     ),
                     body=Block(
-                        declarations=[
-                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
-                        ],
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
                     ),
                 )
             ],
@@ -228,7 +221,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_function(self):
         code = """
             fn query(a, b) {
-                var c := 3;
+                let c := 3;
             }
         """
 
@@ -239,9 +232,7 @@ class TestParserPython(parser_test_factory("python")):
                     name="query",
                     params=["a", "b"],
                     body=Block(
-                        declarations=[
-                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
-                        ],
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
                     ),
                 )
             ],
@@ -251,12 +242,12 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_functions(self):
         code = """
             fn query(a, b) {
-                var c := 3;
+                let c := 3;
             }
 
             fn read(a, b) {
                 print(3);
-                var b := 4;
+                let b := 4;
             }
         """
 
@@ -275,8 +266,7 @@ class TestParserPython(parser_test_factory("python")):
                         start=None,
                         end=None,
                         declarations=[
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 start=None,
                                 end=None,
                                 name="c",
@@ -307,8 +297,7 @@ class TestParserPython(parser_test_factory("python")):
                                     distinct=False,
                                 ),
                             ),
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 start=None,
                                 end=None,
                                 name="b",
@@ -322,14 +311,14 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_array(self):
-        code = "var a := [1, 2, 3];"
+        code = "let a := [1, 2, 3];"
         program = self._program(code)
 
         expected = Program(
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
@@ -343,40 +332,38 @@ class TestParserPython(parser_test_factory("python")):
                             Constant(start=None, end=None, type=None, value=3),
                         ],
                     ),
-                    is_declaration=True,
                 )
             ],
         )
         self.assertEqual(program, expected)
 
     def test_program_dict(self):
-        code = "var a := {};"
+        code = "let a := {};"
         program = self._program(code)
 
         expected = Program(
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
                     expr=Dict(start=None, end=None, type=None, items=[]),
-                    is_declaration=True,
                 )
             ],
         )
 
         self.assertEqual(program, expected)
 
-        code = "var a := {1: 2, 'a': [3, 4], g: true};"
+        code = "let a := {1: 2, 'a': [3, 4], g: true};"
         program = self._program(code)
 
         expected = Program(
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
@@ -407,7 +394,6 @@ class TestParserPython(parser_test_factory("python")):
                             ),
                         ],
                     ),
-                    is_declaration=True,
                 )
             ],
         )

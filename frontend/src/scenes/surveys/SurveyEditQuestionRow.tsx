@@ -20,7 +20,7 @@ import { surveysLogic } from './surveysLogic'
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
-    setSelectedQuestion: (index: number) => void
+    setSelectedPageIndex: (index: number) => void
     setSurveyValue: (key: string, value: any) => void
 }
 
@@ -33,7 +33,7 @@ const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | un
 export function SurveyEditQuestionHeader({
     index,
     survey,
-    setSelectedQuestion,
+    setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
@@ -70,7 +70,7 @@ export function SurveyEditQuestionHeader({
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
-                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
+                        setSelectedPageIndex(index <= 0 ? 0 : index - 1)
                         setSurveyValue(
                             'questions',
                             survey.questions.filter((_, i) => i !== index)
