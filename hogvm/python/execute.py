@@ -178,8 +178,8 @@ def execute_bytecode(
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     stack[next_token() + stack_start] = stack.pop()
                 case Operation.GET_PROPERTY:
-                    chain = [stack.pop() for _ in range(next_token())]
-                    stack.append(get_nested_value(stack.pop(), chain))
+                    property = stack.pop()
+                    stack.append(get_nested_value(stack.pop(), [property]))
                 case Operation.SET_PROPERTY_LOCAL:
                     property_index = next_token()
                     chain = [next_token() for _ in range(next_token())]

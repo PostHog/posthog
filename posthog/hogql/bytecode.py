@@ -154,11 +154,9 @@ class BytecodeBuilder(Visitor):
                     ops: list[str | int] = [Operation.GET_LOCAL, index]
                     for element in node.chain[1:]:
                         if isinstance(element, int):
-                            ops.extend([Operation.INTEGER, element])
+                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
                         else:
-                            ops.extend([Operation.STRING, str(element)])
-                    ops.append(Operation.GET_PROPERTY)
-                    ops.append(len(node.chain) - 1)
+                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
                     return ops
         chain = []
         for element in reversed(node.chain):
@@ -166,10 +164,10 @@ class BytecodeBuilder(Visitor):
         return [*chain, Operation.FIELD, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY, 1]
+        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY, 1]
+        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:

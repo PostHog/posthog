@@ -23,7 +23,8 @@ class TestBytecodeExecute(BaseTest):
         }
         program = parse_program(code)
         bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
-        return execute_bytecode(bytecode, fields, functions).result
+        response = execute_bytecode(bytecode, fields, functions)
+        return response.result
 
     def test_bytecode_create(self):
         self.assertEqual(self._run("1 + 2"), 3)
