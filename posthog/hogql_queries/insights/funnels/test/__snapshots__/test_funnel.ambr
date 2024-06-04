@@ -203,7 +203,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
   '''
-  
+  /* cohort_calculation: */
   SELECT distinct_id,
          person_id
   FROM events
@@ -217,6 +217,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          countIf(ifNull(equals(steps, 3), 0)) AS step_3,
@@ -1064,7 +1065,7 @@
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                               if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(nullIf(nullIf(e.`mat_$browser`, ''), 'null')), '')] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM events AS e
@@ -1163,7 +1164,7 @@
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                               if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(nullIf(nullIf(e.`mat_$browser`, ''), 'null')), '')] AS prop_basic,
                               if(ifNull(equals(step_0, 1), 0), prop_basic, []) AS prop_0,
                               if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop_1,
                               prop_1 AS prop,
@@ -1295,6 +1296,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1432,6 +1434,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
