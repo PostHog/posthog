@@ -1,8 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
@@ -115,7 +113,6 @@ function ModalPage({ children, page }: ModalPageProps): JSX.Element {
 function FirstStep(): JSX.Element {
     const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const MenuButton = (config: SourceConfig): JSX.Element => {
         const onClick = (): void => {
@@ -138,7 +135,7 @@ function FirstStep(): JSX.Element {
             )
         }
 
-        if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
+        if (config.name === 'Postgres') {
             return (
                 <LemonButton onClick={onClick} fullWidth center type="secondary">
                     <div className="flex flex-row gap-2 justify-center items-center">
