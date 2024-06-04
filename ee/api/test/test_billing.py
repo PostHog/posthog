@@ -855,6 +855,34 @@ class TestBillingAPI(APILicensedTest):
         }
         assert self.organization.customer_id == "cus_123"
 
+        # Now test when there is a tiered product in the response that isn't in the usage dict
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True),
+                )
+                mock.json.return_value["customer"]["products"][0]["usage_key"] = "feature_flag_requests"
+                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
+            elif "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+        self.organization.usage = {"events": {"limit": 1000000, "usage": 1000, "todays_usage": 1100000}}
+        self.organization.save()
+
+        res = self.client.get("/api/billing")
+        assert res.status_code == 200
+
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
