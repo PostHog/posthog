@@ -123,13 +123,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         license = get_cached_instance_license()
         organization = self._get_org_required()
 
-        serializer = self.DeactivateSerializer(data=request.data)
+        serializer = self.DeactivateSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
-        product = serializer.validated_data.get("products")
+        products = serializer.validated_data.get("products")
 
         try:
-            BillingManager(license).deactivate_products(organization, product)
+            BillingManager(license).deactivate_products(organization, products)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
