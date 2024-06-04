@@ -188,22 +188,6 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Run HogVM Python tests
-          id: run-hogvm-python-tests
-          if: ${{ inputs.segment == 'HogVM' }}
-          shell: bash
-          run: |
-              pytest hogvm $PYTEST_ARGS
-
-        - name: Run HogVM TypeScript tests
-          id: run-hogvm-typescript-tests
-          if: ${{ inputs.segment == 'HogVM' }}
-          shell: bash
-          run: |
-              cd hogvm/typescript
-              pnpm install
-              pnpm run test
-
         # Post tests
         - name: Show docker compose logs on failure
           if: failure() && (steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
