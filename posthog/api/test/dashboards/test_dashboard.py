@@ -1,4 +1,3 @@
-import json
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -12,6 +11,7 @@ from rest_framework import status
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -922,10 +922,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_return_cached_results_dashboard_has_filters(self):
-        # Regression test, we were
-
         # create a dashboard with no filters
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
@@ -933,17 +930,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "date_from": "-7d",
+            "insight": "TRENDS",
         }
 
         # create two insights with a -7d date from filter
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
 
+        query = filter_to_query(filter_dict).model_dump()
+
         # cache insight results for trends with a -7d date from
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query, "async": False})
         self.assertEqual(response.status_code, 200)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
@@ -959,10 +956,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
 
         # cache results
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-24h"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        filter_dict["date_from"] = "-24h"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            data={"query": filter_to_query(filter_dict).model_dump(), "async": False},
         )
+
         self.assertEqual(response.status_code, 200)
 
         # Expecting this to only have one day as per the dashboard filter
