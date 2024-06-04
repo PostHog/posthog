@@ -203,7 +203,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
   '''
-  
+  /* cohort_calculation: */
   SELECT distinct_id,
          person_id
   FROM events
@@ -217,6 +217,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          countIf(ifNull(equals(steps, 3), 0)) AS step_3,
