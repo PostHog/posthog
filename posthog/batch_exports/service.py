@@ -343,6 +343,9 @@ def disable_and_delete_export(instance: BatchExport):
 
     instance.deleted = True
 
+    for backfill in running_backfills_for_batch_export(instance.id):
+        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
     except BatchExportServiceScheduleNotFound as e:
@@ -352,9 +355,6 @@ def disable_and_delete_export(instance: BatchExport):
         )
 
     instance.save()
-
-    for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
