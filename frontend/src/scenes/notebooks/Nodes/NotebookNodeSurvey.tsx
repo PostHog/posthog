@@ -80,11 +80,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                     />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearancePreview
-                                            survey={survey}
-                                            activePreview="survey"
-                                            questionIndex={0}
-                                        />
+                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                     </div>
                                 </div>
                             </>
