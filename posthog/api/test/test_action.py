@@ -330,7 +330,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -339,7 +339,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):
