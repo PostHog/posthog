@@ -68,7 +68,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         creation_request = {
-            "insight": another_team_insight.id,
+            "insight": str(another_team_insight.id),
             "target_value": "test@posthog.com",
             "name": "alert name",
             "anomaly_condition": {},
