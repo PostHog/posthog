@@ -71,23 +71,14 @@ USAGE_REPORT_TASK_KWARGS = {
 
 @dataclasses.dataclass
 class UsageReportCounters:
-    event_count_lifetime: int
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
-    event_count_in_month: int
     event_count_with_groups_in_period: int
-    # event_count_by_lib: Dict
-    # event_count_by_name: Dict
-
     # Recordings
     recording_count_in_period: int
-    recording_count_total: int
     mobile_recording_count_in_period: int
-
     # Persons and Groups
     group_types_total: int
-    # person_count_total: int
-    # person_count_in_period: int
     # Dashboards
     dashboard_count: int
     dashboard_template_count: int
@@ -97,11 +88,8 @@ class UsageReportCounters:
     ff_count: int
     ff_active_count: int
     decide_requests_count_in_period: int
-    decide_requests_count_in_month: int
     local_evaluation_requests_count_in_period: int
-    local_evaluation_requests_count_in_month: int
     billable_feature_flag_requests_count_in_period: int
-    billable_feature_flag_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -118,7 +106,6 @@ class UsageReportCounters:
     event_explorer_api_duration_ms: int
     # Surveys
     survey_responses_count_in_period: int
-    survey_responses_count_in_month: int
     # Data Warehouse
     rows_synced_in_period: int
 
@@ -895,10 +882,14 @@ def _add_team_report_to_org_reports(
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
     print("Getting all usage data...")  # noqa T201
+    time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    print(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     print("Getting teams for usage reports...")  # noqa T201
+    time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
+    print(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     org_reports: dict[str, OrgReport] = {}
 
