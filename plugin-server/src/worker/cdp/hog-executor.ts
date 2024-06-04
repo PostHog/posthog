@@ -1,4 +1,4 @@
-import { exec, VMState } from '@posthog/hogvm'
+import { exec, ExecResult, VMState } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
 import { PluginsServerConfig } from 'types'
 
@@ -7,8 +7,37 @@ import { RustyHook } from '../rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncResponse, HogFunctionType } from './types'
 
+export const formatInput = (bytecode: any, fields: HogFunctionInvocation['context']): any => {
+    // Similar to how we generate the bytecode by iterating over the values,
+    // here we iterate over the object and replace the bytecode with the actual values
+    // bytecode is indicated as an array beginning with ["_h"]
+
+    if (Array.isArray(bytecode) && bytecode[0] === '_h') {
+        const res = exec(bytecode, {
+            fields,
+            timeout: 100,
+            maxAsyncSteps: 0,
+        })
+
+        if (!res.finished) {
+            // NOT ALLOWED
+            throw new Error('Input fields must be simple sync values')
+        }
+        return res.result
+    }
+
+    if (Array.isArray(bytecode)) {
+        return bytecode.map((item) => formatInput(item, fields))
+    } else if (typeof bytecode === 'object') {
+        return Object.fromEntries(Object.entries(bytecode).map(([key, value]) => [key, formatInput(value, fields)]))
+    } else {
+        return bytecode
+    }
+}
+
 export class HogExecutor {
     private rustyHook: RustyHook
+
     constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {
         this.rustyHook = new RustyHook(serverConfig)
     }
@@ -25,9 +54,7 @@ export class HogExecutor {
 
         // TODO: Filter the functions based on the filters object
         for (const hogFunction of Object.values(functions)) {
-            const fields = await this.buildHogFunctionFields(hogFunction, invocation)
-
-            await this.execute(hogFunction, fields)
+            await this.execute(hogFunction, invocation)
         }
     }
 
@@ -43,19 +70,14 @@ export class HogExecutor {
             invocation.hogFunctionId
         ]
 
-        // TODO: Filter the functions based on the filters object
-        const fields = await this.buildHogFunctionFields(hogFunction, invocation)
-        invocation.state.stack.push(invocation.response)
-
-        await this.execute(hogFunction, fields, invocation.state)
+        await this.execute(hogFunction, invocation, invocation.state)
     }
 
-    async execute(hogFunction: HogFunctionType, fields: Record<string, any>, state?: VMState): Promise<any> {
-        const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-
+    async execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation, state?: VMState): Promise<any> {
         console.log('Executing hog function:', hogFunction.id, hogFunction.bytecode)
 
         try {
+            const fields = this.buildHogFunctionFields(hogFunction, invocation)
             const res = exec(
                 hogFunction.bytecode,
                 {
@@ -74,130 +96,95 @@ export class HogExecutor {
                 try {
                     switch (res.asyncFunctionName) {
                         case 'fetch':
-                            // TODO: validate the args
-                            const [url, options] = res.asyncFunctionArgs ?? []
-
-                            const webhook: Webhook = {
-                                url,
-                                method: options.method || 'POST',
-                                headers: options.headers || {
-                                    'Content-Type': 'application/json',
-                                },
-                                body:
-                                    typeof options.body === 'string'
-                                        ? options.body
-                                        : JSON.stringify(options.body, undefined, 4),
-                            }
-
-                            console.log('Hog Exec Result:', JSON.stringify(res), webhook)
-
-                            const success = await this.rustyHook.enqueueIfEnabledForTeam({
-                                webhook: webhook,
-                                teamId: hogFunction.team_id,
-                                pluginId: SPECIAL_CONFIG_ID,
-                                pluginConfigId: SPECIAL_CONFIG_ID,
-                            })
-
-                            // TODO: Temporary test code
-                            if (!success) {
-                                const fetchResponse = await trackedFetch(url, {
-                                    method: webhook.method,
-                                    body: webhook.body,
-                                    headers: webhook.headers,
-                                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
-                                })
-
-                                break
-                            }
+                            await this.asyncFunctionFetch(hogFunction, invocation, res)
+                            break
                         default:
+                            console.error(`Unknown async function: ${res.asyncFunctionName}`)
                         // TODO: Log error somewhere
                     }
                 } catch (err) {
                     console.error(`Error executing async function: ${res.asyncFunctionName}`, err)
                 }
             }
-
-            // Handle the fetch call
-            console.log('Hog result:', res)
         } catch (error) {
             console.error('Error executing function:', error)
         }
     }
 
-    async buildHogFunctionFields(
-        hogFunction: HogFunctionType,
-        invocation: HogFunctionInvocation
-    ): Promise<Record<string, any>> {
-        const inputs = Object.entries(hogFunction.inputs).reduce((acc, [key, value]) => {
-            acc[key] = value.value
-            return acc
-        }, {} as Record<string, any>)
+    buildHogFunctionFields(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
+        const builtFields: Record<string, any> = {}
+
+        Object.entries(hogFunction.inputs).forEach(([key, item]) => {
+            // TODO: Replace this with iterator
+            builtFields[key] = item.value
+
+            if (item.bytecode) {
+                // Use the bytecode to compile the field
+                console.log('Attempting to format input', item.bytecode, invocation.context)
+                builtFields[key] = formatInput(item.bytecode, invocation.context)
+            }
+        })
+
         return {
-            // Add all the root level fields
             ...invocation.context,
-            inputs,
+            inputs: builtFields,
+        }
+    }
+
+    private async asyncFunctionFetch(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation,
+        execResult: ExecResult
+    ): Promise<any> {
+        const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
+
+        // TODO: validate the args
+        const args = execResult.asyncFunctionArgs ?? []
+        const url: string = args[0]
+        const options = Object.fromEntries(args[1].entries())
+
+        const method = options.method || 'POST'
+        const headers = options.headers || {
+            'Content-Type': 'application/json',
+        }
+        const body = options.body || {}
+
+        const webhook: Webhook = {
+            url,
+            method: method,
+            headers: headers,
+            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
+        }
+
+        console.log('Hog Exec Result:', JSON.stringify(execResult), webhook)
+
+        const success = await this.rustyHook.enqueueIfEnabledForTeam({
+            webhook: webhook,
+            teamId: hogFunction.team_id,
+            pluginId: SPECIAL_CONFIG_ID,
+            pluginConfigId: SPECIAL_CONFIG_ID,
+        })
+
+        // TODO: Temporary test code
+        if (!success) {
+            const fetchResponse = await trackedFetch(url, {
+                method: webhook.method,
+                body: webhook.body,
+                headers: webhook.headers,
+                timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+            })
+
+            console.log('FETCHED', webhook, fetchResponse.status)
+
+            await this.executeAsyncResponse({
+                ...invocation,
+                hogFunctionId: hogFunction.id,
+                state: execResult.state!,
+                response: {
+                    status: fetchResponse.status,
+                    body: await fetchResponse.text(),
+                },
+            })
         }
     }
 }
-
-// async function formatConfigTemplates(
-//     team: Team,
-//     hub: Hub,
-//     pluginConfig: PluginConfig,
-//     event: PostIngestionEvent
-// ): Promise<Record<string, any>> {
-//     const team = await hub.teamManager.fetchTeam(event.teamId)
-//     if (!team) {
-//         throw new Error('Team not found')
-//     }
-
-//     const schema = pluginConfig.plugin?.config_schema
-//     if (!schema) {
-//         // NOTE: This shouldn't be possible and is more about typings
-//         return pluginConfig.config
-//     }
-
-//     const schemaObject: Record<string, PluginConfigSchema> = Array.isArray(schema)
-//         ? Object.fromEntries(schema.map((field) => [field.key, field]))
-//         : schema
-
-//     const webhookFormatter = new MessageFormatter({
-//         event,
-//         team,
-//         siteUrl: hub.SITE_URL || 'http://localhost:8000',
-//         sourceName: pluginConfig.name || pluginConfig.plugin?.name || 'Unnamed plugin',
-//         sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
-//     })
-
-//     const templatedConfig = { ...pluginConfig.config }
-
-//     Object.keys(templatedConfig).forEach((key) => {
-//         // If the field is a json field then we template it as such
-//         const { type, templating } = schemaObject[key] ?? {}
-//         const template = templatedConfig[key]
-
-//         if (type && templating) {
-//             if (type === 'string' && typeof template === 'string') {
-//                 templatedConfig[key] = webhookFormatter.format(template)
-//             }
-
-//             if (type === 'json' && typeof template === 'string') {
-//                 try {
-//                     templatedConfig[key] = JSON.stringify(webhookFormatter.formatJSON(JSON.parse(template)))
-//                 } catch (error) {}
-//             }
-
-//             if (type === 'dictionary') {
-//                 // TODO: Validate it really is a dictionary
-//                 const dict: Record<string, string> = templatedConfig[key] as Record<string, string>
-//                 const templatedDictionary: Record<string, string> = {}
-//                 for (const [dictionaryKey, dictionaryValue] of Object.entries(dict)) {
-//                     templatedDictionary[dictionaryKey] = webhookFormatter.format(dictionaryValue)
-//                 }
-//                 templatedConfig[key] = templatedDictionary
-//             }
-//         }
-//     })
-
-//     return templatedConfig
-// }
