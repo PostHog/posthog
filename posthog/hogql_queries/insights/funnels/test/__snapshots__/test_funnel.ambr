@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          countIf(ifNull(equals(steps, 3), 0)) AS step_3,
@@ -97,6 +98,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
   '''
+  /* cohort_calculation: */
   SELECT persons.id,
          persons.id AS id,
          toTimeZone(persons.created_at, 'UTC') AS created_at,
@@ -1200,7 +1202,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
@@ -1297,6 +1298,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1434,6 +1436,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
