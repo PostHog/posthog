@@ -1378,4 +1378,140 @@ describe('HogQL Bytecode', () => {
             ]).result
         ).toEqual('c')
     })
+
+    test('test bytecode nested modify dict', () => {
+        // let event := {
+        //     'event': '$pageview',
+        //     'properties': {
+        //         '$browser': 'Chrome',
+        //         '$os': 'Windows'
+        //     }
+        // };
+        // event['properties']['$browser'] := 'Firefox';
+        // return event;
+        expect(
+            exec([
+                '_h',
+                op.STRING,
+                'event',
+                op.STRING,
+                '$pageview',
+                op.STRING,
+                'properties',
+                op.STRING,
+                '$browser',
+                op.STRING,
+                'Chrome',
+                op.STRING,
+                '$os',
+                op.STRING,
+                'Windows',
+                op.DICT,
+                2,
+                op.DICT,
+                2,
+                op.GET_LOCAL,
+                0,
+                op.STRING,
+                'properties',
+                op.GET_PROPERTY,
+                op.STRING,
+                '$browser',
+                op.STRING,
+                'Firefox',
+                op.SET_PROPERTY,
+                op.GET_LOCAL,
+                0,
+                op.RETURN,
+                op.POP,
+            ]).result
+        ).toEqual(map({ event: '$pageview', properties: map({ $browser: 'Firefox', $os: 'Windows' }) }))
+
+        // let event := {
+        //     'event': '$pageview',
+        //     'properties': {
+        //         '$browser': 'Chrome',
+        //         '$os': 'Windows'
+        //     }
+        // };
+        // event.properties.$browser := 'Firefox';
+        // return event;
+        expect(
+            exec([
+                '_h',
+                op.STRING,
+                'event',
+                op.STRING,
+                '$pageview',
+                op.STRING,
+                'properties',
+                op.STRING,
+                '$browser',
+                op.STRING,
+                'Chrome',
+                op.STRING,
+                '$os',
+                op.STRING,
+                'Windows',
+                op.DICT,
+                2,
+                op.DICT,
+                2,
+                op.GET_LOCAL,
+                0,
+                op.STRING,
+                'properties',
+                op.GET_PROPERTY,
+                op.STRING,
+                '$browser',
+                op.STRING,
+                'Firefox',
+                op.SET_PROPERTY,
+                op.GET_LOCAL,
+                0,
+                op.RETURN,
+                op.POP,
+            ]).result
+        ).toEqual(map({ event: '$pageview', properties: map({ $browser: 'Firefox', $os: 'Windows' }) }))
+
+        // let event := {
+        //     'event': '$pageview',
+        //     'properties': {
+        //         '$browser': 'Chrome',
+        //         '$os': 'Windows'
+        //     }
+        // };
+        // let config := {};
+        // return event;
+        expect(
+            exec([
+                '_h',
+                op.STRING,
+                'event',
+                op.STRING,
+                '$pageview',
+                op.STRING,
+                'properties',
+                op.STRING,
+                '$browser',
+                op.STRING,
+                'Chrome',
+                op.STRING,
+                '$os',
+                op.STRING,
+                'Windows',
+                op.DICT,
+                2,
+                op.DICT,
+                2,
+                op.DICT,
+                0,
+                op.GET_LOCAL,
+                0,
+                op.RETURN,
+                op.POP,
+                op.POP,
+            ]).result
+        ).toEqual(map({ event: '$pageview', properties: map({ $browser: 'Chrome', $os: 'Windows' }) }))
+    })
 })
