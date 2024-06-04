@@ -152,6 +152,7 @@ class BigQueryInsertInputs:
     use_json_type: bool = False
     batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 @contextlib.contextmanager
@@ -243,6 +244,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
         )
 
         bigquery_table = None
@@ -377,6 +379,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -427,6 +430,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             use_json_type=inputs.use_json_type,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(
