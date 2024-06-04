@@ -87,14 +87,16 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
         } else if (Array.isArray(obj) && typeof key === 'number') {
             obj = obj[key]
         } else {
-            throw new Error(`Can not set ${chain} on ${typeof obj}`)
+            throw new Error(`Can not get ${chain} on element of type ${typeof obj}`)
         }
     }
     const lastKey = chain[chain.length - 1]
     if (obj instanceof Map) {
         obj.set(lastKey, value)
-    } else {
+    } else if (Array.isArray(obj) && typeof lastKey === 'number') {
         obj[lastKey] = value
+    } else {
+        throw new Error(`Can not set ${chain} on element of type ${typeof obj}`)
     }
 }
 
