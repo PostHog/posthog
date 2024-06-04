@@ -2532,6 +2532,7 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        events: string[]
     } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -2542,7 +2543,6 @@ export interface Survey {
     archived: boolean
     remove_targeting_flag?: boolean
     responses_limit: number | null
-    events: string[]
 }
 
 export enum SurveyUrlMatchType {

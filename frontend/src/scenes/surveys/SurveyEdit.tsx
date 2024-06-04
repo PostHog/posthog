@@ -23,7 +23,6 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -74,12 +73,6 @@ export default function SurveyEdit(): JSX.Element {
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
         setSelectedQuestion(newIndex)
     }
-
-    useEffect(() => {
-        if (survey.events && survey.events.length > 0) {
-            setSurveyValue('conditions', { url: '' })
-        }
-    }, [survey.events])
 
     return (
         <div className="flex flex-row gap-4">
@@ -611,9 +604,9 @@ export default function SurveyEdit(): JSX.Element {
                                                 <LemonField.Pure label="User sends events">
                                                     <EventSelect
                                                         onChange={(includedEvents) => {
-                                                            setSurveyValue('events', includedEvents)
+                                                            setSurveyValue('conditions', { events: includedEvents })
                                                         }}
-                                                        selectedEvents={survey.events || []}
+                                                        selectedEvents={survey.conditions?.events || []}
                                                         addElement={
                                                             <LemonButton
                                                                 size="small"
