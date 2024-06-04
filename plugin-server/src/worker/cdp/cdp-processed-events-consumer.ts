@@ -92,7 +92,7 @@ export class CdpProcessedEventsConsumer {
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
-        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(config, this.hogFunctionManager)
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
@@ -165,7 +165,6 @@ export class CdpProcessedEventsConsumer {
                                     )
 
                                     invocations.push({
-                                        team,
                                         context,
                                     })
                                 } catch (e) {

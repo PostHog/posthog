@@ -1,3 +1,5 @@
+import { VMState } from '@posthog/hogvm'
+
 import { PluginConfigFilters } from '../../types'
 
 export type HogFunctionInvocationContext = {
@@ -35,16 +37,16 @@ export type HogFunctionInvocationContext = {
 }
 
 export type HogFunctionInvocation = {
-    // metadata: {
-    //     topic: string
-    //     partition: number
-    //     rawSize: number
-    //     lowOffset: number
-    //     highOffset: number
-    //     timestamp: number
-    // }
-
     context: HogFunctionInvocationContext
+}
+
+export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
+    hogFunctionId: HogFunctionType['id']
+    state: VMState
+}
+
+export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncRequest & {
+    response: any
 }
 
 // Mostly copied from frontend types

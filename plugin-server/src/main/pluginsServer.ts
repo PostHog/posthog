@@ -374,14 +374,7 @@ export async function startPluginsServer(
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook =
-                hub?.rustyHook ??
-                new RustyHook(
-                    buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
-                    serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
-                    serverConfig.RUSTY_HOOK_URL,
-                    serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-                )
+            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
             const appMetrics =
                 hub?.appMetrics ??
                 new AppMetrics(

@@ -1,11 +1,21 @@
 import { exec, VMState } from '@posthog/hogvm'
+import { Webhook } from '@posthog/plugin-scaffold'
+import { PluginsServerConfig } from 'types'
 
+import { trackedFetch } from '../../utils/fetch'
+import { RustyHook } from '../rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogFunctionInvocation, HogFunctionInvocationContext, HogFunctionType } from './types'
+import { HogFunctionInvocation, HogFunctionInvocationAsyncResponse, HogFunctionType } from './types'
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    private rustyHook: RustyHook
+    constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {
+        this.rustyHook = new RustyHook(serverConfig)
+    }
 
+    /**
+     * Intended to be invoked as a starting point from an event
+     */
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<any> {
         const functions = this.hogFunctionManager.getTeamHogFunctions(invocation.context.project.id)
 
@@ -14,7 +24,6 @@ export class HogExecutor {
         }
 
         // TODO: Filter the functions based on the filters object
-
         for (const hogFunction of Object.values(functions)) {
             const fields = await this.buildHogFunctionFields(hogFunction, invocation)
 
@@ -22,7 +31,27 @@ export class HogExecutor {
         }
     }
 
+    /**
+     * Intended to be invoked as a continuation from an async function
+     */
+    async executeAsyncResponse(invocation: HogFunctionInvocationAsyncResponse): Promise<any> {
+        if (!invocation.hogFunctionId) {
+            throw new Error('No hog function id provided')
+        }
+
+        const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.context.project.id)[
+            invocation.hogFunctionId
+        ]
+
+        // TODO: Filter the functions based on the filters object
+        const fields = await this.buildHogFunctionFields(hogFunction, invocation)
+        invocation.state.stack.push(invocation.response)
+
+        await this.execute(hogFunction, fields, invocation.state)
+    }
+
     async execute(hogFunction: HogFunctionType, fields: Record<string, any>, state?: VMState): Promise<any> {
+        const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
         try {
             const res = exec(
                 hogFunction.bytecode,
@@ -37,6 +66,81 @@ export class HogExecutor {
                 },
                 state
             )
+
+            if (!res.finished) {
+                try {
+                    switch (res.asyncFunctionName) {
+                        case 'fetch':
+                            // TODO: validate the args
+                            const [url, options] = res.asyncFunctionArgs ?? []
+
+                            const webhook: Webhook = {
+                                url,
+                                method: options.method || 'POST',
+                                headers: options.headers || {
+                                    'Content-Type': 'application/json',
+                                },
+                                body:
+                                    typeof options.body === 'string'
+                                        ? options.body
+                                        : JSON.stringify(options.body, undefined, 4),
+                            }
+
+                            const success = await this.rustyHook.enqueueIfEnabledForTeam({
+                                webhook: webhook,
+                                teamId: hogFunction.team_id,
+                                pluginId: SPECIAL_CONFIG_ID,
+                                pluginConfigId: SPECIAL_CONFIG_ID,
+                            })
+
+                            console.log(success)
+
+                            // TODO: Temporary test code
+                            if (!success) {
+                                const fetchResponse = await trackedFetch(url, {
+                                    method: webhook.method,
+                                    body: webhook.body,
+                                    headers: webhook.headers,
+                                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+                                })
+
+                                console.log(fetchResponse)
+                                break
+                            }
+                        default:
+                        // TODO: Log error somewhere
+                    }
+                } catch (err) {
+                    console.error(`Error executing async function: ${res.asyncFunctionName}`, err)
+                }
+            }
+
+            const example = {
+                result: undefined,
+                finished: false,
+                asyncFunctionName: 'fetch',
+                asyncFunctionArgs: [
+                    'http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937',
+                    {
+                        event: '{event}',
+                        groups: '{groups}',
+                        person: '{person}',
+                        source_url: '{source.link}',
+                    },
+                    'POST',
+                ],
+                state: {
+                    stack: [16],
+                    callStack: [[31, 0, 1]],
+                    declaredFunctions: {
+                        fibonacci: [4, 1],
+                    },
+                    ip: 26,
+                    ops: 13,
+                    asyncSteps: 1,
+                    syncDuration: 0,
+                },
+            }
 
             // Handle the fetch call
             console.log('Hog result:', res)
