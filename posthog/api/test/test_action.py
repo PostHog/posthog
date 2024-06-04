@@ -221,7 +221,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(7, 8)):
+        with self.assertNumQueries(FuzzyInt(6, 8)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
