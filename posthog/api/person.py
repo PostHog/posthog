@@ -228,7 +228,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    To create or update persons, use a PostHog library of your choice and [use an identify call](/product-analytics/identify). This API endpoint is only for reading and deleting.
+    This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` properties, or one of our SDKs.
     """
 
     scope_object = "person"
