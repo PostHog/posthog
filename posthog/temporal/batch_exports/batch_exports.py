@@ -60,8 +60,8 @@ AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 )
 
 
-def get_timestamp_predicates_for_team(team_id: int) -> str:
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+def get_timestamp_predicates_for_team(team_id: int, is_backfill: bool = False) -> str:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS or is_backfill:
         return ""
     else:
         return TIMESTAMP_PREDICATES.substitute(
@@ -76,6 +76,7 @@ async def get_rows_count(
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
+    is_backfill: bool = False,
 ) -> int:
     """Return a count of rows to be batch exported."""
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
@@ -95,14 +96,18 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = get_timestamp_predicates_for_team(team_id)
+    if is_backfill:
+        timestamp_field = "timestamp"
+    else:
+        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
         distinct="",
-        timestamp_field="COALESCE(inserted_at, _timestamp)",
+        timestamp_field=timestamp_field,
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -161,6 +166,7 @@ def iter_records(
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
+    is_backfill: bool = False,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -195,7 +201,11 @@ def iter_records(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = timestamp_predicates = get_timestamp_predicates_for_team(team_id)
+    if is_backfill:
+        timestamp_field = "timestamp"
+    else:
+        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     if fields is None:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
@@ -212,7 +222,7 @@ def iter_records(
         order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
         format="FORMAT ArrowStream",
         distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
-        timestamp_field="COALESCE(inserted_at, _timestamp)",
+        timestamp_field=timestamp_field,
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
