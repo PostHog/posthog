@@ -30,7 +30,7 @@ class TestParserPython(parser_test_factory("python")):
         return parse_program(program, placeholders=placeholders, start=None)
 
     def test_program_variable_declarations(self):
-        code = "var a := '123'; var b := a - 2; print(b);"
+        code = "let a := '123'; let b := a - 2; print(b);"
         program = self._program(code)
 
         expected = Program(
@@ -59,7 +59,7 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_variable_reassignment(self):
-        code = "var a := 3; a := 4;"
+        code = "let a := 3; a := 4;"
         program = self._program(code)
         expected = Program(
             start=None,
@@ -83,8 +83,8 @@ class TestParserPython(parser_test_factory("python")):
 
     def test_program_variable_declarations_with_sql_expr(self):
         code = """
-            var query := (select id, properties.email from events where timestamp > now() - interval 1 day);
-            var results := run(query);
+            let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
+            let results := run(query);
         """
         program = self._program(code)
         expected = Program(
@@ -158,7 +158,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_if(self):
         code = """
             if (a) {
-                var c := 3;
+                let c := 3;
             }
             else
                 print(d);
@@ -195,7 +195,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_while(self):
         code = """
             while (a < 5) {
-                var c := 3;
+                let c := 3;
             }
         """
 
@@ -221,7 +221,7 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_function(self):
         code = """
             fn query(a, b) {
-                var c := 3;
+                let c := 3;
             }
         """
 
@@ -242,12 +242,12 @@ class TestParserPython(parser_test_factory("python")):
     def test_program_functions(self):
         code = """
             fn query(a, b) {
-                var c := 3;
+                let c := 3;
             }
 
             fn read(a, b) {
                 print(3);
-                var b := 4;
+                let b := 4;
             }
         """
 
@@ -311,7 +311,7 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_array(self):
-        code = "var a := [1, 2, 3];"
+        code = "let a := [1, 2, 3];"
         program = self._program(code)
 
         expected = Program(
@@ -338,7 +338,7 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_dict(self):
-        code = "var a := {};"
+        code = "let a := {};"
         program = self._program(code)
 
         expected = Program(
@@ -356,7 +356,7 @@ class TestParserPython(parser_test_factory("python")):
 
         self.assertEqual(program, expected)
 
-        code = "var a := {1: 2, 'a': [3, 4], g: true};"
+        code = "let a := {1: 2, 'a': [3, 4], g: true};"
         program = self._program(code)
 
         expected = Program(

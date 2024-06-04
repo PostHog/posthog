@@ -6,12 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.png'
+import zendeskLogo from 'public/zendesk-logo.svg'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SourceConfig } from '~/types'
 
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -82,6 +83,7 @@ export function NewSourceWizard(): JSX.Element {
                     </>
                 }
             />
+            <DataWarehouseBetaNotice />
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>
