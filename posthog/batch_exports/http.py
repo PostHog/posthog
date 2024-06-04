@@ -112,7 +112,6 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
             start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
             end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
             queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
-            ordering = "-data_interval_start"
         else:
             after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
             before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
