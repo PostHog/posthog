@@ -119,7 +119,7 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
         except Exception as e:
-            assert str(e) == "Unexpected end of bytecode"
+            assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
 
@@ -139,9 +139,11 @@ class TestBytecodeExecute:
             return "zero"
 
         functions = {"stringify": stringify}
-        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions).result == "one"
-        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions).result == "two"
-        assert execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions).result == "zero"
+        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "one"
+        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "two"
+        assert (
+            execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "zero"
+        )
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("let a := 1 + 2; return a;")
@@ -587,3 +589,16 @@ class TestBytecodeExecute:
                 return event;
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Firefox", "$os": "Windows"}}
+        assert self._run_program(
+            """
+                let event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                let config := {};
+                return event;
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
