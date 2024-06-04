@@ -18,6 +18,7 @@ from posthog.hogql.ast import (
     Function,
     Array,
     Dict,
+    VariableDeclaration,
 )
 
 from posthog.hogql.parser import parse_program
@@ -34,9 +35,8 @@ class TestParserPython(parser_test_factory("python")):
 
         expected = Program(
             declarations=[
-                VariableAssignment(is_declaration=True, name="a", expr=Constant(type=None, value="123")),
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
+                VariableDeclaration(
                     name="b",
                     expr=ArithmeticOperation(
                         type=None,
@@ -65,19 +65,17 @@ class TestParserPython(parser_test_factory("python")):
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
                     expr=Constant(start=None, end=None, type=None, value=3),
-                    is_declaration=True,
                 ),
                 VariableAssignment(
                     start=None,
                     end=None,
-                    name="a",
-                    expr=Constant(start=None, end=None, type=None, value=4),
-                    is_declaration=False,
+                    left=Field(chain=["a"]),
+                    right=Constant(start=None, end=None, type=None, value=4),
                 ),
             ],
         )
@@ -91,8 +89,7 @@ class TestParserPython(parser_test_factory("python")):
         program = self._program(code)
         expected = Program(
             declarations=[
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(
                     name="query",
                     expr=SelectQuery(
                         type=None,
@@ -145,8 +142,7 @@ class TestParserPython(parser_test_factory("python")):
                         view_name=None,
                     ),
                 ),
-                VariableAssignment(
-                    is_declaration=True,
+                VariableDeclaration(
                     name="results",
                     expr=Call(
                         name="run",
@@ -175,8 +171,7 @@ class TestParserPython(parser_test_factory("python")):
                     expr=Field(type=None, chain=["a"]),
                     then=Block(
                         declarations=[
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 name="c",
                                 expr=Constant(type=None, value=3),
                             )
@@ -215,9 +210,7 @@ class TestParserPython(parser_test_factory("python")):
                         op=CompareOperationOp.Lt,
                     ),
                     body=Block(
-                        declarations=[
-                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
-                        ],
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
                     ),
                 )
             ],
@@ -239,9 +232,7 @@ class TestParserPython(parser_test_factory("python")):
                     name="query",
                     params=["a", "b"],
                     body=Block(
-                        declarations=[
-                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
-                        ],
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
                     ),
                 )
             ],
@@ -275,8 +266,7 @@ class TestParserPython(parser_test_factory("python")):
                         start=None,
                         end=None,
                         declarations=[
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 start=None,
                                 end=None,
                                 name="c",
@@ -307,8 +297,7 @@ class TestParserPython(parser_test_factory("python")):
                                     distinct=False,
                                 ),
                             ),
-                            VariableAssignment(
-                                is_declaration=True,
+                            VariableDeclaration(
                                 start=None,
                                 end=None,
                                 name="b",
@@ -329,7 +318,7 @@ class TestParserPython(parser_test_factory("python")):
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
@@ -343,7 +332,6 @@ class TestParserPython(parser_test_factory("python")):
                             Constant(start=None, end=None, type=None, value=3),
                         ],
                     ),
-                    is_declaration=True,
                 )
             ],
         )
@@ -357,12 +345,11 @@ class TestParserPython(parser_test_factory("python")):
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
                     expr=Dict(start=None, end=None, type=None, items=[]),
-                    is_declaration=True,
                 )
             ],
         )
@@ -376,7 +363,7 @@ class TestParserPython(parser_test_factory("python")):
             start=None,
             end=None,
             declarations=[
-                VariableAssignment(
+                VariableDeclaration(
                     start=None,
                     end=None,
                     name="a",
@@ -407,7 +394,6 @@ class TestParserPython(parser_test_factory("python")):
                             ),
                         ],
                     ),
-                    is_declaration=True,
                 )
             ],
         )

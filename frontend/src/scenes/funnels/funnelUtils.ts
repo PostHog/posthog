@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'

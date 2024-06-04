@@ -27,6 +27,27 @@ def get_nested_value(obj, chain) -> Any:
     return obj
 
 
+def set_nested_value(obj, chain, value) -> Any:
+    if obj is None:
+        return None
+    for key in chain[:-1]:
+        if isinstance(key, int):
+            obj = obj[key]
+        else:
+            obj = obj.get(key, None)
+
+    if isinstance(obj, dict):
+        obj[chain[-1]] = value
+    elif isinstance(obj, list):
+        if not isinstance(chain[-1], int):
+            raise HogVMException(f"Invalid index: {chain[-1]}")
+        obj[chain[-1]] = value
+    else:
+        raise HogVMException(f'Can not set property "{chain[-1]}" on object of type "{type(obj).__name__}"')
+
+    return obj
+
+
 @dataclass
 class BytecodeResult:
     result: Any
@@ -36,12 +57,13 @@ class BytecodeResult:
 
 def execute_bytecode(
     bytecode: list[Any],
-    fields: Optional[dict[str, Any]] = None,
+    globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
     team: Team | None = None,
 ) -> BytecodeResult:
     try:
+        result = None
         start_time = time.time()
         stack = []
         call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
@@ -138,7 +160,7 @@ def execute_bytecode(
                     stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
                 case Operation.FIELD:
                     chain = [stack.pop() for _ in range(next_token())]
-                    stack.append(get_nested_value(fields, chain))
+                    stack.append(get_nested_value(globals, chain))
                 case Operation.POP:
                     stack.pop()
                 case Operation.RETURN:
@@ -155,6 +177,28 @@ def execute_bytecode(
                 case Operation.SET_LOCAL:
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     stack[next_token() + stack_start] = stack.pop()
+                case Operation.GET_PROPERTY:
+                    property = stack.pop()
+                    stack.append(get_nested_value(stack.pop(), [property]))
+                case Operation.SET_PROPERTY:
+                    value = stack.pop()
+                    field = stack.pop()
+                    set_nested_value(stack.pop(), [field], value)
+                case Operation.DICT:
+                    count = next_token()
+                    elems = stack[-(count * 2) :]
+                    stack = stack[: -(count * 2)]
+                    stack.append({elems[i]: elems[i + 1] for i in range(0, len(elems), 2)})
+                case Operation.ARRAY:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(elems)
+                case Operation.TUPLE:
+                    count = next_token()
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    stack.append(tuple(elems))
                 case Operation.JUMP:
                     count = next_token()
                     ip += count
@@ -191,7 +235,6 @@ def execute_bytecode(
 
         if len(stack) > 1:
             raise HogVMException("Invalid bytecode. More than one value left on stack")
-        result = None
         if len(stack) == 1:
             result = stack.pop()
         return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)
