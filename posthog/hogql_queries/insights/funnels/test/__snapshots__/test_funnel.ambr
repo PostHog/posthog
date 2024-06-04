@@ -1200,6 +1200,7 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
@@ -1296,7 +1297,6 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1434,7 +1434,6 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1572,6 +1571,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1716,7 +1716,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
   '''
-  
+  /* cohort_calculation: */
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1739,7 +1739,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
-  
+  /* cohort_calculation: */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -1859,7 +1859,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  
+  /* cohort_calculation: */
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1882,7 +1882,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
-  
+  /* cohort_calculation: */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -2002,7 +2002,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.5
   '''
-  
+  /* cohort_calculation: */
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -2025,7 +2025,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
   '''
-  
+  /* cohort_calculation: */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -2145,7 +2145,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.7
   '''
-  
+  /* cohort_calculation: */
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -2168,7 +2168,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
   '''
-  
+  /* cohort_calculation: */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
