@@ -977,7 +977,9 @@ export interface AnalyticsQueryResponseBase<T> {
 
 interface CachedQueryResponseMixin {
     is_cached: boolean
+    /**  @format date-time */
     last_refresh: string
+    /**  @format date-time */
     next_allowed_client_refresh: string
     cache_key: string
     timezone: string

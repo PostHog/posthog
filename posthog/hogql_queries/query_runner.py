@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from zoneinfo import ZoneInfo
@@ -464,24 +464,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if results is not None:
                 return results
 
-        fresh_response_dict = self.calculate().model_dump()
-        fresh_response_dict["is_cached"] = False
-        fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-        fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        fresh_response_dict["cache_key"] = cache_key
-        fresh_response_dict["timezone"] = self.team.timezone
+        fresh_response_dict = {
+            **self.calculate().model_dump(),
+            "is_cached": False,
+            "last_refresh": datetime.now(timezone.utc),
+            "next_allowed_client_refresh": datetime.now(timezone.utc) + self._refresh_frequency(),
+            "cache_key": cache_key,
+            "timezone": self.team.timezone,
+        }
         fresh_response = CachedResponse(**fresh_response_dict)
 
-        # Dont cache debug queries with errors and export queries
+        # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
-            # TODO: Use JSON serializer in general for redis cache
+        cache_ttl = self.cache_ttl()
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
-            cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
+            cache.set(cache_key, fresh_response_serialized, cache_ttl)
+            QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
-        QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
     @abstractmethod
@@ -523,9 +523,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Default is to have the result valid for at 1 minute
         return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
 
-    @abstractmethod
-    def _refresh_frequency(self):
-        raise NotImplementedError()
+    def _refresh_frequency(self) -> timedelta:
+        return timedelta(minutes=1)
+
+    def cache_ttl(self) -> float:
+        return settings.CACHED_RESULTS_TTL
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""

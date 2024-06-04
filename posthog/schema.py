@@ -1010,11 +1010,11 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1328,13 +1328,13 @@ class CachedActorsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1360,12 +1360,12 @@ class CachedEventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1391,12 +1391,12 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1420,11 +1420,11 @@ class CachedFunnelsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1445,8 +1445,8 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
     is_cached: bool
-    last_refresh: str
-    next_allowed_client_refresh: str
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1466,11 +1466,11 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1492,11 +1492,11 @@ class CachedPathsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1519,11 +1519,11 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1545,11 +1545,11 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1571,11 +1571,11 @@ class CachedTrendsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1599,11 +1599,11 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -1628,12 +1628,12 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -1659,11 +1659,11 @@ class CachedWebTopClicksQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -2741,13 +2741,13 @@ class CachedHogQLQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     limit: Optional[int] = None
     metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     query_status: Optional[QueryStatus] = Field(
@@ -2772,11 +2772,11 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: str
+    last_refresh: AwareDatetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: str
+    next_allowed_client_refresh: AwareDatetime
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
