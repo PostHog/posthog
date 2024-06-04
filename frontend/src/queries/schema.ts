@@ -644,14 +644,22 @@ interface InsightVizNodeViewProps {
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
     /** Date range for the query */
-    dateRange?: DateRange
-    /** Exclude internal and test users by applying the respective filters */
+    dateRange?: InsightDateRange
+    /**
+     * Exclude internal and test users by applying the respective filters
+     *
+     * @default false
+     */
     filterTestAccounts?: boolean
-    /** Property filters for all series */
+    /**
+     * Property filters for all series
+     *
+     * @default []
+     */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /**
      * Groups aggregation
-     **/
+     */
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
@@ -667,18 +675,25 @@ export type TrendsFilterLegacy = Omit<
 >
 
 export type TrendsFilter = {
-    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    /** @default 1 */
+    smoothingIntervals?: integer
+    /** @default false */
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
+    /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
+    /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
@@ -689,7 +704,11 @@ export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
@@ -723,20 +742,28 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default [] */
     exclusions?: FunnelExclusion[]
+    /** @default vertical */
     layout?: FunnelsFilterLegacy['layout']
     /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
+    /** @default first_touch */
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     funnelToStep?: integer
     funnelFromStep?: integer
+    /** @default ordered */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    /** @default steps */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @default 14 */
     funnelWindowInterval?: integer
+    /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }
 
@@ -774,9 +801,11 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    /** @default 11 */
+    totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
+    /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
 }
@@ -813,14 +842,16 @@ export type PathsFilterLegacy = Omit<
 >
 
 export type PathsFilter = {
-    edgeLimit?: PathsFilterLegacy['edge_limit']
+    /** @default 50 */
+    edgeLimit?: integer
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']
     startPoint?: PathsFilterLegacy['start_point']
     endPoint?: PathsFilterLegacy['end_point']
     pathGroupings?: PathsFilterLegacy['path_groupings']
     excludeEvents?: PathsFilterLegacy['exclude_events']
-    stepLimit?: PathsFilterLegacy['step_limit']
+    /** @default 5 */
+    stepLimit?: integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
@@ -856,6 +887,7 @@ export type StickinessFilterLegacy = Omit<
 >
 
 export type StickinessFilter = {
+    /** @default false */
     compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
@@ -870,7 +902,10 @@ export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryR
 export interface StickinessQuery
     extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
@@ -887,6 +922,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
@@ -999,7 +1035,10 @@ export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryRes
 
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
@@ -1450,12 +1489,27 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
+    explicitDate?: boolean | null
+}
+
+export interface InsightDateRange {
+    /** @default -7d */
+    date_from?: string | null
+    date_to?: string | null
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
     explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {
     // TODO: unclutter
+    /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType

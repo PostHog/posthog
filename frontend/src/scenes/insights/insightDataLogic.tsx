@@ -1,6 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -103,9 +102,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         isHogQLInsight: [
-            (s) => [s.featureFlags, s.query],
-            (featureFlags, query) => {
-                return isInsightVizNode(query) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]
+            (s) => [s.query],
+            (query) => {
+                return isInsightVizNode(query)
             },
         ],
 

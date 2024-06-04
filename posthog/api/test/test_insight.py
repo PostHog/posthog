@@ -16,7 +16,6 @@ from rest_framework import status
 from parameterized import parameterized
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -1022,9 +1021,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # synchronously_update_cache is a legacy-only code path
-    @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
-    def test_insight_refreshing_legacy(self, spy_update_insight_cache) -> None:
+    def test_insight_refreshing_legacy_conversion(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -1067,7 +1064,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], None)
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
-            self.assertEqual(spy_update_insight_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1075,7 +1071,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
-            self.assertEqual(spy_update_insight_cache.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
@@ -1085,7 +1080,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            self.assertEqual(spy_update_insight_cache.call_count, 3)
             self.assertEqual(
                 response["result"][0]["data"],
                 [
@@ -1111,7 +1105,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-            self.assertEqual(spy_update_insight_cache.call_count, 3)
             self.assertEqual(response["last_refresh"], None)
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
@@ -1127,7 +1120,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            self.assertEqual(spy_update_insight_cache.call_count, 4)
             self.assertEqual(
                 response["result"][0]["data"],
                 [
@@ -1315,16 +1307,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
-    @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
     @patch(
         "posthog.caching.insight_caching_state.calculate_target_age_insight",
         # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
         # this patch means it will be treated as if it did satisfy them
         return_value=TargetCacheAge.MID_PRIORITY,
     )
-    def test_insight_refreshing_legacy_with_background_update(
-        self, spy_synchronously_update_cache, spy_calculate_target_age_insight
-    ) -> None:
+    def test_insight_refreshing_legacy_with_background_update(self, spy_calculate_target_age_insight) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):
             _create_event(
                 team=self.team,
@@ -1368,7 +1357,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_synchronously_update_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1380,7 +1368,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2012-01-17T06:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_synchronously_update_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
             self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -3415,7 +3402,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(len(response["result"]), 11)
             self.assertEqual(response["result"][0]["values"][0]["count"], 1)
 
-    @override_settings(HOGQL_INSIGHTS_OVERRIDE=True)
     def test_insight_with_filters_via_hogql(self) -> None:
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
 
@@ -3429,9 +3415,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertFalse(response.json()["is_cached"])
 
         # cached response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&use_cache=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertTrue(response.json()["is_cached"])

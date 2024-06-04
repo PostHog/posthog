@@ -325,7 +325,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     >
                         <div>
                             {currentPlan && (
-                                <h4 className={`${!upgradePlan ? 'text-success-dark' : 'text-warning-dark'}`}>
+                                <h4 className={`${!upgradePlan ? 'text-success' : 'text-warning-dark'}`}>
                                     You're on the {currentPlan.name} plan for {product.name}.
                                 </h4>
                             )}

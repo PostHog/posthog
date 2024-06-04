@@ -80,10 +80,12 @@ describe('funnelPersonsModalLogic', () => {
                 converted: true,
             })
 
-            expect(openPersonsModal).toHaveBeenCalledWith({
-                title: expect.any(Object),
-                url: '/some/people/url?funnel_step=2', // Positive funnel_step and no funnel_step_breakdown
-            })
+            expect(openPersonsModal).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: expect.anything(),
+                    query: expect.objectContaining({ kind: 'FunnelsActorsQuery', funnelStep: 1 }),
+                })
+            )
         })
 
         test('openPersonsModalForSeries calls openPersonsModal', async () => {
@@ -126,10 +128,13 @@ describe('funnelPersonsModalLogic', () => {
                 converted: true,
             })
 
-            expect(openPersonsModal).toHaveBeenCalledWith({
-                title: expect.any(Object),
-                url: '/some/people/url?funnel_step=2&funnel_step_breakdown=Latvia', // Series funnel_step_breakdown included
-            })
+            expect(openPersonsModal).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: expect.any(Object),
+
+                    query: expect.objectContaining({ kind: 'FunnelsActorsQuery', funnelStep: 1 }),
+                })
+            )
         })
     })
 })

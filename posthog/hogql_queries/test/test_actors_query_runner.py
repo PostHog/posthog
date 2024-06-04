@@ -12,7 +12,7 @@ from posthog.schema import (
     PropertyOperator,
     HogQLQuery,
     LifecycleQuery,
-    DateRange,
+    InsightDateRange,
     EventsNode,
     IntervalType,
     InsightActorsQuery,
@@ -225,7 +225,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
                 interval=IntervalType.day,
-                dateRange=DateRange(date_from="-7d"),
+                dateRange=InsightDateRange(date_from="-7d"),
             )
             query = ActorsQuery(
                 select=["properties.email"],

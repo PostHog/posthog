@@ -16,7 +16,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
@@ -31,7 +31,6 @@ from posthog.models import (
 )
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
@@ -61,7 +60,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with flagged_conversion_to_query_based(insight):
+        with conversion_to_query_based(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:
@@ -168,23 +167,6 @@ def calculate_for_query_based_insight(
         timings=response.get("timings"),
         query_status=response if "query_async" in response else None,  # TODO
     )
-
-
-def calculate_for_filter_based_insight(
-    insight: Insight, dashboard: Optional[Dashboard]
-) -> tuple[str, str, list | dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
-    cache_key = generate_insight_filters_hash(insight, dashboard)
-    cache_type = get_cache_type(filter)
-
-    tag_queries(
-        team_id=insight.team_id,
-        insight_id=insight.pk,
-        cache_type=cache_type,
-        cache_key=cache_key,
-    )
-
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.team)
 
 
 def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> list[dict[str, Any]]:

@@ -492,6 +492,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+    live_events_token: string
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -637,6 +638,11 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+}
+
+export enum ActivityTab {
+    ExploreEvents = 'explore',
+    LiveEvents = 'live',
 }
 
 export enum PipelineTab {
@@ -1244,6 +1250,16 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+}
+
+export interface LiveEvent {
+    uuid: string
+    event: string
+    properties: Record<string, any>
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
 }
 
 export interface RecordingTimeMixinType {

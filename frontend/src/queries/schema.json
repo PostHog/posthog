@@ -457,7 +457,8 @@
                         {
                             "type": "null"
                         }
-                    ]
+                    ],
+                    "default": "event"
                 },
                 "breakdowns": {
                     "items": {
@@ -2612,6 +2613,7 @@
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
+                    "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
                     "type": ["boolean", "null"]
                 }
@@ -3688,12 +3690,14 @@
                     "type": "integer"
                 },
                 "breakdownAttributionType": {
-                    "$ref": "#/definitions/BreakdownAttributionType"
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch"
                 },
                 "breakdownAttributionValue": {
                     "type": "integer"
                 },
                 "exclusions": {
+                    "default": [],
                     "items": {
                         "$ref": "#/definitions/FunnelExclusion"
                     },
@@ -3706,22 +3710,27 @@
                     "type": "integer"
                 },
                 "funnelOrderType": {
-                    "$ref": "#/definitions/StepOrderValue"
+                    "$ref": "#/definitions/StepOrderValue",
+                    "default": "ordered"
                 },
                 "funnelStepReference": {
-                    "$ref": "#/definitions/FunnelStepReference"
+                    "$ref": "#/definitions/FunnelStepReference",
+                    "default": "total"
                 },
                 "funnelToStep": {
                     "type": "integer"
                 },
                 "funnelVizType": {
-                    "$ref": "#/definitions/FunnelVizType"
+                    "$ref": "#/definitions/FunnelVizType",
+                    "default": "steps"
                 },
                 "funnelWindowInterval": {
+                    "default": 14,
                     "type": "integer"
                 },
                 "funnelWindowIntervalUnit": {
-                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "default": "day"
                 },
                 "hidden_legend_breakdowns": {
                     "items": {
@@ -3730,7 +3739,8 @@
                     "type": "array"
                 },
                 "layout": {
-                    "$ref": "#/definitions/FunnelLayout"
+                    "$ref": "#/definitions/FunnelLayout",
+                    "default": "vertical"
                 }
             },
             "type": "object"
@@ -3802,10 +3812,11 @@
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -3837,6 +3848,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4565,6 +4577,24 @@
             },
             "type": "object"
         },
+        "InsightDateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "default": "-7d",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "default": false,
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "type": ["boolean", "null"]
+                }
+            },
+            "type": "object"
+        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -4707,10 +4737,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4733,6 +4764,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4755,10 +4787,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4781,6 +4814,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4803,10 +4837,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4829,6 +4864,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4851,10 +4887,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4877,6 +4914,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4899,10 +4937,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -4925,6 +4964,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -4946,6 +4986,7 @@
             "additionalProperties": false,
             "properties": {
                 "showLegend": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
@@ -4987,15 +5028,17 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -5022,6 +5065,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -5166,6 +5210,7 @@
             "additionalProperties": false,
             "properties": {
                 "edgeLimit": {
+                    "default": 50,
                     "type": "integer"
                 },
                 "endPoint": {
@@ -5223,6 +5268,7 @@
                     "type": "string"
                 },
                 "stepLimit": {
+                    "default": 5,
                     "type": "integer"
                 }
             },
@@ -5300,10 +5346,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -5335,6 +5382,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -6967,7 +7015,8 @@
             "additionalProperties": false,
             "properties": {
                 "period": {
-                    "$ref": "#/definitions/RetentionPeriod"
+                    "$ref": "#/definitions/RetentionPeriod",
+                    "default": "Day"
                 },
                 "retentionReference": {
                     "enum": ["total", "previous"],
@@ -6986,6 +7035,7 @@
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "totalIntervals": {
+                    "default": 11,
                     "type": "integer"
                 }
             },
@@ -7032,10 +7082,11 @@
                     "type": "integer"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
@@ -7059,6 +7110,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7379,6 +7431,7 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "display": {
@@ -7428,15 +7481,17 @@
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7459,6 +7514,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {
@@ -7738,7 +7794,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregationAxisFormat": {
-                    "$ref": "#/definitions/AggregationAxisFormat"
+                    "$ref": "#/definitions/AggregationAxisFormat",
+                    "default": "numeric"
                 },
                 "aggregationAxisPostfix": {
                     "type": "string"
@@ -7750,13 +7807,15 @@
                     "type": "number"
                 },
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "default": "ActionsLineGraph"
                 },
                 "formula": {
                     "type": "string"
@@ -7771,16 +7830,20 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showPercentStackView": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
-                    "type": "number"
+                    "default": 1,
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -7849,15 +7912,17 @@
                     "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
+                    "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7880,6 +7945,7 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ],
+                    "default": [],
                     "description": "Property filters for all series"
                 },
                 "response": {

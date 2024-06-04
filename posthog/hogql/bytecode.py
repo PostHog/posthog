@@ -146,21 +146,28 @@ class BytecodeBuilder(Visitor):
         ]
 
     def visit_field(self, node: ast.Field):
-        if len(node.chain) == 1:
-            for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == node.chain[0]:
+        for index, local in reversed(list(enumerate(self.locals))):
+            if local.name == node.chain[0]:
+                if len(node.chain) == 1:
                     return [Operation.GET_LOCAL, index]
-
+                else:
+                    ops: list[str | int] = [Operation.GET_LOCAL, index]
+                    for element in node.chain[1:]:
+                        if isinstance(element, int):
+                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                        else:
+                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+                    return ops
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
         return [*chain, Operation.FIELD, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [Operation.INTEGER, node.index, Operation.FIELD, 1]
+        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.property), Operation.FIELD, 1]
+        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:
@@ -258,17 +265,55 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.JUMP, -len(response) - 2])
         return response
 
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        self._declare_local(node.name)
+        if node.expr:
+            return self.visit(node.expr)
+        return [Operation.NULL]
+
     def visit_variable_assignment(self, node: ast.VariableAssignment):
-        if node.is_declaration:
-            self._declare_local(node.name)
-            if node.expr:
-                return self.visit(node.expr)
-            return [Operation.NULL]
+        if isinstance(node.left, ast.TupleAccess):
+            return [
+                *self.visit(node.left.tuple),
+                Operation.INTEGER,
+                node.left.index,
+                *self.visit(node.right),
+                Operation.SET_PROPERTY,
+            ]
+
+        if isinstance(node.left, ast.ArrayAccess):
+            return [
+                *self.visit(node.left.array),
+                *self.visit(node.left.property),
+                *self.visit(node.right),
+                Operation.SET_PROPERTY,
+            ]
+
+        if not isinstance(node.left, ast.Field):
+            raise NotImplementedError(f"Can not assign to this type of expression")
+
+        ops: list = []
+        chain = node.left.chain
+        name = chain[0]
+        if len(chain) == 1:
+            for index, local in reversed(list(enumerate(self.locals))):
+                if local.name == name:
+                    ops.extend([*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index])
+                    break
         else:
             for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == node.name:
-                    return [*self.visit(cast(AST, node.expr)), Operation.SET_LOCAL, index]
-            raise NotImplementedError(f"Variable `{node.name}` not declared in this scope")
+                if local.name == name:
+                    ops.extend([Operation.GET_LOCAL, index])
+                    for element in chain[1:]:
+                        if isinstance(element, int):
+                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                        else:
+                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+                    break
+
+        if len(ops) == 0:
+            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
+        return ops
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
@@ -279,11 +324,36 @@ class BytecodeBuilder(Visitor):
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
 
+    def visit_dict(self, node: ast.Dict):
+        response = []
+        for key, value in node.items:
+            response.extend(self.visit(key))
+            response.extend(self.visit(value))
+        response.append(Operation.DICT)
+        response.append(len(node.items))
+        return response
+
+    def visit_array(self, node: ast.Array):
+        response = []
+        for item in node.exprs:
+            response.extend(self.visit(item))
+        response.append(Operation.ARRAY)
+        response.append(len(node.exprs))
+        return response
+
+    def visit_tuple(self, node: ast.Tuple):
+        response = []
+        for item in node.exprs:
+            response.extend(self.visit(item))
+        response.append(Operation.TUPLE)
+        response.append(len(node.exprs))
+        return response
+
 
 def execute_hog(
     source_code: str,
     team: "Team",
-    fields: Optional[dict[str, Any]] = None,
+    globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
 ) -> BytecodeResult:
@@ -295,4 +365,4 @@ def execute_hog(
             source_code = f"{source_code};"
     program = parse_program(source_code)
     bytecode = create_bytecode(program)
-    return execute_bytecode(bytecode, fields=fields, functions=functions, timeout=timeout, team=team)
+    return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

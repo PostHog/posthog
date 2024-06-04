@@ -90,7 +90,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -114,34 +113,32 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             type: 'toggle',
             visible: true,
         },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.ENABLE_SESSION_REPLAY_PA_ONBOARDING] == 'test') {
-        options.push({
+        {
             title: 'Enable session recordings',
             description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
             teamProperty: 'session_recording_opt_in',
             value: currentTeam?.session_recording_opt_in ?? true,
             type: 'toggle',
             visible: true,
-        })
-        options.push({
+        },
+        {
             title: 'Capture console logs',
             description: `Automatically enable console log capture`,
             teamProperty: 'capture_console_log_opt_in',
             value: true,
             type: 'toggle',
             visible: false,
-        })
-        options.push({
+        },
+        {
             title: 'Capture network performance',
             description: `Automatically enable network performance capture`,
             teamProperty: 'capture_performance_opt_in',
             value: true,
             type: 'toggle',
             visible: false,
-        })
-    }
+        },
+    ]
+
     return (
         <OnboardingWrapper>
             <SDKs
