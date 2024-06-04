@@ -575,7 +575,6 @@ export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
     token?: string /** public posthog-js token */
-    temporaryToken?: string /** private temporary user token */
     actionId?: number
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
@@ -585,6 +584,8 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+    authorizationCode?: string
+    accessToken?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {

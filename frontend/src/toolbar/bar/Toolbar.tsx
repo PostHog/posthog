@@ -145,8 +145,8 @@ export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
-    const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
-    const { authenticate } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authorizationLoading } = useValues(toolbarConfigLogic)
+    const { authorize } = useActions(toolbarConfigLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -195,7 +195,7 @@ export function Toolbar(): JSX.Element | null {
                 }
             >
                 <ToolbarButton
-                    onClick={isAuthenticated ? toggleMinimized : authenticate}
+                    onClick={isAuthenticated ? toggleMinimized : authorize}
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
@@ -220,8 +220,8 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                     </>
                 ) : (
-                    <ToolbarButton flex onClick={authenticate}>
-                        Authenticate
+                    <ToolbarButton flex onClick={!authorizationLoading ? authorize : undefined}>
+                        {!authorizationLoading ? 'Authenticate' : 'Loading...'}
                     </ToolbarButton>
                 )}
 

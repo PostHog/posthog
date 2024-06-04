@@ -31,15 +31,16 @@ from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.client_auth import confirm_client_auth_flow, start_client_auth_flow
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import PublicIPOnlyHttpAdapter, raise_if_user_provided_url_unsafe
 from posthog.auth import (
+    JwtAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    TemporaryTokenAuthentication,
     authenticate_secondarily,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -340,7 +341,7 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [JwtAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
@@ -468,7 +469,7 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        authentication_classes=[SessionAuthentication, JwtAuthentication, PersonalAPIKeyAuthentication],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
@@ -490,12 +491,14 @@ def redirect_to_site(request):
 
     if not team or not hostname_in_allowed_url_list(team.app_urls, urllib.parse.urlparse(app_url).hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    request.user.temporary_token = secrets.token_urlsafe(32)
-    request.user.save()
+
+    code, verification = start_client_auth_flow()
+    confirm_client_auth_flow(code, verification, request.user)
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
-        "temporaryToken": request.user.temporary_token,
+        "authorizationCode": code,
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",

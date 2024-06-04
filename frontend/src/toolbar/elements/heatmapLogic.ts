@@ -186,7 +186,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     )
 
                     if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
                         return emptyElementsStatsPages
                     }
 
@@ -237,10 +236,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         )}`,
                         'GET'
                     )
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                    }
 
                     if (response.status !== 200) {
                         throw new Error('API error')
@@ -519,10 +514,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 )}`,
                 'GET'
             )
-
-            if (response.status === 403) {
-                toolbarConfigLogic.actions.authenticate()
-            }
 
             if (response.status !== 200) {
                 throw new Error('API error')
