@@ -160,7 +160,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
     await activity_environment.run(backfill_schedule, inputs)
 
     query = f'TemporalScheduledById="{desc.id}"'
-    workflows = []
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
     timeout = 20
     waited = 0
@@ -224,7 +224,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
     await handle.result()
 
     query = f'TemporalScheduledById="{desc.id}"'
-    workflows = []
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
     timeout = 20
     waited = 0
@@ -305,7 +305,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
     await handle.result()
 
     query = f'TemporalScheduledById="{desc.id}"'
-    workflows = []
+    workflows: list[temporalio.client.WorkflowExecution] = []
 
     timeout = 20
     waited = 0
