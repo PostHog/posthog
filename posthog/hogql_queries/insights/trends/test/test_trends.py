@@ -745,8 +745,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_trends_breakdown_normalize_url(self):
         self._create_breakdown_url_events()
         with freeze_time("2020-01-04T13:00:01Z"):
