@@ -301,7 +301,7 @@ class BytecodeBuilder(Visitor):
             name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
-                    ops = [Operation.GET_LOCAL, index]
+                    ops: list = [Operation.GET_LOCAL, index]
                     for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
