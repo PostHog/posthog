@@ -155,7 +155,7 @@ runs:
               pytest ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                  || 'hogvm posthog'
+                  || 'posthog'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
                   --ignore=hogvm/python/test \
@@ -187,6 +187,22 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
+
+        - name: Run HogVM Python tests
+          id: run-hogvm-python-tests
+          if: ${{ inputs.segment == 'HogVM' }}
+          shell: bash
+          run: |
+              pytest hogvm $PYTEST_ARGS
+
+        - name: Run HogVM TypeScript tests
+          id: run-hogvm-python-tests
+          if: ${{ inputs.segment == 'HogVM' }}
+          shell: bash
+          run: |
+              cd hogvm/typescript
+              pnpm install
+              pnpm run test
 
         # Post tests
         - name: Show docker compose logs on failure

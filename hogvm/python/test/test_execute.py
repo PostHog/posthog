@@ -9,7 +9,6 @@ from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
 
 
-# @pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
 class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
         globals = {
