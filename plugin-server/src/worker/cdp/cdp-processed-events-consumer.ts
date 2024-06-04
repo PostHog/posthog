@@ -108,8 +108,6 @@ export class CdpProcessedEventsConsumer {
     }
 
     public async consume(invocation: HogFunctionInvocation): Promise<void> {
-        console.log('INVOKING')
-
         await this.hogExecutor.executeMatchingFunctions(invocation)
     }
 

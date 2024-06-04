@@ -53,6 +53,8 @@ export class HogExecutor {
     async execute(hogFunction: HogFunctionType, fields: Record<string, any>, state?: VMState): Promise<any> {
         const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
 
+        console.log('Executing hog function:', hogFunction.id, hogFunction.bytecode)
+
         try {
             const res = exec(
                 hogFunction.bytecode,
@@ -87,14 +89,14 @@ export class HogExecutor {
                                         : JSON.stringify(options.body, undefined, 4),
                             }
 
+                            console.log('Hog Exec Result:', JSON.stringify(res), webhook)
+
                             const success = await this.rustyHook.enqueueIfEnabledForTeam({
                                 webhook: webhook,
                                 teamId: hogFunction.team_id,
                                 pluginId: SPECIAL_CONFIG_ID,
                                 pluginConfigId: SPECIAL_CONFIG_ID,
                             })
-
-                            console.log(webhook, success)
 
                             // TODO: Temporary test code
                             if (!success) {
@@ -105,7 +107,6 @@ export class HogExecutor {
                                     timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
                                 })
 
-                                console.log(webhook, fetchResponse, fetchResponse.status, await fetchResponse.text())
                                 break
                             }
                         default:
