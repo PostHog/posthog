@@ -159,7 +159,7 @@ runs:
                   --ignore=posthog/temporal \
                   --ignore=hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 --store-durations -n 3 \
                   $PYTEST_ARGS
 
         - name: Run /decide read replica tests
