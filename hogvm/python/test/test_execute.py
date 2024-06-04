@@ -553,3 +553,14 @@ class TestBytecodeExecute(BaseTest):
             ),
             "c",
         )
+        self.assertEqual(
+            self._run_program(
+                """
+                var r := [1, 2, {'d': [1, 3, 42, 3]}];
+                var g := 'd';
+                r.2[g] := ['a', 'b', 'c', 'd'];
+                return r[2].d[2];
+                """
+            ),
+            "c",
+        )

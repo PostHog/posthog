@@ -271,43 +271,49 @@ class BytecodeBuilder(Visitor):
             return self.visit(node.expr)
         return [Operation.NULL]
 
-    def _deconstruct_tuple_array_fields(self, node: ast.Expr) -> list[str | int]:
-        if isinstance(node, ast.Field):
-            return [*node.chain]
-        if isinstance(node, ast.TupleAccess):
-            return [*self._deconstruct_tuple_array_fields(node.tuple), node.index]
-        if isinstance(node, ast.ArrayAccess):
-            if isinstance(node.property, ast.Constant):
-                value = node.property.value
-                if not isinstance(value, int) and not isinstance(value, str):
-                    value = str(value)
-                return [*self._deconstruct_tuple_array_fields(node.array), value]
-            raise NotImplementedError("Only constant array access is supported for now")
-        raise NotImplementedError(f"Can not assign to this type of variable")
-
     def visit_variable_assignment(self, node: ast.VariableAssignment):
-        if isinstance(node.left, ast.TupleAccess) or isinstance(node.left, ast.ArrayAccess):
-            chain = self._deconstruct_tuple_array_fields(node.left)
-        elif isinstance(node.left, ast.Field):
-            chain = node.left.chain
-        else:
+        if isinstance(node.left, ast.TupleAccess):
+            return [
+                *self.visit(node.left.tuple),
+                Operation.INTEGER,
+                node.left.index,
+                *self.visit(node.right),
+                Operation.SET_PROPERTY,
+            ]
+
+        if isinstance(node.left, ast.ArrayAccess):
+            return [
+                *self.visit(node.left.array),
+                *self.visit(node.left.property),
+                *self.visit(node.right),
+                Operation.SET_PROPERTY,
+            ]
+
+        if not isinstance(node.left, ast.Field):
             raise NotImplementedError(f"Can not assign to this type of expression")
 
-        if len(chain) >= 1:
-            name = chain[0]
+        ops: list = []
+        chain = node.left.chain
+        name = chain[0]
+        if len(chain) == 1:
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
-                    if len(chain) == 1:
-                        return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
-                    return [
-                        *self.visit(cast(AST, node.right)),
-                        Operation.SET_PROPERTY_LOCAL,
-                        index,
-                        len(chain) - 1,
-                        *chain[1:],
-                    ]
+                    ops.extend([*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index])
+                    break
+        else:
+            for index, local in reversed(list(enumerate(self.locals))):
+                if local.name == name:
+                    ops.extend([Operation.GET_LOCAL, index])
+                    for element in chain[1:]:
+                        if isinstance(element, int):
+                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                        else:
+                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+                    break
+
+        if len(ops) == 0:
             raise NotImplementedError(f"Variable `{name}` not declared in this scope")
-        raise NotImplementedError(f"Can not assign to this type of variable")
+        return ops
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
