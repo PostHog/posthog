@@ -34,7 +34,7 @@ export const alertLogic = kea<alertLogicType>([
                 if (props.id && props.id !== 'new') {
                     return await api.alerts.get(props.id)
                 }
-                return {}
+                return { anomaly_condition: { absoluteThreshold: {} } }
             },
         },
     })),
@@ -64,7 +64,7 @@ export const alertLogic = kea<alertLogicType>([
                 actions.resetAlert()
 
                 if (updatedAlert.id !== props.id) {
-                    router.actions.replace(urls.alert(props.insightShortId, updatedAlert.id.toString()))
+                    router.actions.replace(urls.alerts(props.insightShortId))
                 }
 
                 actions.loadAlerts()

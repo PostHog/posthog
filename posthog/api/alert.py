@@ -1,5 +1,3 @@
-from typing import Any
-
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -19,7 +17,7 @@ class AlertSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
-    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Alert:
+    def create(self, validated_data: dict) -> Alert:
         validated_data["team_id"] = self.context["team_id"]
         instance: Alert = super().create(validated_data)
         return instance

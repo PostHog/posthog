@@ -4037,7 +4037,7 @@ export type OnboardingProduct = {
 }
 
 export interface AnomalyCondition {
-    absolute_thershold: {
+    absoluteThreshold: {
         lower?: number
         upper?: number
     }

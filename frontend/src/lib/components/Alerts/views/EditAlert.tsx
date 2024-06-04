@@ -1,6 +1,6 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -68,46 +68,16 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                         >
                             <LemonInput data-attr="alert-notification-targets" placeholder="Enter an email address" />
                         </LemonField>
-                        <LemonField name="anomaly_condition" label="Anomaly condition">
-                            {({ value, onChange }) => (
-                                <span className="flex gap-10">
-                                    <div>
-                                        Lower threshold
-                                        <LemonInput
-                                            type="number"
-                                            data-attr="alert-lower-threshold"
-                                            className="w-20"
-                                            value={value?.absolute_threshold?.lower}
-                                            onChange={(newLower) => {
-                                                const newValue = { ...value }
-                                                if (!newValue.absolute_threshold) {
-                                                    newValue.absolute_threshold = {}
-                                                }
-                                                newValue.absolute_threshold.lower = newLower
-                                                onChange(newValue)
-                                            }}
-                                        />
-                                    </div>
-                                    <div>
-                                        Upper threshold
-                                        <LemonInput
-                                            type="number"
-                                            className="w-20"
-                                            data-attr="alert-upper-threshold"
-                                            value={value?.absolute_threshold?.upper}
-                                            onChange={(newUpper) => {
-                                                const newValue = { ...value }
-                                                if (!newValue.absolute_threshold) {
-                                                    newValue.absolute_threshold = {}
-                                                }
-                                                newValue.absolute_threshold.upper = newUpper
-                                                onChange(newValue)
-                                            }}
-                                        />
-                                    </div>
-                                </span>
-                            )}
-                        </LemonField>
+                        <Group name={['anomaly_condition', 'absoluteThreshold']}>
+                            <span className="flex gap-10">
+                                <LemonField name="lower" label="Lower threshold">
+                                    <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
+                                </LemonField>
+                                <LemonField name="upper" label="Upper threshold">
+                                    <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
+                                </LemonField>
+                            </span>
+                        </Group>
                     </>
                 )}
             </LemonModal.Content>
