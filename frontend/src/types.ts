@@ -3698,7 +3698,9 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Manual'] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
