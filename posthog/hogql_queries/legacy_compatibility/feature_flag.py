@@ -8,7 +8,7 @@ def should_use_hogql_backend_in_insight_serialization(team: Team) -> bool:
         return settings.HOGQL_INSIGHTS_OVERRIDE
 
     return posthoganalytics.feature_enabled(
-        "hogql-in-insight-serialization",
+        "hogql-insights-preview",
         str(team.uuid),
         groups={
             "organization": str(team.organization_id),
