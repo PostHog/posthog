@@ -24,7 +24,6 @@ import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 const StatusTagSetting = {
     Running: 'primary',
     Completed: 'success',
-    Active: 'success',
     Error: 'danger',
     Failed: 'danger',
 }
