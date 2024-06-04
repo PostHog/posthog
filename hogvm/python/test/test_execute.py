@@ -6,10 +6,9 @@ from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
-from posthog.test.base import BaseTest
 
 
-class TestBytecodeExecute(BaseTest):
+class TestBytecodeExecute:
     def _run(self, expr: str) -> Any:
         globals = {
             "properties": {"foo": "bar", "nullValue": None},
@@ -26,71 +25,71 @@ class TestBytecodeExecute(BaseTest):
         return response.result
 
     def test_bytecode_create(self):
-        self.assertEqual(self._run("1 + 2"), 3)
-        self.assertEqual(self._run("1 - 2"), -1)
-        self.assertEqual(self._run("3 * 2"), 6)
-        self.assertEqual(self._run("3 / 2"), 1.5)
-        self.assertEqual(self._run("3 % 2"), 1)
-        self.assertEqual(self._run("1 and 2"), True)
-        self.assertEqual(self._run("1 or 0"), True)
-        self.assertEqual(self._run("1 and 0"), False)
-        self.assertEqual(self._run("1 or (0 and 1) or 2"), True)
-        self.assertEqual(self._run("(1 and 0) and 1"), False)
-        self.assertEqual(self._run("(1 or 2) and (1 or 2)"), True)
-        self.assertEqual(self._run("true"), True)
-        self.assertEqual(self._run("not true"), False)
-        self.assertEqual(self._run("false"), False)
-        self.assertEqual(self._run("null"), None)
-        self.assertEqual(self._run("3.14"), 3.14)
-        self.assertEqual(self._run("1 = 2"), False)
-        self.assertEqual(self._run("1 == 2"), False)
-        self.assertEqual(self._run("1 != 2"), True)
-        self.assertEqual(self._run("1 < 2"), True)
-        self.assertEqual(self._run("1 <= 2"), True)
-        self.assertEqual(self._run("1 > 2"), False)
-        self.assertEqual(self._run("1 >= 2"), False)
-        self.assertEqual(self._run("'a' like 'b'"), False)
-        self.assertEqual(self._run("'baa' like '%a%'"), True)
-        self.assertEqual(self._run("'baa' like '%x%'"), False)
-        self.assertEqual(self._run("'baa' ilike '%A%'"), True)
-        self.assertEqual(self._run("'baa' ilike '%C%'"), False)
-        self.assertEqual(self._run("'a' ilike 'b'"), False)
-        self.assertEqual(self._run("'a' not like 'b'"), True)
-        self.assertEqual(self._run("'a' not ilike 'b'"), True)
-        self.assertEqual(self._run("'a' in 'car'"), True)
-        self.assertEqual(self._run("'a' in 'foo'"), False)
-        self.assertEqual(self._run("'a' not in 'car'"), False)
-        self.assertEqual(self._run("properties.bla"), None)
-        self.assertEqual(self._run("properties.foo"), "bar")
-        self.assertEqual(self._run("ifNull(properties.foo, false)"), "bar")
-        self.assertEqual(self._run("ifNull(properties.nullValue, false)"), False)
-        self.assertEqual(self._run("concat('arg', 'another')"), "arganother")
-        self.assertEqual(self._run("concat(1, NULL)"), "1")
-        self.assertEqual(self._run("concat(true, false)"), "truefalse")
-        self.assertEqual(self._run("match('test', 'e.*')"), True)
-        self.assertEqual(self._run("match('test', '^e.*')"), False)
-        self.assertEqual(self._run("match('test', 'x.*')"), False)
-        self.assertEqual(self._run("'test' =~ 'e.*'"), True)
-        self.assertEqual(self._run("'test' !~ 'e.*'"), False)
-        self.assertEqual(self._run("'test' =~ '^e.*'"), False)
-        self.assertEqual(self._run("'test' !~ '^e.*'"), True)
-        self.assertEqual(self._run("'test' =~ 'x.*'"), False)
-        self.assertEqual(self._run("'test' !~ 'x.*'"), True)
-        self.assertEqual(self._run("'test' ~* 'EST'"), True)
-        self.assertEqual(self._run("'test' =~* 'EST'"), True)
-        self.assertEqual(self._run("'test' !~* 'EST'"), False)
-        self.assertEqual(self._run("toString(1)"), "1")
-        self.assertEqual(self._run("toString(1.5)"), "1.5")
-        self.assertEqual(self._run("toString(true)"), "true")
-        self.assertEqual(self._run("toString(null)"), "null")
-        self.assertEqual(self._run("toString('string')"), "string")
-        self.assertEqual(self._run("toInt('1')"), 1)
-        self.assertEqual(self._run("toInt('bla')"), None)
-        self.assertEqual(self._run("toFloat('1.2')"), 1.2)
-        self.assertEqual(self._run("toFloat('bla')"), None)
-        self.assertEqual(self._run("toUUID('asd')"), "asd")
-        self.assertEqual(self._run("1 == null"), False)
-        self.assertEqual(self._run("1 != null"), True)
+        assert self._run("1 + 2") == 3
+        assert self._run("1 - 2") == -1
+        assert self._run("3 * 2") == 6
+        assert self._run("3 / 2") == 1.5
+        assert self._run("3 % 2") == 1
+        assert self._run("1 and 2") is True
+        assert self._run("1 or 0") is True
+        assert self._run("1 and 0") is False
+        assert self._run("1 or (0 and 1) or 2") is True
+        assert self._run("(1 and 0) and 1") is False
+        assert self._run("(1 or 2) and (1 or 2)") is True
+        assert self._run("true") is True
+        assert self._run("not true") is False
+        assert self._run("false") is False
+        assert self._run("null") is None
+        assert self._run("3.14") == 3.14
+        assert self._run("1 = 2") is False
+        assert self._run("1 == 2") is False
+        assert self._run("1 != 2") is True
+        assert self._run("1 < 2") is True
+        assert self._run("1 <= 2") is True
+        assert self._run("1 > 2") is False
+        assert self._run("1 >= 2") is False
+        assert self._run("'a' like 'b'") is False
+        assert self._run("'baa' like '%a%'") is True
+        assert self._run("'baa' like '%x%'") is False
+        assert self._run("'baa' ilike '%A%'") is True
+        assert self._run("'baa' ilike '%C%'") is False
+        assert self._run("'a' ilike 'b'") is False
+        assert self._run("'a' not like 'b'") is True
+        assert self._run("'a' not ilike 'b'") is True
+        assert self._run("'a' in 'car'") is True
+        assert self._run("'a' in 'foo'") is False
+        assert self._run("'a' not in 'car'") is False
+        assert self._run("properties.bla") is None
+        assert self._run("properties.foo") == "bar"
+        assert self._run("ifNull(properties.foo, false)") == "bar"
+        assert self._run("ifNull(properties.nullValue, false)") is False
+        assert self._run("concat('arg', 'another')") == "arganother"
+        assert self._run("concat(1, NULL)") == "1"
+        assert self._run("concat(true, false)") == "truefalse"
+        assert self._run("match('test', 'e.*')") is True
+        assert self._run("match('test', '^e.*')") is False
+        assert self._run("match('test', 'x.*')") is False
+        assert self._run("'test' =~ 'e.*'") is True
+        assert self._run("'test' !~ 'e.*'") is False
+        assert self._run("'test' =~ '^e.*'") is False
+        assert self._run("'test' !~ '^e.*'") is True
+        assert self._run("'test' =~ 'x.*'") is False
+        assert self._run("'test' !~ 'x.*'") is True
+        assert self._run("'test' ~* 'EST'") is True
+        assert self._run("'test' =~* 'EST'") is True
+        assert self._run("'test' !~* 'EST'") is False
+        assert self._run("toString(1)") == "1"
+        assert self._run("toString(1.5)") == "1.5"
+        assert self._run("toString(true)") == "true"
+        assert self._run("toString(null)") == "null"
+        assert self._run("toString('string')") == "string"
+        assert self._run("toInt('1')") == 1
+        assert self._run("toInt('bla')") is None
+        assert self._run("toFloat('1.2')") == 1.2
+        assert self._run("toFloat('bla')") is None
+        assert self._run("toUUID('asd')") == "asd"
+        assert self._run("1 == null") is False
+        assert self._run("1 != null") is True
 
     def test_nested_value(self):
         my_dict = {
@@ -101,26 +100,35 @@ class TestBytecodeExecute(BaseTest):
             }
         }
         chain: list[str] = ["properties", "bla"]
-        self.assertEqual(get_nested_value(my_dict, chain), "hello")
+        assert get_nested_value(my_dict, chain) == "hello"
 
         chain = ["properties", "list", 1]
-        self.assertEqual(get_nested_value(my_dict, chain), "item2")
+        assert get_nested_value(my_dict, chain) == "item2"
 
         chain = ["properties", "tuple", 2]
-        self.assertEqual(get_nested_value(my_dict, chain), "item3")
+        assert get_nested_value(my_dict, chain) == "item3"
 
     def test_errors(self):
-        with self.assertRaises(Exception) as e:
+        try:
             execute_bytecode([_H, op.TRUE, op.CALL, "notAFunction", 1], {})
-        self.assertEqual(str(e.exception), "Unsupported function call: notAFunction")
+        except Exception as e:
+            assert str(e) == "Unsupported function call: notAFunction"
+        else:
+            raise AssertionError("Expected Exception not raised")
 
-        with self.assertRaises(Exception) as e:
+        try:
             execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
-        self.assertEqual(str(e.exception), "Unexpected end of bytecode")
+        except Exception as e:
+            assert str(e) == "Unexpected end of bytecode"
+        else:
+            raise AssertionError("Expected Exception not raised")
 
-        with self.assertRaises(Exception) as e:
+        try:
             execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
-        self.assertEqual(str(e.exception), "Invalid bytecode. More than one value left on stack")
+        except Exception as e:
+            assert str(e) == "Invalid bytecode. More than one value left on stack"
+        else:
+            raise AssertionError("Expected Exception not raised")
 
     def test_functions(self):
         def stringify(*args):
@@ -131,78 +139,63 @@ class TestBytecodeExecute(BaseTest):
             return "zero"
 
         functions = {"stringify": stringify}
-        self.assertEqual(execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions).result, "one")
-        self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions).result, "two")
-        self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions).result, "zero")
+        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions).result == "one"
+        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions).result == "two"
+        assert execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions).result == "zero"
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("var a := 1 + 2; return a;")
         bytecode = create_bytecode(program)
-        self.assertEqual(
-            bytecode,
-            [
-                _H,
-                op.INTEGER,
-                2,
-                op.INTEGER,
-                1,
-                op.PLUS,
-                op.GET_LOCAL,
-                0,
-                op.RETURN,
-                op.POP,
-            ],
-        )
+        assert bytecode == [
+            _H,
+            op.INTEGER,
+            2,
+            op.INTEGER,
+            1,
+            op.PLUS,
+            op.GET_LOCAL,
+            0,
+            op.RETURN,
+            op.POP,
+        ]
 
-        self.assertEqual(self._run_program("var a := 1 + 2; return a;"), 3)
-        self.assertEqual(
+        assert self._run_program("var a := 1 + 2; return a;") == 3
+        assert (
             self._run_program(
                 """
                 var a := 1 + 2;
                 var b := a + 4;
                 return b;
-                """
-            ),
-            7,
+            """
+            )
+            == 7
         )
 
     def test_bytecode_if_else(self):
         program = parse_program("if (true) return 1; else return 2;")
         bytecode = create_bytecode(program)
-        self.assertEqual(
-            bytecode,
-            [
-                _H,
-                op.TRUE,
-                op.JUMP_IF_FALSE,
-                5,
-                op.INTEGER,
-                1,
-                op.RETURN,
-                op.JUMP,
-                3,
-                op.INTEGER,
-                2,
-                op.RETURN,
-            ],
-        )
-
-        self.assertEqual(
-            self._run_program("if (true) return 1; else return 2;"),
+        assert bytecode == [
+            _H,
+            op.TRUE,
+            op.JUMP_IF_FALSE,
+            5,
+            op.INTEGER,
             1,
-        )
-
-        self.assertEqual(
-            self._run_program("if (false) return 1; else return 2;"),
+            op.RETURN,
+            op.JUMP,
+            3,
+            op.INTEGER,
             2,
-        )
+            op.RETURN,
+        ]
 
-        self.assertEqual(
-            self._run_program("if (true) { return 1; } else { return 2; }"),
-            1,
-        )
+        assert self._run_program("if (true) return 1; else return 2;") == 1
 
-        self.assertEqual(
+        assert self._run_program("if (false) return 1; else return 2;") == 2
+
+        assert self._run_program("if (true) { return 1; } else { return 2; }") == 1
+
+        assert (
             self._run_program(
                 """
                 var a := true;
@@ -212,13 +205,13 @@ class TestBytecodeExecute(BaseTest):
                 } else {
                     return 2;
                 }
-                """
-            ),
-            5,
+            """
+            )
+            == 5
         )
 
     def test_bytecode_variable_reassignment(self):
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 var a := 1;
@@ -226,46 +219,53 @@ class TestBytecodeExecute(BaseTest):
                 a := a * 2;
                 return a;
                 """
-            ),
-            8,
+            )
+            == 8
         )
 
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program)
-        self.assertEqual(
-            bytecode,
-            [_H, op.TRUE, op.JUMP_IF_FALSE, 8, op.INTEGER, 1, op.INTEGER, 1, op.PLUS, op.POP, op.JUMP, -11],
-        )
+        assert bytecode == [
+            _H,
+            op.TRUE,
+            op.JUMP_IF_FALSE,
+            8,
+            op.INTEGER,
+            1,
+            op.INTEGER,
+            1,
+            op.PLUS,
+            op.POP,
+            op.JUMP,
+            -11,
+        ]
 
         program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
         bytecode = create_bytecode(program)
-        self.assertEqual(
-            bytecode,
-            [
-                _H,
-                op.STRING,
-                "a",
-                op.CALL,
-                "toString",
-                1,
-                op.JUMP_IF_FALSE,
-                8,
-                op.INTEGER,
-                1,
-                op.INTEGER,
-                1,
-                op.PLUS,
-                op.POP,
-                op.JUMP,
-                -15,
-                op.INTEGER,
-                3,
-                op.RETURN,
-            ],
-        )
+        assert bytecode == [
+            _H,
+            op.STRING,
+            "a",
+            op.CALL,
+            "toString",
+            1,
+            op.JUMP_IF_FALSE,
+            8,
+            op.INTEGER,
+            1,
+            op.INTEGER,
+            1,
+            op.PLUS,
+            op.POP,
+            op.JUMP,
+            -15,
+            op.INTEGER,
+            3,
+            op.RETURN,
+        ]
 
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 var i := -1;
@@ -274,8 +274,8 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return i;
                 """
-            ),
-            -1,
+            )
+            == -1
         )
 
         number_of_times = 0
@@ -285,7 +285,7 @@ class TestBytecodeExecute(BaseTest):
             number_of_times += 1
             return number_of_times <= 3
 
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 var i := 0;
@@ -295,12 +295,12 @@ class TestBytecodeExecute(BaseTest):
                 return i;
                 """,
                 {"call_three_times": call_three_times, "print": print},
-            ),
-            0,
+            )
+            == 0
         )
 
     def test_bytecode_while_var(self):
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 var i := 0;
@@ -309,8 +309,8 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return i;
                 """
-            ),
-            3,
+            )
+            == 3
         )
 
     def test_bytecode_functions(self):
@@ -323,34 +323,32 @@ class TestBytecodeExecute(BaseTest):
             """
         )
         bytecode = create_bytecode(program)
-        self.assertEqual(
-            bytecode,
-            [
-                _H,
-                op.DECLARE_FN,
-                "add",
-                2,
-                6,
-                op.GET_LOCAL,
-                0,
-                op.GET_LOCAL,
-                1,
-                op.PLUS,
-                op.RETURN,
-                op.INTEGER,
-                4,
-                op.INTEGER,
-                3,
-                op.CALL,
-                "add",
-                2,
-                op.RETURN,
-            ],
-        )
-        response = execute_bytecode(bytecode).result
-        self.assertEqual(response, 7)
+        assert bytecode == [
+            _H,
+            op.DECLARE_FN,
+            "add",
+            2,
+            6,
+            op.GET_LOCAL,
+            0,
+            op.GET_LOCAL,
+            1,
+            op.PLUS,
+            op.RETURN,
+            op.INTEGER,
+            4,
+            op.INTEGER,
+            3,
+            op.CALL,
+            "add",
+            2,
+            op.RETURN,
+        ]
 
-        self.assertEqual(
+        response = execute_bytecode(bytecode).result
+        assert response == 7
+
+        assert (
             self._run_program(
                 """
                 fn add(a, b) {
@@ -358,11 +356,11 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return add(3, 4) + 100 + add(1, 1);
                 """
-            ),
-            109,
+            )
+            == 109
         )
 
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 fn add(a, b) {
@@ -373,11 +371,11 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
                 """
-            ),
-            55,
+            )
+            == 55
         )
 
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 fn add(a, b) {
@@ -389,12 +387,12 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
                 """
-            ),
-            11,
+            )
+            == 11
         )
 
     def test_bytecode_recursion(self):
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 fn fibonacci(number) {
@@ -406,12 +404,12 @@ class TestBytecodeExecute(BaseTest):
                 }
                 return fibonacci(6);
                 """
-            ),
-            8,
+            )
+            == 8
         )
 
     def test_bytecode_no_args(self):
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 fn doIt(a) {
@@ -422,10 +420,11 @@ class TestBytecodeExecute(BaseTest):
                 var nr := doIt(1);
                 return nr;
                 """
-            ),
-            5,
+            )
+            == 5
         )
-        self.assertEqual(
+
+        assert (
             self._run_program(
                 """
                 fn doIt() {
@@ -436,123 +435,120 @@ class TestBytecodeExecute(BaseTest):
                 var nr := doIt();
                 return nr;
                 """
-            ),
-            5,
+            )
+            == 5
         )
 
     def test_bytecode_functions_stl(self):
-        self.assertEqual(self._run_program("if (empty('') and notEmpty('234')) return length('123');"), 3)
-        self.assertEqual(self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');"), "TEST")
-        self.assertEqual(self._run_program("return reverse('spinner');"), "rennips")
+        assert self._run_program("if (empty('') and notEmpty('234')) return length('123');") == 3
+        assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
+        assert self._run_program("return reverse('spinner');") == "rennips"
 
     def test_bytecode_empty_statements(self):
-        self.assertEqual(self._run_program(";"), None)
-        self.assertEqual(self._run_program(";;"), None)
-        self.assertEqual(self._run_program(";;return 1;;"), 1)
-        self.assertEqual(self._run_program("return 1;;"), 1)
-        self.assertEqual(self._run_program("return 1;"), 1)
-        self.assertEqual(self._run_program("return 1;return 2;"), 1)
-        self.assertEqual(self._run_program("return 1;return 2;;"), 1)
-        self.assertEqual(self._run_program("return 1;return 2;return 3;"), 1)
-        self.assertEqual(self._run_program("return 1;return 2;return 3;;"), 1)
+        assert self._run_program(";") is None
+        assert self._run_program(";;") is None
+        assert self._run_program(";;return 1;;") == 1
+        assert self._run_program("return 1;;") == 1
+        assert self._run_program("return 1;") == 1
+        assert self._run_program("return 1;return 2;") == 1
+        assert self._run_program("return 1;return 2;;") == 1
+        assert self._run_program("return 1;return 2;return 3;") == 1
+        assert self._run_program("return 1;return 2;return 3;;") == 1
 
     def test_bytecode_dicts(self):
-        self.assertEqual(self._run_program("return {};"), {})
-        self.assertEqual(self._run_program("return {'key': 'value'};"), {"key": "value"})
-        self.assertEqual(
-            self._run_program("return {'key': 'value', 'other': 'thing'};"), {"key": "value", "other": "thing"}
-        )
-        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}};"), {"key": {"otherKey": "value"}})
-        self.assertEqual(self._run_program("return {key: 'value'};"), {None: "value"})
-        self.assertEqual(self._run_program("var key := 3; return {key: 'value'};"), {3: "value"})
+        assert self._run_program("return {};") == {}
+        assert self._run_program("return {'key': 'value'};") == {"key": "value"}
+        assert self._run_program("return {'key': 'value', 'other': 'thing'};") == {"key": "value", "other": "thing"}
+        assert self._run_program("return {'key': {'otherKey': 'value'}};") == {"key": {"otherKey": "value"}}
+        assert self._run_program("return {key: 'value'};") == {None: "value"}
+        assert self._run_program("var key := 3; return {key: 'value'};") == {3: "value"}
 
-        self.assertEqual(self._run_program("return {'key': 'value'}.key;"), "value")
-        self.assertEqual(self._run_program("return {'key': 'value'}['key'];"), "value")
-        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}}.key.otherKey;"), "value")
-        self.assertEqual(self._run_program("return {'key': {'otherKey': 'value'}}['key'].otherKey;"), "value")
+        assert self._run_program("return {'key': 'value'}.key;") == "value"
+        assert self._run_program("return {'key': 'value'}['key'];") == "value"
+        assert self._run_program("return {'key': {'otherKey': 'value'}}.key.otherKey;") == "value"
+        assert self._run_program("return {'key': {'otherKey': 'value'}}['key'].otherKey;") == "value"
 
     def test_bytecode_arrays(self):
-        self.assertEqual(self._run_program("return [];"), [])
-        self.assertEqual(self._run_program("return [1, 2, 3];"), [1, 2, 3])
-        self.assertEqual(self._run_program("return [1, '2', 3];"), [1, "2", 3])
-        self.assertEqual(self._run_program("return [1, [2, 3], 4];"), [1, [2, 3], 4])
-        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5];"), [1, [2, [3, 4]], 5])
+        assert self._run_program("return [];") == []
+        assert self._run_program("return [1, 2, 3];") == [1, 2, 3]
+        assert self._run_program("return [1, '2', 3];") == [1, "2", 3]
+        assert self._run_program("return [1, [2, 3], 4];") == [1, [2, 3], 4]
+        assert self._run_program("return [1, [2, [3, 4]], 5];") == [1, [2, [3, 4]], 5]
 
-        self.assertEqual(self._run_program("var a := [1, 2, 3]; return a[1];"), 2)
-        self.assertEqual(self._run_program("return [1, 2, 3][1];"), 2)
-        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5][1][1][1];"), 4)
-        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;"), 5)
-        self.assertEqual(self._run_program("return [1, [2, [3, 4]], 5].1.1.1;"), 4)
+        assert self._run_program("var a := [1, 2, 3]; return a[1];") == 2
+        assert self._run_program("return [1, 2, 3][1];") == 2
+        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1];") == 4
+        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;") == 5
+        assert self._run_program("return [1, [2, [3, 4]], 5].1.1.1;") == 4
 
     def test_bytecode_tuples(self):
-        # self.assertEqual(self._run_program("return (,);"), ())
-        self.assertEqual(self._run_program("return (1, 2, 3);"), (1, 2, 3))
-        self.assertEqual(self._run_program("return (1, '2', 3);"), (1, "2", 3))
-        self.assertEqual(self._run_program("return (1, (2, 3), 4);"), (1, (2, 3), 4))
-        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5);"), (1, (2, (3, 4)), 5))
-        self.assertEqual(self._run_program("var a := (1, 2, 3); return a[1];"), 2)
-        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];"), 4)
-        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5).1.1.1;"), 4)
-        self.assertEqual(self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;"), 5)
+        # assert self._run_program("return (,);"), ()
+        assert self._run_program("return (1, 2, 3);") == (1, 2, 3)
+        assert self._run_program("return (1, '2', 3);") == (1, "2", 3)
+        assert self._run_program("return (1, (2, 3), 4);") == (1, (2, 3), 4)
+        assert self._run_program("return (1, (2, (3, 4)), 5);") == (1, (2, (3, 4)), 5)
+        assert self._run_program("var a := (1, 2, 3); return a[1];") == 2
+        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5).1.1.1;") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;") == 5
 
     def test_bytecode_nested(self):
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;"), 3)
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];"), 42)
-        self.assertEqual(self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];"), 6)
-        self.assertEqual(self._run_program("var r := {'d': (1, 3, 42, 6)}; return r.d.1;"), 3)
+        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;") == 3
+        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];") == 42
+        assert self._run_program("var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];") == 6
+        assert self._run_program("var r := {'d': (1, 3, 42, 6)}; return r.d.1;") == 3
 
     def test_bytecode_nested_modify(self):
-        self.assertEqual(
+        assert (
             self._run_program(
                 """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r.2.d.2 := 3;
                 return r.2.d.2;
                 """
-            ),
-            3,
+            )
+            == 3
         )
-        self.assertEqual(
+
+        assert (
             self._run_program(
                 """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].d[2] := 3;
                 return r[2].d[2];
                 """
-            ),
-            3,
+            )
+            == 3
         )
-        self.assertEqual(
-            self._run_program(
-                """
+
+        assert self._run_program(
+            """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].c := [666];
                 return r[2];
                 """
-            ),
-            {"d": [1, 3, 42, 3], "c": [666]},
-        )
-        self.assertEqual(
-            self._run_program(
-                """
+        ) == {"d": [1, 3, 42, 3], "c": [666]}
+
+        assert self._run_program(
+            """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r[2].d[2] := 3;
                 return r[2].d;
                 """
-            ),
-            [1, 3, 3, 3],
-        )
-        self.assertEqual(
+        ) == [1, 3, 3, 3]
+
+        assert (
             self._run_program(
                 """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
                 r.2['d'] := ['a', 'b', 'c', 'd'];
                 return r[2].d[2];
                 """
-            ),
-            "c",
+            )
+            == "c"
         )
-        self.assertEqual(
+
+        assert (
             self._run_program(
                 """
                 var r := [1, 2, {'d': [1, 3, 42, 3]}];
@@ -560,6 +556,6 @@ class TestBytecodeExecute(BaseTest):
                 r.2[g] := ['a', 'b', 'c', 'd'];
                 return r[2].d[2];
                 """
-            ),
-            "c",
+            )
+            == "c"
         )
