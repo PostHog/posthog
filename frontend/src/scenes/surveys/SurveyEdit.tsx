@@ -651,9 +651,9 @@ export default function SurveyEdit(): JSX.Element {
                                             )
                                         }}
                                     </LemonField>
-                                    {!featureFlags[FEATURE_FLAGS.SURVEYS_RECURRING] && (
-                                        <>
-                                            <h2> How often should we show this survey? </h2>
+                                    {featureFlags[FEATURE_FLAGS.SURVEYS_RECURRING] && (
+                                        <div className="mt-2">
+                                            <h4> How often should we show this survey? </h4>
                                             <LemonField.Pure>
                                                 <LemonRadio
                                                     value={schedule}
@@ -729,7 +729,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     days
                                                 </div>
                                             )}
-                                        </>
+                                        </div>
                                     )}
                                 </>
                             ),
