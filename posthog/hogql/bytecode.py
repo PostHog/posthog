@@ -353,7 +353,7 @@ class BytecodeBuilder(Visitor):
 def execute_hog(
     source_code: str,
     team: "Team",
-    fields: Optional[dict[str, Any]] = None,
+    globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
 ) -> BytecodeResult:
@@ -365,4 +365,4 @@ def execute_hog(
             source_code = f"{source_code};"
     program = parse_program(source_code)
     bytecode = create_bytecode(program)
-    return execute_bytecode(bytecode, fields=fields, functions=functions, timeout=timeout, team=team)
+    return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

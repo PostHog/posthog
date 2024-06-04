@@ -12,18 +12,18 @@ from posthog.test.base import BaseTest
 # @pytest.mark.skip(reason="These tests broke CI when ran with the typical backend tests")
 class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
-        fields = {
+        globals = {
             "properties": {"foo": "bar", "nullValue": None},
         }
-        return execute_bytecode(create_bytecode(parse_expr(expr)), fields).result
+        return execute_bytecode(create_bytecode(parse_expr(expr)), globals).result
 
     def _run_program(self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None) -> Any:
-        fields = {
+        globals = {
             "properties": {"foo": "bar", "nullValue": None},
         }
         program = parse_program(code)
         bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
-        response = execute_bytecode(bytecode, fields, functions)
+        response = execute_bytecode(bytecode, globals, functions)
         return response.result
 
     def test_bytecode_create(self):

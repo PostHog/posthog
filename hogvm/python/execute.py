@@ -57,7 +57,7 @@ class BytecodeResult:
 
 def execute_bytecode(
     bytecode: list[Any],
-    fields: Optional[dict[str, Any]] = None,
+    globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
     team: Team | None = None,
@@ -160,7 +160,7 @@ def execute_bytecode(
                     stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
                 case Operation.FIELD:
                     chain = [stack.pop() for _ in range(next_token())]
-                    stack.append(get_nested_value(fields, chain))
+                    stack.append(get_nested_value(globals, chain))
                 case Operation.POP:
                     stack.pop()
                 case Operation.RETURN:
