@@ -201,6 +201,8 @@ export class CdpProcessedEventsConsumer {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
 
+        await this.hogFunctionManager.start()
+
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
@@ -232,7 +234,7 @@ export class CdpProcessedEventsConsumer {
             eachBatch: async (messages, { heartbeat }) => {
                 return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
             },
-            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
+            callEachBatchWhenEmpty: false,
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
@@ -256,6 +258,7 @@ export class CdpProcessedEventsConsumer {
         const promiseResults = await Promise.allSettled(this.promises)
 
         await this.kafkaProducer?.disconnect()
+        await this.hogFunctionManager.stop()
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
         await this.redisPool.clear()

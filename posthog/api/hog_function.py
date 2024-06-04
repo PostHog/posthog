@@ -1,5 +1,3 @@
-import copy
-import json
 from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
@@ -112,9 +110,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Attempt to compile the hog
         try:
-            # TODO: Also generate the bytecode for the inputs templating...
             program = parse_program(attrs["hog"])
-            attrs["bytecode"] = create_bytecode(program)
+            attrs["bytecode"] = create_bytecode(program, supported_functions={"fetch"})
         except Exception as e:
             raise serializers.ValidationError({"hog": str(e)})
 

@@ -69,7 +69,7 @@ function getNestedValue(obj: any, chain: any[]): any {
     return null
 }
 
-interface VMState {
+export interface VMState {
     /** Stack of the VM */
     stack: any[]
     /** Call stack of the VM */
@@ -86,7 +86,7 @@ interface VMState {
     syncDuration: number
 }
 
-interface ExecOptions {
+export interface ExecOptions {
     fields?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
@@ -94,7 +94,7 @@ interface ExecOptions {
     maxAsyncSteps?: number
 }
 
-interface ExecResult {
+export interface ExecResult {
     result: any
     finished: boolean
     asyncFunctionName?: string

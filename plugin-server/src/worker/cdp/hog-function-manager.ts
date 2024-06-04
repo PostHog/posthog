@@ -117,7 +117,9 @@ export async function fetchHogFunction(
     const items: HogFunctionType[] = (
         await client.query(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} WHERE id = $1 AND deleted = FALSE AND enabled = TRUE`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = $1 AND deleted = FALSE AND enabled = TRUE`,
             [id],
             'fetchHogFunction'
         )

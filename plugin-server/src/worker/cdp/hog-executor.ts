@@ -1,4 +1,4 @@
-import { execAsync } from '@posthog/hogvm'
+import { exec, VMState } from '@posthog/hogvm'
 
 import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation, HogFunctionInvocationContext, HogFunctionType } from './types'
@@ -9,41 +9,55 @@ export class HogExecutor {
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<any> {
         const functions = this.hogFunctionManager.getTeamHogFunctions(invocation.context.project.id)
 
-        if (!functions.length) {
+        if (!Object.keys(functions).length) {
             return
         }
 
         // TODO: Filter the functions based on the filters object
 
-        const preparedFields = await this.prepareHogFunctionInvocationContext(invocation)
-
         for (const hogFunction of Object.values(functions)) {
-            const fields = {
-                ...invocation.context,
-                ...preparedFields,
-            }
+            const fields = await this.buildHogFunctionFields(hogFunction, invocation)
 
             await this.execute(hogFunction, fields)
         }
     }
 
-    async execute(hogFunction: HogFunctionType, fields: Record<string, any>): Promise<any> {
-        await execAsync(hogFunction.bytecode, {
-            fields: fields,
-            asyncFunctions: {
-                fetch: async (url: string) => {
-                    console.log('FETCH CALLED!')
+    async execute(hogFunction: HogFunctionType, fields: Record<string, any>, state?: VMState): Promise<any> {
+        try {
+            const res = exec(
+                hogFunction.bytecode,
+                {
+                    fields: fields,
+                    timeout: 100,
+                    maxAsyncSteps: 10,
+                    asyncFunctions: {
+                        // We need to pass these in but they don't actually do anything as it is a sync exec
+                        fetch: async () => Promise.resolve(),
+                    },
                 },
-            },
-            timeout: 100,
-            maxAsyncSteps: 10,
-        })
+                state
+            )
+
+            // Handle the fetch call
+            console.log('Hog result:', res)
+        } catch (error) {
+            console.error('Error executing function:', error)
+        }
     }
 
-    async prepareHogFunctionInvocationContext(
+    async buildHogFunctionFields(
+        hogFunction: HogFunctionType,
         invocation: HogFunctionInvocation
-    ): Promise<HogFunctionInvocationContext> {
-        return invocation.context
+    ): Promise<Record<string, any>> {
+        const inputs = Object.entries(hogFunction.inputs).reduce((acc, [key, value]) => {
+            acc[key] = value.value
+            return acc
+        }, {} as Record<string, any>)
+        return {
+            // Add all the root level fields
+            ...invocation.context,
+            inputs,
+        }
     }
 }
 
