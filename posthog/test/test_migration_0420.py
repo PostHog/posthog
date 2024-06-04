@@ -10,6 +10,10 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
     def setUpBeforeMigration(self, apps: Any) -> None:
         PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
 
+        self.property_0 = PropertyDefinition.objects.create(
+            team_id=self.team.id, name="$survey_response", property_type="Numeric", is_numerical=True
+        )
+
         self.property_1 = PropertyDefinition.objects.create(
             team_id=self.team.id, name="$survey_response_1", property_type="Numeric", is_numerical=True
         )
@@ -21,6 +25,12 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
         )
 
         self.property_before_migration = [
+            {
+                "id": self.property_0.id,
+                "name": self.property_0.name,
+                "property_type": self.property_0.property_type,
+                "is_numerical": self.property_0.is_numerical,
+            },
             {
                 "id": self.property_1.id,
                 "name": self.property_1.name,
@@ -48,8 +58,12 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
         PropertyDefinition = self.apps.get_model("posthog", "PropertyDefinition")
 
         # Check updated properties
+        updated_property_0 = PropertyDefinition.objects.get(id=self.property_0.id)
         updated_property_1 = PropertyDefinition.objects.get(id=self.property_1.id)
         updated_property_2 = PropertyDefinition.objects.get(id=self.property_2.id)
+
+        self.assertEqual(updated_property_0.property_type, "String")
+        self.assertFalse(updated_property_0.is_numerical)
 
         self.assertEqual(updated_property_1.property_type, "String")
         self.assertFalse(updated_property_1.is_numerical)
