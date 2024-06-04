@@ -1572,7 +1572,6 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1717,7 +1716,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
   '''
-  /* cohort_calculation: */
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1740,7 +1739,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
-  /* cohort_calculation: */
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -1860,7 +1859,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  /* cohort_calculation: */
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1883,7 +1882,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
-  /* cohort_calculation: */
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -2003,7 +2002,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.5
   '''
-  /* cohort_calculation: */
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -2026,7 +2025,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
   '''
-  /* cohort_calculation: */
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -2146,7 +2145,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.7
   '''
-  /* cohort_calculation: */
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -2169,7 +2168,7 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
   '''
-  /* cohort_calculation: */
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
