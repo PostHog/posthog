@@ -42,6 +42,12 @@ export const ingestEventBatchingBatchCountSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
+export const ingestEventBatchingDistinctIdBatchLengthSummary = new Summary({
+    name: 'ingest_event_batching_distinct_id_batch_length',
+    help: 'Length of input batches of events per distinct ID',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
 export const ingestEventEachBatchKafkaAckWait = new Summary({
     name: 'ingest_event_each_batch_kafka_ack_wait',
     help: 'Wait time for the batch of Kafka ACKs at the end of eachBatchParallelIngestion',
