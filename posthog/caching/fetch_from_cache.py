@@ -34,36 +34,3 @@ class NothingInCacheResult(InsightResult):
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
     columns: Optional[list] = None
-
-
-"""
-def synchronously_update_cache(
-    insight: Insight,
-    dashboard: Optional[Dashboard],
-    refresh_frequency: Optional[timedelta] = None,
-) -> InsightResult:
-    cache_key, cache_type, result = calculate_for_filter_based_insight(insight, dashboard)
-    timestamp = now()
-
-    next_allowed_client_refresh = timestamp + refresh_frequency if refresh_frequency else None
-    update_cached_state(
-        insight.team_id,
-        cache_key,
-        timestamp,
-        {
-            "result": result,
-            "type": cache_type,
-            "last_refresh": timestamp,
-            "next_allowed_client_refresh": next_allowed_client_refresh,
-        },
-    )
-
-    return InsightResult(
-        result=result,
-        last_refresh=timestamp,
-        cache_key=cache_key,
-        is_cached=False,
-        timezone=insight.team.timezone,
-        next_allowed_client_refresh=next_allowed_client_refresh,
-    )
-"""
