@@ -97,7 +97,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
     appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
-    conditions: { url: 'posthog', selector: '' },
+    conditions: { url: 'posthog', selector: '', events: ['user_subscribed'] },
     linked_flag: {
         id: 7,
         team_id: 1,
@@ -151,7 +151,6 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
-    events: [],
 }
 
 const MOCK_SURVEY_SHOWN = {
