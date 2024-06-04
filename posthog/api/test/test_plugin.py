@@ -14,6 +14,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.plugins.access import (
     can_configure_plugins,
     can_globally_manage_plugins,
@@ -168,7 +169,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         other_org: Organization = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
         )
-        OrganizationMembership.objects.create(user=self.user, organization=other_org)
+        # To make sure it works properly the user in question shouldn't also belong to the organization that owns the plugin
+        User.objects.create_and_join(
+            organization=other_org, email="test@test.com", password="123456", first_name="Test"
+        )
+        # OrganizationMembership.objects.create(user=self.user, organization=other_org)
 
         repo_url = "https://github.com/PostHog/helloworldplugin"
         install_response = self.client.post(f"/api/organizations/{my_org.id}/plugins/", {"url": repo_url})
@@ -193,8 +198,15 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # Now the plugin is global and should show up for other org
         list_response_other_org_2 = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
         list_response_other_org_2_data = list_response_other_org_2.json()
-        self.assertEqual(list_response_other_org_2_data["count"], 1)
         self.assertEqual(list_response_other_org_2.status_code, 200)
+        self.assertEqual(list_response_other_org_2_data["count"], 1)
+
+        single_plugin_other_org_2 = self.client.get(
+            f"/api/organizations/{other_org.id}/plugins/{install_response.json()['id']}"
+        )
+        single_plugin_other_org_2_data = single_plugin_other_org_2.json()
+        self.assertEqual(single_plugin_other_org_2.status_code, 200)
+        self.assertEqual(single_plugin_other_org_2_data["id"], install_response.json()["id"])
 
     def test_no_longer_globally_managed_still_visible_to_org_iff_has_config(self, mock_get, mock_reload):
         other_org: Organization = Organization.objects.create(

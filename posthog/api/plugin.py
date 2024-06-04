@@ -5,6 +5,10 @@ import subprocess
 from typing import Any, Optional, cast, Literal
 
 import requests
+from rest_framework.permissions import IsAuthenticated
+from posthog.permissions import (
+    APIScopePermission,
+)
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
@@ -237,6 +241,8 @@ class PluginOwnershipPermission(BasePermission):
     message = "This plugin installation is managed by another organization."
 
     def has_object_permission(self, request, view, object) -> bool:
+        if request.method in SAFE_METHODS:
+            return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
         return view.organization == object.organization
 
 
@@ -307,10 +313,20 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [
-        PluginsAccessLevelPermission,
-        PluginOwnershipPermission,
-    ]
+
+    def dangerously_get_permissions(self) -> list:
+        """
+        Special permissions handling because plugins need to be able to be configured for organizations that don't own them.
+        """
+        permissions: list = [
+            IsAuthenticated,
+            APIScopePermission,
+        ]
+
+        permissions.append(PluginsAccessLevelPermission)
+        permissions.append(PluginOwnershipPermission)
+
+        return [permission() for permission in permissions]
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.select_related("organization")
