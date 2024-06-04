@@ -243,7 +243,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     arraySum(
                         arraySlice(
                             groupArray(count),
-                            indexOf(_days_for_count, _match_date) as _index,
+                            indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
                             arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
                         )
                     ),
@@ -262,7 +262,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         select: list[ast.Expr] = [
             self._get_date_subqueries(),
-            parse_expr("groupArray(day_start) as _days_for_count"),
         ]
 
         if (
