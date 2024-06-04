@@ -5,9 +5,7 @@ from pydantic import BaseModel
 
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
-    PAGEVIEW_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
     PropertyOperatorType,
 )
 from posthog.hogql import ast
@@ -496,24 +494,17 @@ def action_to_expr(action: Action) -> ast.Expr:
         return ast.Or(exprs=or_queries)
 
 
-def entity_to_expr(entity: RetentionEntity, default_event=PAGEVIEW_EVENT) -> ast.Expr:
+def entity_to_expr(entity: RetentionEntity) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         action = Action.objects.get(pk=entity.id)
         return action_to_expr(action)
-    elif entity.type == TREND_FILTER_TYPE_EVENTS:
-        if entity.id is None:
-            return ast.Constant(value=True)
-
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
+    if entity.id is None:
+        return ast.Constant(value=True)
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["events", "event"]),
-        right=ast.Constant(value=default_event),
+        right=ast.Constant(value=entity.id),
     )
 
 
