@@ -65,7 +65,7 @@ def execute_bytecode(
     result = None
     start_time = time.time()
     last_op = len(bytecode) - 1
-    stack = []
+    stack: list = []
     call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
     declared_functions: dict[str, tuple[int, int]] = {}
     ip = -1
