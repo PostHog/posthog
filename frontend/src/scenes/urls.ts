@@ -6,6 +6,7 @@ import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
+    ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
     AppMetricsUrlParams,
@@ -66,7 +67,9 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/events',
+    activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    /** @deprecated in favor of /activity */
+    events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',

@@ -157,7 +157,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
-        setSelectedQuestion: (idx: number | null) => ({ idx }),
+        setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
 
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
@@ -656,10 +656,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
-        selectedQuestion: [
+        selectedPageIndex: [
             0 as number | null,
             {
-                setSelectedQuestion: (_, { idx }) => idx,
+                setSelectedPageIndex: (_, { idx }) => idx,
             },
         ],
         selectedSection: [

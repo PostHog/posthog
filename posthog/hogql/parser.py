@@ -194,17 +194,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
-        return ast.VariableAssignment(
+        return ast.VariableDeclaration(
             name=ctx.identifier().getText(),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
-            is_declaration=True,
         )
 
     def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
         return ast.VariableAssignment(
-            name=ctx.identifier().getText(),
-            expr=self.visit(ctx.expression()),
-            is_declaration=False,
+            left=self.visit(ctx.expression(0)),
+            right=self.visit(ctx.expression(1)),
         )
 
     def visitStatement(self, ctx: HogQLParser.StatementContext):
@@ -235,9 +233,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
             body=self.visit(ctx.block()),
         )
-
-    def visitDict(self, ctx: HogQLParser.DictContext):
-        return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitKvPairList(self, ctx: HogQLParser.KvPairListContext):
         return [self.visit(kv) for kv in ctx.kvPair()]
@@ -599,6 +594,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             left=ast.Constant(value=0),
             right=self.visit(ctx.columnExpr()),
         )
+
+    def visitColumnExprDict(self, ctx: HogQLParser.ColumnExprDictContext):
+        return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())

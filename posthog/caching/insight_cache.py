@@ -13,9 +13,8 @@ from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.services.query import process_query_dict
-from posthog.caching.calculate_results import calculate_for_filter_based_insight
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
@@ -113,19 +112,16 @@ def update_cache(caching_state_id: UUID):
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    with flagged_conversion_to_query_based(insight):
+    with conversion_to_query_based(insight):
         try:
-            if insight.query:
-                response = process_query_dict(
-                    insight.team,
-                    insight.query,
-                    dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-                    execution_mode=ExecutionMode.CALCULATION_ALWAYS,
-                )
-                # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
-                cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
-            else:
-                cache_key, cache_type, result = calculate_for_filter_based_insight(insight=insight, dashboard=dashboard)
+            response = process_query_dict(
+                insight.team,
+                insight.query,
+                dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
+            )
+            # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
+            cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
         except Exception as err:
             capture_exception(err, metadata)
             exception = err

@@ -34,7 +34,7 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
+    const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
         editingSurvey,
         updateSurvey,
@@ -42,7 +42,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         stopSurvey,
         archiveSurvey,
         resumeSurvey,
-        setSelectedQuestion,
+        setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -279,9 +279,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6 max-w-72">
                                                     <SurveyFormAppearance
-                                                        activePreview={selectedQuestion || 0}
+                                                        previewPageIndex={selectedPageIndex || 0}
                                                         survey={survey}
-                                                        setActivePreview={(preview) => setSelectedQuestion(preview)}
+                                                        handleSetSelectedPageIndex={(preview) =>
+                                                            setSelectedPageIndex(preview)
+                                                        }
                                                     />
                                                 </div>
                                             ) : (
