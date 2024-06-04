@@ -34,7 +34,6 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
-                        - 'hogvm/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt

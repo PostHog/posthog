@@ -166,7 +166,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    HOGQL_INSIGHTS: 'hogql-insights-preview', // owner: @mariusandra
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
@@ -192,9 +191,7 @@ export const FEATURE_FLAGS = {
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
-    REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
-    EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
@@ -203,6 +200,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
+    LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     HOG: 'hog', // owner: @mariusandra

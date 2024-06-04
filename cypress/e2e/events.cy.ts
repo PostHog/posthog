@@ -56,7 +56,7 @@ describe('Events', () => {
             return req.reply([{ name: '96' }, { name: '97' }])
         })
 
-        cy.visit('/events')
+        cy.visit('/activity/explore')
     })
 
     it('Events loaded', () => {
@@ -131,7 +131,7 @@ describe('Events', () => {
      * Needs https://github.com/PostHog/posthog/issues/8250 before can query on timestamp
      */
     it.skip('can filter after a date and can filter before it', () => {
-        cy.intercept(/api\/projects\/\d+\/events\/.*/).as('getEvents')
+        cy.intercept(/api\/projects\/\d+\/activity\/explore\/.*/).as('getEvents')
 
         selectNewTimestampPropertyFilter()
 
