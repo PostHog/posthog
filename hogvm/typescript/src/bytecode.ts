@@ -50,7 +50,7 @@ export const enum Operation {
     ARRAY = 43,
     TUPLE = 44,
     GET_PROPERTY = 45,
-    SET_PROPERTY_LOCAL = 46,
+    SET_PROPERTY = 46,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -78,14 +78,16 @@ function getNestedValue(obj: any, chain: any[]): any {
 }
 function setNestedValue(obj: any, chain: any[], value: any): void {
     if (typeof obj !== 'object' || obj === null) {
-        throw new Error(`Can not set ${chain} on non-object: ${obj}`)
+        throw new Error(`Can not set ${chain} on non-object: ${typeof obj}`)
     }
     for (let i = 0; i < chain.length - 1; i++) {
         const key = chain[i]
         if (obj instanceof Map) {
             obj = obj.get(key) ?? null
-        } else {
+        } else if (Array.isArray(obj) && typeof key === 'number') {
             obj = obj[key]
+        } else {
+            throw new Error(`Can not set ${chain} on ${typeof obj}`)
         }
     }
     const lastKey = chain[chain.length - 1]
@@ -354,23 +356,13 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
                 stack[next() + temp] = popStack()
                 break
             case Operation.GET_PROPERTY:
-                temp = next()
-                tempArray = []
-                for (let i = 0; i < temp; i++) {
-                    tempArray.push(popStack())
-                }
-                stack.push(getNestedValue(popStack(), tempArray))
+                temp = popStack() // property
+                stack.push(getNestedValue(popStack(), [temp]))
                 break
-            case Operation.SET_PROPERTY_LOCAL:
-                temp2 = next() // property index
-                temp = next() // chain length
-                tempArray = [] // chain
-                for (let i = 0; i < temp; i++) {
-                    tempArray.push(next())
-                }
-                // stack start
-                temp2 += callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
-                setNestedValue(stack[temp2], tempArray, popStack())
+            case Operation.SET_PROPERTY:
+                temp = popStack() // value
+                temp2 = popStack() // field
+                setNestedValue(popStack(), [temp2], temp)
                 break
             case Operation.DICT:
                 temp = next() * 2 // number of elements to remove from the stack
