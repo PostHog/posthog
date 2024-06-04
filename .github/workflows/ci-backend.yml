@@ -65,6 +65,7 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
+                        - 'hogvm/python/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt
@@ -164,6 +165,10 @@ jobs:
                   # Installing a version of ANTLR compatible with what's in Homebrew as of October 2023 (version 4.13),
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
                   ANTLR_VERSION: '4.13.1'
+
+            - name: Check HogVM python test
+              run: |
+                  pytest hogvm
 
     check-migrations:
         needs: changes

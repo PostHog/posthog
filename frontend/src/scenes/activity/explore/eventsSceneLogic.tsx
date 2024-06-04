@@ -1,20 +1,24 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { UrlToActionPayload } from 'kea-router/lib/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { Node } from '~/queries/schema'
+import { ActivityTab } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
-    connect({ values: [teamLogic, ['currentTeam']] }),
+    connect({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] }),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
@@ -31,15 +35,15 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: () => [
-            urls.events(),
+            values.featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity(ActivityTab.ExploreEvents) : urls.events(),
             {},
             objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.events()]: (_, __, { q: queryParam }): void => {
+    urlToAction(({ actions, values }) => {
+        const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
@@ -56,6 +60,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                     }
                 }
             }
-        },
-    })),
+        }
+        return {
+            [urls.events()]: eventsQueryHandler,
+            [urls.activity(ActivityTab.ExploreEvents)]: eventsQueryHandler,
+        }
+    }),
 ])

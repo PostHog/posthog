@@ -239,6 +239,7 @@ export function LemonInputSelect({
                         )
                         return allowCustomValues ? (
                             <Tooltip
+                                key={value}
                                 title={
                                     <>
                                         <KeyboardShortcut option /> + click to edit
