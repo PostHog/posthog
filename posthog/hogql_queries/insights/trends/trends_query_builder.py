@@ -74,20 +74,23 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                interval -> {date_from_start_of_interval} + toIntervalDay(interval), -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
                         dateDiff(
                             {interval},
-                            {date_from},
-                            {date_to}
+                            {date_from_start_of_interval},
+                            {date_to_start_of_interval}
                         )
                     ) + 1
                 )
             ) as date
         """,
-            placeholders={**self.query_date_range.to_placeholders()},
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                "plus_interval": self.query_date_range.number_interval_periods(),
+            },
         )
 
     def _get_events_subquery(
@@ -301,7 +304,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             select_from=ast.JoinExpr(table=inner_query),
         )
 
-        query.order_by = [ast.OrderExpr(expr=ast.Call(name="sum", args=[ast.Field(chain=["count"])]), order="DESC")]
+        query.order_by = [
+            ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+        ]
 
         if breakdown.enabled:
             query.select.append(
