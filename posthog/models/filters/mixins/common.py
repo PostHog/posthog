@@ -23,7 +23,6 @@ from posthog.constants import (
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
-    DATA_WAREHOUSE_ENTITIES,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
@@ -468,8 +467,8 @@ class EntitiesMixin(BaseParamMixin):
             if isinstance(events, str):
                 events = json.loads(events)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
-        if self._data.get(DATA_WAREHOUSE_ENTITIES):
-            data_warehouse_entities = self._data.get(DATA_WAREHOUSE_ENTITIES, [])
+        if self._data.get(TREND_FILTER_TYPE_DATA_WAREHOUSE):
+            data_warehouse_entities = self._data.get(TREND_FILTER_TYPE_DATA_WAREHOUSE, [])
             if isinstance(data_warehouse_entities, str):
                 data_warehouse_entities = json.loads(data_warehouse_entities)
             processed_entities.extend(
@@ -515,6 +514,7 @@ class EntitiesMixin(BaseParamMixin):
         return {
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
+            **{"data_warehouse": [entity.to_dict() for entity in self.data_warehouse_entities]},
             **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
