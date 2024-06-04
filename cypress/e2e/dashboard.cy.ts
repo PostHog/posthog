@@ -164,7 +164,7 @@ describe('Dashboard', () => {
     })
 
     it('Pinned dashboards on menu', () => {
-        cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
+        cy.clickNavMenu('activity') // to make sure the dashboards menu item is not the active one
         cy.get('[data-attr=menu-item-pinned-dashboards-dropdown]').click()
         cy.get('.Popover').should('be.visible')
         cy.get('.Popover a').should('contain', 'App Analytics')
