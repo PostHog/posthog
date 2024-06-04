@@ -495,6 +495,9 @@ class UnresolvedFieldType(Type):
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return False
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class PropertyType(Type):
