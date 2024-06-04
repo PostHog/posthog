@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from datetime import date
 
 from django.db.models import Min
 from django.http import JsonResponse
@@ -66,7 +65,6 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
-            "events",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -99,7 +97,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "end_date",
             "archived",
             "responses_limit",
-            "events",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -411,7 +408,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "appearance",
             "start_date",
             "end_date",
-            "events",
         ]
         read_only_fields = fields
 
@@ -448,7 +444,6 @@ def surveys(request: Request):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
-        .exclude(end_date__gt=date.today())
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag"),
         many=True,
     ).data
