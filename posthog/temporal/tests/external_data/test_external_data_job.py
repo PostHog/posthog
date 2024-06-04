@@ -247,7 +247,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     inputs = UpdateExternalDataJobStatusInputs(
         id=str(new_job.id),
         run_id=str(new_job.id),
-        status=ExternalDataJob.Status.COMPLETED,
+        status=ExternalDataJob.Status.ACTIVE,
         latest_error=None,
         team_id=team.id,
     )
@@ -256,8 +256,8 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     await sync_to_async(new_job.refresh_from_db)()
     await sync_to_async(schema.refresh_from_db)()
 
-    assert new_job.status == ExternalDataJob.Status.COMPLETED
-    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert new_job.status == ExternalDataJob.Status.ACTIVE
+    assert schema.status == ExternalDataJob.Status.ACTIVE
 
 
 @pytest.mark.django_db(transaction=True)
@@ -610,7 +610,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
 
     assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert run.status == ExternalDataJob.Status.ACTIVE
 
 
 @pytest.mark.django_db(transaction=True)
@@ -641,6 +641,7 @@ async def test_run_postgres_job(
                 "user": postgres_config["user"],
                 "password": postgres_config["password"],
                 "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": False,
             },
         )
 

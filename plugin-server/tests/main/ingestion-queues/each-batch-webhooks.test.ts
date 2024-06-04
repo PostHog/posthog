@@ -54,8 +54,8 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
-        const actionManager = new ActionManager(hub.postgres)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
+        const actionManager = new ActionManager(hub.postgres, hub)
+        const actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
@@ -73,7 +73,10 @@ describe('eachMessageWebhooksHandlers', () => {
         ])
 
         const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableFeaturesCache'].set(2, [['group_analytics'], Date.now()])
+        organizationManager['availableProductFeaturesCache'].set(2, [
+            [{ name: 'Group Analytics', key: 'group_analytics' }],
+            Date.now(),
+        ])
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {

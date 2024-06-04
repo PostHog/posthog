@@ -13,6 +13,7 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
+    PluginConfigFilters,
     PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
@@ -24,6 +25,7 @@ import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
+import { TeamManager } from './team-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
 const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
@@ -132,13 +134,11 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    private postgres: PostgresRouter
-    private actionManager: ActionManager
-
-    constructor(postgres: PostgresRouter, actionManager: ActionManager) {
-        this.postgres = postgres
-        this.actionManager = actionManager
-    }
+    constructor(
+        private postgres: PostgresRouter,
+        private actionManager: ActionManager,
+        private teamManager: TeamManager
+    ) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
@@ -159,6 +159,47 @@ export class ActionMatcher {
         }
         actionMatchMsSummary.observe(new Date().getTime() - matchingStart.getTime())
         return matches
+    }
+
+    public async checkFilters(event: PostIngestionEvent, filters: PluginConfigFilters): Promise<boolean> {
+        const allFilters = [...(filters.events || []), ...(filters.actions || [])]
+
+        if (allFilters.length) {
+            for (const filter of allFilters) {
+                switch (filter.type) {
+                    case 'events':
+                        if (filter.name && filter.name !== event.event) {
+                            continue
+                        }
+                        break
+                    case 'actions':
+                        const action = this.actionManager.getTeamActions(event.teamId)[parseInt(filter.id)]
+
+                        if (!(await this.checkAction(event, action))) {
+                            continue
+                        }
+                        break
+                    default:
+                        return false
+                }
+
+                if (!filter.properties.length) {
+                    return true
+                }
+
+                return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
+            }
+            return false
+        }
+
+        if (filters.filter_test_accounts) {
+            const internalFilters = (await this.teamManager.fetchTeam(event.teamId))?.test_account_filters
+            if (internalFilters?.length) {
+                return internalFilters.every((x) => this.checkEventAgainstFilterSync(event, x))
+            }
+        }
+
+        return true
     }
 
     public getActionById(teamId: number, actionId: number): Action | undefined {
@@ -298,7 +339,7 @@ export class ActionMatcher {
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilter(event, filter))) {
+                if (!(await this.checkEventAgainstFilterAsync(event, filter))) {
                     return false
                 }
             }
@@ -309,7 +350,7 @@ export class ActionMatcher {
     /**
      * Sublevel 3 of action matching.
      */
-    private async checkEventAgainstFilter(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
+    private checkEventAgainstFilterSync(event: PostIngestionEvent, filter: PropertyFilter): boolean {
         switch (filter.type) {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
@@ -317,6 +358,22 @@ export class ActionMatcher {
                 return this.checkEventAgainstPersonFilter(event, filter)
             case 'element':
                 return this.checkEventAgainstElementFilter(event, filter)
+            default:
+                return false
+        }
+    }
+
+    /**
+     * Sublevel 3 of action matching.
+     */
+    private async checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
+        const match = this.checkEventAgainstFilterSync(event, filter)
+
+        if (match) {
+            return match
+        }
+
+        switch (filter.type) {
             case 'cohort':
                 return await this.checkEventAgainstCohortFilter(event, filter)
             default:

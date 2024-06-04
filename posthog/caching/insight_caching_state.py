@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
@@ -127,7 +127,7 @@ def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     if insight is None:
         return None
 
-    with flagged_conversion_to_query_based(insight):
+    with conversion_to_query_based(insight):
         target_age = calculate_target_age(team, target, lazy_loader)
         target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
 

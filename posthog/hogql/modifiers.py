@@ -1,4 +1,5 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -6,7 +7,6 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
-    PersonsJoinMode,
 )
 
 if TYPE_CHECKING:
@@ -44,8 +44,8 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null
 
-    if modifiers.personsJoinMode is None:
-        modifiers.personsJoinMode = PersonsJoinMode.inner
+    if modifiers.optimizeJoinedFilters is None:
+        modifiers.optimizeJoinedFilters = False
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

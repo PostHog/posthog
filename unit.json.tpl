@@ -40,7 +40,7 @@
     "applications": {
         "posthog": {
             "type": "python 3.10",
-            "processes": 4,
+            "processes": $NGINX_UNIT_APP_PROCESSES,
             "working_directory": "/code",
             "path": ".",
             "module": "posthog.$NGINX_UNIT_PYTHON_PROTOCOL",

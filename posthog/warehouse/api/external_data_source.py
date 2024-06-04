@@ -34,6 +34,8 @@ import temporalio
 
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from sshtunnel import BaseSSHTunnelForwarderError
 
 logger = structlog.get_logger(__name__)
 
@@ -85,7 +87,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
-        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+        any_active = any(schema.status == ExternalDataSchema.Status.ACTIVE for schema in active_schemas)
 
         if any_failures:
             return ExternalDataSchema.Status.ERROR
@@ -95,8 +97,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
             return ExternalDataSchema.Status.RUNNING
-        elif any_completed:
-            return ExternalDataSchema.Status.COMPLETED
+        elif any_active:
+            return ExternalDataSchema.Status.ACTIVE
         else:
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status
@@ -299,6 +301,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         password = payload.get("password")
         schema = payload.get("schema")
 
+        ssh_tunnel_obj = payload.get("ssh-tunnel", {})
+        using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+        ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+        ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+        ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+        ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+        ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+        ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+        ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+        ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
         if not self._validate_postgres_host(host, self.team_id):
             raise InternalPostgresError()
 
@@ -316,11 +329,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "user": user,
                 "password": password,
                 "schema": schema,
+                "ssh_tunnel_enabled": using_ssh_tunnel,
+                "ssh_tunnel_host": ssh_tunnel_host,
+                "ssh_tunnel_port": ssh_tunnel_port,
+                "ssh_tunnel_auth_type": ssh_tunnel_auth_type,
+                "ssh_tunnel_auth_type_username": ssh_tunnel_auth_type_username,
+                "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
+                "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
+                "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_postgres_schemas(host, port, database, user, password, schema)
+        ssh_tunnel = SSHTunnel(
+            enabled=using_ssh_tunnel,
+            host=ssh_tunnel_host,
+            port=ssh_tunnel_port,
+            auth_type=ssh_tunnel_auth_type,
+            username=ssh_tunnel_auth_type_username,
+            password=ssh_tunnel_auth_type_password,
+            passphrase=ssh_tunnel_auth_type_passphrase,
+            private_key=ssh_tunnel_auth_type_private_key,
+        )
+
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
 
         return new_source_model, schemas
 
@@ -417,11 +449,56 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             password = request.data.get("password", None)
             schema = request.data.get("schema", None)
 
+            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
+            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+            ssh_tunnel = SSHTunnel(
+                enabled=using_ssh_tunnel,
+                host=ssh_tunnel_host,
+                port=ssh_tunnel_port,
+                auth_type=ssh_tunnel_auth_type,
+                username=ssh_tunnel_auth_type_username,
+                password=ssh_tunnel_auth_type_password,
+                passphrase=ssh_tunnel_auth_type_passphrase,
+                private_key=ssh_tunnel_auth_type_private_key,
+            )
+
             if not host or not port or not database or not user or not password or not schema:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Missing required parameters: host, port, database, user, password, schema"},
                 )
+
+            if using_ssh_tunnel:
+                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
+                if not auth_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": auth_error_message
+                            if len(auth_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
+
+                port_valid, port_error_message = ssh_tunnel.has_valid_port()
+                if not port_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": port_error_message
+                            if len(port_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
 
             # Validate internal postgres
             if not self._validate_postgres_host(host, self.team_id):
@@ -431,7 +508,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             try:
-                result = get_postgres_schemas(host, port, database, user, password, schema)
+                result = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
                 if len(result) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
@@ -446,6 +523,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or GenericPostgresError},
+                )
+            except BaseSSHTunnelForwarderError as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": e.value or GenericPostgresError},
                 )
             except Exception as e:
                 capture_exception(e)

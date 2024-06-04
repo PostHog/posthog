@@ -180,9 +180,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
-    const viewOptions: LemonSegmentedButtonOption<PlaybackViewType>[] = [{ value: 'playback', label: 'Playback' }]
+    const viewOptions: LemonSegmentedButtonOption<PlaybackViewType>[] = [
+        { value: 'playback', label: 'Playback', 'data-attr': 'session-recording-player-view-choice-playback' },
+    ]
     if (!noInspector) {
-        viewOptions.push({ value: 'inspector', label: 'Inspector' })
+        viewOptions.push({
+            value: 'inspector',
+            label: 'Inspector',
+            'data-attr': 'session-recording-player-view-choice-inspector',
+        })
     }
     if (allowWaterfallView) {
         viewOptions.push({
@@ -193,6 +199,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <LemonTag type="success">New</LemonTag>
                 </div>
             ),
+            'data-attr': 'session-recording-player-view-choice-waterfall',
         })
     }
 

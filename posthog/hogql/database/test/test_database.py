@@ -16,7 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaDataWarehouseTable
+from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
@@ -160,7 +160,7 @@ class TestDatabase(BaseTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
+            status=ExternalDataSchema.Status.ACTIVE,
             last_synced_at="2024-01-01",
         )
 
@@ -182,7 +182,7 @@ class TestDatabase(BaseTest):
         assert table.schema_.name == "table_1"
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
-        assert table.schema_.status == "Completed"
+        assert table.schema_.status == "Active"
         assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
 
         field = table.fields.get("id")
@@ -449,3 +449,36 @@ class TestDatabase(BaseTest):
 
         sql = "select e.some_field.key from event_view as e"
         print_ast(parse_select(sql), context, dialect="clickhouse")
+
+    def test_selecting_from_persons_ignores_future_persons(self):
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql = "select id from persons"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            in query
+        ), query
+
+    def test_selecting_persons_from_events_ignores_future_persons(self):
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+            # disable PoE
+            modifiers=create_default_modifiers_for_team(
+                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled)
+            ),
+        )
+        sql = "select person.id from events"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            in query
+        ), query

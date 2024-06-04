@@ -131,8 +131,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.limit_by or []:
             self.visit(expr)
-        (self.visit(node.limit),)
-        (self.visit(node.offset),)
+        self.visit(node.limit)
+        self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
@@ -294,9 +294,13 @@ class TraversingVisitor(Visitor[None]):
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("Abstract 'visit_declaration' not implemented")
 
-    def visit_variable_assignment(self, node: ast.VariableAssignment):
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
         if node.expr:
             self.visit(node.expr)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment):
+        self.visit(node.left)
+        self.visit(node.right)
 
 
 class CloningVisitor(Visitor[Any]):
@@ -623,11 +627,18 @@ class CloningVisitor(Visitor[Any]):
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("Abstract 'visit_declaration' not implemented")
 
-    def visit_variable_assignment(self, node: ast.VariableAssignment):
-        return ast.VariableAssignment(
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        return ast.VariableDeclaration(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             name=node.name,
             expr=self.visit(node.expr) if node.expr else None,
-            is_declaration=node.is_declaration,
+        )
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment):
+        return ast.VariableAssignment(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            left=self.visit(node.left),
+            right=self.visit(node.right),
         )

@@ -1,4 +1,3 @@
-from typing import Any
 from posthog.hogql.ast import SelectQuery, JoinExpr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -11,6 +10,8 @@ from posthog.hogql.database.models import (
     DatabaseField,
     LazyTable,
     FieldOrTable,
+    LazyTableToAdd,
+    LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
@@ -25,22 +26,22 @@ from posthog.hogql.errors import ResolutionError
 
 
 def join_replay_table_to_sessions_table(
-    from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: SelectQuery
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
 ) -> JoinExpr:
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from replay")
 
-    # TODO i think this should be fixed in the session_where_clause_extractor so that it grabs time bounds for us
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
+    # TODO i think this should be fixed in the where_clause_extractor so that it grabs time bounds for us
+    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "session_id"]),
-            right=ast.Field(chain=[to_table, "session_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id"]),
         ),
         constraint_type="ON",
     )
@@ -48,16 +49,15 @@ def join_replay_table_to_sessions_table(
 
 
 def join_with_events_table(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, list[str | int]],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
-    if "$session_id" not in requested_fields:
-        requested_fields = {**requested_fields, "$session_id": ["$session_id"]}
+    requested_fields = join_to_add.fields_accessed
+    if "$session_id" not in join_to_add.fields_accessed:
+        requested_fields = {**join_to_add.fields_accessed, "$session_id": ["$session_id"]}
 
     clamp_to_ttl = _clamp_to_ttl(["events", "timestamp"])
 
@@ -72,12 +72,12 @@ def join_with_events_table(
 
     join_expr = ast.JoinExpr(table=select_query)
     join_expr.join_type = "JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "session_id"]),
-            right=ast.Field(chain=[to_table, "$session_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "$session_id"]),
         ),
         constraint_type="ON",
     )
@@ -106,15 +106,14 @@ def _clamp_to_ttl(chain: list[str | int]):
 
 
 def join_with_console_logs_log_entries_table(
-    from_table: str,
-    to_table: str,
-    requested_fields: dict[str, list[str | int]],
+    join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
-    if "log_source_id" not in requested_fields:
+    requested_fields = join_to_add.fields_accessed
+    if "log_source_id" not in join_to_add.fields_accessed:
         requested_fields = {**requested_fields, "log_source_id": ["log_source_id"]}
 
     select_query = SelectQuery(
@@ -125,12 +124,12 @@ def join_with_console_logs_log_entries_table(
 
     join_expr = ast.JoinExpr(table=select_query)
     join_expr.join_type = "LEFT JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "session_id"]),
-            right=ast.Field(chain=[to_table, "log_source_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "log_source_id"]),
         ),
         constraint_type="ON",
     )
@@ -253,8 +252,8 @@ class SessionReplayEventsTable(LazyTable):
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
-        return select_from_session_replay_events_table(requested_fields)
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_session_replay_events_table(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context):
         return "session_replay_events"

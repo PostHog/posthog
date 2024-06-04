@@ -52,7 +52,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
-        available_features=[],
+        available_product_features=[],
     )
     data.update(kwargs)
     return data
@@ -244,7 +244,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_without_token(self, mock_request):
+    def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -264,27 +264,27 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         mock_request.side_effect = mock_implementation
 
         TEST_clear_instance_license_cache()
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         assert res.json() == {
-            "available_features": [],
+            "available_product_features": [],
             "products": create_default_products_response()["products"],
         }
 
 
 class TestBillingAPI(APILicensedTest):
-    def test_billing_v2_fails_for_old_license_type(self):
+    def test_billing_fails_for_old_license_type(self):
         self.license.key = "test_key"
         self.license.save()
         TEST_clear_instance_license_cache()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 404
         assert res.json()["detail"] == "Billing V2 is not supported for this license type"
 
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
-    def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
+    def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -302,7 +302,7 @@ class TestBillingAPI(APILicensedTest):
 
         TEST_clear_instance_license_cache()
 
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
         token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
 
@@ -325,7 +325,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_billing_exists(self, mock_request):
+    def test_billing_returns_if_billing_exists(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -342,7 +342,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         TEST_clear_instance_license_cache()
-        response = self.client.get("/api/billing-v2")
+        response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == {
@@ -356,11 +356,11 @@ class TestBillingAPI(APILicensedTest):
                 "surveys": 15,
             },
             "license": {"plan": "cloud"},
+            "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
-            "available_features": [],
             "deactivated": False,
             "products": [
                 {
@@ -456,7 +456,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_doesnt_exist(self, mock_request):
+    def test_billing_returns_if_doesnt_exist(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -475,14 +475,14 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
-        response = self.client.get("/api/billing-v2")
+        response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "customer_id": "cus_123",
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
-            "available_features": [],
+            "available_product_features": [],
             "products": [
                 {
                     "name": "Product OS",
@@ -592,7 +592,7 @@ class TestBillingAPI(APILicensedTest):
             }
         }
         response = self.client.patch(
-            "/api/billing-v2/license",
+            "/api/billing/license",
             {
                 "license": "test::test",
             },
@@ -612,7 +612,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.status_code = 403
         mock_request.return_value.json.return_value = {}
         response = self.client.patch(
-            "/api/billing-v2/license",
+            "/api/billing/license",
             {
                 "license": "test::test",
             },
@@ -638,7 +638,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
         assert self.license.plan == "enterprise"
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         self.license.refresh_from_db()
 
         self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
@@ -656,7 +656,7 @@ class TestBillingAPI(APILicensedTest):
             "customer": create_billing_customer(),
         }
 
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         license = get_cached_instance_license()
         assert license.plan == "enterprise"
         # Should be extended by 30 days
@@ -690,7 +690,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.save()
 
         assert self.organization.available_product_features == []
-        self.client.get("/api/billing-v2")
+        self.client.get("/api/billing")
         self.organization.refresh_from_db()
         assert self.organization.available_product_features == [
             {
@@ -729,7 +729,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         assert not self.organization.usage
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
         assert self.organization.usage == {
@@ -754,7 +754,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         res_json = res.json()
         # Should update product usage to reflect today's usage
@@ -791,7 +791,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation_missing_customer
 
         # Test unsubscribed config
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         self.organization.refresh_from_db()
         assert self.organization.usage == {
             "events": {
@@ -859,7 +859,7 @@ class TestBillingAPI(APILicensedTest):
             flush_persons_and_events()
 
         assert not self.organization.usage
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 
@@ -894,7 +894,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.customer_trust_scores = {"recordings": 0, "events": 0, "rows_synced": 0}
         self.organization.save()
 
-        res = self.client.get("/api/billing-v2")
+        res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 

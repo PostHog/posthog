@@ -252,7 +252,8 @@ class TestResolver(BaseTest):
 
     def test_ctes_with_union_all(self):
         self.assertEqual(
-            self._print_hogql("""
+            self._print_hogql(
+                """
                     WITH cte1 AS (SELECT 1 AS a)
                     SELECT 1 AS a
                     UNION ALL
@@ -260,14 +261,17 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                        """),
-            self._print_hogql("""
+                        """
+            ),
+            self._print_hogql(
+                """
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 2 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """),
+                        """
+            ),
         )
 
     def test_join_using(self):
@@ -420,3 +424,80 @@ class TestResolver(BaseTest):
         )
 
         assert hogql == expected
+
+    def _assert_first_columm_is_type(self, node: ast.SelectQuery, type: ast.ConstantType):
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(self.context) == type
+
+    def test_types_pass_outside_subqueries_two_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_types_pass_outside_subqueries_three_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from (select event from events))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_arithmetic_types(self):
+        node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select key from (select 1 + 2 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select 1.0 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 100 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 1.0 + 200 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+    def test_boolean_types(self):
+        node: ast.SelectQuery = self._select("select true and false as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select true or false as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_compare_types(self):
+        node: ast.SelectQuery = self._select("select 1 < 2 from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = 4 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = null as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_function_types(self):
+        node: ast.SelectQuery = self._select("select abs(3) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select plus(1, 2) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))

@@ -426,7 +426,7 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    match_action_id?: number
+    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -559,13 +559,18 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+export interface ProductFeature {
+    key: string
+    name: string
+}
+
 /** Raw Organization row from database. */
 export interface RawOrganization {
     id: string
     name: string
     created_at: string
     updated_at: string
-    available_features: string[]
+    available_product_features: ProductFeature[]
 }
 
 /** Usable Team model. */
@@ -580,6 +585,9 @@ export interface Team {
     session_recording_opt_in: boolean
     ingested_event: boolean
     person_display_name_properties: string[] | null
+    test_account_filters:
+        | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
+        | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -954,6 +962,30 @@ export interface ActionStep {
     url_matching: StringMatching | null
     event: string | null
     properties: PropertyFilter[] | null
+}
+
+// subset of EntityFilter
+export interface PluginConfigFilterBase {
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
+    type: 'events'
+}
+
+export interface PluginConfigFilterActions extends PluginConfigFilterBase {
+    type: 'actions'
+}
+
+export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
+
+export interface PluginConfigFilters {
+    events?: PluginConfigFilterEvents[]
+    actions?: PluginConfigFilterActions[]
+    filter_test_accounts?: boolean
 }
 
 /** Raw Action row from database. */

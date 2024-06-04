@@ -17,7 +17,7 @@ def send_license_usage():
     if not license:
         return
 
-    # New type of license key for billing-v2
+    # New type of license key for billing
     if license.is_v2_license:
         return
 

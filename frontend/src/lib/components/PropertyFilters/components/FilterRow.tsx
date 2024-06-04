@@ -26,7 +26,7 @@ interface FilterRowProps {
     onRemove: (index: number) => void
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
-    disabled?: boolean
+    disabledReason?: string
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -43,7 +43,7 @@ export const FilterRow = React.memo(function FilterRow({
     onRemove,
     orFiltering,
     errorMessage,
-    disabled,
+    disabledReason,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -64,7 +64,7 @@ export const FilterRow = React.memo(function FilterRow({
         <>
             <div
                 className={clsx(
-                    'property-filter-row flex items-center flex-nowrap space-x-2',
+                    'property-filter-row flex items-center flex-nowrap space-x-2 max-w-full',
                     !disablePopover && 'wrap-filters'
                 )}
                 data-attr={'property-filter-' + index}
@@ -94,9 +94,9 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClick={() => setOpen(!open)}
                                 onClose={() => onRemove(index)}
                                 item={item}
-                                disabled={disabled}
+                                disabledReason={disabledReason}
                             />
-                        ) : !disabled ? (
+                        ) : !disabledReason ? (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
                                 className="new-prop-filter"
