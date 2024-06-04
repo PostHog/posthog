@@ -6,6 +6,12 @@ export function delay(ms: number): Promise<void> {
     })
 }
 
+const map = (obj: Record<string, any>): Map<any, any> => new Map(Object.entries(obj))
+const tuple = (array: any[]): any[] => {
+    ;(array as any).__isHogTuple = true
+    return array
+}
+
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
         const fields = { properties: { foo: 'bar', nullValue: null } }
@@ -396,11 +402,13 @@ describe('HogQL Bytecode', () => {
     })
     test('test bytecode dicts', () => {
         // "return {};
-        expect(exec(['_h', op.DICT, 0, op.RETURN]).result).toEqual({})
+        expect(exec(['_h', op.DICT, 0, op.RETURN]).result).toEqual(map({}))
         // "return {'key': 'value'};
-        expect(exec(['_h', op.STRING, 'key', op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual({
-            key: 'value',
-        })
+        expect(exec(['_h', op.STRING, 'key', op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual(
+            map({
+                key: 'value',
+            })
+        )
         // "return {'key': 'value', 'other': 'thing'};
         expect(
             exec([
@@ -417,21 +425,20 @@ describe('HogQL Bytecode', () => {
                 2,
                 op.RETURN,
             ]).result
-        ).toEqual({ key: 'value', other: 'thing' })
+        ).toEqual(map({ key: 'value', other: 'thing' }))
         // "return {'key': {'otherKey': 'value'}};
         expect(
             exec(['_h', op.STRING, 'key', op.STRING, 'otherKey', op.STRING, 'value', op.DICT, 1, op.DICT, 1, op.RETURN])
                 .result
-        ).toEqual({ key: { otherKey: 'value' } })
+        ).toEqual(map({ key: map({ otherKey: 'value' }) }))
         // "return {key: 'value'};
-        // TODO: this is different between python and TS. Null vs None as keys.
-        expect(exec(['_h', op.STRING, 'key', op.FIELD, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual({
-            null: 'value',
-        })
+        expect(exec(['_h', op.STRING, 'key', op.FIELD, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual(
+            new Map([[null, 'value']])
+        )
         // "var key := 3; return {key: 'value'};
         expect(
             exec(['_h', op.INTEGER, 3, op.GET_LOCAL, 0, op.STRING, 'value', op.DICT, 1, op.RETURN, op.POP]).result
-        ).toEqual({ 3: 'value' })
+        ).toEqual(new Map([[3, 'value']]))
 
         // "return {'key': 'value'}.key;
         expect(
@@ -728,15 +735,13 @@ describe('HogQL Bytecode', () => {
 
     test('test bytecode tuples', () => {
         // "return (1, 2, 3);"
-        expect(exec(['_h', op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.TUPLE, 3, op.RETURN]).result).toEqual([
-            1, 2, 3,
-        ])
+        expect(exec(['_h', op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.TUPLE, 3, op.RETURN]).result).toEqual(
+            tuple([1, 2, 3])
+        )
         // "return (1, '2', 3);"
-        expect(exec(['_h', op.INTEGER, 1, op.STRING, '2', op.INTEGER, 3, op.TUPLE, 3, op.RETURN]).result).toEqual([
-            1,
-            '2',
-            3,
-        ])
+        expect(exec(['_h', op.INTEGER, 1, op.STRING, '2', op.INTEGER, 3, op.TUPLE, 3, op.RETURN]).result).toEqual(
+            tuple([1, '2', 3])
+        )
         // "return (1, (2, 3), 4);"
         expect(
             exec([
@@ -755,7 +760,7 @@ describe('HogQL Bytecode', () => {
                 3,
                 op.RETURN,
             ]).result
-        ).toEqual([1, [2, 3], 4])
+        ).toEqual(tuple([1, tuple([2, 3]), 4]))
         // "return (1, (2, (3, 4)), 5);"
         expect(
             exec([
@@ -778,7 +783,7 @@ describe('HogQL Bytecode', () => {
                 3,
                 op.RETURN,
             ]).result
-        ).toEqual([1, [2, [3, 4]], 5])
+        ).toEqual(tuple([1, tuple([2, tuple([3, 4])]), 5]))
         // "var a := (1, 2, 3); return a[1];"
         expect(
             exec([
@@ -1223,7 +1228,7 @@ describe('HogQL Bytecode', () => {
                 op.RETURN,
                 op.POP,
             ]).result
-        ).toEqual({ d: [1, 3, 42, 3], c: [666] })
+        ).toEqual(map({ d: [1, 3, 42, 3], c: [666] }))
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
         // r[2].d[2] := 3;

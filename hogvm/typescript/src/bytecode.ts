@@ -63,7 +63,10 @@ function like(string: string, pattern: string, caseInsensitive = false): boolean
 function getNestedValue(obj: any, chain: any[]): any {
     if (typeof obj === 'object' && obj !== null) {
         for (const key of chain) {
-            if (typeof key === 'number') {
+            // if obj is a map
+            if (obj instanceof Map) {
+                obj = obj.get(key) ?? null
+            } else if (typeof key === 'number') {
                 obj = obj[key]
             } else {
                 obj = obj[key] ?? null
@@ -79,10 +82,18 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
     }
     for (let i = 0; i < chain.length - 1; i++) {
         const key = chain[i]
-        obj = obj[key]
+        if (obj instanceof Map) {
+            obj = obj.get(key) ?? null
+        } else {
+            obj = obj[key]
+        }
     }
     const lastKey = chain[chain.length - 1]
-    obj[lastKey] = value
+    if (obj instanceof Map) {
+        obj.set(lastKey, value)
+    } else {
+        obj[lastKey] = value
+    }
 }
 
 interface VMState {
@@ -163,7 +174,7 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
     let temp: any
     let temp2: any
     let tempArray: any[]
-    let tempObj: Record<string, any> = {}
+    let tempMap: Map<string, any> = new Map()
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
@@ -364,11 +375,11 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
             case Operation.DICT:
                 temp = next() * 2 // number of elements to remove from the stack
                 tempArray = stack.splice(stack.length - temp, temp)
-                tempObj = {}
+                tempMap = new Map()
                 for (let i = 0; i < tempArray.length; i += 2) {
-                    tempObj[tempArray[i]] = tempArray[i + 1]
+                    tempMap.set(tempArray[i], tempArray[i + 1])
                 }
-                stack.push(tempObj)
+                stack.push(tempMap)
                 break
             case Operation.ARRAY:
                 temp = next()
@@ -378,6 +389,7 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
             case Operation.TUPLE:
                 temp = next()
                 tempArray = stack.splice(stack.length - temp, temp)
+                ;(tempArray as any).__isHogTuple = true
                 stack.push(tempArray)
                 break
             case Operation.JUMP:
