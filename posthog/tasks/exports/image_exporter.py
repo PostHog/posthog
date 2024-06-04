@@ -15,7 +15,7 @@ from sentry_sdk import capture_exception, configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import process_query_dict
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -188,11 +188,11 @@ def export_image(exported_asset: ExportedAsset) -> None:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
                 with conversion_to_query_based(exported_asset.insight):
-                    process_query_model(
+                    process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,
-                        limit_context=LimitContext.EXPORT,
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+                        limit_context=LimitContext.QUERY_ASYNC,
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                     )
 
             if exported_asset.export_format == "image/png":
