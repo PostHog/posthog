@@ -9,8 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
 

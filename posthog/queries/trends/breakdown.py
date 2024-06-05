@@ -18,7 +18,6 @@ from posthog.constants import (
     PropertyOperatorType,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
@@ -80,6 +79,10 @@ from posthog.queries.util import (
 )
 from posthog.utils import encode_get_request_params, generate_short_id
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
