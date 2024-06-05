@@ -701,7 +701,7 @@ class TestBillingAPI(APILicensedTest):
         ]
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_usage_update(self, mock_request):
+    def test_organization_update_usage(self, mock_request):
         self.organization.customer_id = None
         self.organization.usage = None
         self.organization.save()
@@ -771,7 +771,7 @@ class TestBillingAPI(APILicensedTest):
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.36"
 
-        # Now test when there is a usage_limit. Ensure that the current_amount_usd does not exceed the limit
+        # Now test when there is a usage_limit.
         def mock_implementation_with_limit(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
@@ -784,7 +784,7 @@ class TestBillingAPI(APILicensedTest):
                 mock.json.return_value = create_billing_response(
                     customer=create_billing_customer(has_active_subscription=True),
                 )
-                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
+                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000000
                 mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
             elif "api/products" in url:
                 mock.status_code = 200
@@ -793,7 +793,49 @@ class TestBillingAPI(APILicensedTest):
             return mock
 
         mock_request.side_effect = mock_implementation_with_limit
-        self.organization.usage = {"events": {"limit": 1000000, "usage": 1000, "todays_usage": 1100000}}
+        self.organization.usage = {"events": {"limit": 1000000, "usage": 1000000, "todays_usage": 100}}
+        self.organization.save()
+
+        res = self.client.get("/api/billing")
+        assert res.status_code == 200
+        res_json = res.json()
+        # Should update product usage to reflect today's usage
+        assert res_json["products"][0]["current_usage"] == 1000100
+        assert res_json["products"][0]["current_amount_usd"] == 0.04
+        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["tiers"][1]["current_usage"] == 100
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.04"
+
+        assert res_json["products"][0]["addons"][0]["current_usage"] == 1000100
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
+
+        def mock_implementation_exceeds_limit(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True),
+                )
+                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1100000
+                mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
+            elif "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation_exceeds_limit
+        self.organization.usage = {"events": {"limit": 1000000, "usage": 1100000, "todays_usage": 1000}}
         self.organization.save()
 
         res = self.client.get("/api/billing")
@@ -801,17 +843,61 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 0
+        assert res_json["products"][0]["current_amount_usd"] == 45.0
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
-        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["tiers"][1]["current_usage"] == 100000
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.35
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
-        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100000
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.35"
+
+        # Test when the customer has no usage. Ensure that the tiered current_usage isn't set to the usage limit.
+        def mock_implementation_with_limit_no_usage(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True),
+                )
+                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 0
+                mock.json.return_value["customer"]["usage_summary"]["events"]["limit"] = 1000000
+            elif "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation_with_limit_no_usage
+
+        self.organization.usage = {"events": {"limit": 1000000, "usage": 0, "todays_usage": 0}}
+        self.organization.save()
+
+        res = self.client.get("/api/billing")
+        assert res.status_code == 200
+        res_json = res.json()
+        # Should update product usage to reflect today's usage
+        assert res_json["products"][0]["current_usage"] == 0
+        assert res_json["products"][0]["current_amount_usd"] == 0
+        assert res_json["products"][0]["tiers"][0]["current_usage"] == 0
+        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["tiers"][1]["current_usage"] == 0
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
+
+        assert res_json["products"][0]["addons"][0]["current_usage"] == 0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 0
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 0
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
         def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
