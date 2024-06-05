@@ -367,9 +367,11 @@ class SessionIdEventsQuery(EventQuery):
             prepend=prepend,
             allow_denormalized_props=True,
             has_person_id_joined=True,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=(
+                PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+                if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+            ),
             hogql_context=self._filter.hogql_context,
         )
         filter_sql += f" {filters}"
@@ -508,9 +510,11 @@ class SessionIdEventsQuery(EventQuery):
             # it is likely this can be returned to the default of True in future
             # but would need careful monitoring
             allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=(
+                PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+                if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+            ),
         )
 
         (
@@ -717,7 +721,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
         order_by_clause = _get_order_by_clause(self._filter.target_entity_order)
 
-        duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
+        duration_clause, duration_params = self.duration_clause()
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
         events_select, events_join_params = SessionIdEventsQuery(
@@ -757,20 +761,20 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def duration_clause(
         self,
-        duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"],
     ) -> tuple[str, dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
-        if self._filter.recording_duration_filter:
-            if self._filter.recording_duration_filter.operator == "gt":
+        if self._filter.recording_duration_filters:
+            filter = self._filter.recording_duration_filters[0]
+            if filter.operator == "gt":
                 operator = ">"
             else:
                 operator = "<"
             duration_clause = "\nAND {duration_type} {operator} %(recording_duration)s".format(
-                duration_type=duration_filter_type, operator=operator
+                duration_type=filter.duration_type, operator=operator
             )
             duration_params = {
-                "recording_duration": self._filter.recording_duration_filter.value,
+                "recording_duration": filter.value,
             }
         return duration_clause, duration_params
 

@@ -246,8 +246,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             more_recordings_available,
         ) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"active_seconds"}]',
             }
         )
 
@@ -260,8 +259,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             more_recordings_available,
         ) = self._filter_recordings_by(
             {
-                "duration_type_filter": "inactive_seconds",
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"inactive_seconds"}]',
             }
         )
 
@@ -793,7 +791,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             more_recordings_available,
         ) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
                 "events": [
                     {
                         "id": "$pageview",
@@ -815,7 +812,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             more_recordings_available,
         ) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
                 "events": [
                     {
                         "id": "$pageview",
@@ -824,7 +820,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                         "name": "$pageview",
                     }
                 ],
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"active_seconds"}]',
             }
         )
 

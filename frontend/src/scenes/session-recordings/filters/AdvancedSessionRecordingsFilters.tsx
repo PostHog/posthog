@@ -54,7 +54,6 @@ function DateAndDurationFilters({
                         })
                     }}
                     recordingDurationFilter={filters.recording_duration_filters?.[0] || defaultRecordingDurationFilter}
-                    durationTypeFilter={filters.duration_type_filter || 'duration'}
                     pageKey="session-recordings"
                 />
             </div>

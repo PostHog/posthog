@@ -9,8 +9,7 @@ import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types
 
 interface Props {
     recordingDurationFilter: RecordingDurationFilter
-    durationTypeFilter: DurationType
-    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
+    onChange: (recordingDurationFilter: RecordingDurationFilter) => void
     pageKey: string
 }
 
@@ -20,22 +19,19 @@ const durationTypeMapping: Record<DurationType, string> = {
     inactive_seconds: 'inactive ',
 }
 
-export const humanFriendlyDurationFilter = (
-    recordingDurationFilter: RecordingDurationFilter,
-    durationTypeFilter: DurationType
-): string => {
+export const humanFriendlyDurationFilter = (recordingDurationFilter: RecordingDurationFilter): string => {
     const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'
     const duration = convertSecondsToDuration(recordingDurationFilter.value || 0)
-    const durationDescription = durationTypeMapping[durationTypeFilter]
+    const durationDescription = durationTypeMapping[recordingDurationFilter.duration_type]
     const unit = duration.timeValue === 1 ? duration.unit.slice(0, -1) : duration.unit
     return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
 }
 
-export function DurationFilter({ recordingDurationFilter, durationTypeFilter, onChange }: Props): JSX.Element {
+export function DurationFilter({ recordingDurationFilter, onChange }: Props): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
-        () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
-        [recordingDurationFilter, durationTypeFilter]
+        () => humanFriendlyDurationFilter(recordingDurationFilter),
+        [recordingDurationFilter]
     )
 
     return (
@@ -49,32 +45,24 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
                     <OperatorSelect
                         operator={recordingDurationFilter.operator}
                         operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
-                        onChange={(newOperator) =>
-                            onChange({ ...recordingDurationFilter, operator: newOperator }, durationTypeFilter)
-                        }
+                        onChange={(newOperator) => onChange({ ...recordingDurationFilter, operator: newOperator })}
                         className="flex-1"
                     />
                     <DurationPicker
-                        onChange={(newValue) =>
-                            onChange({ ...recordingDurationFilter, value: newValue }, durationTypeFilter)
-                        }
+                        onChange={(newValue) => onChange({ ...recordingDurationFilter, value: newValue })}
                         value={recordingDurationFilter.value || undefined}
                     />
 
                     <DurationTypeSelect
-                        onChange={(v) => onChange(recordingDurationFilter, v)}
-                        value={durationTypeFilter}
+                        onChange={(newDurationType) =>
+                            onChange({ ...recordingDurationFilter, duration_type: newDurationType })
+                        }
+                        value={recordingDurationFilter.duration_type}
                     />
                 </div>
             }
         >
-            <LemonButton
-                type="secondary"
-                size="small"
-                onClick={() => {
-                    setIsOpen(true)
-                }}
-            >
+            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)}>
                 {durationString}
             </LemonButton>
         </Popover>

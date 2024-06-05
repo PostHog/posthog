@@ -224,17 +224,13 @@ class SessionRecordingListFromFilters:
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
 
-        if self._filter.recording_duration_filter:
-            op = (
-                ast.CompareOperationOp.GtEq
-                if self._filter.recording_duration_filter.operator == "gt"
-                else ast.CompareOperationOp.LtEq
-            )
+        for filter in self._filter.recording_duration_filters:
+            op = ast.CompareOperationOp.GtEq if filter.operator == "gt" else ast.CompareOperationOp.LtEq
             exprs.append(
                 ast.CompareOperation(
                     op=op,
-                    left=ast.Field(chain=[self._filter.duration_type_filter]),
-                    right=ast.Constant(value=self._filter.recording_duration_filter.value),
+                    left=ast.Field(chain=[filter.duration_type]),
+                    right=ast.Constant(value=filter.value),
                 ),
             )
 
