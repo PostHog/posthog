@@ -112,11 +112,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # This is deprecated and should be removed in the future in favor of 'activate'
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self.activate(request, *args, **kwargs)
+        return self.handle_activate(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self.activate(request, *args, **kwargs)
+        return self.handle_activate(request, *args, **kwargs)
 
     # A viewset action cannot call another action directly so this is in place until
     # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
