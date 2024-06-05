@@ -6975,11 +6975,11 @@
                     "type": "boolean"
                 },
                 {
-                    "const": "if_stale",
+                    "const": "async",
                     "type": "string"
                 },
                 {
-                    "const": "if_stale_blocking",
+                    "const": "blocking",
                     "type": "string"
                 },
                 {

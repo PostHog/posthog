@@ -2136,7 +2136,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'if_stale' : refresh
+        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest()
             .query()
             .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })

@@ -86,8 +86,8 @@ class ExecutionMode(IntEnum):  # Keep integer values the same for Celery's sake
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
     refresh_map = {
-        "if_stale_blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-        "if_stale": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
         True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     }
