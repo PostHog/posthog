@@ -61,7 +61,10 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
+const reverseInsightMap: Record<
+    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
+    InsightNodeKind
+> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,

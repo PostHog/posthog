@@ -85,7 +85,7 @@ class Command(BaseCommand):
             workflows = WORKFLOWS_DICT[task_queue]
             activities = ACTIVITIES_DICT[task_queue]
         except KeyError:
-            raise ValueError(f"Task queue {task_queue} not found in WORKFLOWS_DICT or ACTIVITIES_DICT")
+            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"

@@ -150,5 +150,6 @@ export const networkViewLogic = kea<networkViewLogicType>([
                 }
             },
         ],
+        hasPageViews: [(s) => [s.pageCount], (pageCount) => pageCount > 0],
     }),
 ])

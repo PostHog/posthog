@@ -1,8 +1,9 @@
 from typing import Union, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -28,7 +29,7 @@ def parse(
     return parsed
 
 
-class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
+class TestSessionWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     @property
     def inliner(self):
         team = self.team
@@ -306,7 +307,7 @@ FROM
         sessions.session_id) AS sessions
 WHERE
     ifNull(greater(toTimeZone(sessions.`$start_timestamp`, %(hogql_val_2)s), %(hogql_val_3)s), 0)
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_join_with_events(self):
@@ -340,7 +341,7 @@ WHERE
     and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))
 GROUP BY
     sessions.session_id
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_union(self):
@@ -355,7 +356,7 @@ WHERE events.timestamp < today()
         )
         expected = f"""SELECT
     0 AS duration
-LIMIT 10000
+LIMIT {MAX_SELECT_RETURNED_ROWS}
 UNION ALL
 SELECT
     events__session.`$session_duration` AS duration
@@ -373,7 +374,7 @@ FROM
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
 WHERE
     and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_2)s), today()))
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_session_breakdown(self):
@@ -455,5 +456,5 @@ WHERE
 GROUP BY
     day_start,
     breakdown_value
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual

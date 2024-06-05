@@ -43,7 +43,7 @@ export default function SurveyEdit(): JSX.Element {
         urlMatchTypeValidationError,
         writingHTMLDescription,
         hasTargetingSet,
-        selectedQuestion,
+        selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
@@ -52,7 +52,7 @@ export default function SurveyEdit(): JSX.Element {
         setSurveyValue,
         setWritingHTMLDescription,
         resetTargeting,
-        setSelectedQuestion,
+        setSelectedPageIndex,
         setSelectedSection,
         setFlagPropertyErrors,
     } = useActions(surveyLogic)
@@ -70,7 +70,7 @@ export default function SurveyEdit(): JSX.Element {
             return clone.map((child) => ({ ...child }))
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
-        setSelectedQuestion(newIndex)
+        setSelectedPageIndex(newIndex)
     }
 
     return (
@@ -113,11 +113,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearancePreview
-                                                            survey={survey}
-                                                            activePreview="survey"
-                                                            questionIndex={0}
-                                                        />
+                                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
@@ -175,9 +171,9 @@ export default function SurveyEdit(): JSX.Element {
                                             strategy={verticalListSortingStrategy}
                                         >
                                             <LemonCollapse
-                                                activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                                activeKey={selectedPageIndex === null ? undefined : selectedPageIndex}
                                                 onChange={(index) => {
-                                                    setSelectedQuestion(index)
+                                                    setSelectedPageIndex(index)
                                                 }}
                                                 panels={[
                                                     ...survey.questions.map(
@@ -193,7 +189,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 <SurveyEditQuestionHeader
                                                                     index={index}
                                                                     survey={survey}
-                                                                    setSelectedQuestion={setSelectedQuestion}
+                                                                    setSelectedPageIndex={setSelectedPageIndex}
                                                                     setSurveyValue={setSurveyValue}
                                                                 />
                                                             ),
@@ -218,7 +214,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
-                                                                                  setSelectedQuestion(
+                                                                                  setSelectedPageIndex(
                                                                                       survey.questions.length - 1
                                                                                   )
                                                                                   setSurveyValue('appearance', {
@@ -316,7 +312,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.questions,
                                                         { ...defaultSurveyFieldValues.open.questions[0] },
                                                     ])
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add question
@@ -337,7 +333,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -486,7 +482,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                 placeholder="ex: .className or #id"
                                                             />
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="Survey wait period">
+                                                        <LemonField.Pure
+                                                            label="Survey wait period"
+                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                        >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
@@ -507,11 +506,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Do not display this survey to users who have already
-                                                                seen a survey in the last
+                                                                Don't show to users who saw a survey within the last
                                                                 <LemonInput
                                                                     type="number"
-                                                                    size="small"
+                                                                    size="xsmall"
                                                                     min={0}
                                                                     value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
@@ -527,9 +525,12 @@ export default function SurveyEdit(): JSX.Element {
                                                                             })
                                                                         }
                                                                     }}
-                                                                    className="w-16"
+                                                                    className="w-12"
                                                                 />{' '}
-                                                                days.
+                                                                {value?.seenSurveyWaitPeriodInDays === 1
+                                                                    ? 'day'
+                                                                    : 'days'}
+                                                                .
                                                             </div>
                                                         </LemonField.Pure>
                                                     </>
@@ -646,9 +647,9 @@ export default function SurveyEdit(): JSX.Element {
             <LemonDivider vertical />
             <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
-                    activePreview={selectedQuestion || 0}
+                    previewPageIndex={selectedPageIndex || 0}
                     survey={survey}
-                    setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
                     isEditingSurvey={isEditingSurvey}
                 />
             </div>

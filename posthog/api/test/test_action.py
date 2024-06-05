@@ -221,9 +221,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(6, 7)):
-            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
-            # PostHog action, PostHog action step
+        with self.assertNumQueries(FuzzyInt(6, 8)):
+            # Django session,  user,  team,  org membership, instance setting,  org,
+            # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_update_action_remove_all_steps(self, *args):

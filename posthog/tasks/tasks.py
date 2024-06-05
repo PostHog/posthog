@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from redis import Redis
 from structlog import get_logger
 
 from posthog.cloud_utils import is_cloud
@@ -509,6 +510,87 @@ def calculate_cohort() -> None:
     calculate_cohorts()
 
 
+class Polling:
+    _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
+    NANOSECONDS_IN_SECOND = int(1e9)
+    TIME_BETWEEN_RUNS_SECONDS = 2
+    SOFT_TIME_LIMIT_SECONDS = 10
+    HARD_TIME_LIMIT_SECONDS = 12
+    ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
+
+    TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
+
+    @staticmethod
+    def _encode_redis_key(time_ns: int) -> bytes:
+        return time_ns.to_bytes(8, "big")
+
+    @staticmethod
+    def _decode_redis_key(time_ns: bytes | None) -> int:
+        return 0 if time_ns is None else int.from_bytes(time_ns, "big")
+
+    @staticmethod
+    def set_last_run_time(client: Redis, time_ns: int) -> None:
+        client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(time_ns))
+
+    @staticmethod
+    def get_last_run_time(client: Redis) -> int:
+        return Polling._decode_redis_key(client.get(Polling._SINGLETON_REDIS_KEY))
+
+
+@shared_task(
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=Polling.SOFT_TIME_LIMIT_SECONDS,
+    time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
+)
+def poll_query_performance(last_known_run_time_ns: int) -> None:
+    start_time_ns = time.time_ns()
+
+    try:
+        redis_client = get_client()
+        if Polling.get_last_run_time(redis_client) != last_known_run_time_ns:
+            logger.error("Poll query performance task terminating: another poller is running")
+            return
+        Polling.set_last_run_time(redis_client, start_time_ns)
+        from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
+
+        poll_query_performance_nontask()
+    except Exception as e:
+        logger.error("Poll query performance failed", error=e)
+
+    elapsed_ns = time.time_ns() - start_time_ns
+    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+        # right again right away if more than time_between_runs has elapsed
+        poll_query_performance.delay(start_time_ns)
+    else:
+        # delay until time_between_runs has elapsed
+        poll_query_performance.apply_async(
+            args=[start_time_ns],
+            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+        )
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def start_poll_query_performance() -> None:
+    redis_client = get_client()
+    last_run_start_time_ns = Polling.get_last_run_time(redis_client)
+    now_ns: int = time.time_ns()
+    try:
+        # The key should never be in the future
+        # If the key is in the future or more than 15 seconds in the past, start a worker
+        if last_run_start_time_ns > now_ns + Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+            logger.error("Restarting poll query performance because key is in future")
+            poll_query_performance.delay(last_run_start_time_ns)
+        elif now_ns - last_run_start_time_ns > Polling.ASSUME_TASK_DEAD_NANOSECONDS:
+            logger.error("Restarting poll query performance because of a long delay")
+            poll_query_performance.delay(last_run_start_time_ns)
+
+    except Exception as e:
+        logger.error("Restarting poll query performance because of an error", error=e)
+        poll_query_performance.delay(last_run_start_time_ns)
+
+
 @shared_task(ignore_result=True)
 def process_scheduled_changes() -> None:
     from posthog.tasks.process_scheduled_changes import process_scheduled_changes
@@ -598,12 +680,12 @@ def demo_reset_master_team() -> None:
 
 
 @shared_task(ignore_result=True)
-def sync_all_organization_available_features() -> None:
-    from posthog.tasks.sync_all_organization_available_features import (
-        sync_all_organization_available_features,
+def sync_all_organization_available_product_features() -> None:
+    from posthog.tasks.sync_all_organization_available_product_features import (
+        sync_all_organization_available_product_features,
     )
 
-    sync_all_organization_available_features()
+    sync_all_organization_available_product_features()
 
 
 @shared_task(ignore_result=False, track_started=True, max_retries=0)

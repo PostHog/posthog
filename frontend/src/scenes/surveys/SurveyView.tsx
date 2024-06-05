@@ -19,7 +19,7 @@ import { NodeKind } from '~/queries/schema'
 import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME } from './constants'
-import { SurveyReleaseSummary } from './Survey'
+import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { surveyLogic } from './surveyLogic'
@@ -33,7 +33,7 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
+    const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
         editingSurvey,
         updateSurvey,
@@ -41,7 +41,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         stopSurvey,
         archiveSurvey,
         resumeSurvey,
-        setSelectedQuestion,
+        setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -227,7 +227,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </>
                                             )}
                                             <LemonDivider />
-                                            <SurveyReleaseSummary
+                                            <SurveyDisplaySummary
                                                 id={id}
                                                 survey={survey}
                                                 targetingFlagFilters={targetingFlagFilters}
@@ -252,9 +252,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6 max-w-72">
                                                     <SurveyFormAppearance
-                                                        activePreview={selectedQuestion || 0}
+                                                        previewPageIndex={selectedPageIndex || 0}
                                                         survey={survey}
-                                                        setActivePreview={(preview) => setSelectedQuestion(preview)}
+                                                        handleSetSelectedPageIndex={(preview) =>
+                                                            setSelectedPageIndex(preview)
+                                                        }
                                                     />
                                                 </div>
                                             ) : (

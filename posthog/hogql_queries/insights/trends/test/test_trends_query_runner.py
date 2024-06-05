@@ -9,7 +9,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
@@ -24,7 +23,7 @@ from posthog.schema import (
     ChartDisplayType,
     CompareItem,
     CountPerActorMathType,
-    DateRange,
+    InsightDateRange,
     DayItem,
     EventsNode,
     HogQLQueryModifiers,
@@ -36,6 +35,7 @@ from posthog.schema import (
 )
 
 from posthog.schema import Series as InsightActorsQuerySeries
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -184,7 +184,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
@@ -647,6 +647,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_formula_with_breakdown_and_no_data(self):
         self._create_test_events()
 
+        # Neither side returns a response
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
@@ -655,7 +656,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+2*B"),
             BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
         )
-        self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0]["data"])
+        self.assertEqual(0, len(response.results))
+
+        # One returns a response, the other side doesn't
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleavexxx")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
+        )
+        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
@@ -673,7 +685,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 4)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
-            self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
+            self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 
     def test_trends_compare(self):
         self._create_test_events()
@@ -838,20 +850,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 5
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]", '["",""]']
+        assert len(response.results) == 4
+        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]"]
 
         assert response.results[0]["label"] == "[10.0,17.5]"
         assert response.results[1]["label"] == "[17.5,25.0]"
         assert response.results[2]["label"] == "[25.0,32.5]"
         assert response.results[3]["label"] == "[32.5,40.01]"
-        assert response.results[4]["label"] == '["",""]'
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
         assert response.results[1]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
-        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
@@ -1962,7 +1972,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
 
     def test_actors_query_explicit_dates(self):
         self._create_test_events()

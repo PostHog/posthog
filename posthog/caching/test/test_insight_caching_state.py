@@ -153,7 +153,7 @@ def create_tile(
             id="deleted insight",
         ),
         # Dashboard tile test cases
-        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="shared tile (base)"),
+        pytest.param(create_tile, {}, TargetCacheAge.HIGH_PRIORITY, id="shared tile (base)"),
         pytest.param(
             create_tile,
             {"is_dashboard_shared": False},
@@ -228,8 +228,14 @@ def create_tile(
         ),
         pytest.param(
             create_tile,
-            {"viewed_at_delta": timedelta(days=20)},
-            TargetCacheAge.LOW_PRIORITY,
+            {"viewed_at_delta": timedelta(days=20), "is_dashboard_shared": True},
+            TargetCacheAge.HIGH_PRIORITY,
+            id="shared tile viewed ages ago",
+        ),
+        pytest.param(
+            create_tile,
+            {"viewed_at_delta": timedelta(days=20), "is_dashboard_shared": False},
+            TargetCacheAge.NO_CACHING,
             id="tile viewed ages ago",
         ),
         # cacheable types of query
@@ -282,9 +288,23 @@ def create_tile(
         ),
         pytest.param(
             create_tile,
-            {"query": {"kind": "EventsQuery", "select": []}, "viewed_at_delta": timedelta(days=20)},
-            TargetCacheAge.LOW_PRIORITY,
+            {
+                "query": {"kind": "EventsQuery", "select": []},
+                "viewed_at_delta": timedelta(days=20),
+                "is_dashboard_shared": False,
+            },
+            TargetCacheAge.NO_CACHING,
             id="tile with query viewed ages ago",
+        ),
+        pytest.param(
+            create_tile,
+            {
+                "query": {"kind": "EventsQuery", "select": []},
+                "viewed_at_delta": timedelta(days=20),
+                "is_dashboard_shared": True,
+            },
+            TargetCacheAge.HIGH_PRIORITY,
+            id="shared tile with query viewed ages ago",
         ),
     ],
 )
@@ -403,7 +423,7 @@ def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
     assert caching_state.insight == tile.insight
     assert caching_state.dashboard_tile == tile
     assert isinstance(caching_state.cache_key, str)
-    assert caching_state.target_cache_age_seconds == TargetCacheAge.LOW_PRIORITY.value.total_seconds()
+    assert caching_state.target_cache_age_seconds == TargetCacheAge.HIGH_PRIORITY.value.total_seconds()
     assert caching_state.last_refresh is None
     assert caching_state.last_refresh_queued_at is None
     assert caching_state.refresh_attempt == 0

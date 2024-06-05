@@ -8,6 +8,7 @@ from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
+    alert,
     activity_log,
     annotation,
     app_metrics,
@@ -44,6 +45,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    debug_ch_queries,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -314,6 +316,8 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 
+router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
@@ -401,6 +405,13 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"alerts",
+    alert.AlertViewSet,
+    "project_alerts",
     ["team_id"],
 )
 
