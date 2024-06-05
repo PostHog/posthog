@@ -261,7 +261,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     type="event",
                     key="key",
                     value="test_val3",
-                    operator=PropertyOperator.exact,
+                    operator=PropertyOperator.EXACT,
                 )
             ]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
@@ -272,7 +272,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     type="event",
                     key="path",
                     value="/",
-                    operator=PropertyOperator.icontains,
+                    operator=PropertyOperator.ICONTAINS,
                 )
             ]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
@@ -331,7 +331,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         type="person",
                         key="email",
                         value="tom@posthog.com",
-                        operator=PropertyOperator.exact,
+                        operator=PropertyOperator.EXACT,
                     )
                 ],
             )
