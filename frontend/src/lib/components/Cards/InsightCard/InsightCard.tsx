@@ -324,10 +324,10 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {insight.query ? (
+                {insight.query || useQueryDashboardCards ? (
                     <div className="InsightCard__viz">
                         <Query
-                            query={insight.query}
+                            query={insight.query || queryFromFilters(insight.filters)}
                             cachedResults={insight}
                             context={{
                                 insightProps: insightLogicProps,
@@ -337,43 +337,19 @@ function InsightCardInternal(
                             embedded
                         />
                     </div>
-                ) : insight.filters?.insight ? (
-                    <>
-                        {useQueryDashboardCards &&
-                        ['TRENDS', 'LIFECYCLE', 'STICKINESS', 'RETENTION'].includes(insight.filters.insight) ? (
-                            <Query
-                                query={queryFromFilters(insight.filters)}
-                                cachedResults={insight}
-                                context={{
-                                    insightProps: insightLogicProps,
-                                }}
-                                stale={stale}
-                                readOnly
-                                embedded
-                            />
-                        ) : (
-                            <FilterBasedCardContent
-                                insight={insight}
-                                insightProps={insightLogicProps}
-                                loading={loading}
-                                stale={stale}
-                                setAreDetailsShown={setAreDetailsShown}
-                                apiErrored={apiErrored}
-                                timedOut={timedOut}
-                                empty={empty}
-                                tooFewFunnelSteps={tooFewFunnelSteps}
-                                validationError={validationError}
-                            />
-                        )}
-                    </>
                 ) : (
-                    <div className="flex justify-between items-center h-full">
-                        <InsightErrorState
-                            query={insight.query}
-                            excludeDetail
-                            title="Missing 'filters.insight' property, can't display insight"
-                        />
-                    </div>
+                    <FilterBasedCardContent
+                        insight={insight}
+                        insightProps={insightLogicProps}
+                        loading={loading}
+                        stale={stale}
+                        setAreDetailsShown={setAreDetailsShown}
+                        apiErrored={apiErrored}
+                        timedOut={timedOut}
+                        empty={empty}
+                        tooFewFunnelSteps={tooFewFunnelSteps}
+                        validationError={validationError}
+                    />
                 )}
             </BindLogic>
             {showResizeHandles && (

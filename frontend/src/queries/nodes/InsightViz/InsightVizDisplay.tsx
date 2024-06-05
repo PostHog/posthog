@@ -122,7 +122,7 @@ export function InsightVizDisplay({
             case InsightType.LIFECYCLE:
                 return <TrendInsight view={InsightType.LIFECYCLE} context={context} embedded={embedded} />
             case InsightType.FUNNELS:
-                return <Funnel />
+                return <Funnel inCardView={embedded} />
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
@@ -216,7 +216,7 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {(isFunnels || isPaths || showComputationMetadata) && (
+                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
                                 <div className="flex items-center gap-2">
                                     {showComputationMetadata && (
