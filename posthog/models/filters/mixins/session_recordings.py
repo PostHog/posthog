@@ -1,10 +1,10 @@
 import json
-from typing import Optional, Literal
+from typing import Optional
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyGroup
 
 
 class PersonUUIDMixin(BaseParamMixin):
@@ -19,28 +19,19 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
-    def console_logs(self) -> list[Literal["error", "warn", "info"]]:
+    def console_logs(self) -> Optional[PropertyGroup]:
         user_value = self._data.get("console_logs", None) or []
         if isinstance(user_value, str):
-            user_value = json.loads(user_value)
-        valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
-        return valid_values
-
-    # @cached_property
-    # def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
-    #     user_value = self._data.get("console_logs", None) or []
-    #     if isinstance(user_value, str):
-    #         user_value = json.loads(user_value)
-    #     valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
-    #     return valid_values
+            filter_array = json.loads(user_value)
+            return PropertyGroup(**filter_array)
+        return None
 
     @cached_property
     def duration(self) -> Optional[list[Property]]:
         duration_filters_data_str = self._data.get("duration", None)
         if duration_filters_data_str:
-            filter_data = json.loads(duration_filters_data_str)
-            # TODO: Possibly not a Property
-            return Property(**filter_data)
+            filter_array = json.loads(duration_filters_data_str)
+            return (Property(**filter) for filter in filter_array)
         return None
 
     @cached_property
