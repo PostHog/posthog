@@ -46,7 +46,7 @@ from posthog.models.plugin import (
 )
 from posthog.models.utils import UUIDT, generate_random_token
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
-from posthog.plugins.access import can_globally_manage_plugins
+from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.redis import get_client
 from posthog.utils import format_query_params_absolute_url
@@ -229,19 +229,21 @@ class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
     def has_permission(self, request, view) -> bool:
+        """
+        Generally this permission is used to check if the organization has the required access level to manage plugins.
+        """
+
         min_level = (
             Organization.PluginsAccessLevel.CONFIG
             if request.method in SAFE_METHODS
             else Organization.PluginsAccessLevel.INSTALL
         )
+
         return view.organization.plugins_access_level >= min_level
-
-
-class PluginOwnershipPermission(BasePermission):
-    message = "This plugin installation is managed by another organization."
 
     def has_object_permission(self, request, view, object) -> bool:
         if request.method in SAFE_METHODS:
+            # We allow viewing the plugin if the organization has the required access level
             return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
         return view.organization == object.organization
 
@@ -314,30 +316,41 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
 
-    def dangerously_get_permissions(self) -> list:
-        """
-        Special permissions handling because plugins need to be able to be configured for organizations that don't own them.
-        """
-        permissions: list = [
-            IsAuthenticated,
-            APIScopePermission,
-        ]
+    permission_classes = [PluginsAccessLevelPermission]
 
-        permissions.append(PluginsAccessLevelPermission)
-        permissions.append(PluginOwnershipPermission)
+    # def dangerously_get_permissions(self) -> list:
+    #     """
+    #     Special permissions handling because plugins need to be able to be configured for organizations that don't own them.
+    #     """
+    #     permissions: list = [IsAuthenticated, APIScopePermission, PluginsAccessLevelPermission]
 
-        return [permission() for permission in permissions]
+    #     return [permission() for permission in permissions]
 
     def safely_get_queryset(self, queryset):
+        if self.request.method in SAFE_METHODS:
+            if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
+                return queryset.none()
+
+            # For listing, we allow access to all plugins that are global or belong to the organization or in use
+            queryset = queryset.filter(
+                Q(organization_id=self.organization_id)
+                | Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                        team__organization_id=self.organization_id, deleted=False
+                    ).values_list("plugin_id", flat=True)
+                )
+            )
+        else:
+            # For other actions, we only allow access to plugins that belong to the organization
+            queryset = queryset.filter(organization_id=self.organization_id)
+
+            if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.INSTALL):
+                return queryset.none()
+
         queryset = queryset.select_related("organization")
 
-        if self.action == "retrieve" or self.action == "list":
-            if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
-                return queryset
-        else:
-            if can_install_plugins(self.organization):
-                return queryset
-        return queryset.none()
+        return queryset
 
     def get_plugin_with_permissions(self, reason="installation"):
         plugin = self.get_object()
@@ -349,18 +362,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return plugin
 
     def _filter_queryset_by_parents_lookups(self, queryset):
-        try:
-            return queryset.filter(
-                Q(**self.parents_query_dict)
-                | Q(is_global=True)
-                | Q(
-                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                        team__organization_id=self.organization_id, deleted=False
-                    ).values_list("plugin_id", flat=True)
-                )
-            )
-        except ValueError:
-            raise NotFound()
+        # Special case - we don't want the typical team/org filtering because we want to allow global plugins to be
+        # installed by any organization.
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
