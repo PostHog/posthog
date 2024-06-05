@@ -142,7 +142,7 @@ if TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB: str = f"posthog" + SUFFIX
+CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
