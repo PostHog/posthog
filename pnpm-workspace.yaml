@@ -1,0 +1,4 @@
+packages:
+    - 'hogvm/typescript'
+    - 'frontend'
+    - 'plugin-server'
