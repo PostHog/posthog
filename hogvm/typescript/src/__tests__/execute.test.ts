@@ -1,4 +1,5 @@
-import { exec, execAsync, execSync, Operation as op } from '../bytecode'
+import { exec, execAsync, execSync } from '../execute'
+import { Operation as op } from '../operation'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
