@@ -46,6 +46,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             ref={ref}
         >
             {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
+            {!disableIcon && value.includes('langfuse') && <span className="PropertyKeyInfo__langfuse_logo" />}
             <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>

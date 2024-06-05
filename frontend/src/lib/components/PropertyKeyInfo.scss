@@ -29,6 +29,15 @@
     background-size: cover;
 }
 
+.PropertyKeyInfo__langfuse_logo {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    background-image: url('../../../public/langfuse-icon.svg');
+    background-size: cover;
+}
+
 .PropertyKeyInfo__overlay {
     padding: 0.25rem;
 
