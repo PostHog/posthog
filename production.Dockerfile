@@ -43,13 +43,16 @@ RUN pnpm build
 # ---------------------------------------------------------
 #
 FROM node:18.19.1-bullseye-slim AS plugin-server-build
-WORKDIR /code/plugin-server
+WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
+COPY package.json pnpm-lock.yaml ./
+COPY patches/ patches/
 COPY hogvm hogvm/
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
+COPY ./plugin-server/patches/ ./plugin-server/patches/
+RUN cd plugin-server
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
