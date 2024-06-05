@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 from collections.abc import Callable
 
@@ -600,5 +601,30 @@ class TestBytecodeExecute:
                 };
                 let config := {};
                 return event;
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
+
+    def test_bytecode_parse_stringify_json(self):
+        assert self._run_program("return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' });") == json.dumps(
+            {"$browser": "Chrome", "$os": "Windows"}
+        )
+
+        assert self._run_program(
+            "return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' }, true);"  # pretty
+        ) == json.dumps({"$browser": "Chrome", "$os": "Windows"}, indent=4)
+
+        assert self._run_program("return parseJSON('[1,2,3]');") == [1, 2, 3]
+
+        assert self._run_program(
+            """
+                let event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                let json := stringifyJSON(event);
+                return parseJSON(json);
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}

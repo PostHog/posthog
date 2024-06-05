@@ -43,6 +43,15 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         // eslint-disable-next-line no-console
         console.log(...args)
     },
+    parseJSON: (args) => {
+        return JSON.parse(args[0])
+    },
+    stringifyJSON: (args) => {
+        if (args[1]) {
+            return JSON.stringify(args[0], null, 4)
+        }
+        return JSON.stringify(args[0])
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {

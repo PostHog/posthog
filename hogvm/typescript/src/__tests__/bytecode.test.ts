@@ -1514,4 +1514,9 @@ describe('HogQL Bytecode', () => {
             ]).result
         ).toEqual(map({ event: '$pageview', properties: map({ $browser: 'Chrome', $os: 'Windows' }) }))
     })
+
+    test('test bytecode json', () => {
+        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL, 'parseJSON', 1])).toEqual([1, 2, 3])
+        expect(execSync(['_h', op.STRING, 'my json string', op.CALL, 'stringifyJSON', 1])).toEqual('"my json string"')
+    })
 })
