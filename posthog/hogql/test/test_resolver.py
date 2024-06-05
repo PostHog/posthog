@@ -7,6 +7,7 @@ from uuid import UUID
 from freezegun import freeze_time
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
@@ -252,8 +253,7 @@ class TestResolver(BaseTest):
 
     def test_ctes_with_union_all(self):
         self.assertEqual(
-            self._print_hogql(
-                """
+            self._print_hogql("""
                     WITH cte1 AS (SELECT 1 AS a)
                     SELECT 1 AS a
                     UNION ALL
@@ -261,17 +261,14 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                        """
-            ),
-            self._print_hogql(
-                """
+                        """),
+            self._print_hogql("""
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 2 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """
-            ),
+                        """),
         )
 
     def test_join_using(self):
@@ -420,7 +417,7 @@ class TestResolver(BaseTest):
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
             "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            "LIMIT 10000"
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
         assert hogql == expected

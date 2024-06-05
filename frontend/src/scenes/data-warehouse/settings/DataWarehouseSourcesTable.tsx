@@ -6,6 +6,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
+import posthogLogo from 'public/posthog-icon.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.svg'
 import { urls } from 'scenes/urls'
@@ -24,7 +25,6 @@ import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 const StatusTagSetting = {
     Running: 'primary',
     Completed: 'success',
-    Active: 'success',
     Error: 'danger',
     Failed: 'danger',
 }
@@ -201,14 +201,34 @@ export function RenderDataWarehouseSourceIcon({
     type: ExternalDataSourceType
     size?: 'small' | 'medium'
 }): JSX.Element {
+    const sizePx = size === 'small' ? 30 : 60
+
+    if (type == 'Manual') {
+        return (
+            <div className="flex items-center gap-4">
+                <Tooltip
+                    title={
+                        <>
+                            {type}
+                            <br />
+                            Click to view docs
+                        </>
+                    }
+                >
+                    <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">
+                        <img src={posthogLogo} alt={type} height={sizePx} width={sizePx} />
+                    </Link>
+                </Tooltip>
+            </div>
+        )
+    }
+
     const icon = {
         Stripe: stripeLogo,
         Hubspot: hubspotLogo,
         Zendesk: zendeskLogo,
         Postgres: postgresLogo,
     }[type]
-
-    const sizePx = size === 'small' ? 30 : 60
 
     return (
         <div className="flex items-center gap-4">
