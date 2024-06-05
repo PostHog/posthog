@@ -473,7 +473,7 @@ class FunnelTimeToConvertResults(BaseModel):
         extra="forbid",
     )
     average_conversion_time: Optional[float] = None
-    bins: list[list[Any]] = Field(..., max_length=2, min_length=2)
+    bins: list[list[int]]
 
 
 class FunnelVizType(str, Enum):
