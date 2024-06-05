@@ -27,7 +27,7 @@ require('@sentry/tracing')
 const KAFKA_CONSUMER_GROUP_ID = 'cdp-function-executor'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'cdp-function-executor-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
-const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/cdp-function-executor'
+// const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/cdp-function-executor'
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const histogramKafkaBatchSize = new Histogram({
@@ -206,9 +206,6 @@ export class CdpProcessedEventsConsumer {
 
         this.kafkaProducer.producer.connect()
 
-        // Create a node-rdkafka consumer that fetches batches of messages, runs
-        // eachBatchWithContext, then commits offsets for the batch.
-        // the batch consumer reads from the session replay kafka cluster
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: createRdConnectionConfigFromEnvVars(this.config),
             groupId: this.consumerGroupId,
@@ -222,7 +219,7 @@ export class CdpProcessedEventsConsumer {
             consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            // queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
+            // queuedMinMessages: this.config.KAFKA_QUEUE_SIZE,
             consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize: this.config.INGESTION_BATCH_SIZE,
@@ -232,7 +229,6 @@ export class CdpProcessedEventsConsumer {
                 return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
             },
             callEachBatchWhenEmpty: false,
-            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
