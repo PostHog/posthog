@@ -58,6 +58,7 @@ export function DeleteOrganizationModal({
                         setIsDeletionConfirmed(value.toLowerCase() === currentOrganization.name.toLowerCase())
                     }
                 }}
+                data-attr="delete-organization-confirmation-input"
             />
         </LemonModal>
     )
