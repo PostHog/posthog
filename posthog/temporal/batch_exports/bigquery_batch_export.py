@@ -38,7 +38,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeatter
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
@@ -263,7 +263,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
         asyncio.create_task(worker_shutdown_handler())
 
-        async with Heartbeatter() as heartbeatter:
+        async with Heartbeater() as heartbeater:
             with bigquery_client(inputs) as bq_client:
                 with BatchExportTemporaryFile() as jsonl_file:
                     rows_exported = get_rows_exported_metric()
@@ -336,7 +336,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                                 await flush_to_bigquery(bigquery_table, schema)
 
                                 last_inserted_at = inserted_at.isoformat()
-                                heartbeatter.details = (str(last_inserted_at),)
+                                heartbeater.details = (str(last_inserted_at),)
 
                                 jsonl_file.reset()
 
@@ -344,7 +344,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         await flush_to_bigquery(bigquery_table, schema)
 
                         last_inserted_at = inserted_at.isoformat()
-                        heartbeatter.details = (str(last_inserted_at),)
+                        heartbeater.details = (str(last_inserted_at),)
 
                         jsonl_file.reset()
 
