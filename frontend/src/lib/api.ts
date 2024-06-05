@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -2136,7 +2136,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam = refresh && async ? 'force_async' : async ? 'async' : refresh
+        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'if_stale' : refresh
         return await new ApiRequest()
             .query()
             .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })

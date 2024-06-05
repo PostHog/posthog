@@ -968,15 +968,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 try {
                     breakpoint()
-
-                    let refreshedInsightResponse: Response | undefined
                     let refreshedInsight: InsightModel = insight
+
                     if (!insight.query_status) {
                         // If the insight already has query status, we can operate based on that
                         actions.setRefreshStatus(insight.short_id, true, true)
 
-                        refreshedInsightResponse = await api.getResponse(apiUrl, methodOptions)
+                        const refreshedInsightResponse = await api.getResponse(apiUrl, methodOptions)
                         refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
+
+                        breakpoint()
+                        dashboardsModel.actions.updateDashboardInsight(
+                            refreshedInsight,
+                            [],
+                            props.id ? [props.id] : undefined
+                        )
+
+                        void captureTimeToSeeData(values.currentTeamId, {
+                            type: 'insight_load',
+                            context: 'dashboard',
+                            primary_interaction_id: dashboardQueryId,
+                            query_id: queryId,
+                            status: 'success',
+                            time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+                            api_response_bytes: getResponseBytes(refreshedInsightResponse),
+                            insights_fetched: 1,
+                            insights_fetched_cached: 0,
+                            api_url: apiUrl,
+                        })
+                        totalResponseBytes += getResponseBytes(refreshedInsightResponse)
                     }
 
                     if (refreshedInsight.query_status) {
@@ -1005,29 +1025,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                     } else {
                         actions.setRefreshStatus(insight.short_id)
-                    }
-
-                    if (refreshedInsightResponse) {
-                        breakpoint()
-                        dashboardsModel.actions.updateDashboardInsight(
-                            refreshedInsight,
-                            [],
-                            props.id ? [props.id] : undefined
-                        )
-
-                        void captureTimeToSeeData(values.currentTeamId, {
-                            type: 'insight_load',
-                            context: 'dashboard',
-                            primary_interaction_id: dashboardQueryId,
-                            query_id: queryId,
-                            status: 'success',
-                            time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                            api_response_bytes: getResponseBytes(refreshedInsightResponse),
-                            insights_fetched: 1,
-                            insights_fetched_cached: 0,
-                            api_url: apiUrl,
-                        })
-                        totalResponseBytes += getResponseBytes(refreshedInsightResponse)
                     }
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
