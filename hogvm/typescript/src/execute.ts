@@ -52,6 +52,8 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
 }
 
 interface VMState {
+    /** Bytecode running in the VM */
+    bytecode: any[]
     /** Stack of the VM */
     stack: any[]
     /** Call stack of the VM */
@@ -95,7 +97,7 @@ export function execSync(bytecode: any[], options?: ExecOptions): any {
 export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
     let lastState: VMState | undefined = undefined
     while (true) {
-        const response = exec(bytecode, options, lastState)
+        const response = exec(lastState ?? bytecode, options)
         if (response.finished) {
             return response.result
         }
@@ -120,8 +122,17 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
     }
 }
 
-export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState): ExecResult {
-    if (bytecode.length === 0 || bytecode[0] !== '_h') {
+export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
+    let vmState: VMState | undefined = undefined
+    let bytecode: any[] | undefined = undefined
+    if (!Array.isArray(code)) {
+        vmState = code
+        bytecode = vmState.bytecode
+    } else {
+        bytecode = code
+    }
+
+    if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
 
@@ -149,10 +160,10 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
     }
 
     function next(): any {
-        if (ip >= bytecode.length - 1) {
+        if (ip >= bytecode!.length - 1) {
             throw new Error('Unexpected end of bytecode')
         }
-        return bytecode[++ip]
+        return bytecode![++ip]
     }
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout * 1000) {
@@ -383,6 +394,7 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
                             asyncFunctionName: name,
                             asyncFunctionArgs: args,
                             state: {
+                                bytecode,
                                 stack,
                                 callStack,
                                 declaredFunctions,
