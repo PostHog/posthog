@@ -21,6 +21,8 @@ jobs:
               shell: bash
               env:
                   JSON: ${{ toJSON(github) }}
+              run: |
+                  echo "Github Object Env Var"
 
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
             # cancel previous runs of snapshot update-inducing workflows
