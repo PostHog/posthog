@@ -7,7 +7,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.png'
+import zendeskLogo from 'public/zendesk-logo.svg'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
@@ -24,7 +24,6 @@ import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 const StatusTagSetting = {
     Running: 'primary',
     Completed: 'success',
-    Active: 'success',
     Error: 'danger',
     Failed: 'danger',
 }

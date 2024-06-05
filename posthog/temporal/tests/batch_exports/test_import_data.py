@@ -40,7 +40,7 @@ async def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityIn
         source=source,
         table=warehouse_table,
         should_sync=True,
-        status=ExternalDataSchema.Status.ACTIVE,
+        status=ExternalDataSchema.Status.COMPLETED,
         last_synced_at="2024-01-01",
     )
     job = await sync_to_async(ExternalDataJob.objects.create)(

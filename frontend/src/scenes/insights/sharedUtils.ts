@@ -81,3 +81,7 @@ export function isFilterWithDisplay(
 export function isAreaChartDisplay(filters?: Partial<FilterType>): boolean {
     return isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsAreaGraph
 }
+
+export function isBoldNumberDisplay(filters?: Partial<FilterType>): boolean {
+    return isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber
+}

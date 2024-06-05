@@ -142,7 +142,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id, run_id=run_id, status=ExternalDataJob.Status.ACTIVE, latest_error=None, team_id=inputs.team_id
+            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None, team_id=inputs.team_id
         )
 
         try:
@@ -178,7 +178,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(e.cause, exceptions.CancelledError):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
-                update_inputs.status = ExternalDataJob.Status.ERROR
+                update_inputs.status = ExternalDataJob.Status.FAILED
             logger.error(
                 f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
             )
@@ -190,7 +190,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
             # Catch all
             update_inputs.latest_error = "An unexpected error has ocurred"
-            update_inputs.status = ExternalDataJob.Status.ERROR
+            update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
             await workflow.execute_activity(
