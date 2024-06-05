@@ -19,7 +19,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
@@ -77,6 +77,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isEvent,
         isCohort,
         isDataWarehouse,
+        isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
     } = useValues(definitionPopoverLogic)
@@ -175,6 +176,18 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+        const hasSentAsLabel = useMemo(() => {
+            if (isDataWarehousePersonProperty) {
+                return _definition.id
+            }
+
+            if (_definition.name !== '') {
+                return _definition.name
+            }
+
+            return <i>(empty string)</i>
+        }, [isDataWarehousePersonProperty, _definition])
+
         return (
             <>
                 {sharedComponents}
@@ -186,10 +199,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopover.HorizontalLine />
                         <DefinitionPopover.Grid cols={2}>
                             <DefinitionPopover.Card
-                                title="Sent as"
+                                title={isDataWarehousePersonProperty ? 'Table' : 'Sent as'}
                                 value={
-                                    <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                        {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                                    <span
+                                        className="truncate text-mono text-xs"
+                                        title={
+                                            isDataWarehousePersonProperty
+                                                ? _definition.id
+                                                : _definition.name ?? undefined
+                                        }
+                                    >
+                                        {hasSentAsLabel}
                                     </span>
                                 }
                             />

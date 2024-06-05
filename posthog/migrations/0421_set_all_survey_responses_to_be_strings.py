@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0419_remove_organization_available_features"),
+        ("posthog", "0420_alert"),
     ]
 
     operations = [

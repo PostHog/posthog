@@ -68,7 +68,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
@@ -113,6 +113,8 @@ export function PropertyFilters({
                                             key={index}
                                             pageKey={pageKey}
                                             index={index}
+                                            filters={filters}
+                                            setFilter={setFilter}
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
