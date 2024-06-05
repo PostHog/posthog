@@ -40,7 +40,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
 )
 
-TEST_BUCKET = f"test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
