@@ -601,6 +601,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     <EventSelect
                                                         onChange={(includedEvents) => {
                                                             setSurveyValue('conditions', {
+                                                                ...survey.conditions,
                                                                 events: {
                                                                     values: includedEvents.map((e) => {
                                                                         return { name: e }
