@@ -1,4 +1,4 @@
-from typing import Any, NamedTuple, cast, Optional
+from typing import Any, NamedTuple, cast
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -9,7 +9,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import QueryTiming, HogQLQueryModifiers
+from posthog.schema import QueryTiming
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
@@ -80,7 +80,6 @@ class SessionRecordingListFromFilters:
         self,
         team: Team,
         filter: SessionRecordingsFilter,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers],
         **_,
     ):
         self._team = team
@@ -88,7 +87,6 @@ class SessionRecordingListFromFilters:
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
-        self._hogql_query_modifiers = hogql_query_modifiers
 
     @property
     def ttl_days(self):
@@ -110,7 +108,6 @@ class SessionRecordingListFromFilters:
             team=self._team,
             # TODO - should we have our own query type 🤷
             query_type="hogql_query",
-            modifiers=self._hogql_query_modifiers,
         )
 
         return SessionRecordingQueryResult(

@@ -80,9 +80,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
         the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
-        session_recording_list_instance = SessionRecordingListFromFilters(
-            filter=the_filter, team=self.team, hogql_query_modifiers=None
-        )
+        session_recording_list_instance = SessionRecordingListFromFilters(filter=the_filter, team=self.team)
         return session_recording_list_instance.run()
 
     @property
