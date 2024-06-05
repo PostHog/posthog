@@ -271,7 +271,7 @@ jobs:
                       }).join('\n')
 
                       let body;
-                      if (github.actor != 'posthog-bot') {
+                      if (context.actor != 'posthog-bot') {
                         body = `## 📸 UI snapshots have been updated
 
                         **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
