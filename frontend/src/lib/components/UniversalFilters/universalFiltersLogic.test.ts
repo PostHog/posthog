@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { UniversalFiltersGroup } from './UniversalFilters'
 import { universalFiltersLogic } from './universalFiltersLogic'
 
@@ -79,7 +79,7 @@ describe('universalFiltersLogic', () => {
 
     it('removeGroupValue', async () => {
         await expectLogic(logic, () => {
-            logic.actions.replaceGroupValue(0)
+            logic.actions.removeGroupValue(0)
         }).toMatchValues({
             filterGroup: { ...defaultFilter, values: [] },
         })
@@ -93,7 +93,11 @@ describe('universalFiltersLogic', () => {
             type: PropertyFilterType.Person,
         }
         await expectLogic(logic, () => {
-            logic.actions.addGroupFilter({ type: TaxonomicFilterGroupType.PersonProperties }, 'property_key', {})
+            logic.actions.addGroupFilter(
+                { type: TaxonomicFilterGroupType.PersonProperties } as TaxonomicFilterGroup,
+                'property_key',
+                {}
+            )
         }).toMatchValues({
             filterGroup: {
                 ...defaultFilter,
@@ -102,7 +106,11 @@ describe('universalFiltersLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.addGroupFilter({ type: TaxonomicFilterGroupType.Events }, 'event_key', { name: 'Event name' })
+            logic.actions.addGroupFilter(
+                { type: TaxonomicFilterGroupType.Events } as TaxonomicFilterGroup,
+                'event_key',
+                { name: 'Event name' }
+            )
         }).toMatchValues({
             filterGroup: {
                 ...defaultFilter,
