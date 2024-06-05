@@ -1,6 +1,37 @@
 import { VMState } from '@posthog/hogvm'
 
-import { PluginConfigFilters } from '../../types'
+import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../../types'
+
+export type HogBytecode = any[]
+
+// subset of EntityFilter
+export interface HogFunctionFilterBase {
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
+    type: 'events'
+    bytecode: HogBytecode
+}
+
+export interface HogFunctionFilterAction extends HogFunctionFilterBase {
+    type: 'actions'
+    // Loaded at run time from Action model
+    bytecode?: HogBytecode
+}
+
+export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
+
+export interface HogFunctionFilters {
+    events?: HogFunctionFilterEvent[]
+    actions?: HogFunctionFilterAction[]
+    filter_test_accounts?: boolean
+    // Loaded at run time from Team model
+    filter_test_accounts_bytecode?: boolean
+}
 
 export type HogFunctionInvocationContext = {
     project: {
@@ -66,13 +97,13 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
-    bytecode: any
+    bytecode: HogBytecode
     inputs: Record<
         string,
         {
             value: any
-            bytecode?: any
+            bytecode?: HogBytecode
         }
     >
-    filters?: PluginConfigFilters | null
+    filters?: HogFunctionFilters | null
 }
