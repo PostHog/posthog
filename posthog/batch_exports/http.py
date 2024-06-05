@@ -53,7 +53,7 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any) -> dt.datetime:
+def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
     """Parse any datetime input as a proper dt.datetime.
 
     Args:
@@ -75,7 +75,10 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        if team:
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
+        else:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
     else:
         parsed = parsed.astimezone(dt.timezone.utc)
 
@@ -352,8 +355,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input)
-        end_at = validate_date_input(end_at_input)
+        start_at = validate_date_input(start_at_input, request.user.current_team)
+        end_at = validate_date_input(end_at_input, request.user.current_team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
