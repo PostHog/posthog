@@ -226,7 +226,7 @@ def calculate_target_age_dashboard_tile(
         return TargetCacheAge.MID_PRIORITY
 
     if dashboard_tile.dashboard.is_sharing_enabled:
-        return TargetCacheAge.LOW_PRIORITY
+        return TargetCacheAge.HIGH_PRIORITY
 
     return TargetCacheAge.NO_CACHING
 
