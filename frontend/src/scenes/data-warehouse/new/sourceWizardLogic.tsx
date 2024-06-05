@@ -11,6 +11,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    ExternalDataSourceType,
     PipelineTab,
     SourceConfig,
     SourceFieldConfig,
@@ -22,7 +23,7 @@ import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
-export const SOURCE_DETAILS: Record<string, SourceConfig> = {
+export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
         caption: (
@@ -183,6 +184,66 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                         ],
                     },
                 ],
+            },
+        ],
+    },
+    Snowflake: {
+        name: 'Snowflake',
+        caption: (
+            <>
+                Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'account_id',
+                label: 'Account ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'database',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'snowflake_sample_data',
+            },
+            {
+                name: 'warehouse',
+                label: 'Warehouse',
+                type: 'text',
+                required: true,
+                placeholder: 'compute_warehouse',
+            },
+            {
+                name: 'user',
+                label: 'User',
+                type: 'text',
+                required: true,
+                placeholder: 'user',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'role',
+                label: 'Role (optional)',
+                type: 'text',
+                required: false,
+                placeholder: 'ACCOUNTADMIN',
+            },
+            {
+                name: 'schema',
+                label: 'Schema',
+                type: 'text',
+                required: true,
+                placeholder: 'public',
             },
         ],
     },

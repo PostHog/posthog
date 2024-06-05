@@ -165,6 +165,29 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         )
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
+    elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
+        from posthog.temporal.data_imports.pipelines.postgres import snowflake_source
+
+        account_id = model.pipeline.job_inputs.get("account_id")
+        user = model.pipeline.job_inputs.get("user")
+        password = model.pipeline.job_inputs.get("password")
+        database = model.pipeline.job_inputs.get("database")
+        warehouse = model.pipeline.job_inputs.get("warehouse")
+        sf_schema = model.pipeline.job_inputs.get("schema")
+        role = model.pipeline.job_inputs.get("role")
+
+        source = snowflake_source(
+            account_id=account_id,
+            user=user,
+            password=password,
+            database=database,
+            schema=sf_schema,
+            warehouse=warehouse,
+            role=role,
+            table_names=endpoints,
+        )
+
+        return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
 
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
