@@ -42,12 +42,10 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Show a stale overlay */
     stale?: boolean
-    /** Reduce UI elements to only show data */
-    embedded?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale, embedded } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -107,7 +105,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 context={queryContext}
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
-                embedded={embedded}
             />
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
