@@ -1,31 +1,33 @@
+import { useValues } from 'kea'
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-module-previews'
 import { useEffect, useRef } from 'react'
 
 import { Survey } from '~/types'
 
 import { NewSurvey } from './constants'
+import { surveysLogic } from './surveysLogic'
 
 export function SurveyAppearancePreview({
     survey,
-    activePreview,
-    questionIndex,
+    previewPageIndex,
 }: {
     survey: Survey | NewSurvey
-    activePreview: 'survey' | 'confirmation'
-    questionIndex: number
+    previewPageIndex: number
 }): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
+
     useEffect(() => {
         if (surveyPreviewRef.current) {
-            renderSurveysPreview(survey, surveyPreviewRef.current, activePreview, questionIndex)
+            renderSurveysPreview(survey, !surveysHTMLAvailable, surveyPreviewRef.current, previewPageIndex)
         }
 
         if (feedbackWidgetPreviewRef.current) {
-            renderFeedbackWidgetPreview(survey, feedbackWidgetPreviewRef.current)
+            renderFeedbackWidgetPreview(survey, !surveysHTMLAvailable, feedbackWidgetPreviewRef.current)
         }
-    }, [survey, activePreview, questionIndex])
+    }, [survey, previewPageIndex])
     return (
         <>
             <div ref={surveyPreviewRef} />

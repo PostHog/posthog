@@ -63,6 +63,7 @@ from posthog.schema import (
     TrendsQueryResponse,
     HogQLQueryModifiers,
     DataWarehouseEventsModifier,
+    BreakdownType,
 )
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.utils import format_label_date, multisort
@@ -156,6 +157,13 @@ class TrendsQueryRunner(QueryRunner):
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.cohort:
+                if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
+                    self.query.breakdownFilter = None
+                elif isinstance(self.query.breakdownFilter.breakdown, list):
+                    self.query.breakdownFilter.breakdown = [
+                        x for x in self.query.breakdownFilter.breakdown if x != "all"
+                    ]
             query_builder = TrendsActorsQueryBuilder(
                 trends_query=self.query,
                 team=self.team,
@@ -165,7 +173,7 @@ class TrendsQueryRunner(QueryRunner):
                 # actors related args
                 time_frame=time_frame,
                 series_index=series_index,
-                breakdown_value=breakdown_value,
+                breakdown_value=breakdown_value if breakdown_value != "all" else None,
                 compare_value=compare_value,
                 include_recordings=include_recordings,
             )
@@ -243,9 +251,9 @@ class TrendsQueryRunner(QueryRunner):
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
-                    cohort_name = "all users" if str(value) == "0" else Cohort.objects.get(pk=value).name
-                    label = cohort_name
-                    value = value
+                    is_all = value == "all" or str(value) == "0"
+                    label = "all users" if is_all else Cohort.objects.get(pk=value).name
+                    value = "all" if is_all else value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL:
                     label = BREAKDOWN_OTHER_DISPLAY
                 elif value == BREAKDOWN_NULL_STRING_LABEL:

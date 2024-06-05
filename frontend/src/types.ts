@@ -491,6 +491,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+    live_events_token: string
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -638,11 +639,17 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum ActivityTab {
+    ExploreEvents = 'explore',
+    LiveEvents = 'live',
+}
+
 export enum PipelineTab {
     Overview = 'overview',
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
+    DataImport = 'data-import',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
 }
@@ -652,10 +659,12 @@ export enum PipelineStage {
     Destination = 'destination',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
+    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
     Configuration = 'configuration',
+    Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
@@ -1241,6 +1250,16 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+}
+
+export interface LiveEvent {
+    uuid: string
+    event: string
+    properties: Record<string, any>
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
 }
 
 export interface RecordingTimeMixinType {
@@ -3830,6 +3849,8 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
 
+export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
@@ -3837,7 +3858,7 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: 'hour' | 'day' | 'every 5 minutes'
+    interval: PipelineInterval
     created_at: string
     start_at: string | null
     end_at: string | null

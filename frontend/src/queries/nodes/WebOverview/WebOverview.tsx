@@ -130,9 +130,8 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
         return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
         return humanFriendlyLargeNumber(x) + '%'
-    } else {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
     }
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
 }
 
 const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
@@ -140,9 +139,8 @@ const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x)
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
-    } else {
-        return humanFriendlyLargeNumber(x)
     }
+    return humanFriendlyLargeNumber(x)
 }
 
 const formatItem = (
@@ -156,9 +154,8 @@ const formatItem = (
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
         return formatSeconds(value)
-    } else {
-        return formatUnit(value, options)
     }
+    return formatUnit(value, options)
 }
 
 const labelFromKey = (key: string): string => {

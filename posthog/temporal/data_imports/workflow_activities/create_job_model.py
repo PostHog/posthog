@@ -46,7 +46,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         database = source.job_inputs.get("database")
         db_schema = source.job_inputs.get("schema")
 
-        using_ssh_tunnel = source.job_inputs.get("ssh_tunnel_enabled")
+        using_ssh_tunnel = str(source.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
         ssh_tunnel_host = source.job_inputs.get("ssh_tunnel_host")
         ssh_tunnel_port = source.job_inputs.get("ssh_tunnel_port")
         ssh_tunnel_auth_type = source.job_inputs.get("ssh_tunnel_auth_type")

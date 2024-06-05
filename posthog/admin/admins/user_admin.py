@@ -38,6 +38,7 @@ class UserAdmin(DjangoUserAdmin):
             None,
             {
                 "fields": (
+                    "id",
                     "email",
                     "password",
                     "current_organization",
@@ -66,7 +67,7 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["current_team", "current_organization"]
+    readonly_fields = ["id", "current_team", "current_organization"]
     ordering = ("email",)
 
     def current_team_link(self, user: User):

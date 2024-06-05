@@ -13,7 +13,6 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -24,6 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { BatchExportRunsGrouped } from 'scenes/pipeline/BatchExportRuns'
 import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,8 +33,8 @@ import { BatchExportLogEntry } from '~/types'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
 import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
-import { BatchExportRunIcon, BatchExportTag } from './components'
-import { humanizeDestination, intervalToFrequency, isRunInProgress, showBatchExports } from './utils'
+import { BatchExportTag } from './components'
+import { humanizeDestination, intervalToFrequency, showBatchExports } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -57,7 +57,6 @@ export function RunsTab(): JSX.Element {
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
-    const hasDataPipelines = showBatchExports()
     if (!batchExportConfig && !batchExportConfigLoading) {
         return <NotFound object="Batch Export" />
     }
@@ -99,155 +98,14 @@ export function RunsTab(): JSX.Element {
                                 </LemonButton>
                             </Popover>
                         </div>
-                        <LemonTable
-                            dataSource={groupedRuns}
+                        <BatchExportRunsGrouped
+                            groupedRuns={groupedRuns}
                             loading={batchExportRunsResponseLoading}
-                            loadingSkeletonRows={5}
-                            footer={
-                                batchExportRunsResponse?.next && (
-                                    <div className="flex items-center m-2">
-                                        <LemonButton
-                                            center
-                                            fullWidth
-                                            onClick={loadNextBatchExportRuns}
-                                            loading={batchExportRunsResponseLoading}
-                                        >
-                                            Load more rows
-                                        </LemonButton>
-                                    </div>
-                                )
-                            }
-                            expandable={{
-                                noIndent: true,
-                                expandedRowRender: (groupedRuns) => {
-                                    return (
-                                        <LemonTable
-                                            dataSource={groupedRuns.runs}
-                                            embedded={true}
-                                            columns={[
-                                                {
-                                                    title: 'Status',
-                                                    key: 'status',
-                                                    width: 0,
-                                                    render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
-                                                },
-                                                {
-                                                    title: 'ID',
-                                                    key: 'runId',
-                                                    render: (_, run) => run.id,
-                                                },
-                                                {
-                                                    title: 'Run start',
-                                                    key: 'runStart',
-                                                    tooltip: 'Date and time when this BatchExport run started',
-                                                    render: (_, run) => <TZLabel time={run.created_at} />,
-                                                },
-                                            ]}
-                                        />
-                                    )
-                                },
-                            }}
-                            columns={[
-                                {
-                                    key: 'icon',
-                                    width: 0,
-                                    render: (_, groupedRun) => {
-                                        return <BatchExportRunIcon runs={groupedRun.runs} />
-                                    },
-                                },
-
-                                {
-                                    title: 'Data interval start',
-                                    key: 'dataIntervalStart',
-                                    tooltip: 'Start of the time range to export',
-                                    render: (_, run) => {
-                                        return (
-                                            <TZLabel
-                                                time={run.data_interval_start}
-                                                formatDate="MMMM DD, YYYY"
-                                                formatTime="HH:mm:ss"
-                                            />
-                                        )
-                                    },
-                                },
-                                {
-                                    title: 'Data interval end',
-                                    key: 'dataIntervalEnd',
-                                    tooltip: 'End of the time range to export',
-                                    render: (_, run) => {
-                                        return (
-                                            <TZLabel
-                                                time={run.data_interval_end}
-                                                formatDate="MMMM DD, YYYY"
-                                                formatTime="HH:mm:ss"
-                                            />
-                                        )
-                                    },
-                                },
-                                {
-                                    title: 'Latest run start',
-                                    key: 'runStart',
-                                    tooltip: 'Date and time when this BatchExport run started',
-                                    render: (_, groupedRun) => {
-                                        return <TZLabel time={groupedRun.last_run_at} />
-                                    },
-                                },
-                                {
-                                    // title: 'Actions',
-                                    key: 'actions',
-                                    width: 0,
-                                    render: function RenderName(_, groupedRun) {
-                                        return (
-                                            <span className="flex items-center gap-1">
-                                                {!isRunInProgress(groupedRun.runs[0]) && hasDataPipelines && (
-                                                    <LemonButton
-                                                        size="small"
-                                                        type="secondary"
-                                                        icon={<IconRefresh />}
-                                                        onClick={() =>
-                                                            LemonDialog.open({
-                                                                title: 'Retry export?',
-                                                                description: (
-                                                                    <>
-                                                                        <p>
-                                                                            This will schedule a new run for the same
-                                                                            interval. Any changes to the configuration
-                                                                            will be applied to the new run.
-                                                                        </p>
-                                                                        <p>
-                                                                            <b>Please note -</b> there may be a slight
-                                                                            delay before the new run appears.
-                                                                        </p>
-                                                                    </>
-                                                                ),
-                                                                width: '20rem',
-                                                                primaryButton: {
-                                                                    children: 'Retry',
-                                                                    onClick: () => retryRun(groupedRun.runs[0]),
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        }
-                                                    />
-                                                )}
-                                            </span>
-                                        )
-                                    },
-                                },
-                            ]}
-                            emptyState={
-                                <>
-                                    No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
-                                    <br />
-                                    {hasDataPipelines && (
-                                        <LemonButton type="primary" onClick={openBackfillModal}>
-                                            Create historic export
-                                        </LemonButton>
-                                    )}
-                                </>
-                            }
+                            retryRun={retryRun}
+                            hasMoreRunsToLoad={!!batchExportRunsResponse?.next}
+                            loadOlderRuns={loadNextBatchExportRuns}
+                            interval={batchExportConfig.interval}
+                            openBackfillModal={openBackfillModal}
                         />
                     </div>
                 </div>

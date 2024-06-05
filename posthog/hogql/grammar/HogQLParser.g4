@@ -10,10 +10,10 @@ declaration
     : varDecl
     | statement ;
 
-expression: columnExpr | dict;
+expression: columnExpr;
 
-varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
-varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
+varDecl: LET identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
+varAssignment: expression COLON EQ_SINGLE expression SEMICOLON ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
@@ -34,10 +34,6 @@ returnStmt     : RETURN expression SEMICOLON ;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
-
-
-dict:
-    | LBRACE (kvPairList)? RBRACE ;
 
 kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* ;
@@ -196,6 +192,7 @@ columnExpr
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
+    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 columnArgList: columnArgExpr (COMMA columnArgExpr)*;

@@ -63,86 +63,35 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
             return events_query
         else:
-            date_subqueries = self._get_date_subqueries(breakdown=breakdown)
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
-            events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
-
-            inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+            inner_select = self._inner_select_query(inner_query=event_query, breakdown=breakdown)
             full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
             return full_query
 
-    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> list[ast.SelectQuery]:
-        if not breakdown.enabled or ignore_breakdowns:
-            return [
-                cast(
-                    ast.SelectQuery,
-                    parse_select(
-                        """
-                        SELECT
-                            0 AS total,
-                            {date_to_start_of_interval} - {number_interval_period} AS day_start
-                        FROM
-                            numbers(
-                                coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
-                            )
-                    """,
-                        placeholders={
-                            **self.query_date_range.to_placeholders(),
-                        },
-                    ),
-                ),
-                cast(
-                    ast.SelectQuery,
-                    parse_select(
-                        """
-                        SELECT
-                            0 AS total,
-                            {date_from_start_of_interval} AS day_start
-                    """,
-                        placeholders={
-                            **self.query_date_range.to_placeholders(),
-                        },
-                    ),
-                ),
-            ]
-
-        return [
-            cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                    SELECT
-                        0 AS total,
-                        ticks.day_start as day_start,
-                        breakdown_value
-                    FROM (
-                        SELECT
-                            {date_to_start_of_interval} - {number_interval_period} AS day_start
-                        FROM
-                            numbers(
-                                coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
-                            )
-                        UNION ALL
-                        SELECT {date_from_start_of_interval} AS day_start
-                    ) as ticks
-                    CROSS JOIN (
-                        SELECT breakdown_value
-                        FROM (
-                            SELECT {cross_join_breakdown_values}
+    def _get_date_subqueries(self) -> ast.Expr:
+        return parse_expr(
+            """
+            arrayMap(
+                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                range(
+                    0,
+                    coalesce(
+                        dateDiff(
+                            {interval},
+                            {date_from_start_of_interval},
+                            {date_to_start_of_interval}
                         )
-                        ARRAY JOIN breakdown_value as breakdown_value
-                    ) as sec
-                    ORDER BY breakdown_value, day_start
-                """,
-                    placeholders={
-                        **self.query_date_range.to_placeholders(),
-                        **breakdown.placeholders(),
-                    },
-                ),
-            )
-        ]
+                    ) + 1
+                )
+            ) as date
+        """,
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                "plus_interval": self.query_date_range.number_interval_periods(),
+            },
+        )
 
     def _get_events_subquery(
         self,
@@ -288,28 +237,75 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return default_query
 
     def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
+        total_array = parse_expr("""
+            arrayMap(
+                _match_date ->
+                    arraySum(
+                        arraySlice(
+                            groupArray(count),
+                            indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
+                            arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
+                        )
+                    ),
+                date
+            )
+        """)
+
+        if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+            # fill zeros in with the previous value
+            total_array = parse_expr(
                 """
-                SELECT
-                    groupArray(day_start) AS date,
-                    groupArray(count) AS total
-                FROM {inner_query}
+            arrayFill(x -> x > 0, {total_array} )
             """,
-                placeholders={"inner_query": inner_query},
-            ),
+                {"total_array": total_array},
+            )
+
+        select: list[ast.Expr] = [
+            self._get_date_subqueries(),
+        ]
+
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothingIntervals is not None
+            and self.query.trendsFilter.smoothingIntervals > 1
+        ):
+            rolling_average = ast.Alias(
+                alias="total",
+                expr=parse_expr(
+                    """
+                    arrayMap(
+                        i -> floor(arrayAvg(
+                            arraySlice(
+                                total_array,
+                                greatest(i-{smoothing_interval} + 1, 1),
+                                least(i, {smoothing_interval})
+                            )
+                        )),
+                        arrayEnumerate(total_array)
+                    )
+                """,
+                    {
+                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
+                        "total_array": total_array,
+                    },
+                ),
+            )
+            select = [
+                *select,
+                ast.Alias(alias="total_array", expr=total_array),
+                rolling_average,
+            ]
+        else:
+            select.append(ast.Alias(alias="total", expr=total_array))
+
+        query = ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=inner_query),
         )
 
-        query = self._trends_display.modify_outer_query(
-            outer_query=query,
-            inner_query=inner_query,
-            dates_queries=ast.SelectUnionQuery(
-                select_queries=self._get_date_subqueries(ignore_breakdowns=True, breakdown=breakdown)
-            ),
-        )
-
-        query.order_by = [ast.OrderExpr(expr=ast.Call(name="sum", args=[ast.Field(chain=["count"])]), order="DESC")]
+        query.order_by = [
+            ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+        ]
 
         if breakdown.enabled:
             query.select.append(
@@ -356,34 +352,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 placeholders={"inner_query": inner_query},
             ),
         )
-
-        if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothingIntervals is not None
-            and self.query.trendsFilter.smoothingIntervals > 1
-        ):
-            rolling_average = ast.Alias(
-                alias="count",
-                expr=ast.Call(
-                    name="floor",
-                    args=[
-                        ast.WindowFunction(
-                            name="avg",
-                            args=[ast.Call(name="sum", args=[ast.Field(chain=["total"])])],
-                            over_expr=ast.WindowExpr(
-                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
-                                frame_method="ROWS",
-                                frame_start=ast.WindowFrameExpr(
-                                    frame_type="PRECEDING",
-                                    frame_value=int(self.query.trendsFilter.smoothingIntervals - 1),
-                                ),
-                                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
-                            ),
-                        )
-                    ],
-                ),
-            )
-            query.select = [rolling_average]
 
         query.group_by = []
         query.order_by = []

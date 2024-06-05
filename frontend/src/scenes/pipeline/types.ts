@@ -57,6 +57,10 @@ export interface BatchExportDestination extends BatchExportBasedNode {
 }
 export type Destination = BatchExportDestination | WebhookDestination
 
+export interface DataImportApp extends PluginBasedNode {
+    stage: PipelineStage.DataImport
+}
+
 // Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
@@ -69,7 +73,7 @@ export interface ImportApp extends PluginBasedNode {
 
 // Final
 
-export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp | DataImportApp
 
 // Utils
 
@@ -86,6 +90,8 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Transformation
     : S extends PipelineStage.Destination
     ? Destination
+    : S extends PipelineStage.DataImport
+    ? DataImportApp
     : S extends PipelineStage.SiteApp
     ? SiteApp
     : S extends PipelineStage.ImportApp
@@ -93,7 +99,10 @@ export function convertToPipelineNode<S extends PipelineStage>(
     : never {
     let node: PipelineNode
     if (isPluginConfig(candidate)) {
-        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
+        const almostNode: Omit<
+            Transformation | WebhookDestination | SiteApp | ImportApp | DataImportApp,
+            'frequency' | 'order'
+        > = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,
