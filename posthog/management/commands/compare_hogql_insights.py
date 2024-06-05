@@ -38,9 +38,9 @@ class Command(BaseCommand):
                 if event.get("math") in ("median", "p90", "p95", "p99"):
                     event["math"] = "sum"
             try:
-                print(
+                print(  # noqa: T201
                     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-                )  # noqa: T201
+                )
                 insight_type = insight.filters.get("insight")
                 print(  # noqa: T201
                     f"Checking {insight_type} Insight {insight.id} {insight.short_id} - {insight.name} "
