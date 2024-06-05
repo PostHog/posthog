@@ -28,14 +28,14 @@
     display: flex;
     flex-direction: column;
 
-    .NotebookNode & {
-        flex: 1;
-        height: 100%;
-    }
-
+    .NotebookNode &,
     .InsightCard & {
         flex: 1;
         height: 100%;
+
+        .LineGraph {
+            padding: 0.5rem;
+        }
     }
 
     .InsightVizDisplay__content {
@@ -100,7 +100,8 @@
         min-height: 30vh;
     }
 
-    .NotebookNode & {
+    .NotebookNode &,
+    .InsightCard & {
         .LineGraph {
             position: relative;
             min-height: 100px;
@@ -116,7 +117,8 @@
     min-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
-    .NotebookNode & {
+    .NotebookNode &,
+    .InsightCard & {
         min-height: auto;
     }
 
@@ -145,7 +147,8 @@
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode & {
+        .NotebookNode &,
+        .InsightCard & {
             min-height: auto;
         }
     }
