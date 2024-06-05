@@ -1,7 +1,8 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
 
+import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema'
 import {
@@ -25,6 +26,7 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
+    PropertyType,
     RecordingDurationFilter,
     SessionPropertyFilter,
 } from '~/types'
@@ -354,4 +356,56 @@ export function isEmptyProperty(property: AnyPropertyFilter): boolean {
         property.value === undefined ||
         (Array.isArray(property.value) && property.value.length === 0)
     )
+}
+
+export function createDefaultPropertyFilter(
+    filter: AnyPropertyFilter | null,
+    propertyKey: string | number,
+    propertyType: PropertyFilterType,
+    taxonomicGroup: TaxonomicFilterGroup,
+    describeProperty: propertyDefinitionsModelType['values']['describeProperty']
+): AnyPropertyFilter {
+    if (propertyType === PropertyFilterType.Cohort) {
+        const cohortProperty: CohortPropertyFilter = {
+            key: 'id',
+            value: parseInt(String(propertyKey)),
+            type: propertyType,
+        }
+        return cohortProperty
+    } else if (propertyType === PropertyFilterType.HogQL) {
+        const hogQLProperty: HogQLPropertyFilter = {
+            type: propertyType,
+            key: String(propertyKey),
+            value: null, // must specify something to be compatible with existing types
+        }
+        return hogQLProperty
+    }
+    const apiType = propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
+
+    const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
+    const property_name_to_default_operator_override = {
+        $active_feature_flags: PropertyOperator.IContains,
+    }
+    const property_value_type_to_default_operator_override = {
+        [PropertyType.Duration]: PropertyOperator.GreaterThan,
+        [PropertyType.DateTime]: PropertyOperator.IsDateExact,
+        [PropertyType.Selector]: PropertyOperator.Exact,
+    }
+    const operator =
+        property_name_to_default_operator_override[propertyKey] ||
+        (isPropertyFilterWithOperator(filter) ? filter.operator : null) ||
+        property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
+        PropertyOperator.Exact
+
+    const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+    // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
+    // is the equivalent of selecting a property value
+    const property: AnyPropertyFilter = {
+        key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
+        value: isGroupNameFilter ? propertyKey.toString() : null,
+        operator,
+        type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
+        group_type_index: taxonomicGroup.groupTypeIndex,
+    }
+    return property
 }

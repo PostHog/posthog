@@ -184,6 +184,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const insightMode =
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions
+                    : mode === 'alerts'
+                    ? ItemMode.Alerts
                     : mode === 'sharing'
                     ? ItemMode.Sharing
                     : mode === 'edit' || shortId === 'new'
