@@ -92,11 +92,11 @@ def run(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[
     return response.results
 
 
-def parseJSON(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> Any:
+def jsonParse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> Any:
     return json.loads(args[0])
 
 
-def stringifyJSON(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> str:
+def jsonStringify(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> str:
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
         return json.dumps(args[0], indent=args[1])
     return json.dumps(args[0])
@@ -119,6 +119,6 @@ STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], An
     "sleep": sleep,
     "print": print,
     "run": run,
-    "parseJSON": parseJSON,
-    "stringifyJSON": stringifyJSON,
+    "jsonParse": jsonParse,
+    "jsonStringify": jsonStringify,
 }

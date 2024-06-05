@@ -605,15 +605,15 @@ class TestBytecodeExecute:
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
 
     def test_bytecode_parse_stringify_json(self):
-        assert self._run_program("return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' });") == json.dumps(
+        assert self._run_program("return jsonStringify({'$browser': 'Chrome', '$os': 'Windows' });") == json.dumps(
             {"$browser": "Chrome", "$os": "Windows"}
         )
 
         assert self._run_program(
-            "return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' }, 3);"  # pretty
+            "return jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3);"  # pretty
         ) == json.dumps({"$browser": "Chrome", "$os": "Windows"}, indent=3)
 
-        assert self._run_program("return parseJSON('[1,2,3]');") == [1, 2, 3]
+        assert self._run_program("return jsonParse('[1,2,3]');") == [1, 2, 3]
 
         assert self._run_program(
             """
@@ -624,7 +624,7 @@ class TestBytecodeExecute:
                         '$os': 'Windows'
                     }
                 };
-                let json := stringifyJSON(event);
-                return parseJSON(json);
+                let json := jsonStringify(event);
+                return jsonParse(json);
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}

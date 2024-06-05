@@ -43,11 +43,11 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         // eslint-disable-next-line no-console
         console.log(...args)
     },
-    parseJSON: (args) => {
+    jsonParse: (args) => {
         return JSON.parse(args[0])
     },
-    stringifyJSON: (args) => {
-        // Convert maps to objects and call JSON.stringify.
+    jsonStringify: (args) => {
+        // Recursively convert maps to objects
         function convert(x: any): any {
             if (x instanceof Map) {
                 const obj: Record<string, any> = {}
