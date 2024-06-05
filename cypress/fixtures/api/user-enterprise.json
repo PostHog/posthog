@@ -39,7 +39,37 @@
                 "timezone": "UTC"
             }
         ],
-        "available_features": ["zapier", "organizations_projects", "social_sso"]
+        "available_product_features": [
+            {
+                "key": "zapier",
+                "name": "Zapier",
+                "description": "Zapier lets you connect PostHog with thousands of the most popular apps, so you can automate your work and have more time for what matters most—no code required.",
+                "unit": null,
+                "limit": null,
+                "note": null
+            },
+            {
+                "key": "organizations_projects",
+                "name": "Projects",
+                "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                "unit": null,
+                "limit": null,
+                "note": "Unlimited"
+            },
+            {
+                "key": "social_sso",
+                "name": "SSO via Google, Github, or Gitlab",
+                "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                "unit": null,
+                "limit": null,
+                "note": null
+            }
+        ]
     },
-    "organizations": [{ "id": "01787e47-5558-0000-bae1-6bc513b42abe", "name": "Hogflix Movies" }]
+    "organizations": [
+        {
+            "id": "01787e47-5558-0000-bae1-6bc513b42abe",
+            "name": "Hogflix Movies"
+        }
+    ]
 }

@@ -33,7 +33,7 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
+    const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
         editingSurvey,
         updateSurvey,
@@ -41,7 +41,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         stopSurvey,
         archiveSurvey,
         resumeSurvey,
-        setSelectedQuestion,
+        setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -252,9 +252,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6 max-w-72">
                                                     <SurveyFormAppearance
-                                                        activePreview={selectedQuestion || 0}
+                                                        previewPageIndex={selectedPageIndex || 0}
                                                         survey={survey}
-                                                        setActivePreview={(preview) => setSelectedQuestion(preview)}
+                                                        handleSetSelectedPageIndex={(preview) =>
+                                                            setSelectedPageIndex(preview)
+                                                        }
                                                     />
                                                 </div>
                                             ) : (
@@ -402,7 +404,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [9, 10],
+                                        value: ['9', '10'],
                                     },
                                 ],
                             },
@@ -415,7 +417,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [7, 8],
+                                        value: ['7', '8'],
                                     },
                                 ],
                             },
@@ -428,7 +430,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [0, 1, 2, 3, 4, 5, 6],
+                                        value: ['0', '1', '2', '3', '4', '5', '6'],
                                     },
                                 ],
                             },
@@ -442,7 +444,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                             },
                         ],
                         trendsFilter: {
-                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
+                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
                         },
                     },
                 }}

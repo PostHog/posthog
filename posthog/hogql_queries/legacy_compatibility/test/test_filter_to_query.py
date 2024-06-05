@@ -11,7 +11,6 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseNode,
-    DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -24,6 +23,7 @@ from posthog.schema import (
     FunnelsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    InsightDateRange,
     Key,
     LifecycleQuery,
     LifecycleToggle,
@@ -921,7 +921,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.model_dump(exclude_defaults=True),
-            {"series": []},
+            {"breakdownFilter": {}, "dateRange": {}, "series": [], "trendsFilter": {}},
         )
 
     def test_base_funnel(self):
@@ -964,7 +964,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, DateRange)
+        assert isinstance(query.dateRange, InsightDateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
 
@@ -973,7 +973,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, DateRange)
+        assert isinstance(query.dateRange, InsightDateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
         self.assertEqual(query.dateRange.explicitDate, True)
@@ -1566,6 +1566,8 @@ class TestFilterToQuery(BaseTest):
                     ],
                     filterTestAccounts=True,
                     funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.steps, exclusions=[]),
+                    breakdownFilter=BreakdownFilter(),
+                    dateRange=InsightDateRange(),
                 ),
                 funnelStep=2,
             ),

@@ -4,6 +4,7 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from hogql_parser import parse_select
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
@@ -13,15 +14,15 @@ from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
     Compare,
-    DateRange,
     EventsNode,
+    InsightDateRange,
     IntervalType,
     TrendsFilter,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest
 
-default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
+default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=InsightDateRange(date_from="-7d"))
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):
@@ -58,7 +59,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",
         )
-        return sql[sql.find("WHERE and(") + 10 : sql.find(") LIMIT 10000")]
+        return sql[sql.find("WHERE and(") + 10 : sql.find(f") LIMIT {MAX_SELECT_RETURNED_ROWS}")]
 
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
@@ -253,7 +254,9 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
 
         trends_query = default_query.model_copy(
-            update={"dateRange": DateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)},
+            update={
+                "dateRange": InsightDateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)
+            },
             deep=True,
         )
         with freeze_time("2024-05-08T15:32:00.000Z"):
@@ -265,7 +268,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_explicit_date_to(self):
         trends_query = default_query.model_copy(
             update={
-                "dateRange": DateRange(
+                "dateRange": InsightDateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 )
             },
@@ -282,7 +285,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)],
-                "dateRange": DateRange(
+                "dateRange": InsightDateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),
             },

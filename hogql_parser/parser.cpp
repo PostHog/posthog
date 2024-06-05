@@ -1064,7 +1064,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
     } else if (ctx->STRING_LITERAL()) {
-      alias = unquote_string_terminal(ctx->STRING_LITERAL());
+      alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
     } else {
       throw ParsingError("A ColumnExprAlias must have the alias in some form");
     }
@@ -1104,6 +1104,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprArray) {
     RETURN_NEW_AST_NODE("Array", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(ctx->columnExprList()));
   }
+
+  VISIT_UNSUPPORTED(ColumnExprDict)
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
@@ -1381,9 +1383,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprTrim");
     }
-    string text = unquote_string_terminal(ctx->STRING_LITERAL());
     PyObject* expr = visitAsPyObject(ctx->columnExpr());
-    PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
+    PyObject* value = visitAsPyObject(ctx->string());
     if (!value) throw PyInternalError();
     RETURN_NEW_AST_NODE("Call", "{s:s,s:[NN]}", "name", name, "args", expr, value);
   }
@@ -1862,7 +1863,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     auto string_literal_terminal = ctx->STRING_LITERAL();
     if (string_literal_terminal) {
-      string text = unquote_string_terminal(string_literal_terminal);
+      string text = parse_string_literal_ctx(string_literal_terminal);
       RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
     }
     return visitChildren(ctx);
@@ -1880,7 +1881,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return unquote_string(text);
+        return parse_string_literal_text(text);
       }
     }
     return text;
@@ -1892,7 +1893,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return unquote_string(text);
+        return parse_string_literal_text(text);
       }
     }
     return text;
@@ -1908,10 +1909,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       );
     }
 
-    auto string_literal_ctx = ctx->STRING_LITERAL();
-    if (string_literal_ctx) {
-      string text = unquote_string_terminal(string_literal_ctx);
-      PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
+    auto string_ctx = ctx->string();
+    if (string_ctx) {
+      PyObject* value = visitAsPyObject(string_ctx);
       if (!value) throw PyInternalError();
       RETURN_NEW_AST_NODE("HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value);
     }
@@ -2010,6 +2010,79 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     RETURN_NEW_AST_NODE("Call", "{s:s, s:[NN]}", "name", "ifNull", "args", value, fallback);
   }
+
+  VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
+
+  VISIT(String) {
+    auto string_literal = ctx->STRING_LITERAL();
+    if (string_literal) {
+      string text = parse_string_literal_ctx(string_literal);
+      RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
+    }
+    return visit(ctx->templateString());
+  }
+
+  VISIT(TemplateString) {
+    auto string_contents = ctx->stringContents();
+
+    if (string_contents.size() == 0) {
+      string empty = "";
+      RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
+    }
+
+    if (string_contents.size() == 1) {
+      return visit(string_contents[0]);
+    }
+
+    PyObject* args = visitPyListOfObjects(string_contents);
+    if (!args) throw PyInternalError();
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:N}", "name", "concat", "args", args);
+  }
+
+  VISIT(FullTemplateString) {
+    auto string_contents_full = ctx->stringContentsFull();
+
+    if (string_contents_full.size() == 0) {
+      string empty = "";
+      RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
+    }
+
+    if (string_contents_full.size() == 1) {
+      return visit(string_contents_full[0]);
+    }
+
+    PyObject* args = visitPyListOfObjects(string_contents_full);
+    if (!args) throw PyInternalError();
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:N}", "name", "concat", "args", args);
+  }
+
+  VISIT(StringContents) {
+    auto string_text = ctx->STRING_TEXT();
+    if (string_text) {
+      string text = parse_string_text_ctx(string_text, true);
+      RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
+    }
+    auto column_expr = ctx->columnExpr();
+    if (column_expr) {
+      return visit(column_expr);
+    }
+    string empty = "";
+    RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
+  }
+
+  VISIT(StringContentsFull) {
+    auto full_string_text = ctx->FULL_STRING_TEXT();
+    if (full_string_text) {
+      string text = parse_string_text_ctx(full_string_text, false);
+      RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
+    }
+    auto column_expr = ctx->columnExpr();
+    if (column_expr) {
+      return visit(column_expr);
+    }
+    string empty = "";
+    RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
+  }
 };
 
 class HogQLErrorListener : public antlr4::BaseErrorListener {
@@ -2089,10 +2162,11 @@ parser_state* get_module_state(PyObject* module) {
 METHOD_PARSE_NODE(Expr, expr, expr)
 METHOD_PARSE_NODE(OrderExpr, orderExpr, order_expr)
 METHOD_PARSE_NODE(Select, select, select)
+METHOD_PARSE_NODE(FullTemplateString, fullTemplateString, full_template_string)
 
 #undef METHOD_PARSE_NODE
 
-static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
+static PyObject* method_parse_string_literal_text(PyObject* self, PyObject* args) {
   parser_state* state = get_module_state(self);
   const char* str;
   if (!PyArg_ParseTuple(args, "s", &str)) {
@@ -2100,7 +2174,7 @@ static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
   }
   string unquoted_string;
   try {
-    unquoted_string = unquote_string(str);
+    unquoted_string = parse_string_literal_text(str);
   } catch HANDLE_HOGQL_ERROR(SyntaxError, );
   return PyUnicode_FromStringAndSize(unquoted_string.data(), unquoted_string.size());
 }
@@ -2120,8 +2194,12 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = (PyCFunction)method_parse_select,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse the HogQL SELECT statement string into an AST"},
-    {.ml_name = "unquote_string",
-     .ml_meth = method_unquote_string,
+    {.ml_name = "parse_full_template_string",
+     .ml_meth = (PyCFunction)method_parse_full_template_string,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse a Hog template string into an AST"},
+    {.ml_name = "parse_string_literal_text",
+     .ml_meth = method_parse_string_literal_text,
      .ml_flags = METH_VARARGS,
      .ml_doc = "Unquote the string (an identifier or a string literal))"},
     {NULL, NULL, 0, NULL}

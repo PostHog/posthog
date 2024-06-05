@@ -386,7 +386,7 @@ export async function startPluginsServer(
                 )
 
             const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
@@ -419,8 +419,11 @@ export async function startPluginsServer(
                         hub.pluginSchedule = await loadPluginSchedule(piscina)
                     }
                 },
-                'reset-available-features-cache': async (message) => {
-                    await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+                'reset-available-product-features-cache': async (message) => {
+                    await piscina?.broadcastTask({
+                        task: 'resetAvailableProductFeaturesCache',
+                        args: JSON.parse(message),
+                    })
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once

@@ -92,7 +92,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name as n']}>
                     <InsightActorsQuery day='2020-01-12' status='returning'>
                         <LifecycleQuery
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            dateRange={<InsightDateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
                     </InsightActorsQuery>
@@ -120,7 +120,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     <InsightActorsQuery day='2020-01-13' status='returning'>
                         <LifecycleQuery
                             interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            dateRange={<InsightDateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
                     </InsightActorsQuery>
@@ -148,7 +148,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     <InsightActorsQuery day='2020-01-12' status='returning'>
                         <LifecycleQuery
                             interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            dateRange={<InsightDateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
                     </InsightActorsQuery>
@@ -171,7 +171,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day={2}>
                         <StickinessQuery
-                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
                             series={[<EventsNode event='$pageview' />]}
                         />
                     </InsightActorsQuery>
@@ -194,7 +194,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day={7}>
                         <StickinessQuery
-                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                            dateRange={<InsightDateRange date_from='2020-01-01' date_to='2020-01-19' />}
                             series={[<EventsNode event='$pageview' math='unique_group' math_group_type_index={0} />]}
                         />
                     </InsightActorsQuery>
@@ -216,7 +216,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day='2020-01-09'>
                         <TrendsQuery
-                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            dateRange={<InsightDateRange date_from='2020-01-09' date_to='2020-01-19' />}
                             series={[<EventsNode event='$pageview' />]}
                         />
                     </InsightActorsQuery>
@@ -239,7 +239,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day='2020-01-09'>
                         <TrendsQuery
-                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                            dateRange={<InsightDateRange date_from='2020-01-01' date_to='2020-01-19' />}
                             series={[<EventsNode event='$pageview' math='unique_group' math_group_type_index={0} />]}
                         />
                     </InsightActorsQuery>
@@ -261,7 +261,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     <ActorsQuery select={['properties.name']}>
                         <FunnelsActorsQuery funnelStep={2}>
                             <FunnelsQuery
-                                dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                                dateRange={<InsightDateRange date_from='2020-01-01' date_to='2020-01-19' />}
                                 series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
                             />
                         </FunnelsActorsQuery>
@@ -285,7 +285,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         <FunnelsActorsQuery funnelStep={2}>
                             <FunnelsQuery
                                 aggregation_group_type_index={0}
-                                dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                                dateRange={<InsightDateRange date_from='2020-01-01' date_to='2020-01-19' />}
                                 series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
                             />
                         </FunnelsActorsQuery>

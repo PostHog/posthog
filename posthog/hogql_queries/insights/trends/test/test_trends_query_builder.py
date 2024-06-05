@@ -11,7 +11,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
+    InsightDateRange,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryResponse,
@@ -73,7 +73,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def test_column_names(self):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview", math=BaseMathType.total)],
         )
 
@@ -85,7 +85,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
         )
@@ -98,7 +98,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type_and_breakdowns(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
             breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.event),

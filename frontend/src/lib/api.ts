@@ -12,6 +12,7 @@ import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries
 import {
     ActionType,
     ActivityScope,
+    AlertType,
     BatchExportConfiguration,
     BatchExportLogEntry,
     BatchExportRun,
@@ -676,6 +677,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
+    // # Alerts
+    public alerts(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('alerts')
+    }
+
+    public alert(id: AlertType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.alerts(teamId).addPathComponent(id)
+    }
+
     // Resource Access Permissions
 
     public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
@@ -930,6 +940,17 @@ const api = {
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
+        },
+        async listMatchingPluginConfigs(
+            actionId: ActionType['id']
+        ): Promise<PaginatedResponse<PluginConfigWithPluginInfoNew>> {
+            return await new ApiRequest()
+                .actionsDetail(actionId)
+                .withAction('plugin_configs')
+                .withQueryString({
+                    limit: 1000,
+                })
+                .get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
@@ -2105,6 +2126,24 @@ const api = {
         },
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
+        },
+    },
+
+    alerts: {
+        async get(alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).get()
+        },
+        async create(data: Partial<AlertType>): Promise<AlertType> {
+            return await new ApiRequest().alerts().create({ data })
+        },
+        async update(alertId: AlertType['id'], data: Partial<AlertType>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).update({ data })
+        },
+        async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
+            return await new ApiRequest().alerts().withQueryString(`insight=${insightId}`).get()
+        },
+        async delete(alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId).delete()
         },
     },
 

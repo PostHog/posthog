@@ -676,13 +676,8 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity, default_event="default_event")
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="default_event"),
-        )
-        self.assertEqual(result, expected)
+        result = entity_to_expr(entity)
+        self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):
         self.assertEqual(
@@ -722,7 +717,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {
                     "type": "data_warehouse_person_property",
-                    "key": "extended_properties: bool_prop",
+                    "key": "extended_properties.bool_prop",
                     "value": "true",
                     "operator": "exact",
                 }

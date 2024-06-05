@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -63,7 +64,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-
+            <DataWarehouseBetaNotice />
             <DataWarehouseTables />
         </div>
     )

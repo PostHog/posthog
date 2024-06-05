@@ -47,8 +47,6 @@ public:
 
     virtual std::any visitBlock(HogQLParser::BlockContext *context) = 0;
 
-    virtual std::any visitDict(HogQLParser::DictContext *context) = 0;
-
     virtual std::any visitKvPair(HogQLParser::KvPairContext *context) = 0;
 
     virtual std::any visitKvPairList(HogQLParser::KvPairListContext *context) = 0;
@@ -153,6 +151,8 @@ public:
 
     virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *context) = 0;
 
+    virtual std::any visitColumnExprDict(HogQLParser::ColumnExprDictContext *context) = 0;
+
     virtual std::any visitColumnExprSubquery(HogQLParser::ColumnExprSubqueryContext *context) = 0;
 
     virtual std::any visitColumnExprLiteral(HogQLParser::ColumnExprLiteralContext *context) = 0;
@@ -180,6 +180,8 @@ public:
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
     virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
+
+    virtual std::any visitColumnExprTemplateString(HogQLParser::ColumnExprTemplateStringContext *context) = 0;
 
     virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *context) = 0;
 
@@ -274,6 +276,16 @@ public:
     virtual std::any visitEnumValue(HogQLParser::EnumValueContext *context) = 0;
 
     virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *context) = 0;
+
+    virtual std::any visitString(HogQLParser::StringContext *context) = 0;
+
+    virtual std::any visitTemplateString(HogQLParser::TemplateStringContext *context) = 0;
+
+    virtual std::any visitStringContents(HogQLParser::StringContentsContext *context) = 0;
+
+    virtual std::any visitFullTemplateString(HogQLParser::FullTemplateStringContext *context) = 0;
+
+    virtual std::any visitStringContentsFull(HogQLParser::StringContentsFullContext *context) = 0;
 
 
 };
