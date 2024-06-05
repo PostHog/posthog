@@ -43,19 +43,21 @@ def test_properties_chain_events():
 
 def test_properties_chain_warehouse_props():
     p1 = get_properties_chain(
-        breakdown_type=BreakdownType.data_warehouse_person_property,
+        breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY,
         breakdown_field="some_table.field",
         group_type_index=None,
     )
     assert p1 == ["person", "some_table", "field"]
 
     p2 = get_properties_chain(
-        breakdown_type=BreakdownType.data_warehouse_person_property, breakdown_field="some_table", group_type_index=None
+        breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY,
+        breakdown_field="some_table",
+        group_type_index=None,
     )
     assert p2 == ["person", "some_table"]
 
     p3 = get_properties_chain(
-        breakdown_type=BreakdownType.data_warehouse_person_property,
+        breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY,
         breakdown_field="some_table.props.obj.blah",
         group_type_index=None,
     )
