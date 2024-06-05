@@ -238,7 +238,7 @@ def _annotate_tagged_query(query, workload):
     # Annotate the query with information on the request/task
     if "kind" in tags:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
-        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} {random.random()} */ {query}"
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} {random()} */ {query}"
 
     return query, tags
 
