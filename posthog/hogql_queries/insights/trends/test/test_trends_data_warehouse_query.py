@@ -26,7 +26,7 @@ from posthog.settings import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    SUFFIX,
+    XDIST_SUFFIX,
 )
 import s3fs
 from pyarrow import parquet as pq
@@ -40,7 +40,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
 )
 
-TEST_BUCKET = f"test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + SUFFIX
+TEST_BUCKET = f"test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):

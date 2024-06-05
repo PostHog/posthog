@@ -124,19 +124,24 @@ replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
-# Clickhouse Settings
+# Xdist Settings
+# When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
+# We use this setting to create multiple databases to achieve test isolation
 PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
 PYTEST_XDIST_WORKER_NUM: int | None = None
+SUFFIX = ""
+XDIST_SUFFIX = ""
 try:
     if PYTEST_XDIST_WORKER is not None:
+        XDIST_SUFFIX = f"_{PYTEST_XDIST_WORKER}"
         PYTEST_XDIST_WORKER_NUM = int("".join([x for x in PYTEST_XDIST_WORKER if x.isdigit()]))
 except:
     pass
 
-SUFFIX = ""
 if TEST:
-    SUFFIX = f"_test${f'_{PYTEST_XDIST_WORKER}' if PYTEST_XDIST_WORKER else ''}"
+    SUFFIX = "_test" + XDIST_SUFFIX
 
+# Clickhouse Settings
 CLICKHOUSE_TEST_DB: str = f"posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
