@@ -5,11 +5,10 @@ import resource
 import threading
 import time
 import uuid
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
-from collections.abc import Callable
-from collections.abc import Generator
 from unittest.mock import patch
 
 import freezegun
@@ -31,16 +30,14 @@ from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import (
-    TEST_clear_instance_license_cache,
-)
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
-    CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-    CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_DATA_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
@@ -63,13 +60,13 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.sessions.sql import (
-    DROP_SESSION_TABLE_SQL,
-    DROP_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_SESSION_VIEW_SQL,
-    SESSIONS_TABLE_SQL,
-    SESSIONS_TABLE_MV_SQL,
-    SESSIONS_VIEW_SQL,
     DISTRIBUTED_SESSIONS_TABLE_SQL,
+    DROP_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_SESSION_TABLE_SQL,
+    DROP_SESSION_VIEW_SQL,
+    SESSIONS_TABLE_MV_SQL,
+    SESSIONS_TABLE_SQL,
+    SESSIONS_VIEW_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -404,14 +401,21 @@ def cleanup_materialized_columns():
         # EE not available? Skip
         return
 
+    def optionally_drop(table, filter=None):
+        drops = ",".join(
+            [
+                f"DROP COLUMN {column_name}"
+                for column_name in get_materialized_columns(table).values()
+                if filter is None or filter(column_name)
+            ]
+        )
+        if drops:
+            sync_execute(f"ALTER TABLE {table} {drops}")
+
     default_columns = default_materialised_columns()
-    for column_name in get_materialized_columns("events").values():
-        if column_name not in default_columns:
-            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("person").values():
-        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("groups").values():
-        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+    optionally_drop("events", lambda name: name not in default_columns)
+    optionally_drop("person")
+    optionally_drop("groups")
 
 
 def also_test_with_materialized_columns(
