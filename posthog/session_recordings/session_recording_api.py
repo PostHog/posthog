@@ -778,7 +778,7 @@ def list_recordings(
             modifier_overrides = flags_n_bags["featureFlagPayloads"][FLAG_KEY]
 
             if modifier_overrides:
-                modifiers.optimizeJoinedFilters = modifier_overrides.get("optimizeJoinedFilters", None)
+                modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
 
             with timer("load_recordings_from_hogql"):
                 (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
