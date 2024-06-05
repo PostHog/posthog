@@ -279,6 +279,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     `,
                 }
                 const responseJSON = await api.query(query)
+                // TODO:Dylan - I don't like how we lose our types here
+                // would be cool if we could parse this in a more type-safe way
                 const { results } = responseJSON
 
                 let total = 0
@@ -733,11 +735,18 @@ export const surveyLogic = kea<surveyLogicType>([
             (surveyRatingResults) => {
                 if (surveyRatingResults) {
                     const questionIdx = Object.keys(surveyRatingResults)[0]
-                    const questionResults: number[] = surveyRatingResults[questionIdx].data
-                    if (questionResults.length === 11) {
-                        const promoters = questionResults.slice(9, 11).reduce((a, b) => a + b, 0)
-                        const passives = questionResults.slice(7, 9).reduce((a, b) => a + b, 0)
-                        const detractors = questionResults.slice(0, 7).reduce((a, b) => a + b, 0)
+                    const questionResults = surveyRatingResults[questionIdx]
+
+                    // If we don't have any results, return 'No data available' instead of NaN.
+                    if (questionResults.total === 0) {
+                        return 'No data available'
+                    }
+
+                    const data: number[] = questionResults.data
+                    if (data.length === 11) {
+                        const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
+                        const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
+                        const detractors = data.slice(0, 7).reduce((a, b) => a + b, 0)
                         const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
                         return npsScore.toFixed(1)
                     }

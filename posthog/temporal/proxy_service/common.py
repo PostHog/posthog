@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import grpc.aio
 import uuid
 from django.conf import settings
+from django.db import connection
 
 from temporalio import activity
 
@@ -43,6 +44,7 @@ async def update_proxy_record(inputs: UpdateProxyRecordInputs):
 
     @sync_to_async
     def update_record(proxy_record_id):
+        connection.connect()
         pr = ProxyRecord.objects.get(id=proxy_record_id)
         pr.status = inputs.status
         pr.save()

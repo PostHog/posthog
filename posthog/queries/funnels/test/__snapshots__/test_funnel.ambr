@@ -193,15 +193,10 @@
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('stopped_after_signup',
-                        'stopped_after_pay')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'stopped_after_signup', -1, 0)
+    AND distinct_id = 'stopped_after_pay'
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
@@ -264,8 +259,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as aggregation_target,
-                              if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id,
+                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if((((match(elements_chain, '(^|;)button(\\.|$|;|:)'))
@@ -278,11 +273,12 @@
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
                        LEFT OUTER JOIN
-                         (SELECT argMax(override_person_id, version) as person_id,
-                                 old_person_id
-                          FROM person_overrides
-                          WHERE team_id = 2
-                          GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 2)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')

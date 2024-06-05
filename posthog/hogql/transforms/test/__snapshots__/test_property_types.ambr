@@ -13,7 +13,7 @@
   SELECT extended_properties.string_prop AS string_prop, extended_properties.int_prop AS int_prop, extended_properties.bool_prop AS bool_prop, string_prop AS persons__extended_properties___string_prop 
   FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_3)s, %(hogql_val_4)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
   WHERE ifNull(equals(bool_prop, true), 0) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_group_property_types
@@ -26,7 +26,7 @@
   WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
   GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_combined
@@ -46,7 +46,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_event
@@ -55,7 +55,7 @@
   SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s, %(hogql_val_6)s, NULL) AS bool 
   FROM events 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_off
@@ -75,7 +75,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_on
@@ -84,7 +84,7 @@
   SELECT parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_1)s) AS provided_timestamp 
   FROM events 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_person
@@ -93,7 +93,7 @@
   SELECT accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_person_raw
@@ -102,6 +102,6 @@
   SELECT accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---

@@ -4,6 +4,7 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from hogql_parser import parse_select
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
@@ -58,7 +59,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",
         )
-        return sql[sql.find("WHERE and(") + 10 : sql.find(") LIMIT 10000")]
+        return sql[sql.find("WHERE and(") + 10 : sql.find(f") LIMIT {MAX_SELECT_RETURNED_ROWS}")]
 
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
