@@ -587,14 +587,14 @@ class TrendsQueryRunner(QueryRunner):
 
     def update_hogql_modifiers(self) -> None:
         if (
-            self.modifiers.inCohortVia == InCohortVia.auto
+            self.modifiers.inCohortVia == InCohortVia.AUTO
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and len(self.query.breakdownFilter.breakdown) > 1
             and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
         ):
-            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
 
         datawarehouse_modifiers = []
         for series in self.query.series:
@@ -623,7 +623,7 @@ class TrendsQueryRunner(QueryRunner):
         ]
 
         if (
-            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
@@ -696,7 +696,7 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and "all" in self.query.breakdownFilter.breakdown
-            and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and not in_breakdown_clause
             and self.query.trendsFilter
             and self.query.trendsFilter.formula

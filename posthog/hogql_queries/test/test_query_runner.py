@@ -183,7 +183,7 @@ class TestQueryRunner(BaseTest):
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
         )
         response = runner.calculate()
         assert response.clickhouse is not None

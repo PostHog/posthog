@@ -258,7 +258,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
     extend_responses(
         available_functions,
         suggestions,
-        Kind.Function,
+        Kind.FUNCTION,
         insert_text=lambda key: f"{key}()",
     )
 
@@ -266,7 +266,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
 def extend_responses(
     keys: list[str],
     suggestions: list[AutocompleteCompletionItem],
-    kind: Kind = Kind.Variable,
+    kind: Kind = Kind.VARIABLE,
     insert_text: Optional[Callable[[str], str]] = None,
     details: Optional[list[str | None]] = None,
 ) -> None:

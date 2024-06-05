@@ -232,21 +232,21 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled:
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
         _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],

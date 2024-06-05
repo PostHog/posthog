@@ -40,9 +40,9 @@ class MathAvailability(str, Enum):
 
 
 actors_only_math_types = [
-    BaseMathType.dau,
-    BaseMathType.weekly_active,
-    BaseMathType.monthly_active,
+    BaseMathType.DAU,
+    BaseMathType.WEEKLY_ACTIVE,
+    BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
 ]
@@ -321,7 +321,7 @@ def _insight_filter(filter: dict):
         # Backwards compatibility
         # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
         if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
-            funnel_viz_type = FunnelVizType.trends
+            funnel_viz_type = FunnelVizType.TRENDS
 
         insight_filter = {
             "funnelsFilter": FunnelsFilter(

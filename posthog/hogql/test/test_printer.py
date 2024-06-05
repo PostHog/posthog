@@ -139,7 +139,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -156,7 +156,7 @@ class TestPrinter(BaseTest):
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
             self.assertEqual(
@@ -747,7 +747,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             query = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -770,7 +770,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             self.assertEqual(
                 self._select(
@@ -793,7 +793,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -812,7 +812,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
