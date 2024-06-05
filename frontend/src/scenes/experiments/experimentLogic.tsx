@@ -465,10 +465,10 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
-            if (!experiment?.start_date) {
-                // loading a draft experiment
-                actions.setNewExperimentInsight(experiment?.filters)
-            } else {
+
+            actions.setNewExperimentInsight(experiment?.filters)
+
+            if (experiment?.start_date) {
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
             }

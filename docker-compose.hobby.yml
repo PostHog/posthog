@@ -59,7 +59,7 @@ services:
         environment:
             KAFKA_LOG_RETENTION_MS: 3600000
             KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-            KAFKA_LOG_RETENTION_HOURS: 1     
+            KAFKA_LOG_RETENTION_HOURS: 1
         volumes:
             - kafka-data:/bitnami/kafka
 

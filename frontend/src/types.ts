@@ -664,6 +664,7 @@ export enum PipelineStage {
 
 export enum PipelineNodeTab {
     Configuration = 'configuration',
+    Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
@@ -2852,6 +2853,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
+    Alerts = 'alerts',
 }
 
 export enum DashboardPlacement {
@@ -4096,4 +4098,19 @@ export type HogFunctionTemplateType = {
     hog: string
     inputs_schema?: string
     filters?: PluginConfigFilters | null
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: {
+        lower?: number
+        upper?: number
+    }
+}
+
+export interface AlertType {
+    id: number
+    name: string
+    insight?: number
+    target_value: string
+    anomaly_condition: AnomalyCondition
 }

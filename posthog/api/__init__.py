@@ -8,6 +8,7 @@ from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
+    alert,
     activity_log,
     annotation,
     app_metrics,
@@ -412,6 +413,13 @@ projects_router.register(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "project_hog_functions",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"alerts",
+    alert.AlertViewSet,
+    "project_alerts",
     ["team_id"],
 )
 

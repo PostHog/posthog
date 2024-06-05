@@ -205,6 +205,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     HOG: 'hog', // owner: @mariusandra
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
+    ALERTS: 'alerts', // owner: github.com/nikitaevg
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
