@@ -2545,12 +2545,12 @@ export interface Survey {
 }
 
 export enum SurveyUrlMatchType {
-    Exact = 'exact',
-    NotExact = 'not_exact',
-    Contains = 'icontains',
-    NotContains = 'not_icontains',
-    Regex = 'regex',
-    NotRegex = 'not_regex',
+    Exact = PropertyOperator.Exact,
+    IsNot = PropertyOperator.IsNot,
+    Contains = PropertyOperator.IContains,
+    NotIContains = PropertyOperator.NotIContains,
+    Regex = PropertyOperator.Regex,
+    NotRegex = PropertyOperator.NotRegex,
 }
 
 export enum SurveyType {

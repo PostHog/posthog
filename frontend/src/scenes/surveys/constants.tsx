@@ -1,3 +1,5 @@
+import { allOperatorsMapping } from 'lib/utils'
+
 import { Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
@@ -11,13 +13,14 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+// Create SurveyUrlMatchTypeLabels using allOperatorsMapping
 export const SurveyUrlMatchTypeLabels = {
-    [SurveyUrlMatchType.Contains]: '∋ contains',
-    [SurveyUrlMatchType.NotContains]: "∌ doesn't contain",
-    [SurveyUrlMatchType.Regex]: '∼ matches regex',
-    [SurveyUrlMatchType.NotRegex]: "≁ doesn't match regex",
-    [SurveyUrlMatchType.Exact]: '= equals',
-    [SurveyUrlMatchType.NotExact]: "≠ doesn't equal",
+    [SurveyUrlMatchType.Exact]: allOperatorsMapping[SurveyUrlMatchType.Exact],
+    [SurveyUrlMatchType.IsNot]: allOperatorsMapping[SurveyUrlMatchType.IsNot],
+    [SurveyUrlMatchType.Contains]: allOperatorsMapping[SurveyUrlMatchType.Contains],
+    [SurveyUrlMatchType.NotIContains]: allOperatorsMapping[SurveyUrlMatchType.NotIContains],
+    [SurveyUrlMatchType.Regex]: allOperatorsMapping[SurveyUrlMatchType.Regex],
+    [SurveyUrlMatchType.NotRegex]: allOperatorsMapping[SurveyUrlMatchType.NotRegex],
 }
 
 export const defaultSurveyAppearance = {
