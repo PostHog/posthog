@@ -401,14 +401,21 @@ def cleanup_materialized_columns():
         # EE not available? Skip
         return
 
+    def optionally_drop(table, filter=None):
+        drops = ",".join(
+            [
+                f"DROP COLUMN {column_name}"
+                for column_name in get_materialized_columns(table).values()
+                if filter is None or filter(column_name)
+            ]
+        )
+        if drops:
+            sync_execute(f"ALTER TABLE {table} {drops}")
+
     default_columns = default_materialised_columns()
-    for column_name in get_materialized_columns("events").values():
-        if column_name not in default_columns:
-            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("person").values():
-        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("groups").values():
-        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+    optionally_drop("events", lambda name: name not in default_columns)
+    optionally_drop("person")
+    optionally_drop("groups")
 
 
 def also_test_with_materialized_columns(
