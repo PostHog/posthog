@@ -7,8 +7,15 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0419_remove_organization_available_features"
     migrate_to = "0420_set_all_survey_responses_to_be_strings"
 
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUpBeforeMigration(self, apps: Any) -> None:
         PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
+        Organization = apps.get_model("posthog", "Organization")
+        Team = apps.get_model("posthog", "Team")
+
+        self.organization = Organization.objects.create(name="o1")
+        self.team = Team.objects.create(organization=self.organization, name="t1")
 
         self.property_0 = PropertyDefinition.objects.create(
             team_id=self.team.id, name="$survey_response", property_type="Numeric", is_numerical=True
@@ -82,6 +89,4 @@ class UpdateSurveyResponseMigrationTest(NonAtomicTestMigrations):
 
         PropertyDefinition = self.apps.get_model("posthog", "PropertyDefinition")
         PropertyDefinition.objects.all().delete()
-        super().tearDown()
-        super().tearDown()
         super().tearDown()
