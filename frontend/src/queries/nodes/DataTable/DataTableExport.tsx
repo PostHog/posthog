@@ -20,7 +20,8 @@ import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
-export const EXPORT_MAX_LIMIT = 10000
+// Sync with posthog/hogql/constants.py
+export const MAX_SELECT_RETURNED_ROWS = 50000
 
 export async function startDownload(
     query: DataTableNode,
