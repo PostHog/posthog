@@ -136,6 +136,7 @@ def calculate_for_query_based_insight(
         insight.query,
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
         execution_mode=execution_mode,
+        user=user,
     )
 
     if isinstance(response, CacheMissResponse):
