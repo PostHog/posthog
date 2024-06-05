@@ -500,6 +500,9 @@
             "properties": {
                 "cache_key": {
                     "type": ["string", "null"]
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
                 }
             },
             "required": ["cache_key"],
@@ -5607,11 +5610,6 @@
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
-                "async": {
-                    "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
-                    "examples": [true],
-                    "type": "boolean"
-                },
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
@@ -5621,19 +5619,7 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "const": "async",
-                            "type": "string"
-                        },
-                        {
-                            "const": "force_async",
-                            "type": "string"
-                        }
-                    ]
+                    "$ref": "#/definitions/RefreshType"
                 }
             },
             "required": ["query"],
@@ -6982,6 +6968,25 @@
             },
             "required": ["key", "operator", "type", "value"],
             "type": "object"
+        },
+        "RefreshType": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "const": "async",
+                    "type": "string"
+                },
+                {
+                    "const": "force_async",
+                    "type": "string"
+                },
+                {
+                    "const": "stale",
+                    "type": "string"
+                }
+            ]
         },
         "RetentionEntity": {
             "additionalProperties": false,

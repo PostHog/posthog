@@ -926,17 +926,12 @@ export type LifecycleFilter = {
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
+export type RefreshType = boolean | 'async' | 'force_async' | 'stale'
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    refresh?: boolean | 'async' | 'force_async'
-    /**
-     * (Experimental)
-     * Whether to run the query asynchronously. Defaults to False.
-     * If True, the `id` of the query can be used to check the status and to cancel it.
-     * @example true
-     */
-    async?: boolean
+    refresh?: RefreshType
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -994,6 +989,7 @@ export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryRes
 
 export interface CacheMissResponse {
     cache_key: string | null
+    query_status?: QueryStatus
 }
 
 export type ClickhouseQueryProgress = {

@@ -51,7 +51,6 @@ from posthog.schema import (
     DashboardFilter,
     HogQLQueryModifiers,
     InsightActorsQueryOptions,
-    QueryStatus,
     QueryStatusResponse,
 )
 from posthog.schema_helpers import to_dict, to_json
@@ -85,7 +84,7 @@ class ExecutionMode(IntEnum):
     """Do not initiate calculation."""
 
 
-def execution_mode_from_refresh(refresh_requested: bool | str) -> ExecutionMode:
+def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
     refresh_map = {
         "stale": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -387,7 +386,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def retrieve_from_cache(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
-    ) -> Optional[CR | CacheMissResponse | QueryStatus]:
+    ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
         cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
@@ -432,7 +431,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously
-                return self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                cached_response.query_status = query_status_response.query_status
+                return cached_response
 
         # Nothing useful out of cache, nor async query status
         return None
@@ -442,7 +443,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         user: Optional[User] = None,
         query_id: Optional[str] = None,
-    ) -> CR | CacheMissResponse | QueryStatus:
+    ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
         self.query_id = query_id or self.query_id

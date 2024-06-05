@@ -36,7 +36,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter } from '~/queries/schema'
+import { DashboardFilter, RefreshType } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -119,7 +119,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions({
-        loadDashboard: (payload: { refresh?: boolean | 'async'; action: string }) => payload,
+        loadDashboard: (payload: { refresh?: RefreshType; action: string }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),

@@ -111,13 +111,6 @@ class BreakdownValueInt(RootModel[int]):
     root: int
 
 
-class CacheMissResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: Optional[str] = None
-
-
 class BreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1294,6 +1287,14 @@ class BreakdownFilter(BaseModel):
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = BreakdownType.event
     breakdowns: Optional[list[Breakdown]] = None
+
+
+class CacheMissResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: Optional[str] = None
+    query_status: Optional[QueryStatus] = None
 
 
 class CachedActorsQueryResponse(BaseModel):
@@ -4382,12 +4383,6 @@ class HogQLMetadata(BaseModel):
 class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-    )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description="(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
-        examples=[True],
     )
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
