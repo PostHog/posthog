@@ -21,13 +21,22 @@ export function SurveyAppearancePreview({
 
     useEffect(() => {
         if (surveyPreviewRef.current) {
-            renderSurveysPreview(survey, !surveysHTMLAvailable, surveyPreviewRef.current, previewPageIndex)
+            renderSurveysPreview({
+                survey,
+                parentElement: surveyPreviewRef.current,
+                previewPageIndex,
+                forceDisableHtml: !surveysHTMLAvailable,
+            })
         }
 
         if (feedbackWidgetPreviewRef.current) {
-            renderFeedbackWidgetPreview(survey, !surveysHTMLAvailable, feedbackWidgetPreviewRef.current)
+            renderFeedbackWidgetPreview({
+                survey,
+                root: feedbackWidgetPreviewRef.current,
+                forceDisableHtml: !surveysHTMLAvailable,
+            })
         }
-    }, [survey, previewPageIndex])
+    }, [survey, previewPageIndex, surveysHTMLAvailable])
     return (
         <>
             <div ref={surveyPreviewRef} />

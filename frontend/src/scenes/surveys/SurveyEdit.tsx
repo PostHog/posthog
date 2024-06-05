@@ -47,13 +47,13 @@ export default function SurveyEdit(): JSX.Element {
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
-        thankYouMessageDescriptionContentType,
     } = useValues(surveyLogic)
     const { setSurveyValue, resetTargeting, setSelectedPageIndex, setSelectedSection, setFlagPropertyErrors } =
         useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysHTMLAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType } = survey.appearance
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -66,38 +66,6 @@ export default function SurveyEdit(): JSX.Element {
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
         setSelectedPageIndex(newIndex)
-    }
-
-    const initialThankYouMessageDescriptionContentType = surveysHTMLAvailable
-        ? thankYouMessageDescriptionContentType || 'text'
-        : 'text'
-
-    const handleSurveyValueChange = (key: string, val: string): void => {
-        const updatedAppearance = {
-            ...survey.appearance,
-            [key]: val,
-        }
-        setSurveyValue('appearance', updatedAppearance)
-    }
-
-    const updateWritingHTMLDescription = (val: boolean): void => {
-        if (surveysHTMLAvailable) {
-            handleSurveyValueChange('thankYouMessageDescriptionContentType', val ? 'html' : 'text')
-        }
-    }
-
-    const onTabChange = (key: string): void => {
-        if (surveysHTMLAvailable || key === 'text') {
-            updateWritingHTMLDescription(key === 'html')
-        }
-    }
-
-    const handleChange = (val: string): void => {
-        setSurveyValue('appearance', {
-            ...survey.appearance,
-            thankYouMessageDescription: val,
-            thankYouMessageDescriptionContentType,
-        })
     }
 
     return (
@@ -279,10 +247,30 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       survey.appearance
                                                                                           .thankYouMessageDescription
                                                                                   }
-                                                                                  onChange={handleChange}
-                                                                                  onTabChange={onTabChange}
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescription:
+                                                                                              val,
+                                                                                          thankYouMessageDescriptionContentType,
+                                                                                      })
+                                                                                  }
+                                                                                  onTabChange={(key) => {
+                                                                                      const updatedAppearance = {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              key === 'html'
+                                                                                                  ? 'html'
+                                                                                                  : 'text',
+                                                                                      }
+                                                                                      setSurveyValue(
+                                                                                          'appearance',
+                                                                                          updatedAppearance
+                                                                                      )
+                                                                                  }}
                                                                                   activeTab={
-                                                                                      initialThankYouMessageDescriptionContentType
+                                                                                      thankYouMessageDescriptionContentType ??
+                                                                                      'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />

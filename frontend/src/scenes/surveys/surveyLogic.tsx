@@ -626,10 +626,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 return survey.questions[questionIndex].descriptionContentType
             },
         ],
-        thankYouMessageDescriptionContentType: [
-            (s) => [s.survey],
-            (survey) => survey.appearance.thankYouMessageDescriptionContentType,
-        ],
         hasTargetingSet: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
