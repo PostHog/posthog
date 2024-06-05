@@ -165,7 +165,7 @@ def execute_process_query(
             team=team,
             query_json=query_json,
             limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATION_ALWAYS,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)

@@ -71,8 +71,8 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 )
 
 
-class ExecutionMode(IntEnum):
-    CALCULATION_ALWAYS = 4
+class ExecutionMode(IntEnum):  # Keep integer values the same for Celery's sake
+    CALCULATE_BLOCKING_ALWAYS = 4
     """Always recalculate."""
     CALCULATE_ASYNC_ALWAYS = 3
     """Always kick off async calculation."""
@@ -86,10 +86,10 @@ class ExecutionMode(IntEnum):
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
     refresh_map = {
-        "stale": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-        "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "if_stale_blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        "if_stale": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
-        True: ExecutionMode.CALCULATION_ALWAYS,
+        True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     }
     if refresh_requested in refresh_map:
         return refresh_map[refresh_requested]
@@ -452,7 +452,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
             return self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
-        elif execution_mode != ExecutionMode.CALCULATION_ALWAYS:
+        elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
             results = self.retrieve_from_cache(execution_mode=execution_mode, cache_key=cache_key, user=user)
             if results is not None:
@@ -514,6 +514,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _is_stale(self, cached_result_package):
+        # Default is to have the result valid for at 1 minute
         return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
 
     @abstractmethod

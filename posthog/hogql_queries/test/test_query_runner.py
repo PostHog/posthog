@@ -161,7 +161,7 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
 
             # return fresh response if refresh requested
-            response = runner.run(execution_mode=ExecutionMode.CALCULATION_ALWAYS)
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
 

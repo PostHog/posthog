@@ -441,7 +441,7 @@ class TestShouldRefresh(TestCase):
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(refresh_requested_by_client(drf_request))
 
-    def test_should_not_refresh_with_data_async(self):
+    def test_should_refresh_with_data_async(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": "async"}  # type: ignore
         assert refresh_requested_by_client(drf_request) == "async"

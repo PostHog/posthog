@@ -6975,15 +6975,15 @@
                     "type": "boolean"
                 },
                 {
-                    "const": "async",
+                    "const": "if_stale",
+                    "type": "string"
+                },
+                {
+                    "const": "if_stale_blocking",
                     "type": "string"
                 },
                 {
                     "const": "force_async",
-                    "type": "string"
-                },
-                {
-                    "const": "stale",
                     "type": "string"
                 }
             ]

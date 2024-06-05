@@ -605,7 +605,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {
-                return (refresh?: boolean) =>
+                return (refresh?: RefreshType) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                     })}`
@@ -787,7 +787,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: 'async',
+                        refresh: 'if_stale',
                         action: 'initial_load',
                     })
                 }
@@ -960,7 +960,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'async' : undefined,
+                    refresh: hardRefreshWithoutCache ? 'if_stale' : undefined,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
@@ -984,7 +984,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             .then(async () => {
                                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams(
                                     {
-                                        refresh: 'stale',
+                                        refresh: 'if_stale',
                                         from_dashboard: dashboardId, // needed to load insight in correct context
                                         client_query_id: queryId,
                                         session_id: currentSessionId(),

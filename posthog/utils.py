@@ -1014,7 +1014,7 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
 
 
 def refresh_requested_by_client(request: Request) -> bool | str:
-    return _request_has_key_set("refresh", request, allowed_values=["async", "stale", "force_async"])
+    return _request_has_key_set("refresh", request, allowed_values=["if_stale", "if_stale_blocking", "force_async"])
 
 
 def cache_requested_by_client(request: Request) -> bool | str:
@@ -1031,9 +1031,9 @@ def _request_has_key_set(key: str, request: Request, allowed_values: Optional[li
         return False
     if isinstance(value, bool):
         return value
-    if str(value).lower() in ["true", "1", "yes", "on", ""]:  # "" means it's set but no value
+    if str(value).lower() in ["true", "1", "yes", ""]:  # "" means it's set but no value
         return True
-    if str(value).lower() in ["false", "0", "no", "off"]:
+    if str(value).lower() in ["false", "0", "no"]:
         return False
     if allowed_values and value in allowed_values:
         assert isinstance(value, str)
