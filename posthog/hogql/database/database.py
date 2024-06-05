@@ -524,23 +524,23 @@ def serialize_database(
 
 def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
     if isinstance(constant_type, ast.StringType):
-        return DatabaseSerializedFieldType.string
+        return DatabaseSerializedFieldType.STRING
     if isinstance(constant_type, ast.BooleanType):
-        return DatabaseSerializedFieldType.boolean
+        return DatabaseSerializedFieldType.BOOLEAN
     if isinstance(constant_type, ast.DateType):
-        return DatabaseSerializedFieldType.date
+        return DatabaseSerializedFieldType.DATE
     if isinstance(constant_type, ast.DateTimeType):
-        return DatabaseSerializedFieldType.datetime
+        return DatabaseSerializedFieldType.DATETIME
     if isinstance(constant_type, ast.UUIDType):
-        return DatabaseSerializedFieldType.string
+        return DatabaseSerializedFieldType.STRING
     if isinstance(constant_type, ast.ArrayType):
-        return DatabaseSerializedFieldType.array
+        return DatabaseSerializedFieldType.ARRAY
     if isinstance(constant_type, ast.TupleType):
-        return DatabaseSerializedFieldType.json
+        return DatabaseSerializedFieldType.JSON
     if isinstance(constant_type, ast.IntegerType):
-        return DatabaseSerializedFieldType.integer
+        return DatabaseSerializedFieldType.INTEGER
     if isinstance(constant_type, ast.FloatType):
-        return DatabaseSerializedFieldType.float
+        return DatabaseSerializedFieldType.FLOAT
     return None
 
 
@@ -584,7 +584,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.integer,
+                        type=DatabaseSerializedFieldType.INTEGER,
                         schema_valid=schema_valid,
                     )
                 )
@@ -593,7 +593,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.float,
+                        type=DatabaseSerializedFieldType.FLOAT,
                         schema_valid=schema_valid,
                     )
                 )
@@ -602,7 +602,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.string,
+                        type=DatabaseSerializedFieldType.STRING,
                         schema_valid=schema_valid,
                     )
                 )
@@ -611,7 +611,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.datetime,
+                        type=DatabaseSerializedFieldType.DATETIME,
                         schema_valid=schema_valid,
                     )
                 )
@@ -620,7 +620,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.date,
+                        type=DatabaseSerializedFieldType.DATE,
                         schema_valid=schema_valid,
                     )
                 )
@@ -629,7 +629,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.boolean,
+                        type=DatabaseSerializedFieldType.BOOLEAN,
                         schema_valid=schema_valid,
                     )
                 )
@@ -638,7 +638,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.json,
+                        type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
                     )
                 )
@@ -647,7 +647,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.array,
+                        type=DatabaseSerializedFieldType.ARRAY,
                         schema_valid=schema_valid,
                     )
                 )
@@ -658,7 +658,7 @@ def serialize_fields(
 
                 field_type = constant_type_to_serialized_field_type(constant_type)
                 if field_type is None:
-                    field_type = DatabaseSerializedFieldType.expression
+                    field_type = DatabaseSerializedFieldType.EXPRESSION
 
                 field_output.append(
                     DatabaseSchemaField(
@@ -674,7 +674,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
+                    type=DatabaseSerializedFieldType.VIEW if is_view else DatabaseSerializedFieldType.LAZY_TABLE,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
@@ -685,7 +685,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.virtual_table,
+                    type=DatabaseSerializedFieldType.VIRTUAL_TABLE,
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
                     fields=list(field.fields.keys()),
@@ -696,7 +696,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.field_traverser,
+                    type=DatabaseSerializedFieldType.FIELD_TRAVERSER,
                     schema_valid=schema_valid,
                     chain=field.chain,
                 )

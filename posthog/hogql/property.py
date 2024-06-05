@@ -105,8 +105,8 @@ def property_to_expr(
             raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
         if (
             (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
-            and property.type != FilterLogicalOperator.AND
-            and property.type != FilterLogicalOperator.OR
+            and property.type != FilterLogicalOperator.AND_
+            and property.type != FilterLogicalOperator.OR_
         ):
             raise NotImplementedError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
@@ -115,7 +115,7 @@ def property_to_expr(
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team, scope)
 
-        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND:
+        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
             return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
@@ -385,7 +385,7 @@ def property_to_expr(
                     for v in value
                 ]
                 if (
-                    operator == PropertyOperator.is_not
+                    operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                 ):
@@ -393,12 +393,12 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         if property.key == "selector" or property.key == "tag_name":
-            if operator != PropertyOperator.EXACT and operator != PropertyOperator.is_not:
+            if operator != PropertyOperator.EXACT and operator != PropertyOperator.IS_NOT:
                 raise NotImplementedError(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
-            if operator == PropertyOperator.is_not:
+            if operator == PropertyOperator.IS_NOT:
                 return ast.Call(name="not", args=[expr])
             return expr
 

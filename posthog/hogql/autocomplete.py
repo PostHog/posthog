@@ -365,7 +365,7 @@ def get_hogql_autocomplete(
                             extend_responses(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
-                                kind=Kind.Folder,
+                                kind=Kind.FOLDER,
                                 details=["Table"] * len(table_aliases),
                             )
                             break
@@ -459,7 +459,7 @@ def get_hogql_autocomplete(
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
-                            kind=Kind.Folder,
+                            kind=Kind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
         except Exception:

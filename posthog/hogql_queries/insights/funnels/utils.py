@@ -12,9 +12,9 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
         FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
-    elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
 
@@ -27,12 +27,12 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
         FunnelTrendsActors,
     )
 
-    if funnelsFilter.funnelVizType == FunnelVizType.trends:
+    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
         return FunnelTrendsActors
     else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+        elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
             return FunnelStrictActors
         else:
             return FunnelActors

@@ -38,7 +38,7 @@ class QueryDateRange:
     ) -> None:
         self._team = team
         self._date_range = date_range
-        self._interval = interval or IntervalType.day
+        self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
 
         if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", self._interval.name):
@@ -114,7 +114,7 @@ class QueryDateRange:
 
     @cached_property
     def interval_type(self) -> IntervalType:
-        return self._interval or IntervalType.day
+        return self._interval or IntervalType.DAY
 
     @cached_property
     def interval_name(self) -> IntervalLiteral:
@@ -125,7 +125,7 @@ class QueryDateRange:
         if self._interval is None:
             return False
 
-        return self._interval == IntervalType.hour
+        return self._interval == IntervalType.HOUR
 
     @cached_property
     def explicit(self) -> bool:
@@ -229,9 +229,9 @@ class QueryDateRange:
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
-        if interval in (IntervalType.hour, IntervalType.minute):
+        if interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return False
-        elif interval == IntervalType.day:
+        elif interval == IntervalType.DAY:
             if is_delta_hours:
                 return False
         return True
@@ -310,15 +310,15 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
-        if self._interval in (IntervalType.hour, IntervalType.minute):
+        if self._interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return self.date_to() - delta
-        elif self._interval == IntervalType.week:
+        elif self._interval == IntervalType.WEEK:
             date_from = self.date_to() - delta
             week_start_alignment_days = date_from.isoweekday() % 7
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
-        elif self._interval == IntervalType.month:
+        elif self._interval == IntervalType.MONTH:
             return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)

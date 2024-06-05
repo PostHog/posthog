@@ -157,7 +157,7 @@ class TrendsQueryRunner(QueryRunner):
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.cohort:
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
                 if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
                     self.query.breakdownFilter = None
                 elif isinstance(self.query.breakdownFilter.breakdown, list):
