@@ -3,6 +3,7 @@ import threading
 import types
 from contextlib import contextmanager
 from functools import lru_cache
+from random import random
 from time import perf_counter
 from typing import Any, Optional, Union
 from collections.abc import Sequence
@@ -237,7 +238,7 @@ def _annotate_tagged_query(query, workload):
     # Annotate the query with information on the request/task
     if "kind" in tags:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
-        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} {random.random()} */ {query}"
 
     return query, tags
 

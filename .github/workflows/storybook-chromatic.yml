@@ -194,7 +194,8 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              # Stop rerunning on flappy tests
+              if: github.actor != 'posthog-bot' && github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -269,17 +270,32 @@ jobs:
                         return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
                       }).join('\n')
 
+                      let body;
+                      if (github.actor != 'posthog-bot') {
+                        body = `## 📸 UI snapshots have been updated
+
+                        **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
+
+                        ${diffByBrowserDisplay}
+
+                        Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }}).
+
+                        👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
+                      } else {
+                        body = `## 📸 Not committing because snapshots are flapping
+
+                        **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
+
+                        ${diffByBrowserDisplay}
+
+                        Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }}).
+
+                        👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
+                      }
+
                       github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: `## 📸 UI snapshots have been updated
-
-                      **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
-
-                      ${diffByBrowserDisplay}
-
-                      Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }}).
-
-                      👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
-                      })
+                          issue_number: context.issue.number,
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          body: body
+                        })

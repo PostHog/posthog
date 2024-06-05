@@ -21,7 +21,7 @@ export function RetentionMeanCheckbox(): JSX.Element | null {
                 updateInsightFilter({ showMean })
             }}
             checked={showMean}
-            label={<span className="font-normal">Show mean across cohorts</span>}
+            label={<span className="font-normal">Show mean {Math.random()} across cohorts</span>}
             bordered
             size="small"
         />

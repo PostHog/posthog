@@ -298,7 +298,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && github.actor != 'posthog-bot' }}
               with:
                   add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
@@ -308,7 +308,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && github.actor != 'posthog-bot' }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -319,10 +319,28 @@ jobs:
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
+              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success' && github.actor != 'posthog-bot'
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
+
+            - name: Post about flappy snapshots
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && github.actor == 'posthog-bot' }}
+              uses: actions/github-script@v6
+              with:
+                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  script: |
+                      let body;
+                      body = `## ❗ Not committing because snapshots are flapping
+
+                      DB Snapshots are flapping.`
+
+                      github.rest.issues.createComment({
+                          issue_number: context.issue.number,
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          body: body
+                        })
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3

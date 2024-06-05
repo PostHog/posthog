@@ -16,9 +16,14 @@ jobs:
             contents: read # allow at least reading the repo contents, add other permissions if necessary
 
         steps:
+            # Log out the github object to make changes to actions easier
+            - name: Log Context
+              shell: bash
+              env:
+                  JSON: ${{ toJSON(github) }}
+
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
             # cancel previous runs of snapshot update-inducing workflows
-
             - uses: n1hility/cancel-previous-runs@v3
               if: github.actor != 'posthog-bot'
               with:
