@@ -1,4 +1,4 @@
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple, cast, Optional
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -80,7 +80,7 @@ class SessionRecordingListFromFilters:
         self,
         team: Team,
         filter: SessionRecordingsFilter,
-        hogql_query_modifers: HogQLQueryModifiers | None,
+        hogql_query_modifiers: Optional[HogQLQueryModifiers],
         **_,
     ):
         self._team = team
@@ -88,7 +88,7 @@ class SessionRecordingListFromFilters:
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
-        self._hogql_query_modifiers = hogql_query_modifers
+        self._hogql_query_modifiers = hogql_query_modifiers
 
     @property
     def ttl_days(self):

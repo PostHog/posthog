@@ -782,7 +782,7 @@ def list_recordings(
 
             with timer("load_recordings_from_hogql"):
                 (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team, hogql_query_modifers=modifiers
+                    filter=filter, team=team, hogql_query_modifiers=modifiers
                 ).run()
         else:
             # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
