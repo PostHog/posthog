@@ -717,7 +717,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {
                     "type": "data_warehouse_person_property",
-                    "key": "extended_properties: bool_prop",
+                    "key": "extended_properties.bool_prop",
                     "value": "true",
                     "operator": "exact",
                 }
