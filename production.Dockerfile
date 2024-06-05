@@ -47,11 +47,6 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY package.json pnpm-lock.yaml ./
-COPY patches/ patches/
-COPY hogvm hogvm/
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
-COPY ./plugin-server/patches/ ./plugin-server/patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -62,9 +57,16 @@ RUN apt-get update && \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+COPY patches/ patches/
+COPY hogvm hogvm/
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
+COPY ./plugin-server/patches/ ./plugin-server/patches/
+
+RUN mkdir /tmp/pnpm-store && \
+    cd plugin-server && pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
