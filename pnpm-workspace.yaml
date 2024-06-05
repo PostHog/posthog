@@ -2,3 +2,5 @@ packages:
     - 'hogvm/typescript'
     - 'frontend'
     - 'plugin-server'
+
+ignore-workspace-root-check: true # TODO: We should probably scope any CI scripts that call install
