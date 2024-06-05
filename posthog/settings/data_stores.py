@@ -126,7 +126,18 @@ READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 # Clickhouse Settings
 PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
-CLICKHOUSE_TEST_DB: str = f"posthog_test{f'_{PYTEST_XDIST_WORKER}' if PYTEST_XDIST_WORKER else ''}"
+PYTEST_XDIST_WORKER_NUM: int | None = None
+try:
+    if PYTEST_XDIST_WORKER is not None:
+        PYTEST_XDIST_WORKER_NUM = int("".join([x for x in PYTEST_XDIST_WORKER if x.isdigit()]))
+except:
+    pass
+
+SUFFIX = ""
+if TEST:
+    SUFFIX = f"_test${f'_{PYTEST_XDIST_WORKER}' if PYTEST_XDIST_WORKER else ''}"
+
+CLICKHOUSE_TEST_DB: str = f"posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
@@ -223,8 +234,6 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
-SUFFIX = "_test" if TEST else ""
-
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
@@ -242,7 +251,10 @@ TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
+    if PYTEST_XDIST_WORKER_NUM is not None:
+        REDIS_URL = os.getenv("REDIS_URL", f"redis://localhost/{PYTEST_XDIST_WORKER_NUM}")
+    else:
+        REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
 
