@@ -24,7 +24,7 @@
                 "actions": [],
                 "date_from": "2022-10-27",
                 "properties": [],
-                "recording_duration_filters": [
+                "duration": [
                     {
                         "key": "duration",
                         "type": "recording",
@@ -134,7 +134,7 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "recording_duration_filters": [
+                "duration": [
                     {
                         "key": "duration",
                         "type": "recording",
@@ -184,7 +184,7 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "recording_duration_filters": [
+                "duration": [
                     {
                         "key": "duration",
                         "type": "recording",
@@ -225,7 +225,7 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "recording_duration_filters": [
+                "duration": [
                     {
                         "key": "duration",
                         "type": "recording",
@@ -278,7 +278,7 @@
                 "actions": [],
                 "date_from": "2022-10-27",
                 "properties": [],
-                "recording_duration_filters": [
+                "duration": [
                     {
                         "key": "duration",
                         "type": "recording",

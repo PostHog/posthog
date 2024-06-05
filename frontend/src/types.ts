@@ -956,6 +956,7 @@ export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
 export interface RecordingDurationFilter extends RecordingPropertyFilter {
     key: DurationType
+    value: number
 }
 
 export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter {
@@ -964,6 +965,7 @@ export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter 
 }
 export interface RecordingConsoleLogQueryFilter extends RecordingPropertyFilter {
     key: 'console_log_query'
+    value: string
 }
 
 export interface RecordingConsoleLogFilter extends PropertyGroupFilterValue {
@@ -981,8 +983,8 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    recording_duration_filters?: RecordingDurationFilter[]
-    console_log_filters?: RecordingConsoleLogFilter[]
+    duration?: RecordingDurationFilter[]
+    console_logs?: RecordingConsoleLogFilter[]
     filter_test_accounts?: boolean
 }
 

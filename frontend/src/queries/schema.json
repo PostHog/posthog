@@ -6911,6 +6911,9 @@
                 "label": {
                     "type": "string"
                 },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
                 "type": {
                     "const": "recording",
                     "type": "string"
@@ -6919,7 +6922,7 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "type"],
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "RetentionEntity": {

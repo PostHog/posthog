@@ -67,7 +67,6 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     key: 'duration',
     value: 1,
     operator: PropertyOperator.GreaterThan,
-    duration_type: 'duration',
 }
 
 export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
@@ -76,14 +75,13 @@ export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
 }
 
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
-    recording_duration_filters: [defaultRecordingDurationFilter],
+    duration: [defaultRecordingDurationFilter],
     properties: [],
     events: [],
     actions: [],
     date_from: '-3d',
     date_to: null,
     console_logs: [],
-    console_search_query: '',
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -602,12 +600,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (filters?.actions?.length || 0) +
                     (filters?.events?.length || 0) +
                     (filters?.properties?.length || 0) +
-                    (equal(filters.recording_duration_filters, defaultFilters.recording_duration_filters) ? 0 : 1) +
+                    (equal(filters.duration, defaultFilters.duration) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1) +
-                    (filters.console_logs?.length || 0) +
-                    (filters.console_search_query?.length ? 1 : 0)
+                    (filters?.console_logs?.length || 0)
                 )
             },
         ],

@@ -858,6 +858,7 @@ class RecordingPropertyFilter(BaseModel):
     )
     key: Union[DurationType, str]
     label: Optional[str] = None
+    operator: PropertyOperator
     type: Literal["recording"] = "recording"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 

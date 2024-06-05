@@ -233,7 +233,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -247,7 +247,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"active_seconds"}]',
+                "duration": '[{"type":"recording","key":"active_seconds","value":60,"operator":"gt"}]',
             }
         )
 
@@ -257,7 +257,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"inactive_seconds"}]',
+                "duration": '[{"type":"recording","key":"inactive_seconds","value":60,"operator":"gt"}]',
             }
         )
 
@@ -860,7 +860,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -878,7 +878,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"active_seconds"}]',
+                "duration": '[{"type":"recording","key":"active_seconds","value":60,"operator":"gt"}]',
             }
         )
 
@@ -1295,14 +1295,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]'
+                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'
             }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"lt","duration_type":"duration"}]'
+                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'
             }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
@@ -1517,7 +1517,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "person_uuid": str(p.uuid),
                 "date_to": (self.base_time + relativedelta(days=3)).strftime("%Y-%m-%d"),
                 "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
-                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
+                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
                 "events": [
                     {
                         "id": "$pageview",

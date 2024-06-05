@@ -13,13 +13,12 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
         filters: {
             events: [],
             date_from: '2022-10-18',
-            recording_duration_filters: [
+            duration: [
                 {
                     key: 'duration',
                     type: 'recording',
                     value: 60,
                     operator: 'gt',
-                    duration_type: 'duration',
                 },
             ],
         },

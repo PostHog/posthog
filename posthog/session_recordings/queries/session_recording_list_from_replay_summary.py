@@ -764,14 +764,14 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     ) -> tuple[str, dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
-        if self._filter.recording_duration_filters:
-            filter = self._filter.recording_duration_filters[0]
+        if self._filter.duration:
+            filter = self._filter.duration[0]
             if filter.operator == "gt":
                 operator = ">"
             else:
                 operator = "<"
             duration_clause = "\nAND {duration_type} {operator} %(recording_duration)s".format(
-                duration_type=filter.duration_type, operator=operator
+                duration_type=filter.type, operator=operator
             )
             duration_params = {
                 "recording_duration": filter.value,

@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
@@ -67,9 +67,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (
-                        JSON.parse(searchParams.get('recording_duration_filters') ?? '[{}]')[0]['value'] === 600
-                    ) {
+                    } else if (JSON.parse(searchParams.get('duration') ?? '[{}]')[0]['value'] === 600) {
                         return [
                             200,
                             {
@@ -277,26 +275,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setAdvancedFilters({
-                        recording_duration_filters: [
+                        duration: [
                             {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
-                                duration_type: 'duration',
                             },
                         ],
                     })
                 })
                     .toMatchValues({
                         filters: expect.objectContaining({
-                            recording_duration_filters: [
+                            duration: [
                                 {
                                     type: PropertyFilterType.Recording,
                                     key: 'duration',
                                     value: 600,
                                     operator: PropertyOperator.LessThan,
-                                    duration_type: 'duration',
                                 },
                             ],
                         }),
@@ -304,13 +300,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('recording_duration_filters', [
+                expect(router.values.searchParams.advancedFilters).toHaveProperty('duration', [
                     {
                         type: PropertyFilterType.Recording,
                         key: 'duration',
                         value: 600,
                         operator: PropertyOperator.LessThan,
-                        duration_type: 'duration',
                     },
                 ])
             })
@@ -392,13 +387,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '2021-10-01',
                     date_to: '2021-10-10',
                     offset: 50,
-                    recording_duration_filters: [
+                    duration: [
                         {
                             type: PropertyFilterType.Recording,
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,
-                            duration_type: 'duration',
                         },
                     ],
                 },
@@ -416,13 +410,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         console_logs: [],
                         console_search_query: '',
                         properties: [],
-                        recording_duration_filters: [
+                        duration: [
                             {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
-                                duration_type: 'duration',
                             },
                         ],
                     },
@@ -444,7 +437,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     }),
                     filters: {
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                        recording_duration_filters: [defaultRecordingDurationFilter],
+                        duration: [defaultRecordingDurationFilter],
                         console_logs: [],
                         console_search_query: '',
                         date_from: '-3d',
@@ -543,7 +536,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('counts console log filters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAdvancedFilters({
-                    console_logs: ['warn', 'error'],
+                    console_logs: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_level',
+                                    operator: PropertyOperator.IContains,
+                                    value: ['warn', 'error'],
+                                },
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_query',
+                                    operator: PropertyOperator.IContains,
+                                    value: '',
+                                },
+                            ],
+                        },
+                    ],
                 } satisfies Partial<RecordingFilters>)
             }).toMatchValues({ totalFiltersCount: 2 })
         })
@@ -551,7 +562,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('counts console log search query', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAdvancedFilters({
-                    console_search_query: 'this is a test',
+                    console_logs: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_level',
+                                    operator: PropertyOperator.IContains,
+                                    value: [],
+                                },
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_query',
+                                    operator: PropertyOperator.IContains,
+                                    value: 'this is a test',
+                                },
+                            ],
+                        },
+                    ],
                 } satisfies Partial<RecordingFilters>)
             }).toMatchValues({ totalFiltersCount: 1 })
         })
@@ -570,7 +599,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('resets console log filters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAdvancedFilters({
-                    console_logs: ['warn', 'error'],
+                    console_logs: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_level',
+                                    operator: PropertyOperator.IContains,
+                                    value: ['warn', 'error'],
+                                },
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'console_log_query',
+                                    operator: PropertyOperator.IContains,
+                                    value: '',
+                                },
+                            ],
+                        },
+                    ],
                 } satisfies Partial<RecordingFilters>)
                 logic.actions.resetFilters()
             }).toMatchValues({ totalFiltersCount: 0 })

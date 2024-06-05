@@ -7,6 +7,13 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 
 
+class Property:
+    key: str
+    operator: Optional[OperatorType]
+    value: ValueT
+    type: PropertyType
+
+
 class PersonUUIDMixin(BaseParamMixin):
     @cached_property
     def person_uuid(self) -> Optional[str]:
@@ -19,7 +26,7 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
-    def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
+    def console_logs(self) -> list[Literal["error", "warn", "info"]]:
         user_value = self._data.get("console_logs", None) or []
         if isinstance(user_value, str):
             user_value = json.loads(user_value)
@@ -35,10 +42,11 @@ class SessionRecordingsMixin(BaseParamMixin):
     #     return valid_values
 
     @cached_property
-    def recording_duration_filters(self) -> Optional[list[Property]]:
-        duration_filters_data_str = self._data.get("recording_duration_filters", None)
+    def duration(self) -> Optional[list[Property]]:
+        duration_filters_data_str = self._data.get("duration", None)
         if duration_filters_data_str:
             filter_data = json.loads(duration_filters_data_str)
+            # TODO: Possibly not a Property
             return Property(**filter_data)
         return None
 

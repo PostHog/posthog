@@ -189,7 +189,7 @@ const testCases: Record<string, NotebookType> = {
                 title: 'Session replays',
                 nodeId: '41faad12-499f-4a4b-95f7-3a36601317cc',
                 filters:
-                    '{"recording_duration_filters":[{"type":"recording","key":"duration","value":3600,"operator":"gt"}],"properties":[],"events":[],"actions":[],"date_from":"-7d","date_to":null}',
+                    '{"duration":[{"type":"recording","key":"duration","value":3600,"operator":"gt"}],"properties":[],"events":[],"actions":[],"date_from":"-7d","date_to":null}',
             },
         },
     ]),

@@ -65,13 +65,12 @@ const meta: Meta = {
                                 date_from: '-7d',
                                 properties: [],
                                 console_logs: [],
-                                recording_duration_filters: [
+                                duration: [
                                     {
                                         key: 'duration',
                                         type: 'recording',
                                         value: 60,
                                         operator: 'gt',
-                                        duration_type: 'duration',
                                     },
                                 ],
                             },

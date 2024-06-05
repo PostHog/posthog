@@ -12,9 +12,35 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterableLogLevel,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingConsoleLogFilter,
+    RecordingFilters,
+} from '~/types'
 
 import { DurationFilter } from './DurationFilter'
+
+const DEFAULT_CONSOLE_LOG_FILTER: RecordingConsoleLogFilter = {
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: PropertyFilterType.Recording,
+            key: 'console_log_level',
+            operator: PropertyOperator.IContains,
+            value: [],
+        },
+        {
+            type: PropertyFilterType.Recording,
+            key: 'console_log_query',
+            operator: PropertyOperator.IContains,
+            value: '',
+        },
+    ],
+}
 
 function DateAndDurationFilters({
     filters,
@@ -50,10 +76,10 @@ function DateAndDurationFilters({
                 <DurationFilter
                     onChange={(newRecordingDurationFilter) => {
                         setFilters({
-                            recording_duration_filters: [newRecordingDurationFilter],
+                            duration: [newRecordingDurationFilter],
                         })
                     }}
-                    recordingDurationFilter={filters.recording_duration_filters?.[0] || defaultRecordingDurationFilter}
+                    recordingDurationFilter={filters.duration?.[0] || defaultRecordingDurationFilter}
                     pageKey="session-recordings"
                 />
             </div>
@@ -165,17 +191,24 @@ function ConsoleFilters({
     filters: RecordingFilters
     setFilters: (filterS: RecordingFilters) => void
 }): JSX.Element {
+    const consoleLogFilter = filters.console_logs?.[0] || DEFAULT_CONSOLE_LOG_FILTER
+
+    const logLevelsFilter = consoleLogFilter.values[0]
+    const searchQueryFilter = consoleLogFilter.values[1]
+
     function updateLevelChoice(checked: boolean, level: FilterableLogLevel): void {
-        const newChoice = filters.console_logs?.filter((c) => c !== level) || []
+        const newLevels = logLevelsFilter?.value?.filter((c) => c !== level) || []
         if (checked) {
-            setFilters({
-                console_logs: [...newChoice, level],
-            })
-        } else {
-            setFilters({
-                console_logs: newChoice,
-            })
+            newLevels.push(level)
         }
+        setFilters({
+            console_logs: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ ...logLevelsFilter, value: newLevels }, searchQueryFilter],
+                },
+            ],
+        })
     }
 
     return (
@@ -185,10 +218,12 @@ function ConsoleFilters({
                 <LemonInput
                     className="grow"
                     placeholder="containing text"
-                    value={filters.console_search_query}
+                    value={searchQueryFilter.value}
                     onChange={(s: string): void => {
                         setFilters({
-                            console_search_query: s,
+                            console_logs: [
+                                { ...consoleLogFilter, values: [logLevelsFilter, { ...searchQueryFilter, value: s }] },
+                            ],
                         })
                     }}
                 />
@@ -205,7 +240,7 @@ function ConsoleFilters({
                             <LemonCheckbox
                                 size="small"
                                 fullWidth
-                                checked={!!filters.console_logs?.includes('info')}
+                                checked={logLevelsFilter.value.includes('info')}
                                 onChange={(checked) => {
                                     updateLevelChoice(checked, 'info')
                                 }}
@@ -214,14 +249,14 @@ function ConsoleFilters({
                             <LemonCheckbox
                                 size="small"
                                 fullWidth
-                                checked={!!filters.console_logs?.includes('warn')}
+                                checked={logLevelsFilter.value.includes('warn')}
                                 onChange={(checked) => updateLevelChoice(checked, 'warn')}
                                 label="warn"
                             />
                             <LemonCheckbox
                                 size="small"
                                 fullWidth
-                                checked={!!filters.console_logs?.includes('error')}
+                                checked={logLevelsFilter.value.includes('error')}
                                 onChange={(checked) => updateLevelChoice(checked, 'error')}
                                 label="error"
                             />
@@ -230,7 +265,7 @@ function ConsoleFilters({
                     actionable: true,
                 }}
             >
-                {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
+                {logLevelsFilter.value?.map((x) => `console.${x}`).join(' or ') || (
                     <span className="text-muted">Console types to filter for...</span>
                 )}
             </LemonButtonWithDropdown>
