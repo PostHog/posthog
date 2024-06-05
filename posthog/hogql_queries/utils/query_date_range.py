@@ -118,7 +118,7 @@ class QueryDateRange:
 
     @cached_property
     def interval_name(self) -> IntervalLiteral:
-        return cast(IntervalLiteral, self.interval_type.name)
+        return cast(IntervalLiteral, self.interval_type.name.lower())
 
     @cached_property
     def is_hourly(self) -> bool:
