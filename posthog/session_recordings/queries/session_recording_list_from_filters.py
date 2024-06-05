@@ -225,6 +225,7 @@ class SessionRecordingListFromFilters:
         exprs: list[ast.Expr] = []
 
         for filter in self._filter.recording_duration_filters:
+            exprs.append(property_to_expr(filter, self._team))
             op = ast.CompareOperationOp.GtEq if filter.operator == "gt" else ast.CompareOperationOp.LtEq
             exprs.append(
                 ast.CompareOperation(

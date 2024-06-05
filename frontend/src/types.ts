@@ -738,6 +738,12 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface RecordingPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Recording
+    key: DurationType | 'console_log_level' | 'console_log_query'
+    operator: PropertyOperator
+}
+
 /** Sync with plugin-server/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
@@ -775,7 +781,7 @@ export type AnyPropertyFilter =
     | ElementPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
-    | RecordingDurationFilter
+    | RecordingPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -944,17 +950,27 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-export interface RecordingDurationFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Recording
-    key: 'duration'
-    value: number
-    operator: PropertyOperator
-    duration_type: DurationType
-}
-
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
+
+export interface RecordingDurationFilter extends RecordingPropertyFilter {
+    key: DurationType
+}
+
+export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter {
+    key: 'console_log_level'
+    value: string[]
+}
+export interface RecordingConsoleLogQueryFilter extends RecordingPropertyFilter {
+    key: 'console_log_query'
+}
+
+export interface RecordingConsoleLogFilter extends PropertyGroupFilterValue {
+    type: FilterLogicalOperator.And
+    values: [RecordingConsoleLogLevelFilter, RecordingConsoleLogQueryFilter]
+}
+
 export interface RecordingFilters {
     /**
      * live mode is front end only, sets date_from and date_to to the last hour
@@ -966,7 +982,7 @@ export interface RecordingFilters {
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     recording_duration_filters?: RecordingDurationFilter[]
-    console_log_filters?: { search_query?: string; level: FilterableLogLevel[] }
+    console_log_filters?: RecordingConsoleLogFilter[]
     filter_test_accounts?: boolean
 }
 

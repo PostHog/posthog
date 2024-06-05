@@ -26,6 +26,14 @@ class SessionRecordingsMixin(BaseParamMixin):
         valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
         return valid_values
 
+    # @cached_property
+    # def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
+    #     user_value = self._data.get("console_logs", None) or []
+    #     if isinstance(user_value, str):
+    #         user_value = json.loads(user_value)
+    #     valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
+    #     return valid_values
+
     @cached_property
     def recording_duration_filters(self) -> Optional[list[Property]]:
         duration_filters_data_str = self._data.get("recording_duration_filters", None)
