@@ -52,7 +52,6 @@ COPY patches/ patches/
 COPY hogvm hogvm/
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
-WORKDIR /code/plugin-server
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -73,7 +72,7 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
-RUN pnpm build
+RUN cd plugin-server && pnpm build
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
