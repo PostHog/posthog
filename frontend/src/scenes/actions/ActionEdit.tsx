@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, AvailableFeature } from '~/types'
+import { ActionStepType } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -92,7 +92,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         className="action-description"
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
                                     />
                                 )}
                             </LemonField>

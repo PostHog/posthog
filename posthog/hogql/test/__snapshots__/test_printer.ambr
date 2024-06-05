@@ -67,6 +67,6 @@
           start_of_period ASC)
   GROUP BY
       status
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
