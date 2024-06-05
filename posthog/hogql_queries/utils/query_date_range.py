@@ -41,7 +41,7 @@ class QueryDateRange:
         self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
 
-        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", self._interval.name):
+        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", "DAY", re.IGNORECASE):
             raise ValueError(f"Invalid interval: {interval}")
 
     def date_to(self) -> datetime:
