@@ -1536,11 +1536,11 @@ describe('HogQL Bytecode', () => {
             op.DICT,
             2,
         ]
-        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL, 'parseJSON', 1])).toEqual([1, 2, 3])
-        expect(execSync(['_h', ...dict, op.CALL, 'stringifyJSON', 1])).toEqual(
+        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL, 'jsonParse', 1])).toEqual([1, 2, 3])
+        expect(execSync(['_h', ...dict, op.CALL, 'jsonStringify', 1])).toEqual(
             '{"event":"$pageview","properties":{"$browser":"Chrome","$os":"Windows"}}'
         )
-        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL, 'stringifyJSON', 2])).toEqual(
+        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL, 'jsonStringify', 2])).toEqual(
             JSON.stringify({ event: '$pageview', properties: { $browser: 'Chrome', $os: 'Windows' } }, null, 2)
         )
     })
