@@ -48,13 +48,12 @@ function DateAndDurationFilters({
                     dropdownPlacement="bottom-start"
                 />
                 <DurationFilter
-                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                    onChange={(newRecordingDurationFilter) => {
                         setFilters({
-                            session_recording_duration: newRecordingDurationFilter,
-                            duration_type_filter: newDurationType,
+                            recording_duration_filters: [newRecordingDurationFilter],
                         })
                     }}
-                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
+                    recordingDurationFilter={filters.recording_duration_filters?.[0] || defaultRecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
                     pageKey="session-recordings"
                 />

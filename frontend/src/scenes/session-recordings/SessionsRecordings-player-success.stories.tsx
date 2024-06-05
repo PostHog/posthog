@@ -65,12 +65,15 @@ const meta: Meta = {
                                 date_from: '-7d',
                                 properties: [],
                                 console_logs: [],
-                                session_recording_duration: {
-                                    key: 'duration',
-                                    type: 'recording',
-                                    value: 60,
-                                    operator: 'gt',
-                                },
+                                recording_duration_filters: [
+                                    {
+                                        key: 'duration',
+                                        type: 'recording',
+                                        value: 60,
+                                        operator: 'gt',
+                                        duration_type: 'duration',
+                                    },
+                                ],
                             },
                             last_modified_at: '2023-07-31T16:34:15.297322Z',
                             last_modified_by: {

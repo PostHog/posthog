@@ -67,7 +67,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                    } else if (
+                        JSON.parse(searchParams.get('recording_duration_filters') ?? '[{}]')[0]['value'] === 600
+                    ) {
                         return [
                             200,
                             {
@@ -275,33 +277,42 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setAdvancedFilters({
-                        session_recording_duration: {
-                            type: PropertyFilterType.Recording,
-                            key: 'duration',
-                            value: 600,
-                            operator: PropertyOperator.LessThan,
-                        },
-                    })
-                })
-                    .toMatchValues({
-                        filters: expect.objectContaining({
-                            session_recording_duration: {
+                        recording_duration_filters: [
+                            {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
+                                duration_type: 'duration',
                             },
+                        ],
+                    })
+                })
+                    .toMatchValues({
+                        filters: expect.objectContaining({
+                            recording_duration_filters: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'duration',
+                                    value: 600,
+                                    operator: PropertyOperator.LessThan,
+                                    duration_type: 'duration',
+                                },
+                            ],
                         }),
                     })
                     .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
-                expect(router.values.searchParams.advancedFilters).toHaveProperty('session_recording_duration', {
-                    type: PropertyFilterType.Recording,
-                    key: 'duration',
-                    value: 600,
-                    operator: PropertyOperator.LessThan,
-                })
+                expect(router.values.searchParams.advancedFilters).toHaveProperty('recording_duration_filters', [
+                    {
+                        type: PropertyFilterType.Recording,
+                        key: 'duration',
+                        value: 600,
+                        operator: PropertyOperator.LessThan,
+                        duration_type: 'duration',
+                    },
+                ])
             })
         })
 
@@ -381,12 +392,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '2021-10-01',
                     date_to: '2021-10-10',
                     offset: 50,
-                    session_recording_duration: {
-                        type: PropertyFilterType.Recording,
-                        key: 'duration',
-                        value: 600,
-                        operator: PropertyOperator.LessThan,
-                    },
+                    recording_duration_filters: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'duration',
+                            value: 600,
+                            operator: PropertyOperator.LessThan,
+                            duration_type: 'duration',
+                        },
+                    ],
                 },
             })
 
@@ -402,12 +416,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         console_logs: [],
                         console_search_query: '',
                         properties: [],
-                        session_recording_duration: {
-                            type: PropertyFilterType.Recording,
-                            key: 'duration',
-                            value: 600,
-                            operator: PropertyOperator.LessThan,
-                        },
+                        recording_duration_filters: [
+                            {
+                                type: PropertyFilterType.Recording,
+                                key: 'duration',
+                                value: 600,
+                                operator: PropertyOperator.LessThan,
+                                duration_type: 'duration',
+                            },
+                        ],
                     },
                 })
         })
@@ -427,7 +444,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     }),
                     filters: {
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                        session_recording_duration: defaultRecordingDurationFilter,
+                        recording_duration_filters: [defaultRecordingDurationFilter],
                         console_logs: [],
                         console_search_query: '',
                         date_from: '-3d',

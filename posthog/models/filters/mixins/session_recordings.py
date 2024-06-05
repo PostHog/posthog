@@ -35,10 +35,10 @@ class SessionRecordingsMixin(BaseParamMixin):
             return "duration"
 
     @cached_property
-    def recording_duration_filter(self) -> Optional[Property]:
-        duration_filter_data_str = self._data.get("session_recording_duration", None)
-        if duration_filter_data_str:
-            filter_data = json.loads(duration_filter_data_str)
+    def recording_duration_filter(self) -> Optional[list[Property]]:
+        duration_filters_data_str = self._data.get("recording_duration_filters", None)
+        if duration_filters_data_str:
+            filter_data = json.loads(duration_filters_data_str)
             return Property(**filter_data)
         return None
 

@@ -229,8 +229,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             more_recordings_available,
         ) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
             }
         )
 
@@ -248,7 +247,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         ) = self._filter_recordings_by(
             {
                 "duration_type_filter": "active_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
             }
         )
 
@@ -262,7 +261,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         ) = self._filter_recordings_by(
             {
                 "duration_type_filter": "inactive_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
             }
         )
 
@@ -803,7 +802,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
             }
         )
 
@@ -825,7 +824,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
             }
         )
 
@@ -1186,12 +1185,16 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
 
         (session_recordings, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'}
+            {
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]'
+            }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         (session_recordings, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'}
+            {
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"lt","duration_type":"duration"}]'
+            }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
@@ -1405,7 +1408,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "person_uuid": str(p.uuid),
                 "date_to": (self.an_hour_ago + relativedelta(days=3)).strftime("%Y-%m-%d"),
                 "date_from": (self.an_hour_ago - relativedelta(days=10)).strftime("%Y-%m-%d"),
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "recording_duration_filters": '[{"type":"recording","key":"duration","value":60,"operator":"gt","duration_type":"duration"}]',
                 "events": [
                     {
                         "id": "$pageview",

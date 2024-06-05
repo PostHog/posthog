@@ -24,12 +24,14 @@
                 "actions": [],
                 "date_from": "2022-10-27",
                 "properties": [],
-                "session_recording_duration": {
-                    "key": "duration",
-                    "type": "recording",
-                    "value": 60,
-                    "operator": "gt"
-                }
+                "recording_duration_filters": [
+                    {
+                        "key": "duration",
+                        "type": "recording",
+                        "value": 60,
+                        "operator": "gt"
+                    }
+                ]
             },
             "last_modified_at": "2022-11-18T23:17:23.944256Z",
             "last_modified_by": {
@@ -132,12 +134,14 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "session_recording_duration": {
-                    "key": "duration",
-                    "type": "recording",
-                    "value": 60,
-                    "operator": "gt"
-                }
+                "recording_duration_filters": [
+                    {
+                        "key": "duration",
+                        "type": "recording",
+                        "value": 60,
+                        "operator": "gt"
+                    }
+                ]
             },
             "last_modified_at": "2022-11-18T23:17:04.416860Z",
             "last_modified_by": {
@@ -180,12 +184,14 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "session_recording_duration": {
-                    "key": "duration",
-                    "type": "recording",
-                    "value": 60,
-                    "operator": "gt"
-                }
+                "recording_duration_filters": [
+                    {
+                        "key": "duration",
+                        "type": "recording",
+                        "value": 60,
+                        "operator": "gt"
+                    }
+                ]
             },
             "last_modified_at": "2022-11-18T23:15:57.822851Z",
             "last_modified_by": {
@@ -219,12 +225,14 @@
                 "actions": [],
                 "date_from": "2022-10-28",
                 "properties": [],
-                "session_recording_duration": {
-                    "key": "duration",
-                    "type": "recording",
-                    "value": 60,
-                    "operator": "gt"
-                }
+                "recording_duration_filters": [
+                    {
+                        "key": "duration",
+                        "type": "recording",
+                        "value": 60,
+                        "operator": "gt"
+                    }
+                ]
             },
             "last_modified_at": "2022-11-18T18:46:20.353927Z",
             "last_modified_by": {
@@ -270,12 +278,14 @@
                 "actions": [],
                 "date_from": "2022-10-27",
                 "properties": [],
-                "session_recording_duration": {
-                    "key": "duration",
-                    "type": "recording",
-                    "value": 1,
-                    "operator": "gt"
-                }
+                "recording_duration_filters": [
+                    {
+                        "key": "duration",
+                        "type": "recording",
+                        "value": 1,
+                        "operator": "gt"
+                    }
+                ]
             },
             "last_modified_at": "2022-11-18T17:55:49.552699Z",
             "last_modified_by": {

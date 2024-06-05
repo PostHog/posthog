@@ -929,7 +929,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                           hasCohortFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Cohort),
                           hasPersonFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Person),
                           hasDurationFilters:
-                              (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
+                              (filters.recording_duration_filters?.length || -1) > defaultDurationFilter.value,
                           hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
                           isLiveMode: !!filters.live_mode,
                       }

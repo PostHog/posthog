@@ -67,6 +67,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     key: 'duration',
     value: 1,
     operator: PropertyOperator.GreaterThan,
+    duration_type: 'duration',
 }
 
 export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
@@ -75,7 +76,7 @@ export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
 }
 
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
-    session_recording_duration: defaultRecordingDurationFilter,
+    recording_duration_filters: [defaultRecordingDurationFilter],
     properties: [],
     events: [],
     actions: [],
@@ -601,7 +602,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (filters?.actions?.length || 0) +
                     (filters?.events?.length || 0) +
                     (filters?.properties?.length || 0) +
-                    (equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ? 0 : 1) +
+                    (equal(filters.recording_duration_filters, defaultFilters.recording_duration_filters) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1) +

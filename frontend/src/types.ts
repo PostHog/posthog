@@ -948,6 +948,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     key: 'duration'
     value: number
     operator: PropertyOperator
+    duration_type: DurationType
 }
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
@@ -963,10 +964,8 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    session_recording_duration?: RecordingDurationFilter
-    duration_type_filter?: DurationType
-    console_search_query?: string
-    console_logs?: FilterableLogLevel[]
+    recording_duration_filters?: RecordingDurationFilter[]
+    console_log_filters?: { search_query?: string; level: FilterableLogLevel[] }
     filter_test_accounts?: boolean
 }
 
