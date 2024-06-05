@@ -340,7 +340,9 @@ function InsightCardInternal(
                 ) : insight.filters?.insight ? (
                     <>
                         {useQueryDashboardCards &&
-                        ['TRENDS', 'LIFECYCLE', 'STICKINESS', 'RETENTION'].includes(insight.filters.insight) ? (
+                        ['TRENDS', 'LIFECYCLE', 'STICKINESS', 'RETENTION', 'FUNNELS'].includes(
+                            insight.filters.insight
+                        ) ? (
                             <Query
                                 query={queryFromFilters(insight.filters)}
                                 cachedResults={insight}
