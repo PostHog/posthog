@@ -29,9 +29,11 @@ CACHE_UPDATE_SKIPPED_COUNTER = Counter(
     "insight_cache_state_update_skipped", "Insight caching state is within target cache age and was not refreshed"
 )
 CACHE_UPDATE_SUCCEEDED_COUNTER = Counter(
-    "insight_cache_state_update_succeeded", "Insight cache was successfully refreshed"
+    "insight_cache_state_update_succeeded", "Insight cache was successfully refreshed", labelnames=["is_dashboard"]
 )
-CACHE_UPDATE_FAILED_COUNTER = Counter("insight_cache_state_update_failed", "Insight cache refresh failed")
+CACHE_UPDATE_FAILED_COUNTER = Counter(
+    "insight_cache_state_update_failed", "Insight cache refresh failed", labelnames=["is_dashboard"]
+)
 CACHE_UPDATE_SHARED_GAUGE = Gauge(
     "insight_cache_state_update_rows_updated",
     "Number of rows updated during insight cache refresh. A single cache key can be shared by more than one insight/tile.",
@@ -150,7 +152,7 @@ def update_cache(caching_state_id: UUID):
                 timestamp,
                 {"result": result, "type": cache_type, "last_refresh": timestamp} if result is not None else None,
             )
-            CACHE_UPDATE_SUCCEEDED_COUNTER.inc()
+            CACHE_UPDATE_SUCCEEDED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
             CACHE_UPDATE_SHARED_GAUGE.inc(rows_updated)
             logger.warn(
                 "Re-calculated insight cache",
@@ -164,7 +166,7 @@ def update_cache(caching_state_id: UUID):
                 **metadata,
                 refresh_attempt=caching_state.refresh_attempt,
             )
-            CACHE_UPDATE_FAILED_COUNTER.inc()
+            CACHE_UPDATE_FAILED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
 
             if caching_state.refresh_attempt < MAX_ATTEMPTS:
                 update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
