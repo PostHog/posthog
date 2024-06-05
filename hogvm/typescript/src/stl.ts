@@ -47,10 +47,29 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return JSON.parse(args[0])
     },
     stringifyJSON: (args) => {
-        if (args[1]) {
-            return JSON.stringify(args[0], null, 4)
+        // Convert maps to objects and call JSON.stringify.
+        function convert(x: any): any {
+            if (x instanceof Map) {
+                const obj: Record<string, any> = {}
+                x.forEach((value, key) => {
+                    obj[key] = convert(value)
+                })
+                return obj
+            } else if (typeof x === 'object' && Array.isArray(x)) {
+                return x.map(convert)
+            } else if (typeof x === 'object' && x !== null) {
+                const obj: Record<string, any> = {}
+                for (const key in x) {
+                    obj[key] = convert(x[key])
+                }
+                return obj
+            }
+            return x
         }
-        return JSON.stringify(args[0])
+        if (args[1] && typeof args[1] === 'number' && args[1] > 0) {
+            return JSON.stringify(convert(args[0]), null, args[1])
+        }
+        return JSON.stringify(convert(args[0]))
     },
 }
 

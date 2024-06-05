@@ -610,8 +610,8 @@ class TestBytecodeExecute:
         )
 
         assert self._run_program(
-            "return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' }, true);"  # pretty
-        ) == json.dumps({"$browser": "Chrome", "$os": "Windows"}, indent=4)
+            "return stringifyJSON({'$browser': 'Chrome', '$os': 'Windows' }, 3);"  # pretty
+        ) == json.dumps({"$browser": "Chrome", "$os": "Windows"}, indent=3)
 
         assert self._run_program("return parseJSON('[1,2,3]');") == [1, 2, 3]
 

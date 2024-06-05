@@ -97,8 +97,8 @@ def parseJSON(name: str, args: list[Any], team: Optional[Team], stdout: Optional
 
 
 def stringifyJSON(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> str:
-    if len(args) > 1 and args[1]:
-        return json.dumps(args[0], indent=4)
+    if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
+        return json.dumps(args[0], indent=args[1])
     return json.dumps(args[0])
 
 
