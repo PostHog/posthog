@@ -344,9 +344,9 @@ function InsightCardInternal(
                                 context={{
                                     insightProps: insightLogicProps,
                                 }}
+                                stale={stale}
                                 readOnly
                                 embedded
-                                stale={stale}
                             />
                         ) : (
                             <FilterBasedCardContent
