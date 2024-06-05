@@ -340,7 +340,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
             return self.get_properties_query()
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES:
             return self.get_event_property_query()
 
         return self.get_event_query()
@@ -862,7 +862,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def support_autocapture_elements(self) -> bool:
         if (
-            self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties
+            self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES
             and AUTOCAPTURE_EVENT in (self.query.funnelCorrelationEventNames or [])
         ):
             return True

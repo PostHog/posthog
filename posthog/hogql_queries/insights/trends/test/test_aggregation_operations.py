@@ -102,7 +102,7 @@ def test_all_cases_return(
     series = EventsNode(event="$pageview", math=math, math_property=math_property)
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(team, series, ChartDisplayType.ActionsLineGraph, query_date_range, False)
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.select_aggregation()
     assert isinstance(res, ast.Expr)
 
@@ -147,6 +147,6 @@ def test_requiring_query_orchestration(
     series = EventsNode(event="$pageview", math=math)
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(team, series, ChartDisplayType.ActionsLineGraph, query_date_range, False)
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.requires_query_orchestration()
     assert res == result

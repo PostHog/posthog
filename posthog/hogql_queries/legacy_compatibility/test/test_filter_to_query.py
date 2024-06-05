@@ -1116,7 +1116,7 @@ class TestFilterToQuery(BaseTest):
                     event="$pageview",
                     name="$pageview",
                     math="unique_group",
-                    math_group_type_index=MathGroupTypeIndex.number_0,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
                 ),
                 EventsNode(
                     event="$pageview",

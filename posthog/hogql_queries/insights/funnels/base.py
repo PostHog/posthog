@@ -119,7 +119,7 @@ class FunnelBase(ABC):
         prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
 
         # breakdown attribution
-        if breakdownAttributionType == BreakdownAttributionType.step:
+        if breakdownAttributionType == BreakdownAttributionType.STEP:
             select_columns = []
             default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
             # get prop value from each step
@@ -133,8 +133,8 @@ class FunnelBase(ABC):
 
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
-            BreakdownAttributionType.first_touch,
-            BreakdownAttributionType.last_touch,
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
         ]:
             prop_conditional = (
                 "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
@@ -143,7 +143,7 @@ class FunnelBase(ABC):
             )
 
             aggregate_operation = (
-                "argMinIf" if breakdownAttributionType == BreakdownAttributionType.first_touch else "argMaxIf"
+                "argMinIf" if breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH else "argMaxIf"
             )
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
@@ -366,7 +366,7 @@ class FunnelBase(ABC):
 
         funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
 
-        if breakdown and breakdownType == BreakdownType.cohort:
+        if breakdown and breakdownType == BreakdownType.COHORT:
             if funnel_events_query.select_from is None:
                 raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
@@ -376,7 +376,7 @@ class FunnelBase(ABC):
             steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
 
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.all_events:
+        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
             return self._add_breakdown_attribution_subquery(funnel_events_query)
 
@@ -423,8 +423,8 @@ class FunnelBase(ABC):
         )
 
         if breakdownAttributionType in [
-            BreakdownAttributionType.first_touch,
-            BreakdownAttributionType.last_touch,
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
         ]:
             # When breaking down by first/last touch, each person can only have one prop value
             # so just select that. Except for the empty case, where we select the default.
@@ -985,9 +985,9 @@ class FunnelBase(ABC):
             *person_and_group_properties,
         ]
         if breakdown and breakdownType in [
-            BreakdownType.person,
-            BreakdownType.event,
-            BreakdownType.group,
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
         ]:
             time_fields = [
                 parse_expr(f"min(step_{i}_conversion_time) as step_{i}_conversion_time") for i in range(1, max_steps)
