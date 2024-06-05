@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -11,6 +11,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
+  node-rdkafka@2.17.0:
+    hash: p4aetcvho53cvjti6c3zi7tfaq
+    path: patches/node-rdkafka@2.17.0.patch
   rrweb@2.0.0-alpha.13:
     hash: e2gmypqces37eklplr5o3rvywa
     path: patches/rrweb@2.0.0-alpha.13.patch
@@ -355,7 +358,7 @@ importers:
     optionalDependencies:
       fsevents:
         specifier: ^2.3.2
-        version: 2.3.2
+        version: 2.3.3
     devDependencies:
       '@babel/core':
         specifier: ^7.22.10
@@ -842,7 +845,7 @@ importers:
         version: 2.6.7
       node-rdkafka:
         specifier: ^2.17.0
-        version: 2.17.0
+        version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
       node-schedule:
         specifier: ^2.1.0
         version: 2.1.0
@@ -16196,6 +16199,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -18231,7 +18235,7 @@ packages:
       pretty-format: 28.1.3
       slash: 3.0.0
       strip-json-comments: 3.1.1
-      ts-node: 10.9.1(@swc/core@1.5.7)(@types/node@16.0.0)(typescript@4.9.5)
+      ts-node: 10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5)
     transitivePeerDependencies:
       - supports-color
     dev: true
@@ -20746,7 +20750,7 @@ packages:
       process-on-spawn: 1.0.0
     dev: true
 
-  /node-rdkafka@2.17.0:
+  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
     resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true
@@ -20754,6 +20758,7 @@ packages:
       bindings: 1.5.0
       nan: 2.19.0
     dev: false
+    patched: true
 
   /node-releases@2.0.13:
     resolution: {integrity: sha512-uYr7J37ae/ORWdZeQ1xxMJe3NtdmqMC/JZK+geofDrkLUApKRHPd18/TxtBOJ4A0/+uUIliorNrfYV6s1b02eQ==}

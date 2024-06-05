@@ -25,7 +25,7 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
@@ -56,17 +56,19 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable
+    rm -rf /var/lib/apt/lists/*
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 COPY hogvm hogvm/
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
+COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
 
-RUN mkdir /tmp/pnpm-store && \
-    cd plugin-server && pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+# RUN ls -la && ls -la plugin-server && ls -la hogvm && exit 1
+
+RUN corepack enable && pnpm --version && \
+    mkdir /tmp/pnpm-store && \
+    cd plugin-server && pnpm install --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
