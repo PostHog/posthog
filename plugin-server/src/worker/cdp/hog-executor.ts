@@ -70,6 +70,8 @@ export class HogExecutor {
             invocation.hogFunctionId
         ]
 
+        invocation.state.stack.push(invocation.response)
+
         await this.execute(hogFunction, invocation, invocation.state)
     }
 
@@ -174,7 +176,11 @@ export class HogExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            console.log('FETCHED', webhook, fetchResponse.status)
+            console.log('FETCHED', fetchResponse.status)
+            console.log('RESULT', execResult)
+
+            // Include bytecode to be re-used in the async response
+            // (marius might add this to execresult)
 
             await this.executeAsyncResponse({
                 ...invocation,
