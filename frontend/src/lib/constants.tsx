@@ -167,6 +167,7 @@ export const FEATURE_FLAGS = {
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
+    HOGQL_DASHBOARD_CARDS: 'hogql-dashboard-cards', // owner: @thmsobrmlr
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
@@ -206,6 +207,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     HOG: 'hog', // owner: @mariusandra
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
+    ALERTS: 'alerts', // owner: github.com/nikitaevg
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

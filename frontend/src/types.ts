@@ -1991,7 +1991,15 @@ export enum ChartDisplayCategory {
     TotalValue = 'TotalValue',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
+export type BreakdownType =
+    | 'cohort'
+    | 'person'
+    | 'event'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'data_warehouse'
+    | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -2859,6 +2867,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
+    Alerts = 'alerts',
 }
 
 export enum DashboardPlacement {
@@ -3704,7 +3713,9 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Manual'] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -4060,4 +4071,19 @@ export type OnboardingProduct = {
     iconColor: string
     url: string
     scene: Scene
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: {
+        lower?: number
+        upper?: number
+    }
+}
+
+export interface AlertType {
+    id: number
+    name: string
+    insight?: number
+    target_value: string
+    anomaly_condition: AnomalyCondition
 }

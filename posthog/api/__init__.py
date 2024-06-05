@@ -8,6 +8,7 @@ from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
+    alert,
     activity_log,
     annotation,
     app_metrics,
@@ -404,6 +405,13 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"alerts",
+    alert.AlertViewSet,
+    "project_alerts",
     ["team_id"],
 )
 
