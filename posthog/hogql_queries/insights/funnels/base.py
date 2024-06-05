@@ -187,6 +187,8 @@ class FunnelBase(ABC):
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
+        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
+            return ast.Field(chain=["person", *breakdown.split(".")])
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 

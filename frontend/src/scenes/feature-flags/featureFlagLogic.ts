@@ -431,7 +431,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setSchedulePayload: (state, { errors }) => {
-                    return errors === null ? state : errors
+                    return errors === null || errors === undefined ? state : errors
                 },
             },
         ],
