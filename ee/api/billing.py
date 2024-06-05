@@ -109,8 +109,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             return data
 
+    # This is deprecated and should be removed in the future in favor of 'activate'
+    @action(methods=["GET"], detail=False)
+    def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.activate(request, *args, **kwargs)
+
     @action(methods=["GET"], detail=False)
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.activate(request, *args, **kwargs)
+
+    # A viewset action cannot call another action directly so this is in place until
+    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
+    def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         organization = self._get_org_required()
 
@@ -132,11 +142,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
-
-    # This is deprecated and should be removed in the future in favor of 'activate'
-    @action(methods=["GET"], detail=False)
-    def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self.activate(request, *args, **kwargs)
 
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()
