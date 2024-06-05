@@ -16,10 +16,13 @@ import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     sidePanelActivityLogic,
@@ -64,6 +67,8 @@ export const SidePanelActivity = (): JSX.Element => {
         setFilters,
         toggleShowDetails,
     } = useActions(sidePanelActivityLogic)
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
@@ -119,7 +124,11 @@ export const SidePanelActivity = (): JSX.Element => {
     return (
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader title="Team activity" />
-            <PayGateMini feature={AvailableFeature.AUDIT_LOGS} className="m-4">
+            <PayGateMini
+                feature={AvailableFeature.AUDIT_LOGS}
+                className="m-4"
+                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+            >
                 <div className="flex flex-col overflow-hidden flex-1">
                     <div className="shrink-0 mx-2">
                         <LemonTabs
