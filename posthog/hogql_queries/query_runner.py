@@ -70,16 +70,20 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
 
+extended_cache_age = timedelta(days=1)
+
 
 class ExecutionMode(IntEnum):  # Keep integer values the same for Celery's sake
-    CALCULATE_BLOCKING_ALWAYS = 4
+    CALCULATE_BLOCKING_ALWAYS = 5
     """Always recalculate."""
-    CALCULATE_ASYNC_ALWAYS = 3
+    CALCULATE_ASYNC_ALWAYS = 4
     """Always kick off async calculation."""
-    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 2
+    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 3
     """Use cache, unless the results are missing or stale."""
-    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 1
+    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 2
     """Use cache, kick off async calculation when results are missing or stale."""
+    EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE = 1
+    """Use cache for longer, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
 
@@ -95,7 +99,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     }
     if refresh_requested in refresh_map:
         return refresh_map[refresh_requested]
-    return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+    return ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
 
 
 RunnableQueryNode = Union[
@@ -429,13 +433,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                 cached_response.query_status = query_status_response.query_status
                 return cached_response
+            elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
+                # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
+                if datetime.now(timezone.utc) - cached_response.last_refresh > extended_cache_age:
+                    query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                    cached_response.query_status = query_status_response.query_status
+                return cached_response
         else:
             QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                 return cached_response
-            elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+            elif execution_mode in (
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ):
                 # We're allowed to calculate, but we'll do it asynchronously
                 query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                 cached_response.query_status = query_status_response.query_status
