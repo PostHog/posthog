@@ -306,7 +306,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             failure_count=odds_ratio["failure_count"],
             odds_ratio=odds_ratio["odds_ratio"],
             correlation_type=(
-                CorrelationType.success if odds_ratio["correlation_type"] == "success" else CorrelationType.failure
+                CorrelationType.SUCCESS if odds_ratio["correlation_type"] == "success" else CorrelationType.FAILURE
             ),
             event=event_definition,
         )
@@ -337,7 +337,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             return self.get_properties_query()
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES:
@@ -348,7 +348,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         assert self.correlation_actors_query is not None
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             # Filtering on persons / groups properties can be pushed down to funnel events query
             if (
                 self.correlation_actors_query.funnelCorrelationPropertyValues
@@ -844,7 +844,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def properties_to_include(self) -> list[str]:
         props_to_include: list[str] = []
         # TODO: implement or remove
-        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
         #     assert self.query.funnelCorrelationNames is not None
 
         #     # When dealing with properties, make sure funnel response comes with properties

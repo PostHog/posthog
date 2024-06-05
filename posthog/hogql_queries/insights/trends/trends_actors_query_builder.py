@@ -119,7 +119,7 @@ class TrendsActorsQueryBuilder:
     def is_compare_previous(self) -> bool:
         return (
             bool(self.trends_query.trendsFilter and self.trends_query.trendsFilter.compare)
-            and self.compare_value == Compare.previous
+            and self.compare_value == Compare.PREVIOUS
         )
 
     @cached_property

@@ -443,7 +443,7 @@ class TrendsQueryRunner(QueryRunner):
                     },
                 }
             else:
-                if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+                if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
                     count = get_value("total", val)[-1]
                 else:
                     count = float(sum(get_value("total", val)))
@@ -888,7 +888,7 @@ class TrendsQueryRunner(QueryRunner):
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
-            display = ChartDisplayType.ActionsLineGraph
+            display = ChartDisplayType.ACTIONS_LINE_GRAPH
         else:
             display = self.query.trendsFilter.display
 
