@@ -443,13 +443,6 @@ def backfill_export(
 @async_to_sync
 async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    handle = temporal.get_schedule_handle(inputs.batch_export_id)
-    description = await handle.describe()
-
-    if description.schedule.spec.jitter is not None and inputs.end_at is not None:
-        # Adjust end_at to account for jitter if present.
-        inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
-
     workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
