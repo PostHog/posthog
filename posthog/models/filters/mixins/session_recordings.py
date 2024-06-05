@@ -7,13 +7,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 
 
-class Property:
-    key: str
-    operator: Optional[OperatorType]
-    value: ValueT
-    type: PropertyType
-
-
 class PersonUUIDMixin(BaseParamMixin):
     @cached_property
     def person_uuid(self) -> Optional[str]:
