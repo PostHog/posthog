@@ -236,7 +236,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
             pretty=False,
         )
         assert (
