@@ -86,46 +86,36 @@ describe('universalFiltersLogic', () => {
     })
 
     it('addGroupFilter', async () => {
+        const property = {
+            key: 'property_key',
+            value: null,
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Person,
+        }
         await expectLogic(logic, () => {
             logic.actions.addGroupFilter({ type: TaxonomicFilterGroupType.PersonProperties }, 'property_key', {})
         }).toMatchValues({
             filterGroup: {
                 ...defaultFilter,
-                values: [
-                    ...defaultFilter.values,
-                    {
-                        key: 'property_key',
-                        value: null,
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Person,
-                    },
-                ],
+                values: [...defaultFilter.values, property],
             },
         })
 
         await expectLogic(logic, () => {
-            logic.actions.addGroupFilter({ type: TaxonomicFilterGroupType.Events }, 'event_key', {})
+            logic.actions.addGroupFilter({ type: TaxonomicFilterGroupType.Events }, 'event_key', { name: 'Event name' })
         }).toMatchValues({
             filterGroup: {
                 ...defaultFilter,
                 values: [
                     ...defaultFilter.values,
+                    property,
                     {
-                        key: 'event_key',
-                        value: null,
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
+                        id: 'event_key',
+                        name: 'Event name',
+                        type: 'events',
                     },
                 ],
             },
-        })
-    })
-
-    it('updateGroupFilter', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.updateGroupFilter(0, { ...propertyFilter, key: '$geoip_country_name' })
-        }).toMatchValues({
-            filterGroup: { ...defaultFilter, values: [{ ...propertyFilter, key: '$geoip_country_name' }] },
         })
     })
 })
