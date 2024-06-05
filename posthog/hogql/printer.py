@@ -1043,7 +1043,7 @@ class _Printer(Visitor):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                 if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                else:  # MaterializationMode.AUTO.legacy_null_as_null
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
                     materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
