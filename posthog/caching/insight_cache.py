@@ -186,7 +186,7 @@ def update_cached_state(
 ):
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
         cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
-    INSIGHT_CACHE_WRITE_COUNTER.inc()
+        INSIGHT_CACHE_WRITE_COUNTER.inc()
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
     #   handle race conditions around cache_key changing.
