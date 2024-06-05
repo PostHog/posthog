@@ -1007,9 +1007,9 @@ class TestFilterToQuery(BaseTest):
             query.series,
             [
                 ActionsNode(id=1),
-                ActionsNode(id=1, math=BaseMathType.dau),
+                ActionsNode(id=1, math=BaseMathType.DAU),
                 EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.dau),
+                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
             ],
         )
 
@@ -1037,7 +1037,7 @@ class TestFilterToQuery(BaseTest):
                 DataWarehouseNode(
                     id="some_table",
                     name="some_table",
-                    math=BaseMathType.total,
+                    math=BaseMathType.TOTAL,
                     table_name="some_table",
                     id_field="id",
                     timestamp_field="created_at",
@@ -1061,9 +1061,9 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.series,
             [
-                ActionsNode(id=1, math=BaseMathType.dau),
+                ActionsNode(id=1, math=BaseMathType.DAU),
                 EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.dau),
+                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
                 ActionsNode(id=1),
             ],
         )
@@ -1100,17 +1100,17 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.series,
             [
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.dau),
+                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
-                    math=PropertyMathType.median,
+                    math=PropertyMathType.MEDIAN,
                     math_property="$math_prop",
                 ),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
-                    math=CountPerActorMathType.avg_count_per_actor,
+                    math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
                 ),
                 EventsNode(
                     event="$pageview",

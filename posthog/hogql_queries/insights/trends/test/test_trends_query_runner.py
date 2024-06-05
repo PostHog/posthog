@@ -1022,7 +1022,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=PropertyMathType.sum, math_property="prop")],
+            [EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="prop")],
             None,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
         )
@@ -1129,7 +1129,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=BaseMathType.total)],
+            [EventsNode(event="$pageview", math=BaseMathType.TOTAL)],
             None,
             None,
         )
@@ -1144,7 +1144,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=BaseMathType.dau)],
+            [EventsNode(event="$pageview", math=BaseMathType.DAU)],
             None,
             None,
         )
@@ -1159,7 +1159,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
             None,
             None,
         )
@@ -1174,7 +1174,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=BaseMathType.monthly_active)],
+            [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
             None,
             None,
         )
@@ -1189,7 +1189,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=BaseMathType.unique_session)],
+            [EventsNode(event="$pageview", math=BaseMathType.UNIQUE_SESSION)],
             None,
             None,
         )
@@ -1204,7 +1204,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=PropertyMathType.sum, math_property="prop")],
+            [EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="prop")],
             None,
             None,
         )
@@ -1232,7 +1232,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=PropertyMathType.avg, math_property="prop")],
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="prop")],
             None,
             None,
         )
@@ -1260,7 +1260,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
-            [EventsNode(event="$pageview", math=CountPerActorMathType.max_count_per_actor)],
+            [EventsNode(event="$pageview", math=CountPerActorMathType.MAX_COUNT_PER_ACTOR)],
             None,
             None,
         )

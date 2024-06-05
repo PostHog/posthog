@@ -128,11 +128,11 @@ class TrendsActorsQueryBuilder:
 
     @cached_property
     def is_weekly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.weekly_active
+        return self.entity.math == BaseMathType.WEEKLY_ACTIVE
 
     @cached_property
     def is_monthly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.monthly_active
+        return self.entity.math == BaseMathType.MONTHLY_ACTIVE
 
     @cached_property
     def is_hourly(self) -> bool:

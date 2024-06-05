@@ -81,7 +81,7 @@ def legacy_entity_to_node(
             and math_availability == MathAvailability.ActorsOnly
             and entity.math not in actors_only_math_types
         ):
-            shared = {**shared, "math": BaseMathType.dau}
+            shared = {**shared, "math": BaseMathType.DAU}
         else:
             shared = {
                 **shared,

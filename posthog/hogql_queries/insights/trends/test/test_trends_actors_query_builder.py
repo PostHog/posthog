@@ -172,7 +172,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_weekly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)]}, deep=True
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]}, deep=True
         )
 
         with freeze_time("2024-05-30T12:00:00.000Z"):
@@ -185,7 +185,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
                 "trendsFilter": TrendsFilter(compare=True),
             },
             deep=True,
@@ -209,7 +209,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
                 "trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber),
             },
             deep=True,
@@ -225,7 +225,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+                "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
                 "trendsFilter": TrendsFilter(compare=True, display=ChartDisplayType.BoldNumber),
             },
             deep=True,
@@ -240,7 +240,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_monthly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)]}, deep=True
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]}, deep=True
         )
 
         with freeze_time("2024-05-30T12:00:00.000Z"):
@@ -283,7 +283,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)],
+                "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
                 "dateRange": InsightDateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),

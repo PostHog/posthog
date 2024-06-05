@@ -74,7 +74,7 @@ class TestTrendsQueryBuilder(BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=InsightDateRange(date_from="2023-01-01"),
-            series=[EventsNode(event="$pageview", math=BaseMathType.total)],
+            series=[EventsNode(event="$pageview", math=BaseMathType.TOTAL)],
         )
 
         response = self.get_response(trends_query)

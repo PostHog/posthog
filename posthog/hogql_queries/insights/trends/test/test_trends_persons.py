@@ -458,7 +458,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
         source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+            series=[EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
             dateRange=InsightDateRange(date_from="-7d"),
         )
 
@@ -473,7 +473,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_property_sum_persons(self):
         self._create_events()
         source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview", math=PropertyMathType.sum, math_property="some_property")],
+            series=[EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="some_property")],
             dateRange=InsightDateRange(date_from="-7d"),
         )
 
@@ -493,7 +493,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         source_query = TrendsQuery(
             series=[
                 EventsNode(
-                    event="$pageview", math=CountPerActorMathType.max_count_per_actor, math_property="some_property"
+                    event="$pageview", math=CountPerActorMathType.MAX_COUNT_PER_ACTOR, math_property="some_property"
                 )
             ],
             dateRange=InsightDateRange(date_from="-7d"),
