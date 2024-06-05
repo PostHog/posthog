@@ -38,6 +38,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeatter
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
@@ -262,91 +263,92 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
         asyncio.create_task(worker_shutdown_handler())
 
-        with bigquery_client(inputs) as bq_client:
-            with BatchExportTemporaryFile() as jsonl_file:
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
+        async with Heartbeatter() as heartbeatter:
+            with bigquery_client(inputs) as bq_client:
+                with BatchExportTemporaryFile() as jsonl_file:
+                    rows_exported = get_rows_exported_metric()
+                    bytes_exported = get_bytes_exported_metric()
 
-                async def flush_to_bigquery(bigquery_table, table_schema):
-                    logger.debug(
-                        "Loading %s records of size %s bytes",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
+                    async def flush_to_bigquery(bigquery_table, table_schema):
+                        logger.debug(
+                            "Loading %s records of size %s bytes",
+                            jsonl_file.records_since_last_reset,
+                            jsonl_file.bytes_since_last_reset,
+                        )
+                        await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+
+                        rows_exported.add(jsonl_file.records_since_last_reset)
+                        bytes_exported.add(jsonl_file.bytes_since_last_reset)
+
+                    first_record, records_iterator = peek_first_and_rewind(records_iterator)
+
+                    if inputs.use_json_type is True:
+                        json_type = "JSON"
+                        json_columns = ["properties", "set", "set_once", "person_properties"]
+                    else:
+                        json_type = "STRING"
+                        json_columns = []
+
+                    if inputs.batch_export_schema is None:
+                        schema = [
+                            bigquery.SchemaField("uuid", "STRING"),
+                            bigquery.SchemaField("event", "STRING"),
+                            bigquery.SchemaField("properties", json_type),
+                            bigquery.SchemaField("elements", "STRING"),
+                            bigquery.SchemaField("set", json_type),
+                            bigquery.SchemaField("set_once", json_type),
+                            bigquery.SchemaField("distinct_id", "STRING"),
+                            bigquery.SchemaField("team_id", "INT64"),
+                            bigquery.SchemaField("ip", "STRING"),
+                            bigquery.SchemaField("site_url", "STRING"),
+                            bigquery.SchemaField("timestamp", "TIMESTAMP"),
+                            bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
+                        ]
+
+                    else:
+                        column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
+                        record_schema = first_record.select(column_names).schema
+                        schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
+
+                    bigquery_table = await create_table_in_bigquery(
+                        inputs.project_id,
+                        inputs.dataset_id,
+                        inputs.table_id,
+                        schema,
+                        bq_client,
                     )
-                    await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
 
-                    rows_exported.add(jsonl_file.records_since_last_reset)
-                    bytes_exported.add(jsonl_file.bytes_since_last_reset)
+                    # Columns need to be sorted according to BigQuery schema.
+                    record_columns = [field.name for field in schema] + ["_inserted_at"]
 
-                first_record, records_iterator = peek_first_and_rewind(records_iterator)
+                    for record_batch in records_iterator:
+                        for record in record_batch.select(record_columns).to_pylist():
+                            inserted_at = record.pop("_inserted_at")
 
-                if inputs.use_json_type is True:
-                    json_type = "JSON"
-                    json_columns = ["properties", "set", "set_once", "person_properties"]
-                else:
-                    json_type = "STRING"
-                    json_columns = []
+                            for json_column in json_columns:
+                                if json_column in record and (json_str := record.get(json_column, None)) is not None:
+                                    record[json_column] = json.loads(json_str)
 
-                if inputs.batch_export_schema is None:
-                    schema = [
-                        bigquery.SchemaField("uuid", "STRING"),
-                        bigquery.SchemaField("event", "STRING"),
-                        bigquery.SchemaField("properties", json_type),
-                        bigquery.SchemaField("elements", "STRING"),
-                        bigquery.SchemaField("set", json_type),
-                        bigquery.SchemaField("set_once", json_type),
-                        bigquery.SchemaField("distinct_id", "STRING"),
-                        bigquery.SchemaField("team_id", "INT64"),
-                        bigquery.SchemaField("ip", "STRING"),
-                        bigquery.SchemaField("site_url", "STRING"),
-                        bigquery.SchemaField("timestamp", "TIMESTAMP"),
-                        bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
-                    ]
+                            # TODO: Parquet is a much more efficient format to send data to BigQuery.
+                            jsonl_file.write_records_to_jsonl([record])
 
-                else:
-                    column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                    record_schema = first_record.select(column_names).schema
-                    schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
+                            if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
+                                await flush_to_bigquery(bigquery_table, schema)
 
-                bigquery_table = await create_table_in_bigquery(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    inputs.table_id,
-                    schema,
-                    bq_client,
-                )
+                                last_inserted_at = inserted_at.isoformat()
+                                heartbeatter.details = (str(last_inserted_at),)
 
-                # Columns need to be sorted according to BigQuery schema.
-                record_columns = [field.name for field in schema] + ["_inserted_at"]
+                                jsonl_file.reset()
 
-                for record_batch in records_iterator:
-                    for record in record_batch.select(record_columns).to_pylist():
-                        inserted_at = record.pop("_inserted_at")
+                    if jsonl_file.tell() > 0 and inserted_at is not None:
+                        await flush_to_bigquery(bigquery_table, schema)
 
-                        for json_column in json_columns:
-                            if json_column in record and (json_str := record.get(json_column, None)) is not None:
-                                record[json_column] = json.loads(json_str)
+                        last_inserted_at = inserted_at.isoformat()
+                        heartbeatter.details = (str(last_inserted_at),)
 
-                        # TODO: Parquet is a much more efficient format to send data to BigQuery.
-                        jsonl_file.write_records_to_jsonl([record])
+                        jsonl_file.reset()
 
-                        if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                            await flush_to_bigquery(bigquery_table, schema)
-
-                            last_inserted_at = inserted_at.isoformat()
-                            activity.heartbeat(last_inserted_at)
-
-                            jsonl_file.reset()
-
-                if jsonl_file.tell() > 0 and inserted_at is not None:
-                    await flush_to_bigquery(bigquery_table, schema)
-
-                    last_inserted_at = inserted_at.isoformat()
-                    activity.heartbeat(last_inserted_at)
-
-                    jsonl_file.reset()
-
-                return jsonl_file.records_total
+                    return jsonl_file.records_total
 
 
 @workflow.defn(name="bigquery-export")
