@@ -146,7 +146,7 @@ export function SDKs({
                                         )}
                                     </>
                                 ) : (
-                                    <p className="flex items-center italic text-muted">
+                                    <span className="flex self-end italic text-muted">
                                         {!currentTeam?.[teamPropertyToVerify] ? (
                                             <>
                                                 <Spinner className="text-3xl mr-2" /> Verifying installation...
@@ -157,10 +157,10 @@ export function SDKs({
                                                 complete
                                             </>
                                         )}
-                                    </p>
+                                    </span>
                                 )}
                             </div>
-                            <div>
+                            <div className="self-end">
                                 {!showSideBySide && panel === 'options' ? (
                                     <></>
                                 ) : !currentTeam?.[teamPropertyToVerify] ? (
