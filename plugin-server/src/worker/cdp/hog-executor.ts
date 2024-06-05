@@ -3,6 +3,7 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import { PluginsServerConfig } from 'types'
 
 import { trackedFetch } from '../../utils/fetch'
+import { status } from '../../utils/status'
 import { RustyHook } from '../rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncResponse, HogFunctionType } from './types'
@@ -76,7 +77,7 @@ export class HogExecutor {
     }
 
     async execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation, state?: VMState): Promise<any> {
-        console.log('Executing hog function:', hogFunction.id, hogFunction.bytecode)
+        status.info(`Executing function  ${hogFunction.id} - ${hogFunction.name}`)
 
         try {
             const fields = this.buildHogFunctionFields(hogFunction, invocation)
@@ -122,7 +123,6 @@ export class HogExecutor {
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                console.log('Attempting to format input', item.bytecode, invocation.context)
                 builtFields[key] = formatInput(item.bytecode, invocation.context)
             }
         })
@@ -158,8 +158,6 @@ export class HogExecutor {
             body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
         }
 
-        console.log('Hog Exec Result:', JSON.stringify(execResult), webhook)
-
         const success = await this.rustyHook.enqueueIfEnabledForTeam({
             webhook: webhook,
             teamId: hogFunction.team_id,
@@ -176,10 +174,7 @@ export class HogExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            console.log('FETCHED', fetchResponse.status)
-            console.log('RESULT', execResult)
-
-            // Include bytecode to be re-used in the async response
+            // TODO: Make this all stateless - we don't need to reload the hog function on the async response that way (plus it might have changed)
             // (marius might add this to execresult)
 
             await this.executeAsyncResponse({
