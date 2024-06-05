@@ -969,3 +969,81 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
 
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+
+
+class TestActivationBillingAPI(APILicensedTest):
+    def test_activation_success(self):
+        url = "/api/billing-v2/activation"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activation", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activation_with_default_redirect_path(self):
+        url = "/api/billing-v2/activation"
+        data = {
+            "products": "product_1:plan_1,product_2:plan_2",
+        }
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activation_failure(self):
+        url = "/api/billing-v2/activation"
+        data = {"none": "nothing"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_activation_with_plan_error(self):
+        url = "/api/billing-v2/activation"
+        data = {"plan": "plan"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "plan",
+                "code": "invalid_input",
+                "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
+                "type": "validation_error",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):
+        mock_deactivate_products.return_value = MagicMock()
+        mock_get_billing.return_value = {
+            "available_features": [],
+            "products": [],
+        }
+
+        url = "/api/billing-v2/deactivate"
+        data = {"products": "product_1"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
+        mock_get_billing.assert_called_once_with(self.organization, None)
+
+    def test_deactivate_failure(self):
+        url = "/api/billing-v2/deactivate"
+        data = {"none": "nothing"}
+
+        response = self.client.get(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
