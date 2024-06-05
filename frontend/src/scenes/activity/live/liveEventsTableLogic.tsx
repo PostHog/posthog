@@ -18,7 +18,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         addEvents: (events) => ({ events }),
         clearEvents: true,
         setFilters: (filters) => ({ filters }),
-        updateEventsSource: (source) => ({ source }),
         updateEventsConnection: true,
         pauseStream: true,
         resumeStream: true,
@@ -189,22 +188,22 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
         },
     })),
-    events(({ actions, values }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             if (!liveEventsHostOrigin()) {
                 return
             }
 
             actions.updateEventsConnection()
-            const interval = setInterval(() => {
+            cache.pollingInterval = setInterval(() => {
                 actions.pollStats()
             }, 1500)
-            return () => {
-                if (values.eventsSource) {
-                    values.eventsSource.close()
-                }
-                clearInterval(interval)
+        },
+        beforeUnmount: () => {
+            if (values.eventsSource) {
+                values.eventsSource.close()
             }
+            clearInterval(cache.interval)
         },
     })),
 ])
