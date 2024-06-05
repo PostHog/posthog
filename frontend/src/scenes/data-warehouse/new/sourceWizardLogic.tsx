@@ -218,6 +218,11 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             },
         ],
     },
+    Manual: {
+        name: 'Manual',
+        caption: <>If you have a data source that isn't listed here, you can manually link it to PostHog.</>,
+        fields: [],
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (

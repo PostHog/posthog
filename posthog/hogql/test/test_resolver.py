@@ -7,6 +7,7 @@ from uuid import UUID
 from freezegun import freeze_time
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
@@ -416,7 +417,7 @@ class TestResolver(BaseTest):
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
             "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            "LIMIT 10000"
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
         assert hogql == expected
