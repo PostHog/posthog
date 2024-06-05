@@ -52,7 +52,7 @@ COPY patches/ patches/
 COPY hogvm hogvm/
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
-RUN cd plugin-server
+WORKDIR /code/plugin-server
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
