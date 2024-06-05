@@ -15,7 +15,6 @@ import { Survey, SurveyQuestionType } from '~/types'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -86,9 +85,8 @@ export function SurveyEditQuestionHeader({
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
-    const { surveysHTMLAvailable } = useValues(surveysLogic)
 
-    const initialDescriptionContentType = surveysHTMLAvailable ? descriptionContentType(index) || 'text' : 'text'
+    const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
     const handleQuestionValueChange = (key: string, val: string): void => {
         const updatedQuestion = survey.questions.map((question, idx) => {
@@ -103,16 +101,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         setSurveyValue('questions', updatedQuestion)
     }
 
-    const updateWritingHTMLDescription = (isHTML: boolean): void => {
-        if (surveysHTMLAvailable) {
-            handleQuestionValueChange('descriptionContentType', isHTML ? 'html' : 'text')
-        }
-    }
-
     const handleTabChange = (key: string): void => {
-        if (surveysHTMLAvailable || key === 'text') {
-            updateWritingHTMLDescription(key === 'html')
-        }
+        handleQuestionValueChange('descriptionContentType', key)
     }
 
     return (
