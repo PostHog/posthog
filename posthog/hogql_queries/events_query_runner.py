@@ -8,7 +8,6 @@ from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
@@ -189,7 +188,6 @@ class EventsQueryRunner(QueryRunner):
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
-            workload=Workload.ONLINE,
             query_type="EventsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
