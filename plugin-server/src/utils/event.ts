@@ -1,7 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { setUsageInNonPersonEventsCounter } from 'main/ingestion-queues/metrics'
 import { Message } from 'node-rdkafka'
 
+import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     ClickHouseEvent,
     GroupTypeToColumnIndex,
