@@ -230,14 +230,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Person Properties',
-                        searchPlaceholder: 'person properties from data warehouse tables',
+                        name: 'Extended Person Properties',
+                        searchPlaceholder: 'person properties from tables joined on persons',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         logic: dataWarehouseJoinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.id,
-                        getPopoverHeader: () => 'Data Warehouse Person Property',
+                        getPopoverHeader: () => 'Extended Person Property',
                     },
                     {
                         name: 'Autocapture elements',
