@@ -150,7 +150,14 @@ pub async fn event(
     tracing::debug!(context=?context, events=?events, "decoded request");
 
     if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
-        report_dropped_events("process_events_error", events.len() as u64);
+        let cause = match err {
+            // TODO: automate this with a macro
+            CaptureError::EmptyDistinctId => "empty_distinct_id",
+            CaptureError::MissingDistinctId => "missing_distinct_id",
+            CaptureError::MissingEventName => "missing_event_name",
+            _ => "process_events_error",
+        };
+        report_dropped_events(cause, events.len() as u64);
         tracing::log::warn!("rejected invalid payload: {}", err);
         return Err(err);
     }
