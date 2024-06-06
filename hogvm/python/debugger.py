@@ -9,7 +9,7 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
         next_symbol = print_symbol(Operation(next_symbol), ip, bytecode, stack, call_stack)
     except ValueError:
         pass
-    print("\033[H\033[J")  # noqa: T201
+    print("\033[H\033[J", end="")  # noqa: T201
     print(f"ip: {ip}")  # noqa: T201
     print(f"stack: {stack}")  # noqa: T201
     print(f"call_stack: {call_stack}")  # noqa: T201
