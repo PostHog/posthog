@@ -1,4 +1,21 @@
 #!/bin/bash
 set -e
 
-exec python3 -m posthog.hogql.cli "$@"
+if [[ "$@" == *"--python"* ]]; then
+  echo "Running in Python VM"
+  set -- "${@/--python/}"
+  echo $@
+  exec python3 -m hogvm.python.cli "$@"
+
+else
+  echo "Running in Node.js VM"
+  VM_PATH = "$(dirname "$0")/../hogvm/typescript"
+  CLI_PATH = "$(dirname "$0")/../hogvm/typescript/dist/cli.js"
+  if [ ! -f $CLI_PATH ]; then
+    echo "Building TypeScript"
+    cd $VM_PATH
+    pnpm run build
+    cd -
+  fi
+  exec node $CLI_PATH "$@"
+fi
