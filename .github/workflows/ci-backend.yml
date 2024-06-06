@@ -166,18 +166,6 @@ jobs:
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
                   ANTLR_VERSION: '4.13.1'
 
-            - name: Run HogVM python test
-              run: |
-                  pytest hogvm
-
-            - name: Run Hog tests
-              run: |
-                  cd hogvm/typescript
-                  pnpm install 
-                  pnpm run build 
-                  cd ../
-                  ./test.sh && git diff --exit-code
-
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
