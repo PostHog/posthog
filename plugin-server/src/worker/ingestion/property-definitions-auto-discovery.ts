@@ -93,6 +93,14 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
         return PropertyType.String
     }
 
+    if (key.indexOf('$survey_response') === 0) {
+        // NB: $survey_responses are collected in an interesting way, where the first
+        // response is called `$survey_response` and subsequent responses are called
+        // `$survey_response_2`, `$survey_response_3`, etc.  So, this check should auto-cast
+        // all survey responses to strings, and $survey_response properties should always be detected as strings.
+        return PropertyType.String
+    }
+
     if (typeof value === 'number') {
         propertyType = PropertyType.Numeric
 

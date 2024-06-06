@@ -848,7 +848,7 @@ export class DeferredPersonOverrideWorker {
             'processPendingOverrides',
             async () => {
                 status.debug('👥', 'Processing pending overrides...')
-                const overridesCount = await this.processPendingOverrides()
+                const overridesCount = await this.processPendingOverrides(5000)
                 ;(overridesCount > 0 ? status.info : status.debug)(
                     '👥',
                     `Processed ${overridesCount} pending overrides.`

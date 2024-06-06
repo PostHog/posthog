@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import IntEnum
-from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
 
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
-import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.clickhouse.query_tagging import tag_queries
@@ -21,36 +21,36 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    ActorsQuery,
     CacheMissResponse,
+    DashboardFilter,
     DateRange,
+    EventsQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    LifecycleQuery,
+    PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryTiming,
-    SamplingRate,
-    TrendsQuery,
-    FunnelsQuery,
     RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    HogQLQuery,
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
+    SamplingRate,
     SessionsTimelineQuery,
-    ActorsQuery,
-    EventsQuery,
-    InsightActorsQuery,
-    DashboardFilter,
-    HogQLQueryModifiers,
-    InsightActorsQueryOptions,
+    StickinessQuery,
+    TrendsQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
 )
-from posthog.schema_helpers import to_json
-from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
+from posthog.schema_helpers import to_dict, to_json
+from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
 
 logger = structlog.get_logger(__name__)
 
@@ -201,7 +201,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insights.insight_actors_query_options_runner import (
+            InsightActorsQueryOptionsRunner,
+        )
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
@@ -211,7 +213,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from .insights.funnels.funnel_correlation_query_runner import (
+            FunnelCorrelationQueryRunner,
+        )
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
@@ -438,11 +442,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "hogql",
             )
 
+    def get_cache_payload(self) -> dict:
+        return {
+            "query_runner": self.__class__.__name__,
+            "query": to_dict(self.query),
+            "team_id": self.team.pk,
+            "hogql_modifiers": to_dict(self.modifiers),
+            "limit_context": self._limit_context_aliased_for_cache,
+            "timezone": self.team.timezone,
+            "version": 2,
+        }
+
     def get_cache_key(self) -> str:
-        modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
-        return generate_cache_key(
-            f"query_{to_json(self.query)}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}_{self._limit_context_aliased_for_cache}_v2"
-        )
+        return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     @abstractmethod
     def _is_stale(self, cached_result_package):

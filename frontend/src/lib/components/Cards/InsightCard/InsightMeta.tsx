@@ -132,24 +132,22 @@ export function InsightMeta({
             }
             moreButtons={
                 <>
-                    {allInteractionsAllowed && (
-                        <>
-                            <LemonButton to={urls.insightView(short_id)} fullWidth>
-                                View
+                    <>
+                        <LemonButton to={urls.insightView(short_id)} fullWidth>
+                            View
+                        </LemonButton>
+                        {refresh && (
+                            <LemonButton
+                                onClick={() => {
+                                    refresh()
+                                    reportDashboardItemRefreshed(insight)
+                                }}
+                                fullWidth
+                            >
+                                Refresh
                             </LemonButton>
-                            {refresh && (
-                                <LemonButton
-                                    onClick={() => {
-                                        refresh()
-                                        reportDashboardItemRefreshed(insight)
-                                    }}
-                                    fullWidth
-                                >
-                                    Refresh
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
+                        )}
+                    </>
                     {editable && updateColor && (
                         <LemonButtonWithDropdown
                             dropdown={{

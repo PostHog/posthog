@@ -3,7 +3,6 @@ from typing import Optional
 from collections.abc import Callable
 from unittest.mock import call, patch
 
-from django.test import override_settings
 import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -28,6 +27,8 @@ from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.signals import mute_selected_signals
 from posthog.utils import get_safe_cache
+
+import orjson as json
 
 
 def create_insight_caching_state(
@@ -130,19 +131,15 @@ def test_fetch_states_in_need_of_updating(team: Team, user: User, params, expect
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-@override_settings(
-    HOGQL_INSIGHTS_OVERRIDE=False  # get_safe_cache is too low-level for HogQL, which serializes differently
-)
 def test_update_cache(team: Team, user: User, cache):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
 
     update_cache(caching_state.pk)
 
     assert cache_keys(cache) == {caching_state.cache_key}
-    cached_result = get_safe_cache(caching_state.cache_key)
-    assert cached_result["result"] is not None
-    assert cached_result["type"] == CacheType.TRENDS
-    assert cached_result["last_refresh"] == now()
+    cached_result = json.loads(get_safe_cache(caching_state.cache_key))
+    assert cached_result["results"] is not None
+    assert cached_result["last_refresh"] == "2020-01-04T13:01:01Z"
 
     updated_caching_state = InsightCachingState.objects.get(team=team)
     assert updated_caching_state.last_refresh == now()
@@ -171,9 +168,7 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 @freeze_time("2020-01-04T13:01:01Z")
 @patch("posthog.caching.insight_cache.update_cache_task")
 @patch("posthog.caching.insight_cache.process_query_dict", side_effect=Exception())  # HogQL branch
-@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight", side_effect=Exception())  # Legacy branch
 def test_update_cache_when_calculation_fails(
-    spy_calculate_for_filter_based_insight,
     spy_process_query_dict,
     spy_update_cache_task,
     team: Team,
@@ -196,8 +191,7 @@ def test_update_cache_when_calculation_fails(
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight")
-def test_update_cache_when_recently_refreshed(spy_calculate_for_filter_based_insight, team: Team, user: User):
+def test_update_cache_when_recently_refreshed(team: Team, user: User):
     caching_state = create_insight_caching_state(
         team, user, last_refresh=timedelta(hours=1), target_cache_age=timedelta(days=1)
     )
@@ -206,7 +200,6 @@ def test_update_cache_when_recently_refreshed(spy_calculate_for_filter_based_ins
 
     updated_caching_state = InsightCachingState.objects.get(team=team)
 
-    assert spy_calculate_for_filter_based_insight.call_count == 0
     assert updated_caching_state.last_refresh == caching_state.last_refresh
 
 

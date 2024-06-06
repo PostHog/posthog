@@ -10,13 +10,13 @@ from posthog.schema import (
     BreakdownFilter,
     ChartDisplayType,
     DataWarehouseNode,
-    DateRange,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    InsightDateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
@@ -151,7 +151,7 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: dict):
-    date_range = DateRange(
+    date_range = InsightDateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
@@ -445,7 +445,9 @@ def filter_to_query(filter: dict) -> InsightQueryNode:
         **_insight_filter(filter),
     }
 
-    return Query(**data)
+    # :KLUDGE: We do this dance to have default values instead of None, when setting
+    # values from a filter above.
+    return Query(**Query(**data).model_dump(exclude_none=True))
 
 
 def filter_str_to_query(filters: str) -> InsightQueryNode:
