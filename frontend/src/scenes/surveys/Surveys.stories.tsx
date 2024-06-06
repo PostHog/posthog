@@ -4,7 +4,8 @@ import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     FeatureFlagBasicType,
@@ -311,6 +312,27 @@ export const NewSurveyAppearanceSection: StoryFn = () => {
 }
 
 export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            // TODO: setting available featues should be a decorator to make this easy
+            '/api/users/@me': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test Hedgehog',
+                    organization: {
+                        ...organizationCurrent,
+                        available_product_features: [
+                            {
+                                key: 'surveys_text_html',
+                                name: 'surveys_text_html',
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    })
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
