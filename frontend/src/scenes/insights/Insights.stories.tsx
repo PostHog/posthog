@@ -15,6 +15,18 @@ const meta: Meta = {
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
+        viewport: {
+            viewports: {
+                customViewport: {
+                    name: 'Custom 1200',
+                    styles: {
+                        width: '1200px',
+                        height: '100%',
+                    },
+                },
+            },
+            defaultViewport: 'customViewport',
+        },
     },
     decorators: [
         mswDecorator({
