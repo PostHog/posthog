@@ -9,7 +9,7 @@ import { BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
-export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
     const { billing, billingLoading } = useValues(billingLogic)
     const { isEditingBillingLimit, customLimitUsd } = useValues(
@@ -26,7 +26,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
     return (
         <Form formKey="billingLimitInput" props={{ product: product }} logic={billingProductLogic} enableFormOnSubmit>
             <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
-                <h4 className="my-4">Billing limits</h4>
+                <h3 className="mb-2">Billing limits</h3>
                 <div className="flex">
                     {!isEditingBillingLimit ? (
                         <div className="flex items-center justify-center gap-1">
@@ -34,8 +34,8 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                                 <>
                                     <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working if your usage exceeds your limit.">
                                         <span>
-                                            ${customLimitUsd} {billing?.billing_period?.interval}ly billing limit for{' '}
-                                            {product?.name}
+                                            <b>${customLimitUsd}</b> {billing?.billing_period?.interval}ly billing limit
+                                            for {product?.name}
                                         </span>
                                     </Tooltip>
                                     <LemonButton
@@ -60,11 +60,11 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                             )}{' '}
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-2.5">
                             <Field name="input" noStyle>
                                 {({ value, onChange, error }) => (
                                     <Tooltip title={error}>
-                                        <div className="max-w-40">
+                                        <div className="max-w-36">
                                             <LemonInput
                                                 ref={limitInputRef}
                                                 type="number"

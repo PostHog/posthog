@@ -19,7 +19,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } fr
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
-import { BillingLimitInput } from './BillingLimitInput'
+import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
@@ -307,7 +307,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
-                <BillingLimitInput product={product} />
+                <BillingLimit product={product} />
                 {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
