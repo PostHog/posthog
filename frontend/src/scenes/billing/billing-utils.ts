@@ -164,7 +164,7 @@ export const getUpgradeProductLink = (
     redirectPath?: string,
     includeAddons: boolean = true
 ): string => {
-    let url = '/api/billing/activation?products='
+    let url = '/api/billing/activate?products='
     url += `${product.type}:${upgradeToPlanKey},`
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
