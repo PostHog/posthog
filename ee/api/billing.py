@@ -87,7 +87,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
-    class ActivationSerializer(serializers.Serializer):
+    class ActivateSerializer(serializers.Serializer):
         plan = serializers.CharField(required=False)
         products = serializers.CharField(
             required=False
@@ -109,12 +109,22 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             return data
 
+    # This is deprecated and should be removed in the future in favor of 'activate'
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self.handle_activate(request, *args, **kwargs)
+
+    # A viewset action cannot call another action directly so this is in place until
+    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
+    def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         organization = self._get_org_required()
 
-        serializer = self.ActivationSerializer(data=request.GET)
+        serializer = self.ActivateSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
         redirect_path = serializer.validated_data.get("redirect_path", "organization/billing")
@@ -122,7 +132,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             redirect_path = redirect_path[1:]
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+        url = f"{BILLING_SERVICE_URL}/activate?redirect_uri={redirect_uri}&organization_name={organization.name}"
 
         products = serializer.validated_data.get("products")
         url = f"{url}&products={products}"
