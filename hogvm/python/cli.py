@@ -21,4 +21,4 @@ with open(filename) as file:
     code = json.loads(code)
 
 # execute code
-execute_bytecode(code, globals=None, functions=None, timeout=5, team=None, debug=debug)
+execute_bytecode(code, globals=None, functions={"print": print}, timeout=5, team=None, debug=debug)
