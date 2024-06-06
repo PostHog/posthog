@@ -1,21 +1,27 @@
+import os
 from typing import Any
 
 from hogvm.python.operation import Operation
 
 
 def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list):
+    rows = os.get_terminal_size().lines - 6
+    rows = 2 if rows < 2 else rows
+    rows_from_top = 2 if rows > 2 else 0
     next_symbol = symbol
     try:
         next_symbol = print_symbol(Operation(next_symbol), ip, bytecode, stack, call_stack)
     except ValueError:
         pass
     print("\033[H\033[J", end="")  # noqa: T201
-    print(f"ip: {ip}")  # noqa: T201
-    print(f"stack: {stack}")  # noqa: T201
     print(f"call_stack: {call_stack}")  # noqa: T201
+    print(f"stack: {stack}")  # noqa: T201
     print(f"next: {next_symbol}")  # noqa: T201
-    start_ip = ip - 2 if ip > 10 else 0
-    end_ip = len(bytecode) if start_ip + 20 > len(bytecode) else (start_ip + 20)
+    print(f"ip: {ip}")  # noqa: T201
+    print("")  # noqa: T201
+
+    start_ip = ip - rows_from_top if ip > rows_from_top else 0
+    end_ip = len(bytecode) if start_ip + rows > len(bytecode) else (start_ip + rows)
     for i, op in enumerate(bytecode[start_ip:end_ip], start=start_ip):
         if i == 0 or (colored_bytecode[i] or "").startswith("op."):
             line = f"{colored_bytecode[i]}"
