@@ -596,16 +596,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
 
-                return (
-                    (filters?.actions?.length || 0) +
+                const console_log_filter = filters.console_logs?.[0]
+                const log_levels = (console_log_filter?.[0] || { values: [] }).value
+                const console_search_query = (console_log_filter?.[0] || { values: '' }).value
+
+                return (filters?.actions?.length || 0) +
                     (filters?.events?.length || 0) +
                     (filters?.properties?.length || 0) +
                     (equal(filters.duration, defaultFilters.duration) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1) +
-                    (filters?.console_logs?.length || 0)
-                )
+                    log_levels.length +
+                    console_search_query.length
+                    ? 1
+                    : 0
             },
         ],
 
