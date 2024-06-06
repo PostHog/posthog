@@ -384,7 +384,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
         return QueryStatusResponse(query_status=query_status)
 
-    def retrieve_from_cache(
+    def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
@@ -454,7 +454,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
-            results = self.retrieve_from_cache(execution_mode=execution_mode, cache_key=cache_key, user=user)
+            results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
             if results is not None:
                 return results
 
