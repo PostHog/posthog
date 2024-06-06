@@ -233,7 +233,8 @@ class SessionRecordingListFromFilters:
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
-        exprs.append(property_to_expr(self._filter.duration, self._team))
+        if self._filter.duration:
+            exprs.append(property_to_expr(self._filter.duration, self._team))
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
 
 

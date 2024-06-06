@@ -58,7 +58,7 @@ def _get_filter_by_log_text_session_ids_clause(
     if not console_logs:
         return "", {}
 
-    console_search_query = console_logs[0].values[1].value
+    console_search_query = console_logs[0].values[1]["value"]
 
     if not console_search_query:
         return "", {}
@@ -133,7 +133,7 @@ class LogQuery:
         if not console_logs:
             return "", {}
 
-        log_levels = console_logs[0].values[0].value
+        log_levels = console_logs[0].values[0]["value"]
         return (
             (
                 f"AND level in %(console_logs_levels)s",
@@ -149,7 +149,7 @@ class LogQuery:
         if not console_logs:
             return "", {}
 
-        console_search_query = console_logs[0].values[1].value
+        console_search_query = console_logs[0].values[1]["value"]
 
         if not console_search_query:
             return "", {}
@@ -801,7 +801,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         if not console_logs:
             return ""
 
-        log_levels = console_logs[0].values[0].value
+        log_levels = console_logs[0].values[0]["value"]
         # to avoid a CH migration we map from info to log when constructing the query here
         filters = [f"console_{'log' if level == 'info' else level}_count > 0" for level in log_levels]
         return f"AND ({' OR '.join(filters)})" if filters else ""
