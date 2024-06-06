@@ -26,12 +26,12 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
     cols = os.get_terminal_size().columns
 
     # count how much top actually takes
-    taken_lines = 2
+    header_lines = 2
     for line in top:
-        taken_lines += 1 + len(line) // cols
+        header_lines += 1 + len(line) // cols
         print(line)  # noqa: T201
 
-    rows = os.get_terminal_size().lines - taken_lines
+    rows = os.get_terminal_size().lines - header_lines
     rows = 2 if rows < 2 else rows
     rows_from_top = 2 if rows > 2 else 0
 
@@ -53,7 +53,7 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
         if response == "help" or response == "h" or response == "?":
             print("- Press <CTRL+C> to quit.")  # noqa: T201
             print("- Press <ENTER> to step to the next instruction.")  # noqa: T201
-            print("- Enter a number like 1, 10, 100 or 1000 (ms) to walk the code.")  # noqa: T201
+            print("- Enter a number like 1, 10, 100 or 1000 (ms) to speedwalk the code.")  # noqa: T201
             response = input()
         try:
             debug_speed = int(response)
