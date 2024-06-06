@@ -5,7 +5,7 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
+from posthog.api.plugin import PluginsAccessLevelPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.plugin import (
     PluginLogEntry,
@@ -22,7 +22,7 @@ class PluginLogEntrySerializer(DataclassSerializer):
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "plugin"
     serializer_class = PluginLogEntrySerializer
-    permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
+    permission_classes = [PluginsAccessLevelPermission]
 
     def list(self, request, *args, **kwargs):
         limit_raw = request.GET.get("limit")
