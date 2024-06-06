@@ -470,7 +470,9 @@ def test_insight_cache_states_when_deleted_insight(team: Team, user: User):
 
     # periodic sync sets to no caching
     sync_insight_cache_states()
-    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).first().target_cache_age_seconds is None
+    single_match = InsightCachingState.objects.filter(team=team, insight_id=insight.id).first()
+    assert single_match is not None
+    assert single_match.target_cache_age_seconds is None
 
 
 class TestLazyLoader(BaseTest):
