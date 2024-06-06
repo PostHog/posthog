@@ -89,6 +89,8 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
         "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+        "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
         True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     }
     if refresh_requested in refresh_map:

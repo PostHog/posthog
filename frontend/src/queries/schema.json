@@ -6985,6 +6985,14 @@
                 {
                     "const": "force_async",
                     "type": "string"
+                },
+                {
+                    "const": "force_blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_cache",
+                    "type": "string"
                 }
             ]
         },

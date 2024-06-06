@@ -1014,7 +1014,17 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
 
 
 def refresh_requested_by_client(request: Request) -> bool | str:
-    return _request_has_key_set("refresh", request, allowed_values=["async", "blocking", "force_async"])
+    return _request_has_key_set(
+        "refresh",
+        request,
+        allowed_values=[
+            "async",
+            "blocking",
+            "force_async",
+            "force_blocking",
+            "force_cache",
+        ],
+    )
 
 
 def cache_requested_by_client(request: Request) -> bool | str:
