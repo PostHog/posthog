@@ -14,8 +14,8 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     LEGACY_FilterBasedBreakdownSummary,
-    LEGACY_FilterBasedPropertiesFiltersSummary,
     LEGACY_FilterBasedSeriesSummary,
+    PropertiesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
@@ -240,7 +240,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
         extendedDescription: (
             <div className="ActivityDescription">
                 <LEGACY_FilterBasedSeriesSummary filters={filtersAfter} />
-                <LEGACY_FilterBasedPropertiesFiltersSummary filters={filtersAfter} />
+                <PropertiesSummary properties={filtersAfter.properties} />
                 {filtersAfter.breakdown_type && <LEGACY_FilterBasedBreakdownSummary filters={filtersAfter} />}
             </div>
         ),

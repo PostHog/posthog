@@ -24,14 +24,32 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 import {
+    FunnelsQuery,
+    InsightQueryNode,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema'
+import {
+    isFunnelsQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import {
+    AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
-    InsightModel,
     InsightType,
     PathsFilterType,
     PropertyGroupFilter,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
@@ -131,7 +149,7 @@ function CompactPropertyFiltersDisplay({
     )
 }
 
-function SeriesDisplay({
+function LEGACY_FilterBasedSeriesDisplay({
     filter,
     insightType = InsightType.TRENDS,
     index,
@@ -215,7 +233,94 @@ function SeriesDisplay({
     )
 }
 
-function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
+function SeriesDisplay({
+    query,
+    seriesIndex,
+}: {
+    query: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery
+    seriesIndex: number
+}): JSX.Element {
+    const { mathDefinitions } = useValues(mathsLogic)
+    const filter = query.series[seriesIndex]
+
+    const hasBreakdown =
+        !isInsightQueryWithBreakdown(query) ||
+        !query.breakdownFilter ||
+        query.breakdownFilter.breakdown_type == null ||
+        query.breakdownFilter.breakdown == null
+
+    const mathDefinition = mathDefinitions[
+        isLifecycleQuery(query)
+            ? 'dau'
+            : filter.math
+            ? apiValueToMathType(filter.math, filter.math_group_type_index)
+            : 'total'
+    ] as MathDefinition | undefined
+
+    return (
+        <LemonRow
+            fullWidth
+            className="SeriesDisplay"
+            icon={<SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} />}
+            extendedContent={
+                filter.properties &&
+                filter.properties.length > 0 && (
+                    <CompactPropertyFiltersDisplay
+                        groupFilter={{
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
+                        }}
+                        embedded
+                    />
+                )
+            }
+        >
+            <span>
+                {isFunnelsQuery(query) ? 'Performed' : 'Showing'}
+                {filter.custom_name && <b> "{filter.custom_name}"</b>}
+                {filter.kind === NodeKind.ActionsNode && filter.id ? (
+                    <Link
+                        to={urls.action(filter.id)}
+                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                        title="Action series"
+                    >
+                        {filter.name}
+                    </Link>
+                ) : (
+                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                        <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                    </span>
+                )}
+                {!isFunnelsQuery(query) && (
+                    <span className="leading-none">
+                        counted by{' '}
+                        {mathDefinition?.category === MathCategory.HogQLExpression ? (
+                            <code>{filter.math_hogql}</code>
+                        ) : (
+                            <>
+                                {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                                    <>
+                                        {' '}
+                                        event's
+                                        <span className="SeriesDisplay__raw-name">
+                                            <PropertyKeyInfo
+                                                value={filter.math_property}
+                                                type={TaxonomicFilterGroupType.EventProperties}
+                                            />
+                                        </span>
+                                    </>
+                                )}
+                                <b>{mathDefinition?.name.toLowerCase()}</b>
+                            </>
+                        )}
+                    </span>
+                )}
+            </span>
+        </LemonRow>
+    )
+}
+
+function LEGACY_FilterBasedPathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
     // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
@@ -230,6 +335,28 @@ function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.E
             {filters.end_point && (
                 <div>
                     ending at <b>{filters.end_point}</b>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
+    // Sync format with summarizePaths in utils
+    const { includeEventTypes, startPoint, endPoint } = query.pathsFilter
+    return (
+        <div className="SeriesDisplay">
+            <div>
+                User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
+            </div>
+            {startPoint && (
+                <div>
+                    starting at <b>{startPoint}</b>
+                </div>
+            )}
+            {endPoint && (
+                <div>
+                    ending at <b>{endPoint}</b>
                 </div>
             )}
         </div>
@@ -256,10 +383,10 @@ export function LEGACY_FilterBasedSeriesSummary({ filters }: { filters: Partial<
                 {isPathsFilter(filters) || localFilters.length > 0 ? (
                     <div className="InsightDetails__series">
                         {isPathsFilter(filters) ? (
-                            <PathsSummary filters={filters} />
+                            <LEGACY_FilterBasedPathsSummary filters={filters} />
                         ) : (
                             <>
-                                <SeriesDisplay
+                                <LEGACY_FilterBasedSeriesDisplay
                                     hasBreakdown={!!filters.breakdown}
                                     filter={localFilters[0]}
                                     insightType={filters.insight}
@@ -268,7 +395,7 @@ export function LEGACY_FilterBasedSeriesSummary({ filters }: { filters: Partial<
                                 {localFilters.slice(1).map((filter, index) => (
                                     <>
                                         <LemonDivider className="my-1" />
-                                        <SeriesDisplay
+                                        <LEGACY_FilterBasedSeriesDisplay
                                             hasBreakdown={!!filters.breakdown}
                                             key={index}
                                             filter={filter}
@@ -289,18 +416,59 @@ export function LEGACY_FilterBasedSeriesSummary({ filters }: { filters: Partial<
     )
 }
 
-export function LEGACY_FilterBasedPropertiesFiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const groupFilter: PropertyGroupFilter | null = Array.isArray(filters.properties)
+export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Element {
+    return (
+        <>
+            <h5>Query summary</h5>
+            <section className="InsightDetails__query">
+                {isTrendsQuery(query) && query.trendsFilter?.formula && (
+                    <>
+                        <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
+                            <span>
+                                Formula:<code>{query.trendsFilter?.formula}</code>
+                            </span>
+                        </LemonRow>
+                        <LemonDivider />
+                    </>
+                )}
+                <div className="InsightDetails__series">
+                    {isPathsQuery(query) ? (
+                        <PathsSummary query={query} />
+                    ) : isInsightQueryWithSeries(query) ? (
+                        <>
+                            {query.series.map((_entity, index) => (
+                                <React.Fragment key={index}>
+                                    {index !== 0 && <LemonDivider className="my-1" />}
+                                    <SeriesDisplay query={query} seriesIndex={index} />
+                                </React.Fragment>
+                            ))}
+                        </>
+                    ) : (
+                        /* TODO: Add support for Retention to InsightDetails */
+                        <i>Unavailable for this insight type.</i>
+                    )}
+                </div>
+            </section>
+        </>
+    )
+}
+
+export function PropertiesSummary({
+    properties,
+}: {
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+}): JSX.Element {
+    const groupFilter: PropertyGroupFilter | null = Array.isArray(properties)
         ? {
               type: FilterLogicalOperator.And,
               values: [
                   {
                       type: FilterLogicalOperator.And,
-                      values: filters.properties,
+                      values: properties,
                   },
               ],
           }
-        : filters.properties || null
+        : properties || null
 
     return (
         <>
@@ -331,17 +499,47 @@ export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Parti
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    let { filters } = insight
-    const { created_at, created_by } = insight
-    if (!!insight.query && isInsightQueryNode(insight.query)) {
-        filters = filterForQuery(insight.query) as Partial<FilterType>
+export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
+    if (
+        !isInsightQueryWithBreakdown(query) ||
+        !query.breakdownFilter ||
+        query.breakdownFilter.breakdown_type == null ||
+        query.breakdownFilter.breakdown == null
+    ) {
+        return null
     }
+
+    const { breakdown_type, breakdown } = query.breakdownFilter
+    const breakdownArray = Array.isArray(breakdown) ? breakdown : [breakdown]
+
+    return (
+        <>
+            <h5>Breakdown by</h5>
+            <section className="InsightDetails__breakdown">
+                {breakdownArray.map((b) => (
+                    <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
+                ))}
+            </section>
+        </>
+    )
+}
+
+function InsightDetailsInternal(
+    { insight }: { insight: QueryBasedInsightModel },
+    ref: React.Ref<HTMLDivElement>
+): JSX.Element {
+    const { created_at, created_by, query } = insight
+
+    // TODO: Implement summaries for HogQL query insights
     return (
         <div className="InsightDetails" ref={ref}>
-            <LEGACY_FilterBasedSeriesSummary filters={filters} />
-            <LEGACY_FilterBasedPropertiesFiltersSummary filters={filters} />
-            <LEGACY_FilterBasedBreakdownSummary filters={filters} />
+            {isInsightVizNode(query) && (
+                <>
+                    <SeriesSummary query={query.source} />
+                    <PropertiesSummary properties={query.source.properties} />
+                    <BreakdownSummary query={query.source} />
+                </>
+            )}
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>

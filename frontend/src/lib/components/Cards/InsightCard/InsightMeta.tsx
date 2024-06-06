@@ -121,7 +121,7 @@ export function InsightMeta({
                     {loading && <LemonTableLoader loading={true} />}
                 </>
             }
-            metaDetails={<InsightDetails insight={legacyInsight} />}
+            metaDetails={<InsightDetails insight={insight} />}
             samplingNotice={
                 samplingFactor && samplingFactor < 1 ? (
                     <Tooltip title={`Results calculated from ${100 * samplingFactor}% of users`}>
