@@ -37,11 +37,11 @@ describe('DurationFilter', () => {
         ])('converts the value correctly for total duration', (operator, value, durationType, expectation) => {
             const filter: RecordingDurationFilter = {
                 type: PropertyFilterType.Recording,
-                key: 'duration',
+                key: durationType as DurationType,
                 value,
                 operator,
             }
-            expect(humanFriendlyDurationFilter(filter, durationType as DurationType)).toEqual(expectation)
+            expect(humanFriendlyDurationFilter(filter)).toEqual(expectation)
         })
     })
 })
