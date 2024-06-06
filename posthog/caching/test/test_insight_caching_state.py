@@ -450,6 +450,29 @@ def test_sync_insight_cache_states(team: Team, user: User):
     assert InsightCachingState.objects.filter(team=team).count() == 3
 
 
+@pytest.mark.django_db
+@freeze_time("2020-01-04T13:01:01Z")
+def test_insight_cache_states_when_deleted_insight(team: Team, user: User):
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user)
+
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 0
+
+    # after sync we have a record for the insight
+    sync_insight_cache_states()
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 1
+
+    # soft-deleting the insight *does not* cascade to the caching state
+    insight.deleted = True
+    insight.save()
+
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 1
+
+    # periodic sync sets to no caching
+    sync_insight_cache_states()
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).first().target_cache_age_seconds is None
+
+
 class TestLazyLoader(BaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_recently_viewed_insights(self):
