@@ -27,7 +27,7 @@ with open(filename[:-4] + ".hoge", "w") as file:
         if len(line) + len(encoded) > max_length - 2:
             file.write(line + "\n")
             line = ""
-        line += (" " if len(line) > 0 else "") + encoded + ("]" if index == len(bytecode) - 1 else ",")
+        line += (" " if len(line) > 1 else "") + encoded + ("]" if index == len(bytecode) - 1 else ",")
     if line == "[":
         file.write(line + "]\n")
     elif line != "":
