@@ -74,7 +74,7 @@ export type HogFunctionInvocation = {
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
     hogFunctionId: HogFunctionType['id']
-    state: VMState
+    vmState: VMState
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncRequest & {

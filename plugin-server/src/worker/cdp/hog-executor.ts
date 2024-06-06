@@ -71,9 +71,9 @@ export class HogExecutor {
             invocation.hogFunctionId
         ]
 
-        invocation.state.stack.push(invocation.response)
+        invocation.vmState.stack.push(invocation.response)
 
-        await this.execute(hogFunction, invocation, invocation.state)
+        await this.execute(hogFunction, invocation, invocation.vmState)
     }
 
     async execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation, state?: VMState): Promise<any> {
@@ -173,7 +173,7 @@ export class HogExecutor {
             await this.executeAsyncResponse({
                 ...invocation,
                 hogFunctionId: hogFunction.id,
-                state: execResult.state!,
+                vmState: execResult.state!,
                 response: {
                     status: fetchResponse.status,
                     body: await fetchResponse.text(),
