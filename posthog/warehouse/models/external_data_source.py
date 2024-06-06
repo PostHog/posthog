@@ -27,9 +27,9 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         CANCELLED = "Cancelled", "Cancelled"
 
     class SyncFrequency(models.TextChoices):
-        DAILY = "Daily", "Daily"
-        WEEKLY = "Weekly", "Weekly"
-        MONTHLY = "Monthly", "Monthly"
+        DAILY = "day", "Daily"
+        WEEKLY = "week", "Weekly"
+        MONTHLY = "month", "Monthly"
         # TODO provide flexible schedule definition
 
     source_id: models.CharField = models.CharField(max_length=400)

@@ -1,5 +1,15 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -13,10 +23,10 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
+    DataWarehouseSyncInterval,
     ExternalDataSourceSchema,
     ExternalDataSourceType,
     ExternalDataStripeSource,
-    PipelineInterval,
     ProductKey,
 } from '~/types'
 
@@ -32,7 +42,7 @@ const StatusTagSetting = {
 export function DataWarehouseSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource, updateSource } = useActions(dataWarehouseSettingsLogic)
 
     const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
         return (
@@ -89,8 +99,20 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                 {
                     title: 'Sync Frequency',
                     key: 'frequency',
-                    render: function RenderFrequency() {
-                        return 'day' as PipelineInterval
+                    render: function RenderFrequency(_, source) {
+                        return (
+                            <LemonSelect
+                                value={source.sync_frequency || 'day'}
+                                onChange={(value) =>
+                                    updateSource({ ...source, sync_frequency: value as DataWarehouseSyncInterval })
+                                }
+                                options={[
+                                    { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
+                                    { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                    { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                ]}
+                            />
+                        )
                     },
                 },
                 {
