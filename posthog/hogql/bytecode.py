@@ -356,7 +356,7 @@ class BytecodeBuilder(Visitor):
 
 def execute_hog(
     source_code: str,
-    team: "Team",
+    team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,

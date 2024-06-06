@@ -1,12 +1,14 @@
 import re
 import time
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
-from posthog.models import Team
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class HogVMException(Exception):
@@ -63,7 +65,7 @@ def execute_bytecode(
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
-    team: Team | None = None,
+    team: Optional["Team"] = None,
 ) -> BytecodeResult:
     result = None
     start_time = time.time()
@@ -92,7 +94,7 @@ def execute_bytecode(
 
     def check_timeout():
         if time.time() - start_time > timeout:
-            raise HogVMException(f"Execution timed out after {timeout} seconds")
+            raise HogVMException(f"Execution timed out after {timeout} seconds. Performed {ops} ops.")
 
     while True:
         ops += 1

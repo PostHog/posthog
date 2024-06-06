@@ -1,14 +1,14 @@
 import time
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 import re
 import json
 
-from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
-def concat(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def concat(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     def _to_concat_arg(arg) -> str:
         if arg is None:
             return ""
@@ -21,11 +21,11 @@ def concat(name: str, args: list[Any], team: Optional[Team], stdout: Optional[li
     return "".join([_to_concat_arg(arg) for arg in args])
 
 
-def match(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def match(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return bool(re.search(re.compile(args[1]), args[0]))
 
 
-def toString(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def toString(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if args[0] is True:
         return "true"
     elif args[0] is False:
@@ -36,73 +36,75 @@ def toString(name: str, args: list[Any], team: Optional[Team], stdout: Optional[
         return str(args[0])
 
 
-def toInt(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def toInt(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     try:
         return int(args[0]) if name == "toInt" else float(args[0])
     except ValueError:
         return None
 
 
-def ifNull(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def ifNull(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if args[0] is not None:
         return args[0]
     else:
         return args[1]
 
 
-def length(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def length(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return len(args[0])
 
 
-def empty(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def empty(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return not bool(args[0])
 
 
-def notEmpty(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def notEmpty(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return bool(args[0])
 
 
-def lower(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def lower(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return args[0].lower()
 
 
-def upper(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def upper(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return args[0].upper()
 
 
-def reverse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def reverse(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return args[0][::-1]
 
 
-def sleep(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def sleep(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     time.sleep(args[0])
     return None
 
 
-def print(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
+def print(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if stdout is not None:
         stdout.append(f"{(' '.join(map(str, args)))}\n")
     return
 
 
-def run(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> list[Any]:
+def run(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list[Any]:
     if team is None:
         return []
+    from posthog.hogql.query import execute_hogql_query
+
     response = execute_hogql_query(query=args[0], team=team)
     return response.results
 
 
-def jsonParse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> Any:
+def jsonParse(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
     return json.loads(args[0])
 
 
-def jsonStringify(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> str:
+def jsonStringify(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
         return json.dumps(args[0], indent=args[1])
     return json.dumps(args[0])
 
 
-STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], Any]] = {
+STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
     "toString": toString,

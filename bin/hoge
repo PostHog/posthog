@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+
+exec python3 -m posthog.hogql.cli "$@"
