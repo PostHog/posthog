@@ -21,7 +21,7 @@ describe('Organization settings', () => {
         cy.get('[data-attr=new-organization-button]').click()
         cy.get('[data-attr=organization-name-input]').type('New Organization')
         cy.get('[data-attr=create-organization-ok]').click()
-        cy.get('[data-attr=organization-name-input-settings]').should('contain', 'New Organization')
+        cy.get('[data-attr=organization-name-input-settings]').should('have.value', 'New Organization')
     })
     it('can delete an organization', () => {
         cy.visit(urls.settings('organization'), {
@@ -29,12 +29,12 @@ describe('Organization settings', () => {
                 ;(win as any).POSTHOG_APP_CONTEXT.preflight.cloud = true
             },
         })
-        cy.get('[data-attr=organization-name-input-settings]').should('contain', 'New Organization')
+        cy.get('[data-attr=organization-name-input-settings]').should('have.value', 'New Organization')
         cy.get('[data-attr=delete-organization-button]').click()
         cy.get('[data-attr=delete-organization-confirmation-input]').type('New Organization')
         cy.get('[data-attr=delete-organization-ok]').click()
         // it redirects to the homepage after deleting the organization
         cy.get('[data-attr=organization-name-input-settings]').should('not.exist')
-        cy.get('[data-attr=top-bar-name]').should('include', 'Homepage')
+        cy.get('[data-attr=top-bar-name]').should('contain.text', 'Homepage')
     })
 })
