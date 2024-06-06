@@ -4,6 +4,8 @@ from collections.abc import Callable
 import re
 import json
 
+from .print import print_hog_string_output
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -81,7 +83,8 @@ def sleep(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
 
 def print(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if stdout is not None:
-        stdout.append(f"{(' '.join(map(str, args)))}\n")
+        value = " ".join(map(print_hog_string_output, args))
+        stdout.append(value)
     return
 
 

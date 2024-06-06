@@ -1,17 +1,13 @@
-fn test(val) {
-  print(jsonStringify(val));
-}
-
-test({});
-test({'key': 'value'});
-test({'key': 'value', 'other': 'thing'});
-test({'key': {'otherKey': 'value'}});
-test({key: 'value'});
+print({});
+print({'key': 'value'});
+print({'key': 'value', 'other': 'thing'});
+print({'key': {'otherKey': 'value'}});
+print({key: 'value'});
 
 let key := 3;
-test({key: 'value'});
+print({key: 'value'});
 
-test({'key': 'value'}.key);
-test({'key': 'value'}['key']);
-test({'key': {'otherKey': 'value'}}.key.otherKey);
-test({'key': {'otherKey': 'value'}}['key'].otherKey);
+print({'key': 'value'}.key);
+print({'key': 'value'}['key']);
+print({'key': {'otherKey': 'value'}}.key.otherKey);
+print({'key': {'otherKey': 'value'}}['key'].otherKey);

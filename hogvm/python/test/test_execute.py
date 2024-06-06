@@ -23,6 +23,7 @@ class TestBytecodeExecute:
         program = parse_program(code)
         bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
         response = execute_bytecode(bytecode, globals, functions)
+        print(response.stdout)  # noqa
         return response.result
 
     def test_bytecode_create(self):
