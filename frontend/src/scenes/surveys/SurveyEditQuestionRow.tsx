@@ -321,39 +321,42 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         .filter((_, questionIndex) => index !== questionIndex)
 
                     return (
-                        <LemonField name="nextStep" label="After this question, go to:" className="max-w-80">
-                            <LemonSelect
-                                // TODO: use ellipsis for overflowing questions
-                                data-attr={`some-key-here-${index}`}
-                                onSelect={(nextStep) => {
-                                    // TODO: update survey.questions[index]
-                                    // find the appropriate method in the logic
-                                    setBranchingForQuestion(index, nextStep)
-                                }}
-                                options={[
-                                    ...(index < survey.questions.length - 1
-                                        ? [
-                                              {
-                                                  label: 'Next question',
-                                                  value: 'next-question',
-                                              },
-                                          ]
-                                        : []),
-                                    {
-                                        label: 'Confirmation message',
-                                        value: 'confirmation-message',
-                                    },
-                                    {
-                                        label: 'Specific question based on answer',
-                                        value: 'specific-question-based-on-answer',
-                                    },
-                                    ...availableNextQuestions.map((question) => ({
-                                        label: `${question.questionIndex + 1}. ${question.question}`,
-                                        value: `question:${question.questionIndex}`,
-                                    })),
-                                ]}
-                            />
-                        </LemonField>
+                        // TODO: support single-choice too
+                        question.type === SurveyQuestionType.Rating && (
+                            <LemonField name="nextStep" label="After this question, go to:" className="max-w-80">
+                                <LemonSelect
+                                    // TODO: use ellipsis for overflowing questions
+                                    data-attr={`some-key-here-${index}`}
+                                    onSelect={(nextStep) => {
+                                        // TODO: update survey.questions[index]
+                                        // find the appropriate method in the logic
+                                        setBranchingForQuestion(index, nextStep)
+                                    }}
+                                    options={[
+                                        ...(index < survey.questions.length - 1
+                                            ? [
+                                                  {
+                                                      label: 'Next question',
+                                                      value: 'next-question',
+                                                  },
+                                              ]
+                                            : []),
+                                        {
+                                            label: 'Confirmation message',
+                                            value: 'confirmation-message',
+                                        },
+                                        {
+                                            label: 'Specific question based on answer',
+                                            value: 'specific-question-based-on-answer',
+                                        },
+                                        ...availableNextQuestions.map((question) => ({
+                                            label: `${question.questionIndex + 1}. ${question.question}`,
+                                            value: `question:${question.questionIndex}`,
+                                        })),
+                                    ]}
+                                />
+                            </LemonField>
+                        )
                     )
                 })()}
             </div>

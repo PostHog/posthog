@@ -18,6 +18,7 @@ import {
     FeatureFlagFilters,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
     SurveyQuestionType,
@@ -544,11 +545,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 setBranchingForQuestion: (state, { questionIndex, nextStep }) => {
                     console.log(questionIndex, nextStep) // eslint-disable-line no-console
-
                     const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex] as RatingSurveyQuestion // TODO: support single-choice too
+
                     newQuestions[questionIndex] = {
-                        ...state.questions[questionIndex],
-                        // Add branching stuff here
+                        ...question,
+                        branching: {
+                            responseValue: {
+                                default: 'confirmationMessage',
+                            },
+                        },
                     }
                     return {
                         ...state,

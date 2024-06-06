@@ -2633,6 +2633,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    branching?: any
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
