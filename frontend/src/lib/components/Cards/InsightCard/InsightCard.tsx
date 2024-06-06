@@ -236,7 +236,7 @@ export function FilterBasedCardContent({
 
 function InsightCardInternal(
     {
-        insight,
+        insight: legacyInsight,
         dashboardId,
         ribbonColor,
         loadingQueued,
@@ -266,12 +266,12 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const queryBasedInsight = getQueryBasedInsightModel(insight)
+    const insight = getQueryBasedInsightModel(legacyInsight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
-        cachedInsight: insight,
+        cachedInsight: legacyInsight, // TODO: use query based insight here
         loadPriority,
         doNotLoad,
     }
@@ -298,7 +298,7 @@ function InsightCardInternal(
         >
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
-                    insight={queryBasedInsight}
+                    insight={insight}
                     ribbonColor={ribbonColor}
                     dashboardId={dashboardId}
                     updateColor={updateColor}
@@ -315,11 +315,11 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {insight.query || useQueryDashboardCards ? (
+                {legacyInsight.query || useQueryDashboardCards ? (
                     <div className="InsightCard__viz">
                         <Query
-                            query={queryBasedInsight.query}
-                            cachedResults={insight}
+                            query={insight.query}
+                            cachedResults={legacyInsight}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
@@ -330,15 +330,19 @@ function InsightCardInternal(
                     </div>
                 ) : (
                     <FilterBasedCardContent
-                        insight={insight}
+                        insight={legacyInsight}
                         insightProps={insightLogicProps}
                         loading={loading}
                         stale={stale}
                         setAreDetailsShown={setAreDetailsShown}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
-                        empty={insight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored}
-                        tooFewFunnelSteps={insight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps}
+                        empty={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored
+                        }
+                        tooFewFunnelSteps={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
+                        }
                         validationError={validationError}
                     />
                 )}
