@@ -29,7 +29,7 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError, timeTotal, timeRemaining } = useValues(billingLogic)
+    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -42,12 +42,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { prorationAmount, isProrated } = useMemo(
         () =>
             getProration({
-                timeRemaining,
-                timeTotal,
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
                 amountUsd: upgradePlan?.unit_amount_usd,
                 hasActiveSubscription: billing?.has_active_subscription,
             }),
-        [billing?.has_active_subscription, upgradePlan, timeRemaining, timeTotal]
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }

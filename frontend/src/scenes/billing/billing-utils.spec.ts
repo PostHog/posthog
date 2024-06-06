@@ -211,8 +211,8 @@ describe('convertLargeNumberToWords', () => {
 describe('getProration', () => {
     it('should return proration amount and isProrated when all values are provided', () => {
         const result = getProration({
-            timeRemaining: 15,
-            timeTotal: 30,
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
             amountUsd: '100',
             hasActiveSubscription: true,
         })
@@ -224,8 +224,8 @@ describe('getProration', () => {
 
     it('should return 0 proration amount and false isProrated when amountUsd is not provided', () => {
         const result = getProration({
-            timeRemaining: 15,
-            timeTotal: 30,
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
             amountUsd: null,
             hasActiveSubscription: true,
         })
@@ -237,8 +237,8 @@ describe('getProration', () => {
 
     it('should return proration amount and false isProrated when subscription is not active', () => {
         const result = getProration({
-            timeRemaining: 15,
-            timeTotal: 30,
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
             amountUsd: '100',
             hasActiveSubscription: false,
         })
@@ -248,10 +248,10 @@ describe('getProration', () => {
         })
     })
 
-    it('should handle zero timeTotal gracefully', () => {
+    it('should handle zero timeTotalInSeconds gracefully', () => {
         const result = getProration({
-            timeRemaining: 15,
-            timeTotal: 0,
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 0,
             amountUsd: '100',
             hasActiveSubscription: true,
         })
@@ -261,10 +261,10 @@ describe('getProration', () => {
         })
     })
 
-    it('should handle zero timeRemaining gracefully', () => {
+    it('should handle zero timeRemainingInSeconds gracefully', () => {
         const result = getProration({
-            timeRemaining: 0,
-            timeTotal: 30,
+            timeRemainingInSeconds: 0,
+            timeTotalInSeconds: 30,
             amountUsd: '100',
             hasActiveSubscription: true,
         })
@@ -276,8 +276,8 @@ describe('getProration', () => {
 
     it('should return 0 proration amount and false isProrated when amountUsd is an empty string', () => {
         const result = getProration({
-            timeRemaining: 15,
-            timeTotal: 30,
+            timeRemainingInSeconds: 15,
+            timeTotalInSeconds: 30,
             amountUsd: '',
             hasActiveSubscription: true,
         })

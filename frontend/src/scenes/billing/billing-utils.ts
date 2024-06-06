@@ -224,27 +224,27 @@ export const convertLargeNumberToWords = (
 }
 
 export const getProration = ({
-    timeRemaining,
-    timeTotal,
+    timeRemainingInSeconds,
+    timeTotalInSeconds,
     amountUsd,
     hasActiveSubscription,
 }: {
-    timeRemaining: number
-    timeTotal: number
+    timeRemainingInSeconds: number
+    timeTotalInSeconds: number
     amountUsd?: string | null
     hasActiveSubscription?: boolean
 }): {
     isProrated: boolean
     prorationAmount: string
 } => {
-    if (timeTotal === 0) {
+    if (timeTotalInSeconds === 0) {
         return {
             isProrated: false,
             prorationAmount: '0.00',
         }
     }
 
-    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemaining / timeTotal) : 0
+    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemainingInSeconds / timeTotalInSeconds) : 0
 
     return {
         isProrated: hasActiveSubscription && amountUsd ? prorationAmount !== parseInt(amountUsd || '') : false,

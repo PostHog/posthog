@@ -120,7 +120,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing, redirectPath, timeRemaining, timeTotal } = useValues(billingLogic)
+    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
@@ -219,8 +219,8 @@ export const PlanComparison = ({
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => {
                         const { prorationAmount, isProrated } = getProration({
-                            timeRemaining,
-                            timeTotal,
+                            timeRemainingInSeconds,
+                            timeTotalInSeconds,
                             amountUsd: plan.unit_amount_usd,
                             hasActiveSubscription: billing?.has_active_subscription,
                         })

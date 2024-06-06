@@ -153,7 +153,7 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
-        timeRemaining: [
+        timeRemainingInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
@@ -162,11 +162,11 @@ export const billingLogic = kea<billingLogicType>([
                     }
                     const currentTime = dayjs()
                     const periodEnd = dayjs(billing.billing_period.current_period_end)
-                    return periodEnd.diff(currentTime, 'millisecond')
+                    return periodEnd.diff(currentTime, 'second')
                 },
             },
         ],
-        timeTotal: [
+        timeTotalInSeconds: [
             0,
             {
                 loadBillingSuccess: (_, { billing }) => {
@@ -175,7 +175,7 @@ export const billingLogic = kea<billingLogicType>([
                     }
                     const periodStart = dayjs(billing.billing_period.current_period_start)
                     const periodEnd = dayjs(billing.billing_period.current_period_end)
-                    return periodEnd.diff(periodStart, 'millisecond')
+                    return periodEnd.diff(periodStart, 'second')
                 },
             },
         ],

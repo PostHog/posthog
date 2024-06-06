@@ -9,18 +9,18 @@ import { confirmUpgradeModalLogic } from './confirmUpgradeModalLogic'
 
 export function ConfirmUpgradeModal(): JSX.Element {
     const { upgradePlan } = useValues(confirmUpgradeModalLogic)
-    const { timeRemaining, timeTotal, billing } = useValues(billingLogic)
+    const { timeRemainingInSeconds, timeTotalInSeconds, billing } = useValues(billingLogic)
     const { hideConfirmUpgradeModal, confirm, cancel } = useActions(confirmUpgradeModalLogic)
 
     const { prorationAmount, isProrated } = useMemo(
         () =>
             getProration({
-                timeRemaining,
-                timeTotal,
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
                 amountUsd: upgradePlan?.unit_amount_usd,
                 hasActiveSubscription: billing?.has_active_subscription,
             }),
-        [billing?.has_active_subscription, upgradePlan, timeRemaining, timeTotal]
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
 
     return (
