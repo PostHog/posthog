@@ -66,7 +66,7 @@ export default function SurveyEdit(): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
-        : 'Subscribe to surveys for multiple questions'
+        : 'Subscribe to surveys for repeating surveys over a duration of time'
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')

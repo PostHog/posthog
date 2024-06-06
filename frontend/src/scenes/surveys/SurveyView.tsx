@@ -236,7 +236,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                 , {survey.iteration_count}{' '}
                                                                 {pluralize(
                                                                     survey.iteration_count,
-                                                                    'times',
+                                                                    'time',
                                                                     'times',
                                                                     false
                                                                 )}
