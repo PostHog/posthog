@@ -32,10 +32,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
-        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, subscriptionId: string | undefined) => ({
+        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, itemId: string | undefined) => ({
             insightId,
             insightMode,
-            subscriptionId,
+            itemId,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -59,15 +59,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
-        subscriptionId: [
+        itemId: [
             null as null | number | 'new',
             {
-                setSceneState: (_, { subscriptionId }) =>
-                    subscriptionId !== undefined
-                        ? subscriptionId === 'new'
-                            ? 'new'
-                            : parseInt(subscriptionId, 10)
-                        : null,
+                setSceneState: (_, { itemId }) =>
+                    itemId !== undefined ? (itemId === 'new' ? 'new' : parseInt(itemId, 10)) : null,
             },
         ],
         insightLogicRef: [
@@ -174,8 +170,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/insights/:shortId(/:mode)(/:subscriptionId)': (
-            { shortId, mode, subscriptionId }, // url params
+        '/insights/:shortId(/:mode)(/:itemId)': (
+            { shortId, mode, itemId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters, q }, // hash params
             { method, initial }, // "location changed" event payload
@@ -209,12 +205,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            if (
-                insightId !== values.insightId ||
-                insightMode !== values.insightMode ||
-                subscriptionId !== values.subscriptionId
-            ) {
-                actions.setSceneState(insightId, insightMode, subscriptionId)
+            if (insightId !== values.insightId || insightMode !== values.insightMode || itemId !== values.itemId) {
+                actions.setSceneState(insightId, insightMode, itemId)
             }
 
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
