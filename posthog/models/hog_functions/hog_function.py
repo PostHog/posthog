@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -35,9 +34,11 @@ class HogFunction(UUIDModel):
         except KeyError:
             return []
 
-    def compile_filters_bytecode(self, actions: dict[str, Action]):
-        if self.filters:
-            self.filters = generate_template_bytecode(self.filters)
+    def compile_filters_bytecode(self, actions: dict[int, Action]):
+        from .utils import hog_function_filters_to_expr
+        from posthog.hogql.bytecode import create_bytecode
+
+        self.bytecode = create_bytecode(hog_function_filters_to_expr(self, actions))
 
     def __str__(self):
         return self.name
@@ -56,38 +57,26 @@ def action_saved(sender, instance: Action, created, **kwargs):
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
-    affected_hog_functions = (
-        HogFunction.objects.prefetch_related("team")
-        .filter(team=instance.team_id)
-        .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
-    )
+    try:
+        affected_hog_functions = (
+            HogFunction.objects.prefetch_related("team")
+            .filter(team=instance.team_id)
+            .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
+        )
 
-    all_related_actions = Action.objects.filter(team=instance.team_id).filter(
-        id__in=[hog_function.filter_action_ids for hog_function in affected_hog_functions]
-    )
+        all_related_actions = Action.objects.filter(team=instance.team_id).filter(
+            id__in=[
+                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
+            ]
+        )
 
-    actions_by_id = {action.id: action for action in all_related_actions}
+        actions_by_id = {action.id: action for action in all_related_actions}
 
-    for hog_function in affected_hog_functions:
-        hog_function.compile_filters_bytecode(actions=actions_by_id)
+        for hog_function in affected_hog_functions:
+            hog_function.compile_filters_bytecode(actions=actions_by_id)
 
-    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
-
-    print("UPdated", updates)
-
-
-def generate_template_bytecode(obj: Any) -> Any:
-    """
-    Clones an object, compiling any string values to bytecode templates
-    """
-    from posthog.hogql.bytecode import create_bytecode
-    from posthog.hogql.parser import parse_string_template
-
-    if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [generate_template_bytecode(item) for item in obj]
-    elif isinstance(obj, str):
-        return create_bytecode(parse_string_template(obj))
-    else:
-        return obj
+        updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+        print("Updated", updates)
+    except Exception as e:
+        # TODO: How to handle exceptions here?
+        pass

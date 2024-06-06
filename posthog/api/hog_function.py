@@ -1,4 +1,3 @@
-from typing import Any
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
@@ -8,8 +7,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program, parse_string_template
-from posthog.models.hog_functions.hog_function import HogFunction, generate_template_bytecode
+from posthog.hogql.parser import parse_program
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.utils import generate_template_bytecode
+
 
 logger = structlog.get_logger(__name__)
 
