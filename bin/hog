@@ -32,8 +32,8 @@ else
   echo "           bin/hog <file.hoge>                run compiled .hoge bytecode"
   echo "           bin/hoge <file.hog> [output.hoge]  compile .hog into .hoge"
   echo ""
-  echo "Options:   --debug            run the debugger (Python only)"
-  echo "           --python           use the Python VM"
-  echo "           --nodejs           use the Node.js VM"
+  echo "Options:   bin/hog --debug                    run the debugger (Python only)"
+  echo "           bin/hog --python                   use the Python VM"
+  echo "           bin/hog --nodejs                   use the Node.js VM"
   exit 1
 fi

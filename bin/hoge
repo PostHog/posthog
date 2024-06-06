@@ -6,12 +6,8 @@ if [[ "$@" == *".hog"* ]]; then
 else
   echo "$0 - the Hog compilër! 🦔+🕶️= Hoge"
   echo ""
-  echo "Usage:     bin/hog <file.hog>                 run .hog source code"
+  echo "Usage:     bin/hoge <file.hog> [output.hoge]  compile .hog into .hoge"
+  echo "           bin/hog <file.hog>                 run .hog source code"
   echo "           bin/hog <file.hoge>                run compiled .hoge bytecode"
-  echo "           bin/hoge <file.hog> <output.hoge>  compile .hog into .hoge"
-  echo ""
-  echo "Options:   --debug            run the debugger (Python only)"
-  echo "           --python           use the Python VM"
-  echo "           --nodejs           use the Node.js VM"
   exit 1
 fi
