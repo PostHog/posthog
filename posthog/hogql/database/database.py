@@ -115,7 +115,6 @@ class Database(BaseModel):
         "groups",
         "persons",
         "person_distinct_ids",
-        "person_overrides",
         "session_replay_events",
         "cohort_people",
         "static_cohort_people",
