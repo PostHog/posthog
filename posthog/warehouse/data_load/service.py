@@ -72,7 +72,7 @@ def get_sync_frequency(external_data_schema: ExternalDataSchema):
     elif external_data_schema.source.sync_frequency == ExternalDataSource.SyncFrequency.WEEKLY:
         return timedelta(weeks=1)
     elif external_data_schema.source.sync_frequency == ExternalDataSource.SyncFrequency.MONTHLY:
-        return timedelta(weeks=4)
+        return timedelta(days=30)
     else:
         raise ValueError(f"Unknown sync frequency: {external_data_schema.source.sync_frequency}")
 
