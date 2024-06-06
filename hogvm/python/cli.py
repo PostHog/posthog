@@ -2,9 +2,14 @@ import sys
 import json
 from .execute import execute_bytecode
 
+# get modifiers
+modifiers = [arg for arg in sys.argv if arg.startswith("-")]
+
 # get filename from first cli arg
-args = [arg for arg in sys.argv if arg != ""]
+args = [arg for arg in sys.argv if arg != "" and not arg.startswith("-")]
 filename = args[1]
+
+debug = "--debug" in modifiers
 
 # raise if filename does not end with ".hoge"
 if not filename.endswith(".hoge"):
@@ -16,4 +21,4 @@ with open(filename) as file:
     code = json.loads(code)
 
 # execute code
-execute_bytecode(code, globals=None, functions=None, timeout=10, team=None)
+execute_bytecode(code, globals=None, functions=None, timeout=5, team=None, debug=debug)

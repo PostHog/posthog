@@ -4,7 +4,10 @@ set -e
 if [[ "$@" == *"--python"* ]]; then
   echo "Running in Python VM"
   set -- "${@/--python/}"
-  echo $@
+  exec python3 -m hogvm.python.cli "$@"
+
+elif [[ "$@" == *"--debug"* ]]; then
+  echo "Running in Python VM with debug mode"
   exec python3 -m hogvm.python.cli "$@"
 
 else
