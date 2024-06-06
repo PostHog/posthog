@@ -47,6 +47,8 @@ async def update_proxy_record(inputs: UpdateProxyRecordInputs):
         connection.connect()
         pr = ProxyRecord.objects.get(id=proxy_record_id)
         pr.status = inputs.status
+        # clear message after every transition
+        pr.message = ""
         pr.save()
 
     await update_record(inputs.proxy_record_id)

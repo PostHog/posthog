@@ -2,6 +2,7 @@ import time
 from typing import Any, Optional
 from collections.abc import Callable
 import re
+import json
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -91,6 +92,16 @@ def run(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[
     return response.results
 
 
+def jsonParse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> Any:
+    return json.loads(args[0])
+
+
+def jsonStringify(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> str:
+    if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
+        return json.dumps(args[0], indent=args[1])
+    return json.dumps(args[0])
+
+
 STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -108,4 +119,6 @@ STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], An
     "sleep": sleep,
     "print": print,
     "run": run,
+    "jsonParse": jsonParse,
+    "jsonStringify": jsonStringify,
 }

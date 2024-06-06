@@ -46,7 +46,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeatter
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -462,7 +462,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             extra_query_parameters=query_parameters,
         )
 
-        async with Heartbeatter() as heartbeatter:
+        async with Heartbeater() as heartbeater:
             async with s3_upload as s3_upload:
 
                 async def flush_to_s3(
@@ -484,7 +484,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeatter.details = (str(last_inserted_at), s3_upload.to_state())
+                    heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
                 first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
                 first_record_batch = cast_record_batch_json_columns(first_record_batch)
