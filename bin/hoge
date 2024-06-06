@@ -1,23 +1,17 @@
 #!/bin/bash
 set -e
 
-if [[ "$@" == *"--python"* ]]; then
-  set -- "${@/--python/}"
-  exec python3 -m hogvm.python.cli "$@"
-
-elif [[ "$@" == *"--debug"* ]]; then
-  echo "Running in Python VM with debug mode"
-  exec python3 -m hogvm.python.cli "$@"
-
+if [[ "$@" == *".hog"* ]]; then
+  exec python3 -m posthog.hogql.cli --compile "$@"
 else
-  set -- "${@/--nodejs/}"
-  VM_PATH="$(dirname "$0")/../hogvm/typescript"
-  CLI_PATH="$(dirname "$0")/../hogvm/typescript/dist/cli.js"
-  if [ ! -f $CLI_PATH ]; then
-    echo "Building TypeScript HogVM"
-    cd $VM_PATH
-    pnpm run build
-    cd -
-  fi
-  exec node $CLI_PATH "$@"
+  echo "$0 - the Hog compilër! 🦔+🕶️= Hoge"
+  echo ""
+  echo "Usage:     bin/hog <file.hog>                 run .hog source code"
+  echo "           bin/hog <file.hoge>                run compiled .hoge bytecode"
+  echo "           bin/hoge <file.hog> <output.hoge>  compile .hog into .hoge"
+  echo ""
+  echo "Options:   --debug            run the debugger (Python only)"
+  echo "           --python           use the Python VM"
+  echo "           --nodejs           use the Node.js VM"
+  exit 1
 fi
