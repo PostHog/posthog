@@ -1534,17 +1534,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "async"}
             ).json()
             self.assertNotIn("code", response)
-            # self.assertTrue(response.get("query_async"))
-            # self.assertTrue(response.get("complete"))
-            results = response  # ["results"]
-
+            self.assertIsNone(response.get("query_status"))
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
-            self.assertEqual(results["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(results["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
-            self.assertTrue(results["is_cached"])
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:39.000Z"):
-            # Now with refresh requested - cache should be ignored
+            # Now with force async requested - cache should be ignored
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "force_async"}
             ).json()

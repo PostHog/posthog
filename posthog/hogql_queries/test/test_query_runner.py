@@ -178,6 +178,13 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
+        with freeze_time(datetime(2023, 2, 5, 13, 37 + 20, 42)):
+            # returns cached response - does not kick off calculation in the background
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+            mock_on_commit.assert_called_once()  # still once
+
     def test_modifier_passthrough(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
