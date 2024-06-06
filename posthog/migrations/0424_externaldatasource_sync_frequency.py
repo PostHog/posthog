@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0421_set_all_survey_responses_to_be_strings"),
+        ("posthog", "0423_alter_externaldatasource_source_type"),
     ]
 
     operations = [
