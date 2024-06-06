@@ -43,7 +43,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -66,9 +66,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const currentPlan = currentAndUpgradePlans?.currentPlan
-    const downgradePlan = currentAndUpgradePlans?.downgradePlan
+    const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
     const additionalFeaturesOnUpgradedPlan = upgradePlan
         ? upgradePlan?.features?.filter(
               (feature) =>
@@ -82,8 +80,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
-        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan // || (!upgradePlan && !product.current_amount_usd))
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -198,7 +195,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </div>
                         ) : (
-                            !isOnboarding &&
                             !isUnlicensedDebug && (
                                 <>
                                     {product.tiered ? (
@@ -295,7 +291,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
-                    {!isOnboarding && product.addons?.length > 0 && (
+                    {product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
@@ -408,7 +404,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     product,
                                                     upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                                    false // if in onboarding, we want to include addons, otherwise don't
                                                 )}
                                                 type="primary"
                                                 icon={<IconPlus />}
@@ -431,7 +427,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                         <PlanComparisonModal
                             product={product}
-                            includeAddons={isOnboarding}
+                            includeAddons={false}
                             modalOpen={isPlanComparisonModalOpen}
                             onClose={() => toggleIsPlanComparisonModalOpen()}
                         />
