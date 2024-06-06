@@ -9,8 +9,8 @@ if [[ "$@" == *"--python"* ]]; then
 
 else
   echo "Running in Node.js VM"
-  VM_PATH = "$(dirname "$0")/../hogvm/typescript"
-  CLI_PATH = "$(dirname "$0")/../hogvm/typescript/dist/cli.js"
+  VM_PATH="$(dirname "$0")/../hogvm/typescript"
+  CLI_PATH="$(dirname "$0")/../hogvm/typescript/dist/cli.js"
   if [ ! -f $CLI_PATH ]; then
     echo "Building TypeScript"
     cd $VM_PATH
