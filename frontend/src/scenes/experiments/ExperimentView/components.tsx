@@ -1,8 +1,7 @@
 import '../Experiment.scss'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -223,9 +222,9 @@ export function NoResultsEmptyState(): JSX.Element {
     // Non-400 errors are rendered as plain text
     return (
         <div>
-            <div className="border rounded bg-bg-light pt-6 pb-8">
-                <div className="flex flex-col items-center mx-auto text-muted">
-                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+            <div className="border rounded bg-bg-light py-10">
+                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                    <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
                         <div className="text-sm text-center text-balance">

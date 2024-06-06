@@ -13,6 +13,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
         list(BASE_ENDPOINTS) + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
     ),
     ExternalDataSource.Type.POSTGRES: (),
+    ExternalDataSource.Type.SNOWFLAKE: (),
 }
 
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
@@ -20,4 +21,5 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.HUBSPOT: (),
     ExternalDataSource.Type.ZENDESK: (),
     ExternalDataSource.Type.POSTGRES: (),
+    ExternalDataSource.Type.SNOWFLAKE: (),
 }
