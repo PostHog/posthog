@@ -43,27 +43,27 @@ export default function SurveyEdit(): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
-        writingHTMLDescription,
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
         showSurveyRepeatSchedule,
+        surveysRecurringScheduleAvailable,
         schedule,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
-        setWritingHTMLDescription,
         resetTargeting,
         setSelectedPageIndex,
         setSelectedSection,
         setFlagPropertyErrors,
         setSchedule,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType } = survey.appearance
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Subscribe to surveys for repeating surveys over a duration of time'
@@ -269,13 +269,25 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           ...survey.appearance,
                                                                                           thankYouMessageDescription:
                                                                                               val,
+                                                                                          thankYouMessageDescriptionContentType,
                                                                                       })
                                                                                   }
-                                                                                  writingHTMLDescription={
-                                                                                      writingHTMLDescription
-                                                                                  }
-                                                                                  setWritingHTMLDescription={
-                                                                                      setWritingHTMLDescription
+                                                                                  onTabChange={(key) => {
+                                                                                      const updatedAppearance = {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              key === 'html'
+                                                                                                  ? 'html'
+                                                                                                  : 'text',
+                                                                                      }
+                                                                                      setSurveyValue(
+                                                                                          'appearance',
+                                                                                          updatedAppearance
+                                                                                      )
+                                                                                  }}
+                                                                                  activeTab={
+                                                                                      thankYouMessageDescriptionContentType ??
+                                                                                      'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
