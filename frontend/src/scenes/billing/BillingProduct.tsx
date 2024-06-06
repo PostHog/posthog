@@ -80,7 +80,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan // || (!upgradePlan && !product.current_amount_usd))
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -210,7 +210,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
-                                            {product.current_amount_usd ? (
+                                            {product.subscribed ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
                                                         title={`The current ${
