@@ -1,24 +1,40 @@
 import os
+from time import sleep
 from typing import Any
 
 from hogvm.python.operation import Operation
 
+DEBUG_MODES = ["input", "run", "walk"]
+debug_mode = "input"
+
 
 def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list):
-    rows = os.get_terminal_size().lines - 6
-    rows = 2 if rows < 2 else rows
-    rows_from_top = 2 if rows > 2 else 0
+    print("\033[H\033[J", end="")  # noqa: T201
+
     next_symbol = symbol
     try:
         next_symbol = print_symbol(Operation(next_symbol), ip, bytecode, stack, call_stack)
     except ValueError:
         pass
-    print("\033[H\033[J", end="")  # noqa: T201
-    print(f"call_stack: {call_stack}")  # noqa: T201
-    print(f"stack: {stack}")  # noqa: T201
-    print(f"next: {next_symbol}")  # noqa: T201
-    print(f"ip: {ip}")  # noqa: T201
-    print("")  # noqa: T201
+
+    top: list = []
+    top.append(f"call_stack: {call_stack}")  # noqa: T201
+    top.append(f"stack: {stack}")  # noqa: T201
+    top.append(f"next: {next_symbol}")  # noqa: T201
+    top.append(f"ip: {ip}")  # noqa: T201
+    top.append("")  # noqa: T201
+
+    cols = os.get_terminal_size().columns
+
+    # count how much top actually takes
+    taken_lines = 2
+    for line in top:
+        taken_lines += 1 + len(line) // cols
+        print(line)  # noqa: T201
+
+    rows = os.get_terminal_size().lines - taken_lines
+    rows = 2 if rows < 2 else rows
+    rows_from_top = 2 if rows > 2 else 0
 
     start_ip = ip - rows_from_top if ip > rows_from_top else 0
     end_ip = len(bytecode) if start_ip + rows > len(bytecode) else (start_ip + rows)
@@ -31,7 +47,16 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
             print(f"> {i}: {line}")  # noqa: T201
         else:
             print(f"  {i}: {line}")  # noqa: T201
-    input()
+
+    global debug_mode
+    if debug_mode == "run":
+        sleep(0.1)
+    elif debug_mode == "walk":
+        sleep(1)
+    else:
+        response = input()
+        if response in DEBUG_MODES:
+            debug_mode = response
 
 
 def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list) -> str:
