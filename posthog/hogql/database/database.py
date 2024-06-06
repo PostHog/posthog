@@ -48,7 +48,6 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable,
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
-    join_with_person_overrides_table,
 )
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -76,7 +75,10 @@ from posthog.schema import (
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from posthog.warehouse.models.table import (
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -186,35 +188,21 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
-def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    if use_distinct_id_overrides:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-    else:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    database.events.fields["override"] = LazyJoin(
+        from_field=["distinct_id"],
+        join_table=PersonDistinctIdOverridesTable(),
+        join_function=join_with_person_distinct_id_overrides_table,
+    )
+    database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+            start=None,
+        ),
+    )
 
 
 def create_hogql_database(
@@ -242,12 +230,12 @@ def create_hogql_database(
         _use_person_properties_from_events(database)
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+        _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
@@ -424,7 +412,7 @@ def serialize_database(
         elif isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context)
+        fields = serialize_fields(field_input, context, table_key)
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
 
@@ -452,7 +440,7 @@ def serialize_database(
         if isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, warehouse_table.columns)
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns)
         fields_dict = {field.name: field for field in fields}
 
         # Schema
@@ -508,7 +496,7 @@ def serialize_database(
         if view is None:
             continue
 
-        fields = serialize_fields(view.fields, context)
+        fields = serialize_fields(view.fields, context, view_name)
         fields_dict = {field.name: field for field in fields}
 
         saved_query: list[DataWarehouseSavedQuery] = list(
@@ -522,13 +510,36 @@ def serialize_database(
     return tables
 
 
+def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
+    if isinstance(constant_type, ast.StringType):
+        return DatabaseSerializedFieldType.string
+    if isinstance(constant_type, ast.BooleanType):
+        return DatabaseSerializedFieldType.boolean
+    if isinstance(constant_type, ast.DateType):
+        return DatabaseSerializedFieldType.date
+    if isinstance(constant_type, ast.DateTimeType):
+        return DatabaseSerializedFieldType.datetime
+    if isinstance(constant_type, ast.UUIDType):
+        return DatabaseSerializedFieldType.string
+    if isinstance(constant_type, ast.ArrayType):
+        return DatabaseSerializedFieldType.array
+    if isinstance(constant_type, ast.TupleType):
+        return DatabaseSerializedFieldType.json
+    if isinstance(constant_type, ast.IntegerType):
+        return DatabaseSerializedFieldType.integer
+    if isinstance(constant_type, ast.FloatType):
+        return DatabaseSerializedFieldType.float
+    return None
+
+
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 
 
 def serialize_fields(
-    field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
+    field_input, context: HogQLContext, table_name: str, db_columns: Optional[DataWarehouseTableColumns] = None
 ) -> list[DatabaseSchemaField]:
     from posthog.hogql.database.models import SavedQuery
+    from posthog.hogql.resolver import resolve_types_from_table
 
     field_output: list[DatabaseSchemaField] = []
     for field_key, field in field_input.items():
@@ -629,11 +640,19 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, ExpressionField):
+                field_expr = resolve_types_from_table(field.expr, table_name, context, "hogql")
+                assert field_expr.type is not None
+                constant_type = field_expr.type.resolve_constant_type(context)
+
+                field_type = constant_type_to_serialized_field_type(constant_type)
+                if field_type is None:
+                    field_type = DatabaseSerializedFieldType.expression
+
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.expression,
+                        type=field_type,
                         schema_valid=schema_valid,
                     )
                 )

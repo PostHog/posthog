@@ -25,8 +25,15 @@
     flex-shrink: 0;
     width: 1rem;
     height: 1rem;
-    background-image: url('../../../public/posthog-icon.svg');
     background-size: cover;
+}
+
+.PropertyKeyInfo__logo--posthog {
+    background-image: url('../../../public/posthog-icon.svg');
+}
+
+.PropertyKeyInfo__logo--langfuse {
+    background-image: url('../../../public/langfuse-icon.svg');
 }
 
 .PropertyKeyInfo__overlay {

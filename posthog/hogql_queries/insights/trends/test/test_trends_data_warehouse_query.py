@@ -10,7 +10,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
+    InsightDateRange,
     DataWarehouseNode,
     DataWarehouseEventsModifier,
     TrendsQuery,
@@ -26,6 +26,7 @@ from posthog.settings import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    XDIST_SUFFIX,
 )
 import s3fs
 from pyarrow import parquet as pq
@@ -39,7 +40,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
@@ -153,7 +154,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -178,7 +179,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -204,7 +205,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -230,7 +231,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -267,7 +268,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -296,7 +297,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,

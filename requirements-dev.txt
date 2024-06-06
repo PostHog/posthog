@@ -66,7 +66,7 @@ cryptography==37.0.2
     # via
     #   -c requirements.txt
     #   types-paramiko
-datamodel-code-generator==0.25.2
+datamodel-code-generator==0.25.6
     # via -r requirements-dev.in
 django==4.2.11
     # via
@@ -93,6 +93,8 @@ exceptiongroup==1.2.1
     # via
     #   -c requirements.txt
     #   pytest
+execnet==2.1.1
+    # via pytest-xdist
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis==2.11.0
@@ -212,6 +214,7 @@ pytest==7.4.4
     #   pytest-mock
     #   pytest-split
     #   pytest-watch
+    #   pytest-xdist
     #   syrupy
 pytest-asyncio==0.21.1
     # via -r requirements-dev.in
@@ -228,6 +231,8 @@ pytest-mock==3.11.1
 pytest-split==0.8.1
     # via -r requirements-dev.in
 pytest-watch==4.2.0
+    # via -r requirements-dev.in
+pytest-xdist==3.6.1
     # via -r requirements-dev.in
 python-dateutil==2.8.2
     # via

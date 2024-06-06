@@ -288,8 +288,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.setIsBlurred(true)
             }
         }
+        window.addEventListener('mousedown', cache.clickListener)
 
-        // Post message up to parent in case we are embedded in an app
+        // the toolbar can be run within the posthog parent app
+        // if it is then it listens to parent messages
+        const isInIframe = window !== window.parent
+
         cache.iframeEventListener = (e: MessageEvent): void => {
             // TODO: Probably need to have strict checks here
             const type: PostHogAppToolbarEvent = e?.data?.type
@@ -326,10 +330,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }
         }
-        window.addEventListener('mousedown', cache.clickListener)
-        window.addEventListener('message', cache.iframeEventListener, false)
-        // Tell the parent window that we are ready
-        window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+
+        if (isInIframe) {
+            window.addEventListener('message', cache.iframeEventListener, false)
+            // Post message up to parent in case we are embedded in an app
+            // Tell the parent window that we are ready
+            // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+        }
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)

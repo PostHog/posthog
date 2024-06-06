@@ -491,6 +491,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+    live_events_token: string
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -638,11 +639,17 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum ActivityTab {
+    ExploreEvents = 'explore',
+    LiveEvents = 'live',
+}
+
 export enum PipelineTab {
     Overview = 'overview',
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
+    DataImport = 'data-import',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
 }
@@ -652,10 +659,12 @@ export enum PipelineStage {
     Destination = 'destination',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
+    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
     Configuration = 'configuration',
+    Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
@@ -1241,6 +1250,16 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+}
+
+export interface LiveEvent {
+    uuid: string
+    event: string
+    properties: Record<string, any>
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
 }
 
 export interface RecordingTimeMixinType {
@@ -1971,7 +1990,15 @@ export enum ChartDisplayCategory {
     TotalValue = 'TotalValue',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
+export type BreakdownType =
+    | 'cohort'
+    | 'person'
+    | 'event'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'data_warehouse'
+    | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -2530,6 +2557,11 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        events: {
+            values: {
+                name: string
+            }[]
+        } | null
     } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -2834,6 +2866,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
+    Alerts = 'alerts',
 }
 
 export enum DashboardPlacement {
@@ -3679,7 +3712,9 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Manual'] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -3826,6 +3861,8 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
 
+export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
@@ -3833,7 +3870,7 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: 'hour' | 'day' | 'every 5 minutes'
+    interval: PipelineInterval
     created_at: string
     start_at: string | null
     end_at: string | null
@@ -4033,4 +4070,19 @@ export type OnboardingProduct = {
     iconColor: string
     url: string
     scene: Scene
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: {
+        lower?: number
+        upper?: number
+    }
+}
+
+export interface AlertType {
+    id: number
+    name: string
+    insight?: number
+    target_value: string
+    anomaly_condition: AnomalyCondition
 }

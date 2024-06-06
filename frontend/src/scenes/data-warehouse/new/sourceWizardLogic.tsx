@@ -11,6 +11,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    PipelineTab,
     SourceConfig,
     SourceFieldConfig,
 } from '~/types'
@@ -216,6 +217,11 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 placeholder: '',
             },
         ],
+    },
+    Manual: {
+        name: 'Manual',
+        caption: <>If you have a data source that isn't listed here, you can manually link it to PostHog.</>,
+        fields: [],
     },
 }
 
@@ -567,7 +573,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.clearSource()
             actions.loadSources(null)
             actions.resetSourceConnectionDetails()
-            router.actions.push(urls.dataWarehouseSettings())
+
+            if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
+                router.actions.push(urls.dataWarehouseSettings())
+            } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
+                router.actions.push(urls.pipeline(PipelineTab.DataImport))
+            }
         },
         cancelWizard: () => {
             actions.onClear()

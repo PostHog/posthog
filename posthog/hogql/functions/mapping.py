@@ -2,7 +2,18 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 from posthog.hogql import ast
-from posthog.hogql.base import ConstantType
+from posthog.hogql.ast import (
+    ArrayType,
+    BooleanType,
+    DateTimeType,
+    DateType,
+    FloatType,
+    StringType,
+    TupleType,
+    IntegerType,
+    UUIDType,
+)
+from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
 
 
@@ -32,6 +43,18 @@ def validate_function_args(
 
 
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
+AnyConstantType = (
+    StringType
+    | BooleanType
+    | DateType
+    | DateTimeType
+    | UUIDType
+    | ArrayType
+    | TupleType
+    | UnknownType
+    | IntegerType
+    | FloatType
+)
 
 
 @dataclass()
@@ -48,8 +71,23 @@ class HogQLFunctionMeta:
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
     case_sensitive: bool = True
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
+    signatures: Optional[list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]] = None
+    """Signatures allow for specifying the types of the arguments and the return type of the function."""
     suffix_args: Optional[list[ast.Constant]] = None
     """Additional arguments that are added to the end of the arguments provided by the caller"""
+
+
+def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
+    _sig_arg_types = list(sig_arg_types)
+    if len(arg_types) != len(sig_arg_types):
+        return False
+
+    for index, arg_type in enumerate(arg_types):
+        _sig_arg_type = _sig_arg_types[index]
+        if not isinstance(arg_type, _sig_arg_type.__class__):
+            return False
+
+    return True
 
 
 HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
@@ -69,21 +107,189 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
 
 HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # arithmetic
-    "plus": HogQLFunctionMeta("plus", 2, 2),
-    "minus": HogQLFunctionMeta("minus", 2, 2),
-    "multiply": HogQLFunctionMeta("multiply", 2, 2),
-    "divide": HogQLFunctionMeta("divide", 2, 2),
-    "intDiv": HogQLFunctionMeta("intDiv", 2, 2),
-    "intDivOrZero": HogQLFunctionMeta("intDivOrZero", 2, 2),
-    "modulo": HogQLFunctionMeta("modulo", 2, 2),
-    "moduloOrZero": HogQLFunctionMeta("moduloOrZero", 2, 2),
-    "positiveModulo": HogQLFunctionMeta("positiveModulo", 2, 2),
-    "negate": HogQLFunctionMeta("negate", 1, 1),
-    "abs": HogQLFunctionMeta("abs", 1, 1, case_sensitive=False),
-    "gcd": HogQLFunctionMeta("gcd", 2, 2),
-    "lcm": HogQLFunctionMeta("lcm", 2, 2),
-    "max2": HogQLFunctionMeta("max2", 2, 2, case_sensitive=False),
-    "min2": HogQLFunctionMeta("min2", 2, 2, case_sensitive=False),
+    "plus": HogQLFunctionMeta(
+        "plus",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            (
+                (
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                ),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
+    "minus": HogQLFunctionMeta(
+        "minus",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            (
+                (
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                ),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
+    "multiply": HogQLFunctionMeta(
+        "multiply",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            (
+                (
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType()], repeat=True),
+                ),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            (
+                (IntegerType(), TupleType(item_types=[IntegerType()], repeat=True)),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            (
+                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
+    "divide": HogQLFunctionMeta(
+        "divide",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            (
+                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
+                TupleType(item_types=[IntegerType()], repeat=True),
+            ),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((IntegerType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
+    "intDiv": HogQLFunctionMeta(
+        "intDiv",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "intDivOrZero": HogQLFunctionMeta(
+        "intDivOrZero",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "modulo": HogQLFunctionMeta(
+        "modulo",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+        ],
+    ),
+    "moduloOrZero": HogQLFunctionMeta(
+        "moduloOrZero",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+        ],
+    ),
+    "positiveModulo": HogQLFunctionMeta(
+        "positiveModulo",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+        ],
+    ),
+    "negate": HogQLFunctionMeta(
+        "negate",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+            ((FloatType(),), FloatType()),
+        ],
+    ),
+    "abs": HogQLFunctionMeta(
+        "abs",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+        case_sensitive=False,
+    ),
+    "gcd": HogQLFunctionMeta(
+        "gcd",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "lcm": HogQLFunctionMeta(
+        "lcm",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "max2": HogQLFunctionMeta(
+        "max2",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+        ],
+        case_sensitive=False,
+    ),
+    "min2": HogQLFunctionMeta(
+        "min2",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+        ],
+        case_sensitive=False,
+    ),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
     # arrays and strings common
@@ -191,11 +397,27 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "parseDateTime64BestEffortOrNull",
         1,
         2,
-        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         tz_aware=True,
+        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
+        signatures=[
+            ((StringType(),), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+        ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
-    "toString": HogQLFunctionMeta("toString", 1, 1),
+    "toString": HogQLFunctionMeta(
+        "toString",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), StringType()),
+            ((StringType(),), StringType()),
+            ((FloatType(),), StringType()),
+            ((DateType(),), StringType()),
+            ((DateTimeType(),), StringType()),
+        ],
+    ),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
@@ -270,7 +492,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 2),
     "dateName": HogQLFunctionMeta("dateName", 2, 2),
     "monthName": HogQLFunctionMeta("monthName", 1, 1),
-    "fromUnixTimestamp": HogQLFunctionMeta("fromUnixTimestamp", 1, 1),
+    "fromUnixTimestamp": HogQLFunctionMeta(
+        "fromUnixTimestamp",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), DateTimeType()),
+        ],
+    ),
     "toModifiedJulianDay": HogQLFunctionMeta("toModifiedJulianDayOrNull", 1, 1),
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
     "toIntervalSecond": HogQLFunctionMeta("toIntervalSecond", 1, 1),
@@ -651,7 +880,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
     "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, aggregate=True),
-    # "groupUniqArrayIf": HogQLFunctionMeta("groupUniqArrayIf", 2, 2, aggregate=True),
+    "groupUniqArrayIf": HogQLFunctionMeta("groupUniqArrayIf", 2, 2, aggregate=True),
     "groupArrayInsertAt": HogQLFunctionMeta("groupArrayInsertAt", 2, 2, aggregate=True),
     "groupArrayInsertAtIf": HogQLFunctionMeta("groupArrayInsertAtIf", 3, 3, aggregate=True),
     "groupArrayMovingAvg": HogQLFunctionMeta("groupArrayMovingAvg", 1, 1, aggregate=True),

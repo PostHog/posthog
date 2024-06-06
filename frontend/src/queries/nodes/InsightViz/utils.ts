@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
 import {
@@ -7,6 +8,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    Node,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -113,23 +115,34 @@ export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
-export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
-    if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showPercentStackView
-    }
-    return undefined
-}
+export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
+
+export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
+    supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
 export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
+    if (!cachedInsight) {
+        return undefined
+    }
+
+    let cachedQueryNode: Node | undefined
+
+    if (cachedInsight.query) {
+        cachedQueryNode = cachedInsight.query
+        if ('source' in cachedInsight.query) {
+            cachedQueryNode = cachedInsight.query.source as Node
+        }
+    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
+        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
+    } else {
         return undefined
     }
 
     // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     if (!equal(cachedQueryNode, query)) {
         return undefined
     }

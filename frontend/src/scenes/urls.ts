@@ -6,6 +6,7 @@ import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
+    ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
     AppMetricsUrlParams,
@@ -66,7 +67,9 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/events',
+    activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    /** @deprecated in favor of /activity */
+    events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',
@@ -116,8 +119,15 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string =>
-        `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`,
+    pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
+    pipelineNodeNew: (stage: PipelineStage | ':stage', pluginIdOrBatchExportDestination?: string | number): string => {
+        if (stage === PipelineStage.DataImport) {
+            // should match 'pipelineNodeDataWarehouseNew'
+            return `/pipeline/new/data-warehouse`
+        }
+
+        return `/pipeline/new/${stage}${pluginIdOrBatchExportDestination ? `/${pluginIdOrBatchExportDestination}` : ''}`
+    },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (
@@ -227,4 +237,6 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
+    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
 }

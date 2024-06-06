@@ -10,7 +10,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, InsightDateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
     relative_date_parse,
@@ -25,13 +25,13 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[DateRange]
+    _date_range: Optional[InsightDateRange | DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange | DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
@@ -283,7 +283,7 @@ class QueryDateRange:
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: Optional[InsightDateRange],
         total_intervals: int,
         team: Team,
         interval: Optional[IntervalType],
