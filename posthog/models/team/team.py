@@ -337,7 +337,10 @@ class Team(UUIDClassicModel):
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonsOnEventsMode.DISABLED
+        return self.person_on_events_mode in (
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
