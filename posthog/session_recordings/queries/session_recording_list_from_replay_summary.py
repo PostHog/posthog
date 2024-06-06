@@ -1,7 +1,7 @@
 import dataclasses
 import re
 from datetime import datetime, timedelta
-from typing import Any, Literal, NamedTuple, Union
+from typing import Any, NamedTuple, Union
 
 from django.conf import settings
 from sentry_sdk import capture_exception
@@ -53,7 +53,9 @@ def _get_order_by_clause(filter_order: str | None) -> str:
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> tuple[str, dict[str, Any]]:
-    if not recording_filters.console_search_query:
+    console_search_query = recording_filters.console_logs.values[1].value
+
+    if not console_search_query:
         return "", {}
 
     log_query, log_params = LogQuery(team=team, filter=recording_filters).get_query()
@@ -121,26 +123,29 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: list[Literal["error", "warn", "info"]],
+        console_logs: PropertyGroup,
     ) -> tuple[str, dict[str, Any]]:
+        log_levels = console_logs.values[0].value
         return (
             (
                 f"AND level in %(console_logs_levels)s",
-                {"console_logs_levels": console_logs_filter},
+                {"console_logs_levels": log_levels},
             )
-            if console_logs_filter
+            if log_levels
             else ("", {})
         )
 
     def get_query(self) -> tuple[str, dict]:
-        if not self._filter.console_search_query:
+        console_search_query = self._filter.console_logs.values[1].value
+
+        if not console_search_query:
             return "", {}
 
         (
             events_timestamp_clause,
             events_timestamp_params,
         ) = self._get_events_timestamp_clause
-        console_log_clause, console_log_params = self._get_console_log_clause(self._filter.console_logs_filter)
+        console_log_clause, console_log_params = self._get_console_log_clause(self._filter.console_logs)
 
         return self._rawQuery.format(
             events_timestamp_clause=events_timestamp_clause,
@@ -148,7 +153,7 @@ class LogQuery:
         ), {
             "team_id": self._team_id,
             "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
-            "console_search_query": self._filter.console_search_query,
+            "console_search_query": console_search_query,
             **events_timestamp_params,
             **console_log_params,
         }
@@ -722,7 +727,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         order_by_clause = _get_order_by_clause(self._filter.target_entity_order)
 
         duration_clause, duration_params = self.duration_clause()
-        console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
+        console_log_clause = self._get_console_log_clause(self._filter.console_logs)
 
         events_select, events_join_params = SessionIdEventsQuery(
             team=self._team,
@@ -765,7 +770,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         duration_clause = ""
         duration_params = {}
         if self._filter.duration:
-            filter = self._filter.duration[0]
+            filter = self._filter.duration.values[0]
             if filter.operator == "gt":
                 operator = ">"
             else:
@@ -779,7 +784,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return duration_clause, duration_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs_filter: list[Literal["error", "warn", "info"]]) -> str:
+    def _get_console_log_clause(console_logs: PropertyGroup) -> str:
+        log_levels = console_logs.values[0].value
         # to avoid a CH migration we map from info to log when constructing the query here
-        filters = [f"console_{'log' if log == 'info' else log}_count > 0" for log in console_logs_filter]
+        filters = [f"console_{'log' if level == 'info' else level}_count > 0" for level in log_levels]
         return f"AND ({' OR '.join(filters)})" if filters else ""

@@ -182,62 +182,58 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        console_logs_predicates: list[ast.Expr] = []
-        if self._filter.console_logs_filter:
-            console_logs_predicates.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["level"]),
-                    right=ast.Constant(value=self._filter.console_logs_filter),
-                )
-            )
+        if self._filter.console_logs:
+            console_log_predicates: list[ast.Expr] = []
 
-        if self._filter.console_search_query:
-            console_logs_predicates.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(
-                        name="positionCaseInsensitive",
-                        args=[
-                            ast.Field(chain=["message"]),
-                            ast.Constant(value=self._filter.console_search_query),
-                        ],
-                    ),
-                    right=ast.Constant(value=0),
-                )
-            )
+            for filter in self._filter.console_logs:
+                filter_predicates: list[ast.Expr] = []
+                log_levels = filter.values[0]
+                log_search_query = filter.values[1]
 
-        if console_logs_predicates:
-            console_logs_subquery = ast.SelectQuery(
-                select=[ast.Field(chain=["log_source_id"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(exprs=console_logs_predicates),
-            )
-
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["session_id"]),
-                    right=console_logs_subquery,
+                filter_predicates.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["level"]),
+                        right=ast.Constant(value=log_levels),
+                    )
                 )
-            )
+
+                filter_predicates.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(
+                            name="positionCaseInsensitive",
+                            args=[
+                                ast.Field(chain=["message"]),
+                                ast.Constant(value=log_search_query),
+                            ],
+                        ),
+                        right=ast.Constant(value=0),
+                    )
+                )
+
+                console_log_predicates.append(exprs=ast.And(exprs=filter_predicates))
+
+            if console_log_predicates:
+                console_logs_subquery = ast.SelectQuery(
+                    select=[ast.Field(chain=["log_source_id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+                    where=ast.Or(exprs=console_log_predicates),
+                )
+
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["session_id"]),
+                        right=console_logs_subquery,
+                    )
+                )
 
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
-
-        for filter in self._filter.duration:
-            exprs.append(property_to_expr(filter, self._team))
-            op = ast.CompareOperationOp.GtEq if filter.operator == "gt" else ast.CompareOperationOp.LtEq
-            exprs.append(
-                ast.CompareOperation(
-                    op=op,
-                    left=ast.Field(chain=[filter.type]),
-                    right=ast.Constant(value=filter.value),
-                ),
-            )
-
+        exprs.append(property_to_expr(self._filter.duration, self._team))
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
 
 
