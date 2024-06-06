@@ -5,10 +5,6 @@ import subprocess
 from typing import Any, Optional, cast, Literal
 
 import requests
-from rest_framework.permissions import IsAuthenticated
-from posthog.permissions import (
-    APIScopePermission,
-)
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile

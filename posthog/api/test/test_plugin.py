@@ -168,7 +168,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         User.objects.create_and_join(
             organization=other_org, email="test@test.com", password="123456", first_name="Test"
         )
-        # OrganizationMembership.objects.create(user=self.user, organization=other_org)
+        OrganizationMembership.objects.create(user=self.user, organization=other_org)
 
         repo_url = "https://github.com/PostHog/helloworldplugin"
         install_response = self.client.post(f"/api/organizations/{my_org.id}/plugins/", {"url": repo_url})
