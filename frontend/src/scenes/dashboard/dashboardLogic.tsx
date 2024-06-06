@@ -89,7 +89,7 @@ async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Prom
     const activePromises: Set<Promise<void>> = new Set()
     const remainingTasks = [...tasks]
 
-    const startTask = (task: () => Promise<T>): void => {
+    const startTask = async (task: () => Promise<T>): Promise<void> => {
         const promise = task()
             .then((result) => {
                 results.push(result)
@@ -101,15 +101,12 @@ async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Prom
                 void activePromises.delete(promise)
             })
         activePromises.add(promise)
-    }
-
-    for (let i = 0; i < limit && remainingTasks.length > 0; i++) {
-        startTask(remainingTasks.shift()!)
+        await promise
     }
 
     while (remainingTasks.length > 0 || activePromises.size > 0) {
         if (activePromises.size < limit && remainingTasks.length > 0) {
-            startTask(remainingTasks.shift()!)
+            void startTask(remainingTasks.shift()!)
         } else {
             await Promise.race(activePromises)
         }
