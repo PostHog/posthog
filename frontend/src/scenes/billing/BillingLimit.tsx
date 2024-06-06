@@ -47,7 +47,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 </>
                             ) : (
                                 <>
-                                    <span>You do not have a billing limit set for {product?.name}.</span>
+                                    <span>You do not have a billing limit set for {product?.name?.toLowerCase()}.</span>
                                     <LemonButton
                                         onClick={() => setIsEditingBillingLimit(true)}
                                         status="danger"
