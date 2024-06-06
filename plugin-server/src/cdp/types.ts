@@ -1,6 +1,6 @@
 import { VMState } from '@posthog/hogvm'
 
-import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../../types'
+import { ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
 
 export type HogBytecode = any[]
 

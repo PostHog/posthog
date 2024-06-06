@@ -1,9 +1,9 @@
 import * as schedule from 'node-schedule'
 
-import { PluginsServerConfig, Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
+import { PluginsServerConfig, Team } from '../types'
+import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { PubSub } from '../utils/pubsub'
+import { status } from '../utils/status'
 import { HogFunctionType } from './types'
 
 export type HogFunctionMap = Record<HogFunctionType['id'], HogFunctionType>
