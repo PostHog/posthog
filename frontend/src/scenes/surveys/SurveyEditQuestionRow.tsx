@@ -84,7 +84,8 @@ export function SurveyEditQuestionHeader({
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue, setBranchingForQuestion } =
+        useActions(surveyLogic)
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -309,6 +310,52 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
+                {/* BRANCHING LOGIC */}
+                {/* ADD A FEATURE FLAG HERE */}
+                {(() => {
+                    const availableNextQuestions = survey.questions
+                        .map((question, questionIndex) => ({
+                            ...question,
+                            questionIndex,
+                        }))
+                        .filter((_, questionIndex) => index !== questionIndex)
+
+                    return (
+                        <LemonField name="nextStep" label="After this question, go to:" className="max-w-80">
+                            <LemonSelect
+                                // TODO: use ellipsis for overflowing questions
+                                data-attr={`some-key-here-${index}`}
+                                onSelect={(nextStep) => {
+                                    // TODO: update survey.questions[index]
+                                    // find the appropriate method in the logic
+                                    setBranchingForQuestion(index, nextStep)
+                                }}
+                                options={[
+                                    ...(index < survey.questions.length - 1
+                                        ? [
+                                              {
+                                                  label: 'Next question',
+                                                  value: 'next-question',
+                                              },
+                                          ]
+                                        : []),
+                                    {
+                                        label: 'Confirmation message',
+                                        value: 'confirmation-message',
+                                    },
+                                    {
+                                        label: 'Specific question based on answer',
+                                        value: 'specific-question-based-on-answer',
+                                    },
+                                    ...availableNextQuestions.map((question) => ({
+                                        label: `${question.questionIndex + 1}. ${question.question}`,
+                                        value: `question:${question.questionIndex}`,
+                                    })),
+                                ]}
+                            />
+                        </LemonField>
+                    )
+                })()}
             </div>
         </Group>
     )
