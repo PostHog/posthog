@@ -943,6 +943,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
         self.assertEqual(response_this.status_code, 200)
 
+    def test_can_access_global_plugin_even_if_not_in_org(self, mock_get, mock_reload):
+        other_org = Organization.objects.create(
+            name="Foo", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+        )
+        other_orgs_plugin = Plugin.objects.create(organization=other_org, is_global=True)
+        res = self.client.get(f"/api/organizations/@current/plugins/{other_orgs_plugin.id}/")
+        assert res.status_code == 200, res.json()
+
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
         with self.assertNumQueries(8):

@@ -17,7 +17,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -41,6 +41,7 @@ from posthog.models.plugin import (
     validate_plugin_job_payload,
 )
 from posthog.models.utils import UUIDT, generate_random_token
+from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
@@ -317,6 +318,24 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [PluginsAccessLevelPermission]
+
+    def dangerously_get_permissions(self):
+        # We have one very specific case to override - if the object we are getting is a global plugin, we need to
+        # allow it to be viewed by anyone with the correct access level.
+        # This is essentially only to avoid the OrganizationMemberPermission from blocking the retrieval of global plugins.
+
+        if self.action == "retrieve":
+            # NOTE: This is inefficient but it is such an edge case that it feels safer this way than
+            # Modifying our underyling permissions system too much.
+            lookup_value = self.kwargs[self.lookup_field]
+            try:
+                obj = Plugin.objects.get(pk=lookup_value)
+                if obj.is_global:
+                    return [IsAuthenticated(), APIScopePermission(), PluginsAccessLevelPermission()]
+            except Plugin.DoesNotExist:
+                pass
+
+        raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
         if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
