@@ -38,7 +38,11 @@ class HogFunction(UUIDModel):
         from .utils import hog_function_filters_to_expr
         from posthog.hogql.bytecode import create_bytecode
 
-        self.bytecode = create_bytecode(hog_function_filters_to_expr(self, actions))
+        try:
+            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self, actions))
+        except Exception:
+            # TODO: Capture exception
+            self.filters["bytecode"] = None
 
     def __str__(self):
         return self.name
