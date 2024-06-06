@@ -34,8 +34,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 <>
                                     <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working if your usage exceeds your limit.">
                                         <span>
-                                            <b>${customLimitUsd}</b> {billing?.billing_period?.interval}ly billing limit
-                                            for {product?.name}
+                                            You have a <b>${customLimitUsd}</b> billing limit set for {product?.name}
                                         </span>
                                     </Tooltip>
                                     <LemonButton
