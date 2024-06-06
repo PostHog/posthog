@@ -6,10 +6,10 @@ cd ..
 for file in hogvm/__tests__/*.hog; do
     echo "Testing $file"
 
-    # from hogvm/__tests__/*.hog get hogvm/__tests__/snapshots/*
+    # from hogvm/__tests__/*.hog get hogvm/__tests__/__snapshots__/*
     basename="${file%.hog}"
     basename="${basename##*/}"
-    basename="hogvm/__tests__/snapshots/$basename"
+    basename="hogvm/__tests__/__snapshots__/$basename"
 
     ./bin/hog $file > $basename.hoge
     mv "$file"e $basename.hoge
