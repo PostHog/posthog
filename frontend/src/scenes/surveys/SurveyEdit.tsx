@@ -714,7 +714,7 @@ export default function SurveyEdit(): JSX.Element {
                                             </LemonField.Pure>
 
                                             {showSurveyRepeatSchedule && (
-                                                <div className="flex flex-row gap-2 items-center">
+                                                <div className="flex flex-row gap-2 items-center ml-5">
                                                     Repeat this survey{' '}
                                                     <LemonField name="iteration_count">
                                                         {({ onChange, value }) => {
