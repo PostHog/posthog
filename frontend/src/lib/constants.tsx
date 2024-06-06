@@ -140,7 +140,6 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
-    PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
