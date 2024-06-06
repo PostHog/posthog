@@ -97,13 +97,15 @@ def insight_can_be_cached(insight: Optional[Insight]) -> bool:
 
 def sync_insight_cache_states():
     lazy_loader = LazyLoader()
-    insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    insights = (
+        Insight.objects_including_soft_deleted.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    )
     for page_of_insights in _iterate_large_queryset(insights, 1000):
         batch = [upsert(insight.team, insight, lazy_loader, execute=False) for insight in page_of_insights]
         _execute_insert(batch)
 
     tiles = (
-        DashboardTile.objects.all()
+        DashboardTile.objects_including_soft_deleted.all()
         .filter(insight__isnull=False)
         .prefetch_related(
             "dashboard",
