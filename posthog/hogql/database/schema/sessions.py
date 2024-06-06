@@ -26,6 +26,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -64,6 +65,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
+    "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
@@ -191,10 +193,19 @@ def select_from_sessions_table(
         ],
     )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$num_uniq_urls"] = ast.Call(
+        name="length",
+        args=[aggregate_fields["$urls"]],
+    )
+
+    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.uniq_urls:
+        bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
+    else:
+        bounce_pageview_count = aggregate_fields["$pageview_count"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
+            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",

@@ -203,6 +203,7 @@ export interface HogQLQueryModifiers {
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
+    bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
 }
 
 export interface DataWarehouseEventsModifier {
