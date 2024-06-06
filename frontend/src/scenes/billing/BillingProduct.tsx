@@ -81,9 +81,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
+
+    // Note(@zach): The upgrade card will be removed when Subscribe to all products is fully rolled out
     const showUpgradeCard =
         (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
-        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
+        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support)) &&
+        (!featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] || billing?.subscription_level == 'custom')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -92,7 +95,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-300 pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-8', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}

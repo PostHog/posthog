@@ -1,6 +1,8 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -24,7 +26,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError']],
+        values: [
+            billingLogic,
+            ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             billingLogic,
             [
@@ -63,13 +70,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             product,
             redirectPath,
         }),
-        handleProductUpgrade: (
-            product: BillingProductV2Type | BillingProductV2AddonType,
-            plan: BillingV2PlanType,
-            redirectPath?: string
-        ) => ({
-            plan,
-            product,
+        handleProductUpgrade: (products: string, redirectPath?: string) => ({
+            products,
             redirectPath,
         }),
     }),
@@ -328,10 +330,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            actions.handleProductUpgrade(product, plan, redirectPath)
+            let products = `${product.type}:${plan?.plan_key}`
+            if (
+                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                values.billing?.subscription_level == 'free'
+            ) {
+                products += ',all_products:'
+            }
+            actions.handleProductUpgrade(products, redirectPath)
         },
-        handleProductUpgrade: ({ plan, product, redirectPath }) => {
-            window.location.href = `/api/billing/activation?products=${product.type}:${plan?.plan_key}${
+        handleProductUpgrade: ({ products, redirectPath }) => {
+            window.location.href = `/api/billing/activation?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
         },

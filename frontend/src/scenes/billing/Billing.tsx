@@ -8,17 +8,20 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { BillingCTAHero } from './BillingCTAHero'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
@@ -39,9 +42,10 @@ export function Billing(): JSX.Element {
         isAnnualPlan,
         billingError,
     } = useValues(billingLogic)
-    const { reportBillingV2Shown } = useActions(billingLogic)
+    const { reportBillingV2Shown, deactivateProduct } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -119,11 +123,9 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
             {!billing?.has_active_subscription && (
-                <>
-                    <div className="my-8">
-                        <BillingHero />
-                    </div>
-                </>
+                <div className="my-8">
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? <BillingCTAHero /> : <BillingHero />}
+                </div>
             )}
 
             <div
@@ -204,16 +206,33 @@ export function Billing(): JSX.Element {
                     </div>
 
                     {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit">
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                to={billing.stripe_portal_url}
-                                disableClientSideRouting
-                                center
-                            >
-                                Manage card details and view past invoices
-                            </LemonButton>
+                        <div>
+                            <div className="w-fit">
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    to={billing.stripe_portal_url}
+                                    disableClientSideRouting
+                                    center
+                                >
+                                    Manage card details and view past invoices
+                                </LemonButton>
+                            </div>
+                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                billing.subscription_level == 'paid' && (
+                                    <div className="bg-bg-light p-4 border rounded my-4">
+                                        <p>You're currently subscribed to the paid plan</p>
+                                        <LemonButton
+                                            status="danger"
+                                            type="primary"
+                                            onClick={() => {
+                                                deactivateProduct('all_products')
+                                            }}
+                                        >
+                                            Unsubscribe
+                                        </LemonButton>
+                                    </div>
+                                )}
                         </div>
                     )}
                 </div>
@@ -266,10 +285,11 @@ export function Billing(): JSX.Element {
                 )}
             </div>
 
+            <LemonDivider className="my-8" />
+
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
             </div>
-            <LemonDivider className="mt-2 mb-8" />
 
             {products
                 ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
