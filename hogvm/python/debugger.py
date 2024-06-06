@@ -4,8 +4,7 @@ from typing import Any
 
 from hogvm.python.operation import Operation
 
-DEBUG_MODES = ["input", "run", "walk"]
-debug_mode = "input"
+debug_speed = -1
 
 
 def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list):
@@ -48,15 +47,21 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
         else:
             print(f"  {i}: {line}")  # noqa: T201
 
-    global debug_mode
-    if debug_mode == "run":
-        sleep(0.1)
-    elif debug_mode == "walk":
-        sleep(1)
-    else:
+    global debug_speed
+    if debug_speed < 0:
         response = input()
-        if response in DEBUG_MODES:
-            debug_mode = response
+        if response == "help" or response == "h" or response == "?":
+            print("- Press <CTRL+C> to quit.")  # noqa: T201
+            print("- Press <ENTER> to step to the next instruction.")  # noqa: T201
+            print("- Enter a number like 1, 10, 100 or 1000 (ms) to walk the code.")  # noqa: T201
+            response = input()
+        try:
+            debug_speed = int(response)
+        except ValueError:
+            debug_speed = -1
+
+    else:
+        sleep(debug_speed / 1000)
 
 
 def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list) -> str:
