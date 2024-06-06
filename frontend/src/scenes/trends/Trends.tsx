@@ -15,11 +15,13 @@ import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 interface Props {
     view: InsightType
     context?: QueryContext
+    embedded?: boolean
 }
 
-export function TrendInsight({ view, context }: Props): JSX.Element {
+export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, showPersonsModal } = useValues(insightLogic)
+    const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
+    const showPersonsModal = insightLogicShowPersonsModal && !embedded
 
     const { display, series, breakdownFilter, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } =
         useValues(trendsDataLogic(insightProps))
@@ -33,10 +35,10 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             display === ChartDisplayType.ActionsAreaGraph ||
             display === ChartDisplayType.ActionsBar
         ) {
-            return <ActionsLineGraph showPersonsModal={showPersonsModal} context={context} />
+            return <ActionsLineGraph showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
         }
         if (display === ChartDisplayType.BoldNumber) {
-            return <BoldNumber showPersonsModal={showPersonsModal} context={context} />
+            return <BoldNumber showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             const ActionsTable = InsightsTable
@@ -50,19 +52,23 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            return <ActionsPie showPersonsModal={showPersonsModal} context={context} />
+            return <ActionsPie showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return <ActionsHorizontalBar showPersonsModal={showPersonsModal} context={context} />
+            return <ActionsHorizontalBar showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
         }
         if (display === ChartDisplayType.WorldMap) {
-            return <WorldMap showPersonsModal={showPersonsModal} context={context} />
+            return <WorldMap showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
         }
     }
 
     return (
         <>
-            {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
+            {series && (
+                <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
+                    {renderViz()}
+                </div>
+            )}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdownFilter &&
                 (hasBreakdownOther || loadMoreBreakdownUrl) && (

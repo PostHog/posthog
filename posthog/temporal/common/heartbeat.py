@@ -4,7 +4,7 @@ import typing
 from temporalio import activity
 
 
-class Heartbeatter:
+class Heartbeater:
     """Regular heartbeatting during Temporal activity execution.
 
     This class manages two heartbeat tasks via a context manager:

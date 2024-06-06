@@ -1,9 +1,9 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
+import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LiveEvent } from '~/types'
+import type { LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
