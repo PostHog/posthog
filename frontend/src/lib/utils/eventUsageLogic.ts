@@ -40,7 +40,6 @@ import {
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
     RecordingDurationFilter,
     RecordingFilters,
     RecordingReportLoadTimes,
