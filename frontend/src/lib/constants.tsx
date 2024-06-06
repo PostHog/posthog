@@ -209,6 +209,7 @@ export const FEATURE_FLAGS = {
     HOG: 'hog', // owner: @mariusandra
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: github.com/nikitaevg
+    SUBSCRIBE_TO_ALL_PRODUCTS: 'subscribe-to-all-products', // owner: #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
