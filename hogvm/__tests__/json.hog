@@ -1,0 +1,18 @@
+fn test(val) {
+  print(jsonStringify(val));
+}
+
+test(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }));
+test(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3));
+
+test(jsonParse('[1,2,3]'));
+
+let event := {
+    'event': '$pageview',
+    'properties': {
+        '$browser': 'Chrome',
+        '$os': 'Windows'
+    }
+};
+let json := jsonStringify(event);
+test(jsonParse(json));

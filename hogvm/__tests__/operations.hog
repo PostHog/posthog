@@ -2,6 +2,7 @@ fn test(val) {
   print(jsonStringify(val));
 }
 
+print('-- test the most common expressions --');
 test(1 + 2);                               -- 3
 test(1 - 2);                               -- -1
 test(3 * 2);                               -- 6

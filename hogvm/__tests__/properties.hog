@@ -1,0 +1,84 @@
+fn test(val) {
+  print(jsonStringify(val));
+}
+
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}];
+    test(r.2.d.1);
+}
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}];
+    test(r[2].d[2]);
+}
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}];
+    test(r.2['d'][3]);
+}
+{
+    let r := {'d': (1, 3, 42, 6)};
+    test(r.d.1);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    r.2.d.2 := 3;
+    test(r.2.d.2);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    r[2].d[2] := 3;
+    test(r[2].d[2]);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    r[2].c := [666];
+    test(r[2]);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    r[2].d[2] := 3;
+    test(r[2].d);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    r.2['d'] := ['a', 'b', 'c', 'd'];
+    test(r[2].d[2]);
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}];
+    let g := 'd';
+    r.2[g] := ['a', 'b', 'c', 'd'];
+    test(r[2].d[2]);
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    };
+    event['properties']['$browser'] := 'Firefox';
+    test(event);
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    };
+    event.properties.$browser := 'Firefox';
+    test(event);
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    };
+    let config := {};
+    test(event);
+}
