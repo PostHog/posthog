@@ -2,7 +2,6 @@ from typing import Any, NamedTuple, cast, Optional
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Constant
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -187,8 +186,8 @@ class SessionRecordingListFromFilters:
 
             for filter in self._filter.console_logs:
                 filter_predicates: list[ast.Expr] = []
-                log_levels = filter.values[0]
-                log_search_query = filter.values[1]
+                log_levels = filter.values[0]["value"]
+                log_search_query = filter.values[1]["value"]
 
                 filter_predicates.append(
                     ast.CompareOperation(
@@ -212,7 +211,7 @@ class SessionRecordingListFromFilters:
                     )
                 )
 
-                console_log_predicates.append(exprs=ast.And(exprs=filter_predicates))
+                console_log_predicates.append(ast.And(exprs=filter_predicates))
 
             if console_log_predicates:
                 console_logs_subquery = ast.SelectQuery(
@@ -231,11 +230,10 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _having_predicates(self) -> ast.And | Constant:
-        exprs: list[ast.Expr] = []
-        if self._filter.duration:
-            exprs.append(property_to_expr(self._filter.duration, self._team))
-        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+    def _having_predicates(self) -> ast.Expr:
+        return (
+            property_to_expr(self._filter.duration, self._team) if self._filter.duration else ast.Constant(value=True)
+        )
 
 
 class EventsSubQuery:

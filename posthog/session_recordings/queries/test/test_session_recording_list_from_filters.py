@@ -78,6 +78,25 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
 
+    def _create_console_log_filter(self, log_levels, query=""):
+        return {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "recording",
+                    "key": "console_log_level",
+                    "operator": "icontains",
+                    "value": log_levels,
+                },
+                {
+                    "type": "recording",
+                    "key": "console_log_query",
+                    "operator": "icontains",
+                    "value": query,
+                },
+            ],
+        }
+
     def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
         the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
         session_recording_list_instance = SessionRecordingListFromFilters(
@@ -1296,16 +1315,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'
-            }
+            {"duration": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "duration": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'
-            }
+            {"duration": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
@@ -2193,7 +2208,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["info"])]}
+        )
 
         actual = sorted(
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
@@ -2204,7 +2221,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["warn"])]}
+        )
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
@@ -2237,7 +2256,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["warn"])]}
+        )
 
         assert sorted(
             [(sr["session_id"], sr["console_warn_count"]) for sr in session_recordings],
@@ -2246,7 +2267,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["info"])]}
+        )
 
         assert session_recordings == []
 
@@ -2280,7 +2303,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["error"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["error"])]}
+        )
 
         assert sorted(
             [(sr["session_id"], sr["console_error_count"]) for sr in session_recordings],
@@ -2289,7 +2314,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["info"])]}
+        )
 
         assert session_recordings == []
 
@@ -2370,7 +2397,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn", "error"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["warn", "error"])]}
+        )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
             [
@@ -2380,7 +2409,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"console_logs": [self._create_console_log_filter(["info"])]}
+        )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
             [
@@ -2466,8 +2497,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 4",
+                "console_logs": [self._create_console_log_filter(["warn", "error"], "message 4")],
             }
         )
 
@@ -2482,8 +2512,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 5 matches only matches in warn
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 5",
+                "console_logs": [self._create_console_log_filter(["warn", "error"], "message 5")],
             }
         )
 
@@ -2496,8 +2525,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # match is case-insensitive
-                "console_logs": ["warn", "error"],
-                "console_search_query": "MESSAGE 5",
+                "console_logs": [self._create_console_log_filter(["warn", "error"], "MESSAGE 5")],
             }
         )
 
@@ -2510,8 +2538,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # message 5 does not match log level "info"
-                "console_logs": ["info"],
-                "console_search_query": "message 5",
+                "console_logs": [self._create_console_log_filter(["info"], "message 5")],
             }
         )
 

@@ -70,7 +70,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity", "recording"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -140,6 +140,7 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "recording"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
@@ -161,12 +162,12 @@ def property_to_expr(
                 raise NotImplementedError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type == "data_warehouse":
-            chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
+        elif property.type == "data_warehouse" or property.type == "recording":
+            chain = []
         else:
             chain = ["properties"]
 
@@ -417,6 +418,12 @@ def property_to_expr(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
+        )
+    elif property.type == "recording":
+        return ast.CompareOperation(
+            left=ast.Field(chain=[property.key]),
+            op=operator,
+            right=ast.Constant(value=value),
         )
 
     # TODO: Add support for these types: "recording", "behavioral"
