@@ -299,7 +299,6 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
-                    legacyInsight={legacyInsight}
                     ribbonColor={ribbonColor}
                     dashboardId={dashboardId}
                     updateColor={updateColor}

@@ -244,10 +244,10 @@ function SeriesDisplay({
     const filter = query.series[seriesIndex]
 
     const hasBreakdown =
-        !isInsightQueryWithBreakdown(query) ||
-        !query.breakdownFilter ||
-        query.breakdownFilter.breakdown_type == null ||
-        query.breakdownFilter.breakdown == null
+        isInsightQueryWithBreakdown(query) &&
+        query.breakdownFilter != null &&
+        query.breakdownFilter.breakdown_type != null &&
+        query.breakdownFilter.breakdown != null
 
     const mathDefinition = mathDefinitions[
         isLifecycleQuery(query)
