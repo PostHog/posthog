@@ -15,7 +15,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
 
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
-            globals,
+            fields: globals,
             timeout: 100,
             maxAsyncSteps: 0,
         })

@@ -43,6 +43,47 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         // eslint-disable-next-line no-console
         console.log(...args)
     },
+    jsonParse: (args) => {
+        // Recursively convert objects to maps
+        function convert(x: any): any {
+            if (Array.isArray(x)) {
+                return x.map(convert)
+            } else if (typeof x === 'object' && x !== null) {
+                const map = new Map()
+                for (const key in x) {
+                    map.set(key, convert(x[key]))
+                }
+                return map
+            }
+            return x
+        }
+        return convert(JSON.parse(args[0]))
+    },
+    jsonStringify: (args) => {
+        // Recursively convert maps to objects
+        function convert(x: any): any {
+            if (x instanceof Map) {
+                const obj: Record<string, any> = {}
+                x.forEach((value, key) => {
+                    obj[key] = convert(value)
+                })
+                return obj
+            } else if (typeof x === 'object' && Array.isArray(x)) {
+                return x.map(convert)
+            } else if (typeof x === 'object' && x !== null) {
+                const obj: Record<string, any> = {}
+                for (const key in x) {
+                    obj[key] = convert(x[key])
+                }
+                return obj
+            }
+            return x
+        }
+        if (args[1] && typeof args[1] === 'number' && args[1] > 0) {
+            return JSON.stringify(convert(args[0]), null, args[1])
+        }
+        return JSON.stringify(convert(args[0]))
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {

@@ -1,6 +1,8 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
@@ -105,6 +107,11 @@ export const InsightCard: Story = (args) => {
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
+                loading={args.loading}
+                apiErrored={args.apiErrored}
+                highlighted={args.highlighted}
+                timedOut={args.timedOut}
+                showResizeHandles={args.resizable}
             />
             <InsightCardComponent
                 insight={
@@ -113,6 +120,11 @@ export const InsightCard: Story = (args) => {
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
+                loading={args.loading}
+                apiErrored={args.apiErrored}
+                highlighted={args.highlighted}
+                timedOut={args.timedOut}
+                showResizeHandles={args.resizable}
             />
             <InsightCardComponent
                 insight={
@@ -126,12 +138,22 @@ export const InsightCard: Story = (args) => {
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
+                loading={args.loading}
+                apiErrored={args.apiErrored}
+                highlighted={args.highlighted}
+                timedOut={args.timedOut}
+                showResizeHandles={args.resizable}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' } as unknown as InsightModel}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
+                loading={args.loading}
+                apiErrored={args.apiErrored}
+                highlighted={args.highlighted}
+                timedOut={args.timedOut}
+                showResizeHandles={args.resizable}
             />
             <InsightCardComponent
                 insight={
@@ -146,6 +168,11 @@ export const InsightCard: Story = (args) => {
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
+                loading={args.loading}
+                apiErrored={args.apiErrored}
+                highlighted={args.highlighted}
+                timedOut={args.timedOut}
+                showResizeHandles={args.resizable}
             />
             {examples.map((e) => (
                 <InsightCardComponent
@@ -154,8 +181,51 @@ export const InsightCard: Story = (args) => {
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
+                    loading={args.loading}
+                    apiErrored={args.apiErrored}
+                    highlighted={args.highlighted}
+                    timedOut={args.timedOut}
+                    showResizeHandles={args.resizable}
                 />
             ))}
+        </div>
+    )
+}
+
+export const QueryInsightCard: Story = (args) => {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
+            {examples.map((insight) => {
+                // turn into HogQL based insight
+                if (!insight.filters.insight || insight.query) {
+                    return null
+                }
+
+                const query = {
+                    kind: NodeKind.InsightVizNode,
+                    source: filtersToQueryNode(insight.filters),
+                }
+                return (
+                    <InsightCardComponent
+                        key={insight.id}
+                        insight={{
+                            ...insight,
+                            filters: {},
+                            query,
+                        }}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                        loading={args.loading}
+                        apiErrored={args.apiErrored}
+                        highlighted={args.highlighted}
+                        timedOut={args.timedOut}
+                        showResizeHandles={args.resizable}
+                        doNotLoad
+                    />
+                )
+            })}
         </div>
     )
 }
