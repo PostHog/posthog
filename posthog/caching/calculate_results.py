@@ -142,6 +142,8 @@ def calculate_for_query_based_insight(
     if isinstance(process_response, BaseModel):
         response = process_response.model_dump(by_alias=True)
 
+    assert isinstance(response, dict)
+
     if isinstance(process_response, CacheMissResponse):
         return NothingInCacheResult(cache_key=process_response.cache_key, query_status=response.get("query_status"))
 
