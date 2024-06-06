@@ -19,7 +19,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } fr
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
-import { BillingLimitInput } from './BillingLimitInput'
+import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
@@ -55,7 +55,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         billingProductLoading,
     } = useValues(billingProductLogic({ product }))
     const {
-        setIsEditingBillingLimit,
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
@@ -127,14 +126,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
-                                                {billing?.billing_period?.interval == 'month' && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => setIsEditingBillingLimit(true)}
-                                                    >
-                                                        Set billing limit
-                                                    </LemonButton>
-                                                )}
                                                 <LemonButton
                                                     fullWidth
                                                     to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
@@ -312,6 +303,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
+                <BillingLimit product={product} />
                 {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
@@ -433,7 +425,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         />
                     </div>
                 )}
-                <BillingLimitInput product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
