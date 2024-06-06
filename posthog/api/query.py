@@ -66,6 +66,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         self._tag_client_query_id(client_query_id)
 
+        if data.async_:  # TODO: Legacy async, use "refresh=async" instead
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
         if execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
             # Here in query endpoint we always want to calculate if the cache is stale
             execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
