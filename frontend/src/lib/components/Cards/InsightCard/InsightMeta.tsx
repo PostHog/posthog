@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
+import { ExporterFormat, InsightColor, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
@@ -47,12 +47,14 @@ interface InsightMetaProps
         | 'moreButtons'
     > {
     insight: QueryBasedInsightModel
+    legacyInsight: InsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
     insight,
+    legacyInsight,
     ribbonColor,
     dashboardId,
     updateColor,
@@ -119,7 +121,7 @@ export function InsightMeta({
                     {loading && <LemonTableLoader loading={true} />}
                 </>
             }
-            metaDetails={<InsightDetails insight={insight} />}
+            metaDetails={<InsightDetails insight={legacyInsight} />}
             samplingNotice={
                 samplingFactor && samplingFactor < 1 ? (
                     <Tooltip title={`Results calculated from ${100 * samplingFactor}% of users`}>
