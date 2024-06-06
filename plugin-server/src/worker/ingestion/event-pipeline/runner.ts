@@ -25,6 +25,14 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 
+const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
+const KNOWN_SET_EVENTS = new Set([
+    '$feature_interaction',
+    '$feature_enrollment_update',
+    'survey dismissed',
+    'survey sent',
+])
+
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
@@ -194,17 +202,10 @@ export class EventPipelineRunner {
         }
 
         // Track $set usage in events that aren't known to use it, before plugins which add various $set props.
-        const person_events = ['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify']
-        const known_set_events = [
-            '$feature_interaction',
-            '$feature_enrollment_update',
-            'survey dismissed',
-            'survey sent',
-        ]
         if (
             event.properties &&
-            !(event.event in person_events) &&
-            !(event.event in known_set_events) &&
+            !(event.event in PERSON_EVENTS) &&
+            !(event.event in KNOWN_SET_EVENTS) &&
             ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
         ) {
             setUsageInNonPersonEventsCounter.inc()
