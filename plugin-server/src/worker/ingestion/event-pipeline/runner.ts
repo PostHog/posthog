@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
+import { eventDroppedCounter, setUsageInNonPersonEventsCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -191,6 +191,23 @@ export class EventPipelineRunner {
             )
 
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
+        }
+
+        // Track $set usage in events that aren't known to use it, before plugins which add various $set props.
+        const person_events = ['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify']
+        const known_set_events = [
+            '$feature_interaction',
+            '$feature_enrollment_update',
+            'survey dismissed',
+            'survey sent',
+        ]
+        if (
+            event.properties &&
+            !(event.event in person_events) &&
+            !(event.event in known_set_events) &&
+            ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
+        ) {
+            setUsageInNonPersonEventsCounter.inc()
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
