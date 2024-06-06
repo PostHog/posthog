@@ -239,15 +239,10 @@
 # name: TestRetention.test_month_interval_with_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('person1',
-                        'person2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'person1', -1, 0)
+    AND distinct_id = 'person2'
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2.1
@@ -256,7 +251,7 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS actor_id,
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
             arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
             arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$pageview'))) AS returning_timestamps,
             arrayMap(x -> plus(toStartOfMonth(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalMonth(x)), range(0, 11)) AS date_range,
@@ -264,11 +259,12 @@
             arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
      FROM events
      LEFT OUTER JOIN
-       (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-               person_overrides.old_person_id AS old_person_id
-        FROM person_overrides
-        WHERE equals(person_overrides.team_id, 2)
-        GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,

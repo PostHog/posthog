@@ -51,7 +51,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             {
                 name: 'client_secret',
                 label: 'Client Secret',
-                type: 'text',
+                type: 'password',
                 required: true,
                 placeholder: 'sk_live_...',
             },

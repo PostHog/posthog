@@ -516,7 +516,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
     assert len(runs) == 1
 
     run = runs[0]
-    assert run.status == "FailedRetryable"
+    assert run.status == "Failed"
     assert run.latest_error == "ValueError: A useful error message"
 
 
