@@ -377,6 +377,7 @@ describe('HogQL Bytecode', () => {
             finished: false,
             result: undefined,
             state: {
+                bytecode,
                 asyncSteps: 1,
                 callStack: [],
                 declaredFunctions: {},
