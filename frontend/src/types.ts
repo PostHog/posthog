@@ -1555,6 +1555,7 @@ export interface BillingProductV2AddonType {
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
+    subscription_level: 'free' | 'paid' | 'custom'
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
