@@ -8,14 +8,14 @@ import { RustyHook } from '../rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncResponse, HogFunctionType } from './types'
 
-export const formatInput = (bytecode: any, fields: HogFunctionInvocation['context']): any => {
+export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_h"]
 
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
-            fields,
+            globals,
             timeout: 100,
             maxAsyncSteps: 0,
         })
@@ -28,9 +28,9 @@ export const formatInput = (bytecode: any, fields: HogFunctionInvocation['contex
     }
 
     if (Array.isArray(bytecode)) {
-        return bytecode.map((item) => formatInput(item, fields))
+        return bytecode.map((item) => formatInput(item, globals))
     } else if (typeof bytecode === 'object') {
-        return Object.fromEntries(Object.entries(bytecode).map(([key, value]) => [key, formatInput(value, fields)]))
+        return Object.fromEntries(Object.entries(bytecode).map(([key, value]) => [key, formatInput(value, globals)]))
     } else {
         return bytecode
     }
@@ -47,7 +47,7 @@ export class HogExecutor {
      * Intended to be invoked as a starting point from an event
      */
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<any> {
-        const functions = this.hogFunctionManager.getTeamHogFunctions(invocation.context.project.id)
+        const functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
 
         if (!Object.keys(functions).length) {
             return
@@ -67,7 +67,7 @@ export class HogExecutor {
             throw new Error('No hog function id provided')
         }
 
-        const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.context.project.id)[
+        const hogFunction = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)[
             invocation.hogFunctionId
         ]
 
@@ -123,12 +123,12 @@ export class HogExecutor {
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                builtFields[key] = formatInput(item.bytecode, invocation.context)
+                builtFields[key] = formatInput(item.bytecode, invocation.globals)
             }
         })
 
         return {
-            ...invocation.context,
+            ...invocation.globals,
             inputs: builtFields,
         }
     }

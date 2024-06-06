@@ -155,7 +155,7 @@ export class CdpProcessedEventsConsumer {
                                     if (!team) {
                                         return
                                     }
-                                    const context = convertToHogFunctionInvocationContext(
+                                    const globals = convertToHogFunctionInvocationContext(
                                         clickHouseEvent,
                                         team,
                                         this.config.SITE_URL ?? 'http://localhost:8000',
@@ -163,7 +163,7 @@ export class CdpProcessedEventsConsumer {
                                     )
 
                                     invocations.push({
-                                        context,
+                                        globals,
                                     })
                                 } catch (e) {
                                     status.error('Error parsing message', e)

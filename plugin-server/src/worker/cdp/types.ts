@@ -69,7 +69,7 @@ export type HogFunctionInvocationContext = {
 }
 
 export type HogFunctionInvocation = {
-    context: HogFunctionInvocationContext
+    globals: HogFunctionInvocationContext
 }
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
