@@ -6,10 +6,16 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.warehouse.data_load.service import get_sync_schedule
 from django.test import override_settings
 from django.conf import settings
 from posthog.models import Team
 import psycopg
+from rest_framework import status
+from temporalio.client import (
+    ScheduleIntervalSpec,
+)
+import datetime
 
 
 class TestSavedQuery(APIBaseTest):
@@ -280,3 +286,36 @@ class TestSavedQuery(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+
+    @patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow")
+    def test_update_source_sync_frequency(self, _patch_sync_external_data_job_workflow):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+
+        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.DAILY)
+        # test schedule
+        schedule = get_sync_schedule(schema)
+        self.assertEqual(
+            schedule.spec.intervals[0],
+            ScheduleIntervalSpec(every=datetime.timedelta(days=1), offset=datetime.timedelta(seconds=54000)),
+        )
+
+        # test api
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/external_data_sources/{source.pk}/",
+            data={"sync_frequency": ExternalDataSource.SyncFrequency.WEEKLY},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        source.refresh_from_db()
+        schema.refresh_from_db()
+
+        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.WEEKLY)
+        self.assertEqual(_patch_sync_external_data_job_workflow.call_count, 1)
+
+        # test schedule
+        schedule = get_sync_schedule(schema)
+        self.assertEqual(
+            schedule.spec.intervals[0],
+            ScheduleIntervalSpec(every=datetime.timedelta(days=7), offset=datetime.timedelta(seconds=54000)),
+        )
