@@ -222,3 +222,32 @@ export const convertLargeNumberToWords = (
         !previousNum && multipleTiers ? ` ${productType}s/mo` : ''
     }`
 }
+
+export const getProration = ({
+    timeRemainingInSeconds,
+    timeTotalInSeconds,
+    amountUsd,
+    hasActiveSubscription,
+}: {
+    timeRemainingInSeconds: number
+    timeTotalInSeconds: number
+    amountUsd?: string | null
+    hasActiveSubscription?: boolean
+}): {
+    isProrated: boolean
+    prorationAmount: string
+} => {
+    if (timeTotalInSeconds === 0) {
+        return {
+            isProrated: false,
+            prorationAmount: '0.00',
+        }
+    }
+
+    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemainingInSeconds / timeTotalInSeconds) : 0
+
+    return {
+        isProrated: hasActiveSubscription && amountUsd ? prorationAmount !== parseInt(amountUsd || '') : false,
+        prorationAmount: prorationAmount.toFixed(2),
+    }
+}

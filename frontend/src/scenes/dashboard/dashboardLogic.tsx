@@ -84,6 +84,37 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
+async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+    const results: T[] = []
+    const activePromises: Set<Promise<void>> = new Set()
+    const remainingTasks = [...tasks]
+
+    const startTask = async (task: () => Promise<T>): Promise<void> => {
+        const promise = task()
+            .then((result) => {
+                results.push(result)
+            })
+            .catch((error) => {
+                console.error('Error executing task:', error)
+            })
+            .finally(() => {
+                void activePromises.delete(promise)
+            })
+        activePromises.add(promise)
+        await promise
+    }
+
+    while (remainingTasks.length > 0 || activePromises.size > 0) {
+        if (activePromises.size < limit && remainingTasks.length > 0) {
+            void startTask(remainingTasks.shift()!)
+        } else {
+            await Promise.race(activePromises)
+        }
+    }
+
+    return results
+}
+
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
@@ -1038,17 +1069,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            async function loadNextPromise(): Promise<void> {
-                if (!cancelled && fetchItemFunctions.length > 0) {
-                    const nextPromise = fetchItemFunctions.shift()
-                    if (nextPromise) {
-                        await nextPromise()
-                        await loadNextPromise()
-                    }
-                }
-            }
-
-            void loadNextPromise()
+            await runWithLimit(fetchItemFunctions, 2)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
