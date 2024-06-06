@@ -8,6 +8,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    Node,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -124,12 +125,24 @@ export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
+    if (!cachedInsight) {
+        return undefined
+    }
+
+    let cachedQueryNode: Node | undefined
+
+    if (cachedInsight.query) {
+        cachedQueryNode = cachedInsight.query
+        if ('source' in cachedInsight.query) {
+            cachedQueryNode = cachedInsight.query.source as Node
+        }
+    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
+        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
+    } else {
         return undefined
     }
 
     // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     if (!equal(cachedQueryNode, query)) {
         return undefined
     }

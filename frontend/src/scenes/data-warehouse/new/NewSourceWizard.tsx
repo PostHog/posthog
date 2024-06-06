@@ -1,10 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.svg'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -15,6 +11,7 @@ import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { RenderDataWarehouseSourceIcon } from '../settings/DataWarehouseSourcesTable'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { ManualLinkProvider } from './ManualLinkProvider'
 import { sourceWizardLogic } from './sourceWizardLogic'
@@ -114,63 +111,53 @@ function FirstStep(): JSX.Element {
     const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceWizardLogic)
 
-    const MenuButton = (config: SourceConfig): JSX.Element => {
-        const onClick = (): void => {
-            selectConnector(config)
-            onNext()
+    const onClick = (sourceConfig: SourceConfig): void => {
+        if (sourceConfig.name == 'Manual') {
+            toggleManualLinkFormVisible(true)
+        } else if (sourceConfig.name == 'Hubspot') {
+            window.open(addToHubspotButtonUrl() as string)
+        } else {
+            selectConnector(sourceConfig)
         }
-
-        if (config.name === 'Stripe') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={stripeLogo} alt="stripe logo" height={50} />
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Hubspot') {
-            return (
-                <LemonButton fullWidth center type="secondary" to={addToHubspotButtonUrl() || ''}>
-                    <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                </LemonButton>
-            )
-        }
-
-        if (config.name === 'Postgres') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <div className="flex flex-row gap-2 justify-center items-center">
-                        <img src={postgresLogo} alt="postgres logo" height={45} />
-                        <div className="text-base">Postgres</div>
-                    </div>
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Zendesk') {
-            return (
-                <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={zendeskLogo} alt="Zendesk logo" height={40} />
-                </LemonButton>
-            )
-        }
-
-        return <></>
-    }
-
-    const onManualLinkClick = (): void => {
-        toggleManualLinkFormVisible(true)
         onNext()
     }
 
     return (
         <ModalPage page={1}>
-            <div className="flex flex-col gap-2 items-center">
-                {connectors.map((config, index) => (
-                    <MenuButton key={config.name + '_' + index} {...config} />
-                ))}
-                <LemonButton onClick={onManualLinkClick} className="w-full" center type="secondary">
-                    Manual Link
-                </LemonButton>
-            </div>
+            <LemonTable
+                dataSource={connectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.name} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton onClick={() => onClick(sourceConfig)} className="my-2" type="primary">
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
         </ModalPage>
     )
 }

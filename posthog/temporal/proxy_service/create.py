@@ -5,6 +5,7 @@ import dns.resolver
 import grpc.aio
 import json
 import uuid
+from django.db import connection
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -62,6 +63,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
     @sync_to_async
     def record_exists(proxy_record_id) -> bool:
+        connection.connect()
         pr = ProxyRecord.objects.filter(id=proxy_record_id)
         return len(pr) > 0
 
@@ -97,6 +99,7 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
 
     @sync_to_async
     def record_exists(proxy_record_id) -> bool:
+        connection.connect()
         pr = ProxyRecord.objects.filter(id=proxy_record_id)
         return len(pr) > 0
 

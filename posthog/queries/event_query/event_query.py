@@ -21,7 +21,7 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -127,7 +127,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_person_id_alias(self, person_on_events_mode) -> str:
         if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+            return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
@@ -138,7 +138,7 @@ class EventQuery(metaclass=ABCMeta):
             return ""
 
         if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            return PERSON_OVERRIDES_JOIN_SQL.format(
+            return PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL.format(
                 person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                 event_table_alias=self.EVENT_TABLE_ALIAS,
             )
