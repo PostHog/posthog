@@ -11,10 +11,9 @@ for file in hogvm/__tests__/*.hog; do
     basename="${basename##*/}"
     basename="hogvm/__tests__/__snapshots__/$basename"
 
-    ./bin/hog $file > $basename.hoge
-    mv "$file"e $basename.hoge
-    ./bin/hoge --nodejs $basename.hoge > $basename.stdout.nodejs
-    ./bin/hoge --python $basename.hoge > $basename.stdout.python
+    ./bin/hoge $file $basename.hoge
+    ./bin/hog --nodejs $basename.hoge > $basename.stdout.nodejs
+    ./bin/hog --python $basename.hoge > $basename.stdout.python
     set +e
     diff $basename.stdout.nodejs $basename.stdout.python
     if [ $? -eq 0 ]; then

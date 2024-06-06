@@ -64,7 +64,7 @@ export function printHogValue(obj: any): string {
         return 'null'
     }
     if (typeof obj === 'string') {
-        return `'${escapeString(obj)}'`
+        return escapeString(obj)
     }
     return obj.toString()
 }

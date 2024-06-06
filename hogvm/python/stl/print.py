@@ -47,7 +47,7 @@ def print_hog_value(obj):
     if obj is None:
         return "null"
     if isinstance(obj, str):
-        return f"'{escape_string(obj)}'"
+        return escape_string(obj)
     return str(obj)
 
 
