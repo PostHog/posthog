@@ -237,7 +237,7 @@ export const PlanComparison = ({
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
-                                        Pay ${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
+                                        Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
                                     </p>

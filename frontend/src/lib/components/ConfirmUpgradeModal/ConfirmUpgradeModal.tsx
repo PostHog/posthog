@@ -45,7 +45,7 @@ export function ConfirmUpgradeModal(): JSX.Element {
                     Woo! You're gonna love the {upgradePlan?.name}. We're just confirming that this is a $
                     {Number(upgradePlan?.unit_amount_usd)} / {upgradePlan?.unit} subscription.{' '}
                     {isProrated
-                        ? `The first payment will be prorated to $${prorationAmount} and it will be charged immediately.`
+                        ? `The first payment will be prorated to ~$${prorationAmount} and it will be charged immediately.`
                         : 'The first payment will be charged immediately.'}
                 </p>
                 {upgradePlan && upgradePlan?.features?.length > 1 && (

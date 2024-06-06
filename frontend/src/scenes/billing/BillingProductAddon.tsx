@@ -182,10 +182,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     </div>
                     {!addon.inclusion_only && isProrated && (
                         <p className="mt-2 text-xs text-muted text-right">
-                            ${prorationAmount} charged today (pro-rated),
+                            Pay ~${prorationAmount} today (prorated) and
                             <br />
-                            then {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} starting next
-                            invoice.
+                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
+                            thereafter.
                         </p>
                     )}
                 </div>
