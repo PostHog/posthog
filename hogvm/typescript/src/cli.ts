@@ -2,8 +2,8 @@ import * as fs from 'fs'
 
 import { exec } from './execute'
 
-// get filename from first cli arg
-const filename = process.argv[2]
+const args = process.argv.slice(2).filter((arg) => arg !== '' && !arg.startsWith('-'))
+const filename = args[0]
 
 // raise if filename does not end with ".hoge"
 if (!filename.endsWith('.hoge')) {
