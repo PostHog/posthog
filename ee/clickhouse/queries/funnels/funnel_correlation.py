@@ -24,7 +24,6 @@ from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -161,23 +160,7 @@ class FunnelCorrelation:
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
-                    if not groups_on_events_querying_enabled():
-                        continue
-
-                    if "$all" == property_name:
-                        return [f"group{self._filter.aggregation_group_type_index}_properties"]
-
-                    possible_mat_col = mat_event_cols.get(
-                        (
-                            property_name,
-                            f"group{self._filter.aggregation_group_type_index}_properties",
-                        )
-                    )
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
-                    else:
-                        props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
-
+                    continue  # We don't support group properties on events at this time
                 else:
                     if "$all" == property_name:
                         return [f"person_properties"]
@@ -499,12 +482,6 @@ class FunnelCorrelation:
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
-            if (
-                alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
-                and groups_on_events_querying_enabled()
-            ):
-                return "", {}
-
             person_query, person_query_params = PersonQuery(
                 self._filter,
                 self._team.pk,
@@ -522,21 +499,12 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        if (
-            alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
-            and groups_on_events_querying_enabled()
-        ):
-            group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
-            aggregation_properties_alias = (
-                "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
-            )
-        else:
-            group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
-            aggregation_properties_alias = (
-                PersonQuery.PERSON_PROPERTIES_ALIAS
-                if self._filter.aggregation_group_type_index is None
-                else group_properties_field
-            )
+        group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
+        aggregation_properties_alias = (
+            PersonQuery.PERSON_PROPERTIES_ALIAS
+            if self._filter.aggregation_group_type_index is None
+            else group_properties_field
+        )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
             return (
