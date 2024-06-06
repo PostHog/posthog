@@ -312,6 +312,10 @@ class Team(UUIDClassicModel):
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
+        if self.modifiers and self.modifiers.get("personsOnEventsMode") is not None:
+            # HogQL modifiers, which also act as the project-level setting, take precedence
+            return PersonsOnEventsMode(self.modifiers["personsOnEventsMode"])
+
         if self._person_on_events_person_id_override_properties_on_events:
             tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
             return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
