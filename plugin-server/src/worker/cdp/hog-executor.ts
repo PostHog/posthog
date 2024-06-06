@@ -81,19 +81,15 @@ export class HogExecutor {
 
         try {
             const fields = this.buildHogFunctionFields(hogFunction, invocation)
-            const res = exec(
-                hogFunction.bytecode,
-                {
-                    fields: fields,
-                    timeout: 100, // TODO: what should this be
-                    maxAsyncSteps: 10, // TODO: what should this be
-                    asyncFunctions: {
-                        // We need to pass these in but they don't actually do anything as it is a sync exec
-                        fetch: async () => Promise.resolve(),
-                    },
+            const res = exec(state ?? hogFunction.bytecode, {
+                fields: fields,
+                timeout: 100, // NOTE: This will likely be configurable in the future
+                maxAsyncSteps: 5, // NOTE: This will likely be configurable in the future
+                asyncFunctions: {
+                    // We need to pass these in but they don't actually do anything as it is a sync exec
+                    fetch: async () => Promise.resolve(),
                 },
-                state
-            )
+            })
 
             if (!res.finished) {
                 try {
@@ -173,9 +169,6 @@ export class HogExecutor {
                 headers: webhook.headers,
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
-
-            // TODO: Make this all stateless - we don't need to reload the hog function on the async response that way (plus it might have changed)
-            // (marius might add this to execresult)
 
             await this.executeAsyncResponse({
                 ...invocation,
