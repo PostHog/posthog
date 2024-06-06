@@ -168,12 +168,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan, downgradePlan }
             },
         ],
-        showBillingLimitInput: [
-            (s) => [s.billing, s.customLimitUsd, s.isEditingBillingLimit],
-            (billing, customLimitUsd, isEditingBillingLimit) => {
-                return billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit)
-            },
-        ],
         freeTier: [
             (_s, p) => [p.product],
             (product) => {

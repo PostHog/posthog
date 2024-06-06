@@ -1,57 +1,8 @@
+import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT = 5 // seconds
-
-export const enum Operation {
-    FIELD = 1,
-    CALL = 2,
-    AND = 3,
-    OR = 4,
-    NOT = 5,
-    PLUS = 6,
-    MINUS = 7,
-    MULTIPLY = 8,
-    DIVIDE = 9,
-    MOD = 10,
-    EQ = 11,
-    NOT_EQ = 12,
-    GT = 13,
-    GT_EQ = 14,
-    LT = 15,
-    LT_EQ = 16,
-    LIKE = 17,
-    ILIKE = 18,
-    NOT_LIKE = 19,
-    NOT_ILIKE = 20,
-    IN = 21,
-    NOT_IN = 22,
-    REGEX = 23,
-    NOT_REGEX = 24,
-    IREGEX = 25,
-    NOT_IREGEX = 26,
-    IN_COHORT = 27,
-    NOT_IN_COHORT = 28,
-
-    TRUE = 29,
-    FALSE = 30,
-    NULL = 31,
-    STRING = 32,
-    INTEGER = 33,
-    FLOAT = 34,
-    POP = 35,
-    GET_LOCAL = 36,
-    SET_LOCAL = 37,
-    RETURN = 38,
-    JUMP = 39,
-    JUMP_IF_FALSE = 40,
-    DECLARE_FN = 41,
-    DICT = 42,
-    ARRAY = 43,
-    TUPLE = 44,
-    GET_PROPERTY = 45,
-    SET_PROPERTY = 46,
-}
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
     pattern = String(pattern)
@@ -101,6 +52,8 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
 }
 
 interface VMState {
+    /** Bytecode running in the VM */
+    bytecode: any[]
     /** Stack of the VM */
     stack: any[]
     /** Call stack of the VM */
@@ -142,24 +95,24 @@ export function execSync(bytecode: any[], options?: ExecOptions): any {
 }
 
 export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
-    let lastState: VMState | undefined = undefined
+    let vmState: VMState | undefined = undefined
     while (true) {
-        const response = exec(bytecode, options, lastState)
+        const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
             return response.result
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
-            lastState = response.state
+            vmState = response.state
             if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
                 const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
-                lastState.stack.push(result)
+                vmState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT
                 )
-                lastState.stack.push(result)
+                vmState.stack.push(result)
             } else {
                 throw new Error('Invalid async function call: ' + response.asyncFunctionName)
             }
@@ -169,8 +122,17 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
     }
 }
 
-export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState): ExecResult {
-    if (bytecode.length === 0 || bytecode[0] !== '_h') {
+export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
+    let vmState: VMState | undefined = undefined
+    let bytecode: any[] | undefined = undefined
+    if (!Array.isArray(code)) {
+        vmState = code
+        bytecode = vmState.bytecode
+    } else {
+        bytecode = code
+    }
+
+    if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
 
@@ -198,10 +160,10 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
     }
 
     function next(): any {
-        if (ip >= bytecode.length - 1) {
+        if (ip >= bytecode!.length - 1) {
             throw new Error('Unexpected end of bytecode')
         }
-        return bytecode[++ip]
+        return bytecode![++ip]
     }
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout * 1000) {
@@ -432,6 +394,7 @@ export function exec(bytecode: any[], options?: ExecOptions, vmState?: VMState):
                             asyncFunctionName: name,
                             asyncFunctionArgs: args,
                             state: {
+                                bytecode,
                                 stack,
                                 callStack,
                                 declaredFunctions,

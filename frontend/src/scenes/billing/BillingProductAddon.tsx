@@ -8,6 +8,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { ProductPricingModal } from './ProductPricingModal'
@@ -28,7 +29,7 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError, daysTotal, daysRemaining } = useValues(billingLogic)
+    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -38,20 +39,15 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
 
-    const prorationAmount = useMemo(
+    const { prorationAmount, isProrated } = useMemo(
         () =>
-            upgradePlan?.unit_amount_usd
-                ? (parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(0)
-                : 0,
-        [upgradePlan, daysRemaining, daysTotal]
-    )
-
-    const isProrated = useMemo(
-        () =>
-            billing?.has_active_subscription && upgradePlan?.unit_amount_usd
-                ? prorationAmount !== parseInt(upgradePlan?.unit_amount_usd || '')
-                : false,
-        [billing?.has_active_subscription, prorationAmount]
+            getProration({
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
+                amountUsd: upgradePlan?.unit_amount_usd,
+                hasActiveSubscription: billing?.has_active_subscription,
+            }),
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
@@ -186,10 +182,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     </div>
                     {!addon.inclusion_only && isProrated && (
                         <p className="mt-2 text-xs text-muted text-right">
-                            ${prorationAmount} charged today (pro-rated),
+                            Pay ~${prorationAmount} today (prorated) and
                             <br />
-                            then {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} starting next
-                            invoice.
+                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
+                            thereafter.
                         </p>
                     )}
                 </div>

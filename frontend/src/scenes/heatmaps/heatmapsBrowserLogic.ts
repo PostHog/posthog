@@ -247,10 +247,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
 
             const onIframeMessage = (e: MessageEvent): void => {
-                // TODO: Probably need to have strict checks here
                 const type: PostHogAppToolbarEvent = e?.data?.type
 
                 if (!type || !type.startsWith('ph-')) {
+                    return
+                }
+                if (!values.checkUrlIsAuthorized(e.origin)) {
+                    console.warn(
+                        'ignoring message from iframe with origin not in uathorized toolbar urls',
+                        e.origin,
+                        e.data
+                    )
                     return
                 }
 

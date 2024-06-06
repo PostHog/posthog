@@ -2589,6 +2589,8 @@ export enum SurveyType {
     API = 'api',
 }
 
+export type SurveyQuestionDescriptionContentType = 'html' | 'text'
+
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
@@ -2602,6 +2604,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
     // widget only
@@ -2615,6 +2618,7 @@ export interface SurveyAppearance {
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
+    descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
 }
@@ -3713,7 +3717,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Manual'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake', 'Manual'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
