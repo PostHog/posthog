@@ -38,7 +38,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     sync_frequency: models.CharField = models.CharField(
-        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
     )
 
     # `status` is deprecated in favour of external_data_schema.status
