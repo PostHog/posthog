@@ -305,7 +305,16 @@ def join_events_table_to_sessions_table(
 
 def get_lazy_session_table_properties(search: Optional[str]):
     # some fields shouldn't appear as properties
-    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls", "duration"}
+    hidden_fields = {
+        "team_id",
+        "distinct_id",
+        "session_id",
+        "id",
+        "$event_count_map",
+        "$urls",
+        "duration",
+        "$num_uniq_urls",
+    }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
