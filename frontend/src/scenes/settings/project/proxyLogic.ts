@@ -12,7 +12,7 @@ export type ProxyRecord = {
     id: string
     domain: string
     status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
-    message: string
+    message?: string
     target_cname: string
 }
 

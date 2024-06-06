@@ -31,6 +31,8 @@ export function ManagedReverseProxy(): JSX.Element {
 
     const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
 
+    const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
+
     const columns: LemonTableColumns<ProxyRecord> = [
         {
             title: 'Domain',
@@ -38,7 +40,8 @@ export function ManagedReverseProxy(): JSX.Element {
         },
         {
             title: 'Status',
-            render: function RenderStatus(_, { status }) {
+            dataIndex: 'status',
+            render: function RenderStatus(status) {
                 if (!status) {
                     return <span>Unknown</span>
                 }
@@ -107,15 +110,11 @@ export function ManagedReverseProxy(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
             <div className="space-y-2">
-                {proxyRecords.some((r) => r.message)
-                    ? proxyRecords.map((r) =>
-                          r.message ? (
-                              <LemonBanner type="warning" key={r.id}>
-                                  <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
-                              </LemonBanner>
-                          ) : null
-                      )
-                    : null}
+                {recordsWithMessages.map((r) => (
+                    <LemonBanner type="warning" key={r.id}>
+                        <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+                    </LemonBanner>
+                ))}
                 <LemonTable
                     loading={proxyRecords.length === 0 && proxyRecordsLoading}
                     columns={columns}
