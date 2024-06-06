@@ -12,7 +12,7 @@ boto3==1.28.16
 brotli==1.1.0
 celery==5.3.4
 celery-redbeat==2.1.1
-clickhouse-driver==0.2.6
+clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 cryptography==37.0.2
 dj-database-url==0.5.0
