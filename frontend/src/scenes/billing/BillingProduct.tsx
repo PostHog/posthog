@@ -404,7 +404,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     product,
                                                     upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    false // if in onboarding, we want to include addons, otherwise don't
+                                                    false // don't include addons, as we're not in onboarding
                                                 )}
                                                 type="primary"
                                                 icon={<IconPlus />}
