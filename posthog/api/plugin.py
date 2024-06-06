@@ -241,7 +241,12 @@ class PluginsAccessLevelPermission(BasePermission):
         if request.method in SAFE_METHODS:
             # We allow viewing the plugin if the organization has the required access level
             return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
-        return view.organization == object.organization
+
+        if view.organization != object.organization:
+            self.message = "This plugin installation is managed by another organization"
+            return False
+
+        return True
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -311,38 +316,21 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-
     permission_classes = [PluginsAccessLevelPermission]
 
-    # def dangerously_get_permissions(self) -> list:
-    #     """
-    #     Special permissions handling because plugins need to be able to be configured for organizations that don't own them.
-    #     """
-    #     permissions: list = [IsAuthenticated, APIScopePermission, PluginsAccessLevelPermission]
-
-    #     return [permission() for permission in permissions]
-
     def safely_get_queryset(self, queryset):
-        if self.request.method in SAFE_METHODS:
-            if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
-                return queryset.none()
+        if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
+            return queryset.none()
 
-            # For listing, we allow access to all plugins that are global or belong to the organization or in use
-            queryset = queryset.filter(
-                Q(organization_id=self.organization_id)
-                | Q(is_global=True)
-                | Q(
-                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                        team__organization_id=self.organization_id, deleted=False
-                    ).values_list("plugin_id", flat=True)
-                )
+        queryset = queryset.filter(
+            Q(organization_id=self.organization_id)
+            | Q(is_global=True)
+            | Q(
+                id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                    team__organization_id=self.organization_id, deleted=False
+                ).values_list("plugin_id", flat=True)
             )
-        else:
-            # For other actions, we only allow access to plugins that belong to the organization
-            queryset = queryset.filter(organization_id=self.organization_id)
-
-            if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.INSTALL):
-                return queryset.none()
+        )
 
         queryset = queryset.select_related("organization")
 
