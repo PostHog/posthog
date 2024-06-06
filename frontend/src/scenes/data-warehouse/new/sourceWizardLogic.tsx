@@ -215,7 +215,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 label: 'Warehouse',
                 type: 'text',
                 required: true,
-                placeholder: 'compute_warehouse',
+                placeholder: 'COMPUTE_WAREHOUSE',
             },
             {
                 name: 'user',

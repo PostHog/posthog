@@ -106,7 +106,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
-        from posthog.temporal.data_imports.pipelines.postgres import postgres_source
+        from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
 
         host = model.pipeline.job_inputs.get("host")
         port = model.pipeline.job_inputs.get("port")
@@ -166,7 +166,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-        from posthog.temporal.data_imports.pipelines.postgres import snowflake_source
+        from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
 
         account_id = model.pipeline.job_inputs.get("account_id")
         user = model.pipeline.job_inputs.get("user")
