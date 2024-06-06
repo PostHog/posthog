@@ -24,12 +24,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "limit": 100,
                     # "payout": "OPTIONAL_CONFIG",
                     # "source": "OPTIONAL_CONFIG",
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "type": "OPTIONAL_CONFIG",
                 },
             },
@@ -50,12 +45,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "expand": "OPTIONAL_CONFIG",
                     "limit": 100,
                     # "payment_intent": "OPTIONAL_CONFIG",
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "transfer_group": "OPTIONAL_CONFIG",
                 },
             },
@@ -75,12 +65,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
                     "limit": 100,
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
@@ -133,12 +118,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "lookup_keys": "OPTIONAL_CONFIG",
                     # "product": "OPTIONAL_CONFIG",
                     # "recurring": "OPTIONAL_CONFIG",
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "type": "OPTIONAL_CONFIG",
                 },
             },
@@ -160,12 +140,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "ids": "OPTIONAL_CONFIG",
                     "limit": 100,
                     # "shippable": "OPTIONAL_CONFIG",
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "url": "OPTIONAL_CONFIG",
                 },
             },
@@ -189,12 +164,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "expand": "OPTIONAL_CONFIG",
                     "limit": 100,
                     # "price": "OPTIONAL_CONFIG",
-                    "starting_after": {
-                        "type": "incremental",
-                        "cursor_path": "id",
-                    }
-                    if is_incremental
-                    else None,
+                    # "starting_after": "OPTIONAL_CONFIG",
                     # "status": "OPTIONAL_CONFIG",
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
