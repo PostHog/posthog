@@ -17,6 +17,7 @@ import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { AvailableFeature } from '~/types'
 
@@ -37,8 +38,7 @@ export function ManagedReverseProxy(): JSX.Element {
         },
         {
             title: 'Status',
-            dataIndex: 'status',
-            render: function RenderStatus(status) {
+            render: function RenderStatus(_, { status }) {
                 if (!status) {
                     return <span>Unknown</span>
                 }
@@ -107,6 +107,15 @@ export function ManagedReverseProxy(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
             <div className="space-y-2">
+                {proxyRecords.some((r) => r.message)
+                    ? proxyRecords.map((r) =>
+                          r.message ? (
+                              <LemonBanner type="warning" key={r.id}>
+                                  <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+                              </LemonBanner>
+                          ) : null
+                      )
+                    : null}
                 <LemonTable
                     loading={proxyRecords.length === 0 && proxyRecordsLoading}
                     columns={columns}

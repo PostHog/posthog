@@ -9,6 +9,7 @@ class ProxyRecord(UUIDModel):
     )
     domain: models.CharField = models.CharField(max_length=64, unique=True)
     target_cname: models.CharField = models.CharField(max_length=256, null=False)
+    message: models.CharField = models.CharField(max_length=1024, null=True)
 
     class Status(models.TextChoices):
         WAITING = "waiting"
