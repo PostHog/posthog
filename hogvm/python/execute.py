@@ -1,13 +1,16 @@
 import re
+import time
 from typing import Any, Optional
 from collections.abc import Callable
-import time
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
-from hogvm.python.vm_utils import HogVMException
 from posthog.models import Team
 from dataclasses import dataclass
+
+
+class HogVMException(Exception):
+    pass
 
 
 def like(string, pattern, flags=0):
