@@ -119,7 +119,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions({
-        loadDashboard: (payload: { refresh?: RefreshType; action: string }) => payload,
+        loadDashboard: (payload: {
+            refresh?: RefreshType
+            action: 'initial_load' | 'update' | 'refresh' | 'load_missing' | 'refresh_insights_on_filters_updated'
+        }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
@@ -960,7 +963,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'async' : undefined,
+                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
