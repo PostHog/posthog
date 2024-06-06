@@ -517,6 +517,7 @@ def nh3_clean_with_allow_list(to_clean: str):
             "hgroup",
             "hr",
             "i",
+            "iframe",
             "img",
             "ins",
             "kbd",
