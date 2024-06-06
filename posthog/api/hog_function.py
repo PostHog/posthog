@@ -9,27 +9,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program, parse_string_template
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import HogFunction, generate_template_bytecode
 
 logger = structlog.get_logger(__name__)
-
-
-def generate_template_bytecode(value: str) -> list[Any]:
-    return create_bytecode(parse_string_template(value))
-
-
-def generate_template_bytecode_for_object(obj: Any) -> Any:
-    """
-    Clones an object, compiling any string values to bytecode templates
-    """
-    if isinstance(obj, dict):
-        return {key: generate_template_bytecode_for_object(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [generate_template_bytecode_for_object(item) for item in obj]
-    elif isinstance(obj, str):
-        return generate_template_bytecode(obj)
-    else:
-        return obj
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -97,10 +79,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
                 try:
                     if value:
-                        if item_type == "string":
+                        if item_type in ["string", "dictionary", "json"]:
                             item["bytecode"] = generate_template_bytecode(value)
-                        elif item_type in ["dictionary", "json"]:
-                            item["bytecode"] = generate_template_bytecode_for_object(value)
                 except Exception as e:
                     raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
 

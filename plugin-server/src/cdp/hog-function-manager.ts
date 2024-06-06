@@ -45,7 +45,7 @@ export class HogFunctionManager {
         // every 5 minutes all HogFunctionManager caches are reloaded for eventual consistency
         this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
             await this.reloadAllHogFunctions().catch((error) => {
-                status.error('🍿', 'Error reloading actions:', error)
+                status.error('🍿', 'Error reloading hog functions:', error)
             })
         })
         this.ready = true

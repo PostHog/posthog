@@ -1,9 +1,11 @@
 import json
+from typing import Any
 
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.models.action.action import Action
 from posthog.models.utils import UUIDModel
 from posthog.redis import get_client
 
@@ -26,6 +28,17 @@ class HogFunction(UUIDModel):
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
 
+    @property
+    def filter_action_ids(self) -> list[int]:
+        try:
+            return [int(action["id"]) for action in self.filters["actions"]]
+        except KeyError:
+            return []
+
+    def compile_filters_bytecode(self, actions: dict[str, Action]):
+        if self.filters:
+            self.filters = generate_template_bytecode(self.filters)
+
     def __str__(self):
         return self.name
 
@@ -36,3 +49,45 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         "reload-hog-function",
         json.dumps({"teamId": instance.team_id, "hogFunctionId": str(instance.id)}),
     )
+
+
+@receiver(post_save, sender=Action)
+def action_saved(sender, instance: Action, created, **kwargs):
+    # Whenever an action is saved we want to load all hog functions using it
+    # and trigger a refresh of the filters bytecode
+
+    affected_hog_functions = (
+        HogFunction.objects.prefetch_related("team")
+        .filter(team=instance.team_id)
+        .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
+    )
+
+    all_related_actions = Action.objects.filter(team=instance.team_id).filter(
+        id__in=[hog_function.filter_action_ids for hog_function in affected_hog_functions]
+    )
+
+    actions_by_id = {action.id: action for action in all_related_actions}
+
+    for hog_function in affected_hog_functions:
+        hog_function.compile_filters_bytecode(actions=actions_by_id)
+
+    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+
+    print("UPdated", updates)
+
+
+def generate_template_bytecode(obj: Any) -> Any:
+    """
+    Clones an object, compiling any string values to bytecode templates
+    """
+    from posthog.hogql.bytecode import create_bytecode
+    from posthog.hogql.parser import parse_string_template
+
+    if isinstance(obj, dict):
+        return {key: generate_template_bytecode(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [generate_template_bytecode(item) for item in obj]
+    elif isinstance(obj, str):
+        return create_bytecode(parse_string_template(obj))
+    else:
+        return obj
