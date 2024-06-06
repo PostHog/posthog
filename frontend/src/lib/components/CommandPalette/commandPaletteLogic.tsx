@@ -498,7 +498,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL()[InsightType.SQL])
+                            push(insightTypeURL[InsightType.SQL])
                         },
                     },
                     {

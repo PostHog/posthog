@@ -14,8 +14,6 @@ export function InsightsNav(): JSX.Element {
     const { activeView, tabs } = useValues(insightNavLogic(insightProps))
     const { setActiveView } = useActions(insightNavLogic(insightProps))
 
-    const insightTypeUrls = insightTypeURL()
-
     return (
         <>
             <FunnelsCue />
@@ -25,7 +23,7 @@ export function InsightsNav(): JSX.Element {
                 tabs={tabs.map(({ label, type, dataAttr }) => ({
                     key: type,
                     label: (
-                        <Link to={insightTypeUrls[type]} preventClick data-attr={dataAttr}>
+                        <Link to={insightTypeURL[type]} preventClick data-attr={dataAttr}>
                             <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
                                 <span>{label}</span>
                             </Tooltip>

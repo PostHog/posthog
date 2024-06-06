@@ -14,8 +14,6 @@ function insightTypesForMenu(): [string, InsightTypeMetadata][] {
 export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
     const menuEntries = insightTypesForMenu()
 
-    const insightTypeUrls = insightTypeURL()
-
     return menuEntries.map(
         ([listedInsightType, listedInsightTypeMetadata]) =>
             listedInsightTypeMetadata.inMenu && (
@@ -26,7 +24,7 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                         )
                     }
-                    to={insightTypeUrls[listedInsightType as InsightType]}
+                    to={insightTypeURL[listedInsightType as InsightType]}
                     data-attr={dataAttr}
                     data-attr-insight-type={listedInsightType}
                     onClick={() => {
