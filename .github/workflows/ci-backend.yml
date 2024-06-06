@@ -65,7 +65,7 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'hogvm/python/**/*'
+                        - 'hogvm/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt
@@ -166,9 +166,17 @@ jobs:
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
                   ANTLR_VERSION: '4.13.1'
 
-            - name: Check HogVM python test
+            - name: Run HogVM python test
               run: |
                   pytest hogvm
+
+            - name: Run Hog tests
+              run: |
+                  cd hogvm/typescript
+                  pnpm install 
+                  pnpm run build 
+                  cd ../
+                  ./test.sh && git diff --exit-code
 
     check-migrations:
         needs: changes
