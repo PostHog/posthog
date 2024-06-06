@@ -91,6 +91,7 @@ class TestQueryRunner(BaseTest):
                     "personsArgMaxVersion": "auto",
                     "optimizeJoinedFilters": False,
                     "personsOnEventsMode": "disabled",
+                    "bounceRatePageViewMode": "count_pageviews",
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
