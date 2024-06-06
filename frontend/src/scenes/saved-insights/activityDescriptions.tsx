@@ -228,7 +228,7 @@ const insightActionsMapping: Record<
     effective_privilege_level: () => null,
     disable_baseline: () => null,
     dashboard_tiles: () => null,
-    query_status: () => undefined,
+    query_status: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
