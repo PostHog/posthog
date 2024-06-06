@@ -324,7 +324,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboardId,
             lastRefreshed,
         }),
-        reportDashboardItemRefreshed: (dashboardItem: QueryBasedInsightModel) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
