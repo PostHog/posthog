@@ -1,6 +1,6 @@
 // eslint-disable-next-line no-restricted-imports
 import { PieChartFilled } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -14,7 +14,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -73,7 +72,6 @@ export function InsightMeta({
     const { short_id, name, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
-    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
@@ -139,7 +137,6 @@ export function InsightMeta({
                             <LemonButton
                                 onClick={() => {
                                     refresh()
-                                    reportDashboardItemRefreshed(insight)
                                 }}
                                 fullWidth
                             >
