@@ -53,7 +53,12 @@ def _get_order_by_clause(filter_order: str | None) -> str:
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> tuple[str, dict[str, Any]]:
-    console_search_query = recording_filters.console_logs.values[1].value
+    console_logs = recording_filters.console_logs
+
+    if not console_logs:
+        return "", {}
+
+    console_search_query = console_logs[0].values[1].value
 
     if not console_search_query:
         return "", {}
@@ -123,9 +128,12 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs: PropertyGroup,
+        console_logs: list[PropertyGroup],
     ) -> tuple[str, dict[str, Any]]:
-        log_levels = console_logs.values[0].value
+        if not console_logs:
+            return "", {}
+
+        log_levels = console_logs[0].values[0].value
         return (
             (
                 f"AND level in %(console_logs_levels)s",
@@ -136,7 +144,12 @@ class LogQuery:
         )
 
     def get_query(self) -> tuple[str, dict]:
-        console_search_query = self._filter.console_logs.values[1].value
+        console_logs = self._filter.console_logs
+
+        if not console_logs:
+            return "", {}
+
+        console_search_query = console_logs[0].values[1].value
 
         if not console_search_query:
             return "", {}
@@ -770,13 +783,13 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         duration_clause = ""
         duration_params = {}
         if self._filter.duration:
-            filter = self._filter.duration.values[0]
+            filter = self._filter.duration[0]
             if filter.operator == "gt":
                 operator = ">"
             else:
                 operator = "<"
             duration_clause = "\nAND {duration_type} {operator} %(recording_duration)s".format(
-                duration_type=filter.type, operator=operator
+                duration_type=filter.key, operator=operator
             )
             duration_params = {
                 "recording_duration": filter.value,
@@ -784,8 +797,11 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return duration_clause, duration_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs: PropertyGroup) -> str:
-        log_levels = console_logs.values[0].value
+    def _get_console_log_clause(console_logs: list[PropertyGroup]) -> str:
+        if not console_logs:
+            return ""
+
+        log_levels = console_logs[0].values[0].value
         # to avoid a CH migration we map from info to log when constructing the query here
         filters = [f"console_{'log' if level == 'info' else level}_count > 0" for level in log_levels]
         return f"AND ({' OR '.join(filters)})" if filters else ""

@@ -15,19 +15,19 @@ class PersonUUIDMixin(BaseParamMixin):
 
 class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
-    def console_logs(self) -> Optional[PropertyGroup]:
+    def console_logs(self) -> Optional[list[PropertyGroup]]:
         user_value = self._data.get("console_logs", None) or []
         if isinstance(user_value, str):
             filter_array = json.loads(user_value)
-            return PropertyGroup(**filter_array)
+            return [PropertyGroup(group.type, group.values) for group in filter_array]
         return None
 
     @cached_property
-    def duration(self) -> Optional[PropertyGroup]:
+    def duration(self) -> Optional[list[Property]]:
         duration_filters_data_str = self._data.get("duration", None)
         if duration_filters_data_str:
             filter_array = json.loads(duration_filters_data_str)
-            return (Property(**filter) for filter in filter_array)
+            return [Property(**filter) for filter in filter_array]
         return None
 
     @cached_property
