@@ -236,7 +236,7 @@ function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.E
     )
 }
 
-export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+export function LEGACY_FilterBasedSeriesSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     const localFilters = toLocalFilters(filters)
 
     return (
@@ -289,7 +289,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
     )
 }
 
-export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+export function LEGACY_FilterBasedPropertiesFiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     const groupFilter: PropertyGroupFilter | null = Array.isArray(filters.properties)
         ? {
               type: FilterLogicalOperator.And,
@@ -312,7 +312,7 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
     )
 }
 
-export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
+export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
     if (filters.breakdown_type == null || filters.breakdown == null) {
         return null
     }
@@ -339,9 +339,9 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
     }
     return (
         <div className="InsightDetails" ref={ref}>
-            <QuerySummary filters={filters} />
-            <FiltersSummary filters={filters} />
-            <BreakdownSummary filters={filters} />
+            <LEGACY_FilterBasedSeriesSummary filters={filters} />
+            <LEGACY_FilterBasedPropertiesFiltersSummary filters={filters} />
+            <LEGACY_FilterBasedBreakdownSummary filters={filters} />
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>

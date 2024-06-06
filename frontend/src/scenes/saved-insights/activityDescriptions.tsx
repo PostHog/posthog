@@ -12,7 +12,11 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    LEGACY_FilterBasedBreakdownSummary,
+    LEGACY_FilterBasedPropertiesFiltersSummary,
+    LEGACY_FilterBasedSeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
@@ -44,9 +48,8 @@ type DashboardLink = TileStyleDashboardLink | BareDashboardLink
 const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
     if ('dashboard' in boxedLink) {
         return boxedLink.dashboard
-    } else {
-        return boxedLink
     }
+    return boxedLink
 }
 
 const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
@@ -236,9 +239,9 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
-                <QuerySummary filters={filtersAfter} />
-                <FiltersSummary filters={filtersAfter} />
-                {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+                <LEGACY_FilterBasedSeriesSummary filters={filtersAfter} />
+                <LEGACY_FilterBasedPropertiesFiltersSummary filters={filtersAfter} />
+                {filtersAfter.breakdown_type && <LEGACY_FilterBasedBreakdownSummary filters={filtersAfter} />}
             </div>
         ),
     }
