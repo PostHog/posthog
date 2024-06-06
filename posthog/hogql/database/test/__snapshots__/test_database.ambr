@@ -551,58 +551,6 @@
           "name": "person_distinct_ids",
           "type": "posthog"
       },
-      "person_overrides": {
-          "fields": {
-              "old_person_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "old_person_id",
-                  "name": "old_person_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "override_person_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "override_person_id",
-                  "name": "override_person_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "oldest_event": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "oldest_event",
-                  "name": "oldest_event",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              },
-              "merged_at": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "merged_at",
-                  "name": "merged_at",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              },
-              "created_at": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "created_at",
-                  "name": "created_at",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              }
-          },
-          "id": "person_overrides",
-          "name": "person_overrides",
-          "type": "posthog"
-      },
       "session_replay_events": {
           "fields": {
               "session_id": {
@@ -1898,58 +1846,6 @@
           },
           "id": "person_distinct_ids",
           "name": "person_distinct_ids",
-          "type": "posthog"
-      },
-      "person_overrides": {
-          "fields": {
-              "old_person_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "old_person_id",
-                  "name": "old_person_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "override_person_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "override_person_id",
-                  "name": "override_person_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "oldest_event": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "oldest_event",
-                  "name": "oldest_event",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              },
-              "merged_at": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "merged_at",
-                  "name": "merged_at",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              },
-              "created_at": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "created_at",
-                  "name": "created_at",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "datetime"
-              }
-          },
-          "id": "person_overrides",
-          "name": "person_overrides",
           "type": "posthog"
       },
       "session_replay_events": {
