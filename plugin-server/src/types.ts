@@ -1167,6 +1167,7 @@ export type RawClickhouseWebVitalsEvent = {
     lcp: number | undefined
     cls: number | undefined
     inp: number | undefined
+    properties: string | undefined
 }
 
 export type RawClickhouseHeatmapEvent = {

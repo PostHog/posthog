@@ -1,5 +1,5 @@
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { PreIngestionEvent, RawClickhouseWebVitalsEvent, TimestampFormat } from '../../../types'
+import { ISOTimestamp, PreIngestionEvent, RawClickhouseWebVitalsEvent, TimestampFormat } from '../../../types'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { captureIngestionWarning, isNonEmptyString } from '../utils'
 import { EventPipelineRunner } from './runner'
@@ -9,7 +9,12 @@ const validWebVitalNames = ['LCP', 'FCP', 'INP', 'CLS']
 interface ReceivedWebVitalEvent {
     name: string
     value: number
-    // we're not using the rest of the fields
+    timestamp: ISOTimestamp
+    $session_id: string
+    $current_url: string
+
+    // and other things
+    [key: string]: string | number
 }
 
 export function extractWebVitalsDataStep(
@@ -57,8 +62,8 @@ function extractWebVitalsEventsData(event: PreIngestionEvent): RawClickhouseWebV
         return []
     }
 
-    const { teamId, timestamp, properties } = event
-    const { $session_id, $current_url, $web_vitals_data } = properties || {}
+    const { teamId, properties } = event
+    const { $web_vitals_data } = properties || {}
 
     const webVitalsData = $web_vitals_data as any[] | null
 
@@ -68,27 +73,29 @@ function extractWebVitalsEventsData(event: PreIngestionEvent): RawClickhouseWebV
         return []
     }
 
-    if (!isNonEmptyString($session_id)) {
-        return drop('missing_session_id')
-    }
-
-    if (!isNonEmptyString($current_url)) {
-        return drop('missing_current_url')
-    }
-
     webVitalsData.forEach((receivedWebVitalEvent: ReceivedWebVitalEvent) => {
+        const { name, value, $session_id, $current_url, timestamp, ...properties } = receivedWebVitalEvent
+
+        if (!isNonEmptyString($session_id)) {
+            return drop('missing_session_id')
+        }
+
+        if (!isNonEmptyString($current_url)) {
+            return drop('missing_current_url')
+        }
+
+        if (!validWebVitalNames.includes(name)) {
+            drop('invalid_web_vital_name')
+            return
+        }
+
         const baseEvent: Partial<RawClickhouseWebVitalsEvent> = {
             team_id: teamId,
             timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             session_id: $session_id,
             current_url: $current_url,
-        }
-
-        const { name, value } = receivedWebVitalEvent
-
-        if (!validWebVitalNames.includes(name)) {
-            drop('invalid_web_vital_name')
-            return
+            // remaining properties are enblobbed into one column
+            properties: properties ? JSON.stringify(properties) : undefined,
         }
 
         if (name === 'LCP') {

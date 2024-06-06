@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     lcp Nullable(Float64),
     cls Nullable(Float64),
     inp Nullable(Float64),
+    -- we store the rest of the properties as a JSON string, just like the events table
+    properties VARCHAR CODEC(ZSTD(3)),
 ) ENGINE = {engine}
 """
 
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     lcp Nullable(Float64),
     cls Nullable(Float64),
     inp Nullable(Float64),
+    properties VARCHAR CODEC(ZSTD(3)),
     _timestamp DateTime,
     _offset UInt64,
     _partition UInt64
@@ -77,6 +80,7 @@ AS SELECT
     lcp,
     cls,
     inp,
+    properties,
     _timestamp,
     _offset,
     _partition
