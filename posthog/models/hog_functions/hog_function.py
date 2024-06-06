@@ -5,6 +5,7 @@ from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
 from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 from posthog.redis import get_client
 
@@ -61,26 +62,36 @@ def action_saved(sender, instance: Action, created, **kwargs):
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
-    try:
-        affected_hog_functions = (
-            HogFunction.objects.prefetch_related("team")
-            .filter(team=instance.team_id)
-            .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
-        )
+    affected_hog_functions = (
+        HogFunction.objects.prefetch_related("team")
+        .filter(team=instance.team_id)
+        .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
+    )
 
-        all_related_actions = Action.objects.filter(team=instance.team_id).filter(
-            id__in=[
-                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
-            ]
-        )
+    refresh_hog_functions(team_id=instance.team_id, affected_hog_functions=list(affected_hog_functions))
 
-        actions_by_id = {action.id: action for action in all_related_actions}
 
-        for hog_function in affected_hog_functions:
-            hog_function.compile_filters_bytecode(actions=actions_by_id)
+@receiver(post_save, sender=Team)
+def team_saved(sender, instance: Team, created, **kwargs):
+    affected_hog_functions = (
+        HogFunction.objects.prefetch_related("team")
+        .filter(team=instance.id)
+        .filter(filters__contains={"filter_test_accounts": True})
+    )
 
-        updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
-        print("Updated", updates)
-    except Exception as e:
-        # TODO: How to handle exceptions here?
-        pass
+    refresh_hog_functions(team_id=instance.id, affected_hog_functions=list(affected_hog_functions))
+
+
+def refresh_hog_functions(team_id: int, affected_hog_functions: list[HogFunction]) -> int:
+    all_related_actions = Action.objects.filter(team=team_id).filter(
+        id__in=[action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids]
+    )
+
+    actions_by_id = {action.id: action for action in all_related_actions}
+
+    for hog_function in affected_hog_functions:
+        hog_function.compile_filters_bytecode(actions=actions_by_id)
+
+    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+
+    return updates
