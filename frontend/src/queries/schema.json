@@ -5619,6 +5619,12 @@
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
+                "async": {
+                    "deprecated": "Use `refresh` instead.",
+                    "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
+                    "examples": [true],
+                    "type": "boolean"
+                },
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"

@@ -4385,6 +4385,12 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description="(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
+        examples=[True],
+    )
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )

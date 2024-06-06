@@ -931,6 +931,14 @@ export type RefreshType = boolean | 'async' | 'blocking' | 'force_async' | 'forc
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    /**
+     * (Experimental)
+     * Whether to run the query asynchronously. Defaults to False.
+     * If True, the `id` of the query can be used to check the status and to cancel it.
+     * @example true
+     * @deprecated Use `refresh` instead.
+     */
+    async?: boolean
     refresh?: RefreshType
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
