@@ -1057,21 +1057,33 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
 
-class TestActivationBillingAPI(APILicensedTest):
-    def test_activation_success(self):
+class TestActivateBillingAPI(APILicensedTest):
+    def test_activate_success(self):
+        url = "/api/billing-v2/activate"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activate", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_deprecated_activation_success(self):
         url = "/api/billing-v2/activation"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        self.assertIn("/activation", response.url)
+        self.assertIn("/activate", response.url)
         self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
         url_pattern = r"redirect_uri=http://[^/]+/custom/path"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_with_default_redirect_path(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_with_default_redirect_path(self):
+        url = "/api/billing-v2/activate"
         data = {
             "products": "product_1:plan_1,product_2:plan_2",
         }
@@ -1083,16 +1095,16 @@ class TestActivationBillingAPI(APILicensedTest):
         url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_failure(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_failure(self):
+        url = "/api/billing-v2/activate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_activation_with_plan_error(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_with_plan_error(self):
+        url = "/api/billing-v2/activate"
         data = {"plan": "plan"}
 
         response = self.client.get(url, data)
