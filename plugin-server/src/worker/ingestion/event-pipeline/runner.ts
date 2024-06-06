@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
+import { eventDroppedCounter, setUsageInNonPersonEventsCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -24,6 +24,14 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
+
+const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
+const KNOWN_SET_EVENTS = new Set([
+    '$feature_interaction',
+    '$feature_enrollment_update',
+    'survey dismissed',
+    'survey sent',
+])
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -191,6 +199,16 @@ export class EventPipelineRunner {
             )
 
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
+        }
+
+        // Track $set usage in events that aren't known to use it, before plugins which add various $set props.
+        if (
+            event.properties &&
+            !(event.event in PERSON_EVENTS) &&
+            !(event.event in KNOWN_SET_EVENTS) &&
+            ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
+        ) {
+            setUsageInNonPersonEventsCounter.inc()
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
