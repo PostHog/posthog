@@ -131,7 +131,7 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    response = process_query_dict(
+    response = process_response = process_query_dict(
         insight.team,
         insight.query,
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
@@ -139,11 +139,11 @@ def calculate_for_query_based_insight(
         user=user,
     )
 
-    if isinstance(response, CacheMissResponse):
-        return NothingInCacheResult(cache_key=response.cache_key)
+    if isinstance(process_response, BaseModel):
+        response = process_response.model_dump(by_alias=True)
 
-    if isinstance(response, BaseModel):
-        response = response.model_dump(by_alias=True)
+    if isinstance(process_response, CacheMissResponse):
+        return NothingInCacheResult(cache_key=process_response.cache_key, query_status=response.get("query_status"))
 
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")

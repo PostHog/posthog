@@ -1520,7 +1520,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=blocking").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
@@ -1550,6 +1550,34 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertIs(
                 response.get("query_status", {}).get("complete"), False
             )  # Just checking that recalculation was initiated
+
+        # make new insight to test cache miss
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                ),
+                EventsNode(
+                    event="$something",
+                ),
+            ],
+            properties=properties_filter,
+        ).model_dump()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": query_dict,
+                "dashboards": [dashboard_id],
+            },
+        ).json()
+        insight_id = response["id"]
+
+        # Check that cache miss contains query status
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=async").json()
+        self.assertNotIn("code", response)
+        self.assertEqual(response["result"], None)
+        self.assertEqual(response["query_status"]["query_async"], True)
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
