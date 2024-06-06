@@ -28,7 +28,7 @@ from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User
+from posthog.models import User, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.schema import QueryTiming, HogQLQueryModifiers
@@ -759,26 +759,8 @@ def list_recordings(
         has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
 
         if has_hog_ql_filtering:
-            modifiers = HogQLQueryModifiers()
-
             distinct_id = str(cast(User, request.user).distinct_id)
-            groups = {"organization": str(team.organization.id)}
-            FLAG_KEY = "HOG_QL_ORG_QUERY_OVERRIDES"
-
-            flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
-                distinct_id,
-                groups=groups,
-            )
-            # this loads nothing whereas the payload is available
-            # modifier_overrides = posthoganalytics.get_feature_flag_payload(
-            #     FLAG_KEY,
-            #     distinct_id,
-            #     groups=groups,
-            # )
-            modifier_overrides = flags_n_bags["featureFlagPayloads"][FLAG_KEY]
-
-            if modifier_overrides:
-                modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
+            modifiers = safely_read_modifiers_overrides(distinct_id, team)
 
             with timer("load_recordings_from_hogql"):
                 (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
@@ -843,6 +825,32 @@ def list_recordings(
         {"results": results, "has_next": more_recordings_available, "version": 3},
         all_timings,
     )
+
+
+def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
+    modifiers = HogQLQueryModifiers()
+
+    try:
+        groups = {"organization": str(team.organization.id)}
+        flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
+        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
+            distinct_id,
+            groups=groups,
+        )
+        # this loads nothing whereas the payload is available
+        # modifier_overrides = posthoganalytics.get_feature_flag_payload(
+        #     flag_key,
+        #     distinct_id,
+        #     groups=groups,
+        # )
+        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        if modifier_overrides:
+            modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
+    except:
+        # be extra safe
+        pass
+
+    return modifiers
 
 
 def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:

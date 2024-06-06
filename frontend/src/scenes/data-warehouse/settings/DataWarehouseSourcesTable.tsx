@@ -17,6 +17,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import posthogLogo from 'public/posthog-icon.svg'
+import snowflakeLogo from 'public/snowflake-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.svg'
 import { urls } from 'scenes/urls'
@@ -250,6 +251,7 @@ export function RenderDataWarehouseSourceIcon({
         Hubspot: hubspotLogo,
         Zendesk: zendeskLogo,
         Postgres: postgresLogo,
+        Snowflake: snowflakeLogo,
     }[type]
 
     return (
