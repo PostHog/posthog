@@ -13,6 +13,7 @@ if [[ "$@" == *".hoge"* ]]; then
     set -- "${@/--nodejs/}"
     VM_PATH="$(dirname "$0")/../hogvm/typescript"
     CLI_PATH="$(dirname "$0")/../hogvm/typescript/dist/cli.js"
+    # TODO: recompile if something changed
     if [ ! -f $CLI_PATH ]; then
       echo "Building TypeScript HogVM"
       cd $VM_PATH
