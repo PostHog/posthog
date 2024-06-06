@@ -321,8 +321,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                                 behavior: 'smooth',
                                 block: 'center',
                             })
-                            props.productRef?.current.classList.add('border')
-                            props.productRef?.current.classList.add('border-primary-3000')
                         }
                     }, 0)
                 }
