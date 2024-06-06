@@ -16,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -606,6 +607,38 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
+                                                <LemonField.Pure label="User sends events">
+                                                    <EventSelect
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                events: {
+                                                                    values: includedEvents.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.events?.values &&
+                                                            survey.conditions?.events?.values.length > 0
+                                                                ? survey.conditions?.events?.values.map((v) => v.name)
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
                                         </>
                                     )}
                                 </LemonField.Pure>

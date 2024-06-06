@@ -37,6 +37,31 @@ def postgres_source(
     return db_source
 
 
+def snowflake_source(
+    account_id: str,
+    user: str,
+    password: str,
+    database: str,
+    warehouse: str,
+    schema: str,
+    table_names: list[str],
+    role: Optional[str] = None,
+) -> DltSource:
+    account_id = quote(account_id)
+    user = quote(user)
+    password = quote(password)
+    database = quote(database)
+    warehouse = quote(warehouse)
+    role = quote(role) if role else None
+
+    credentials = ConnectionStringCredentials(
+        f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
+    )
+    db_source = sql_database(credentials, schema=schema, table_names=table_names)
+
+    return db_source
+
+
 @dlt.source(max_table_nesting=0)
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
