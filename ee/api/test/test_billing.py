@@ -758,14 +758,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.45
+        assert res_json["products"][0]["current_amount_usd"] == "45.45"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "1.36"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
@@ -801,14 +801,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["current_amount_usd"] == 0.04
+        assert res_json["products"][0]["current_amount_usd"] == "0.04"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 100
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.04"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100
@@ -843,14 +843,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.0
+        assert res_json["products"][0]["current_amount_usd"] == "45.00"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 100000
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.35
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "1.35"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100000
@@ -887,14 +887,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 0
-        assert res_json["products"][0]["current_amount_usd"] == 0
+        assert res_json["products"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 0
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 0
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 0
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 0
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 0
