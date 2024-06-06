@@ -44,7 +44,20 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         console.log(...args)
     },
     jsonParse: (args) => {
-        return JSON.parse(args[0])
+        // Recursively convert objects to maps
+        function convert(x: any): any {
+            if (Array.isArray(x)) {
+                return x.map(convert)
+            } else if (typeof x === 'object' && x !== null) {
+                const map = new Map()
+                for (const key in x) {
+                    map.set(key, convert(x[key]))
+                }
+                return map
+            }
+            return x
+        }
+        return convert(JSON.parse(args[0]))
     },
     jsonStringify: (args) => {
         // Recursively convert maps to objects
