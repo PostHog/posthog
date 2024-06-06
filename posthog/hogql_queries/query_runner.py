@@ -4,12 +4,12 @@ from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from zoneinfo import ZoneInfo
 
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
-import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.utils import is_stale
@@ -24,37 +24,37 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
+    ActorsQuery,
     CacheMissResponse,
+    DashboardFilter,
     DateRange,
+    EventsQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    LifecycleQuery,
+    PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryTiming,
-    SamplingRate,
-    TrendsQuery,
-    FunnelsQuery,
     RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    HogQLQuery,
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
+    SamplingRate,
     SessionsTimelineQuery,
-    ActorsQuery,
-    EventsQuery,
-    InsightActorsQuery,
-    DashboardFilter,
-    HogQLQueryModifiers,
-    InsightActorsQueryOptions,
+    StickinessQuery,
+    TrendsQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
     QueryStatusResponse,
 )
 from posthog.schema_helpers import to_dict, to_json
-from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
+from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
 
 logger = structlog.get_logger(__name__)
 
@@ -223,7 +223,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insights.insight_actors_query_options_runner import (
+            InsightActorsQueryOptionsRunner,
+        )
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
@@ -233,7 +235,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from .insights.funnels.funnel_correlation_query_runner import (
+            FunnelCorrelationQueryRunner,
+        )
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
