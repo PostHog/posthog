@@ -102,7 +102,7 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
-    async update(): Promise<Person> {
+    async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
             if (this.lazyPersonCreation) {
                 const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
@@ -122,7 +122,7 @@ export class PersonState {
                         person.force_upgrade = true
                     }
 
-                    return person
+                    return [person, Promise.resolve()]
                 }
 
                 // We need a value from the `person_created_column` in ClickHouse. This should be
@@ -137,7 +137,7 @@ export class PersonState {
                     uuid: uuidFromDistinctId(this.teamId, this.distinctId),
                     created_at: createdAt,
                 }
-                return fakePerson
+                return [fakePerson, Promise.resolve()]
             } else {
                 // We don't need to handle any properties for `processPerson=false` events, so we can
                 // short circuit by just finding or creating a person and returning early.
@@ -146,24 +146,29 @@ export class PersonState {
                 // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                 person.properties = {}
 
-                return person
+                return [person, Promise.resolve()]
             }
         }
 
-        const person: InternalPerson | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
+        const [person, identifyOrAliasKafkaAck]: [InternalPerson | undefined, Promise<void>] =
+            await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
+
         if (person) {
             // try to shortcut if we have the person from identify or alias
             try {
-                return await this.updatePersonProperties(person)
+                const [updatedPerson, updateKafkaAck] = await this.updatePersonProperties(person)
+                return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // shortcut didn't work, swallow the error and try normal retry loop below
                 status.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
         }
-        return await this.handleUpdate()
+
+        const [updatedPerson, updateKafkaAck] = await this.handleUpdate()
+        return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
-    async handleUpdate(): Promise<InternalPerson> {
+    async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
         // There are various reasons why update can fail:
         // - anothe thread created the person during a race
         // - the person might have been merged between start of processing and now
@@ -171,10 +176,10 @@ export class PersonState {
         return await promiseRetry(() => this.updateProperties(), 'update_person')
     }
 
-    async updateProperties(): Promise<InternalPerson> {
+    async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return person
+            return [person, Promise.resolve()]
         }
         return await this.updatePersonProperties(person)
     }
@@ -251,7 +256,7 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(person: InternalPerson): Promise<InternalPerson> {
+    private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
         const update: Partial<InternalPerson> = {}
@@ -263,10 +268,12 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            // Note: we're not passing the client, so kafka messages are waited for within the function
-            ;[person] = await this.db.updatePersonDeprecated(person, update)
+            const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
+            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            return [updatedPerson, kafkaAck]
         }
-        return person
+
+        return [person, Promise.resolve()]
     }
 
     /**
@@ -306,7 +313,7 @@ export class PersonState {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<InternalPerson | undefined> {
+    async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
         /**
          * strategy:
          *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
@@ -350,7 +357,7 @@ export class PersonState {
         } finally {
             clearTimeout(timeout)
         }
-        return undefined
+        return [undefined, Promise.resolve()]
     }
 
     public async merge(
@@ -358,10 +365,10 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<InternalPerson | undefined> {
+    ): Promise<[InternalPerson | undefined, Promise<void>]> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
@@ -375,7 +382,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
@@ -389,7 +396,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         return promiseRetry(
             () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
@@ -402,7 +409,7 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
@@ -429,13 +436,13 @@ export class PersonState {
 
         if (otherPerson && !mergeIntoPerson) {
             await this.db.addDistinctId(otherPerson, mergeIntoDistinctId, addDistinctIdVersion)
-            return otherPerson
+            return [otherPerson, Promise.resolve()]
         } else if (!otherPerson && mergeIntoPerson) {
             await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId, addDistinctIdVersion)
-            return mergeIntoPerson
+            return [mergeIntoPerson, Promise.resolve()]
         } else if (otherPerson && mergeIntoPerson) {
             if (otherPerson.id == mergeIntoPerson.id) {
-                return mergeIntoPerson
+                return [mergeIntoPerson, Promise.resolve()]
             }
             return await this.mergePeople({
                 mergeInto: mergeIntoPerson,
@@ -446,18 +453,21 @@ export class PersonState {
         }
 
         //  The last case: (!oldPerson && !newPerson)
-        return await this.createPerson(
-            // TODO: in this case we could skip the properties updates later
-            timestamp,
-            this.eventProperties['$set'] || {},
-            this.eventProperties['$set_once'] || {},
-            teamId,
-            null,
-            true,
-            this.event.uuid,
-            [mergeIntoDistinctId, otherPersonDistinctId],
-            addDistinctIdVersion
-        )
+        return [
+            await this.createPerson(
+                // TODO: in this case we could skip the properties updates later
+                timestamp,
+                this.eventProperties['$set'] || {},
+                this.eventProperties['$set_once'] || {},
+                teamId,
+                null,
+                true,
+                this.event.uuid,
+                [mergeIntoDistinctId, otherPersonDistinctId],
+                addDistinctIdVersion
+            ),
+            Promise.resolve(),
+        ]
     }
 
     public async mergePeople({
@@ -470,7 +480,7 @@ export class PersonState {
         mergeIntoDistinctId: string
         otherPerson: InternalPerson
         otherPersonDistinctId: string
-    }): Promise<InternalPerson> {
+    }): Promise<[InternalPerson, Promise<void>]> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
         const mergeAllowed = this.isMergeAllowed(otherPerson)
 
@@ -488,7 +498,7 @@ export class PersonState {
                 { alwaysSend: true }
             )
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
-            return mergeInto // We're returning the original person tied to distinct_id used for the event
+            return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
         // How the merge works:
@@ -508,14 +518,14 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
+        const [mergedPerson, kafkaMessages] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
-        await this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
-        return mergedPerson
+
+        return [mergedPerson, kafkaMessages]
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -529,7 +539,7 @@ export class PersonState {
         otherPerson: InternalPerson,
         createdAt: DateTime,
         properties: Properties
-    ): Promise<[ProducerRecord[], InternalPerson]> {
+    ): Promise<[InternalPerson, Promise<void>]> {
         mergeTxnAttemptCounter
             .labels({
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
@@ -539,7 +549,7 @@ export class PersonState {
             })
             .inc()
 
-        const result: [ProducerRecord[], InternalPerson] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, ProducerRecord[]] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
@@ -573,7 +583,7 @@ export class PersonState {
                     )
                 }
 
-                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+                return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
         )
 
@@ -585,7 +595,10 @@ export class PersonState {
                 poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
-        return result
+
+        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+
+        return [mergedPerson, kafkaAck]
     }
 }
 

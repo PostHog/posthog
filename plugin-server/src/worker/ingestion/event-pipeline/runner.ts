@@ -203,11 +203,12 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [postPersonEvent, person] = await this.runStep(
+        const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
             [this, normalizedEvent, timestamp, processPerson],
             event.team_id
         )
+        kafkaAcks.push(personKafkaAck)
 
         const preparedEvent = await this.runStep(
             prepareEventStep,
