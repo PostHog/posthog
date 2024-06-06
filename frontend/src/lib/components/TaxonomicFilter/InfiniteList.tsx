@@ -1,6 +1,7 @@
 import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
 
+import { IconArchive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -265,14 +266,17 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     return (
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
-                <div className="no-infinite-results">
-                    {searchQuery ? (
-                        <>
-                            No results for "<strong>{searchQuery}</strong>"
-                        </>
-                    ) : (
-                        'No results'
-                    )}
+                <div className="no-infinite-results flex flex-col space-y-1 items-center">
+                    <IconArchive className="text-5xl text-secondary-3000" />
+                    <span>
+                        {searchQuery ? (
+                            <>
+                                No results for "<strong>{searchQuery}</strong>"
+                            </>
+                        ) : (
+                            'No results'
+                        )}
+                    </span>
                 </div>
             ) : (
                 <AutoSizer>

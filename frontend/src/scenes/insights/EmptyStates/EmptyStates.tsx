@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import { IconArchive, IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -45,6 +45,7 @@ export function InsightEmptyState({
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
+                <IconArchive className="text-5xl mb-2 text-secondary-3000" />
                 <h2 className="text-xl leading-tight">{heading}</h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
             </div>

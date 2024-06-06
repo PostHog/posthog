@@ -1,6 +1,6 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconTrending } from '@posthog/icons'
+import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -274,7 +274,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         <div className="p-4 m-auto max-w-140">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
-                                    <div className="flex items-center min-h-24">No correlated events found.</div>
+                                    <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
+                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                        <div>No correlated events found.</div>
+                                    </div>
                                 ) : (
                                     <>
                                         <p className="m-auto">
