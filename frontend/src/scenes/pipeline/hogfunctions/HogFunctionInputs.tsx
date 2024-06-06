@@ -24,24 +24,28 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
     return useMemo(() => {
         const options = [
             ['event', 'The entire event payload as a JSON object'],
-            ['event.link', 'URL to the event in PostHog'],
+            ['event.name', 'The name of the event e.g. $pageview'],
+            ['event.distinct_id', 'The distinct_id of the event'],
+            ['event.timestamp', 'The timestamp of the event'],
+            ['event.url', 'URL to the event in PostHog'],
             ['event.properties', 'Properties of the event'],
             ['event.properties.<key>', 'The individual property of the event'],
             ['person', 'The entire person payload as a JSON object'],
-            ['person.link', 'URL to the person in PostHog'],
+            ['project.uuid', 'The UUID of the Person in PostHog'],
+            ['person.url', 'URL to the person in PostHog'],
             ['person.properties', 'Properties of the person'],
             ['person.properties.<key>', 'The individual property of the person'],
-            ['project.link', 'URL to the project in PostHog'],
             ['project.id', 'ID of the project in PostHog'],
             ['project.name', 'Name of the project'],
-            ['source.link', 'URL to the source of this message in PostHog'],
+            ['project.url', 'URL to the project in PostHog'],
             ['source.name', 'Name of the source of this message'],
+            ['source.url', 'URL to the source of this message in PostHog'],
         ]
 
         groupTypes.forEach((groupType) => {
             options.push([`groups.${groupType.group_type}`, `The entire group payload as a JSON object`])
             options.push([`groups.${groupType.group_type}.name`, `Display name of the group`])
-            options.push([`groups.${groupType.group_type}.link`, `URL to the group in PostHog`])
+            options.push([`groups.${groupType.group_type}.url`, `URL to the group in PostHog`])
             options.push([`groups.${groupType.group_type}.properties`, `Properties of the group`])
             options.push([`groups.${groupType.group_type}.properties.<key>`, `The individual property of the group`])
             options.push([`groups.${groupType.group_type}.index`, `Index of the group`])

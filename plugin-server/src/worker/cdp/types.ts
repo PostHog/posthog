@@ -62,6 +62,7 @@ export type HogFunctionInvocationContext = {
             key: string
             type: string
             index: number
+            url: string
             properties: Record<string, any>
         }
     >

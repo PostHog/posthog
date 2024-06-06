@@ -33,6 +33,7 @@ export function convertToHogFunctionInvocationContext(
                     index: columnIndex,
                     key: groupKey,
                     type: groupType,
+                    url: `${projectUrl}/groups/${groupType}/${encodeURIComponent(groupKey)}`,
                     properties: JSON.parse(groupProperties),
                 }
             }
