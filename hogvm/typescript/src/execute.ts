@@ -95,24 +95,24 @@ export function execSync(bytecode: any[], options?: ExecOptions): any {
 }
 
 export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
-    let lastState: VMState | undefined = undefined
+    let vmState: VMState | undefined = undefined
     while (true) {
-        const response = exec(lastState ?? bytecode, options)
+        const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
             return response.result
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
-            lastState = response.state
+            vmState = response.state
             if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
                 const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
-                lastState.stack.push(result)
+                vmState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT
                 )
-                lastState.stack.push(result)
+                vmState.stack.push(result)
             } else {
                 throw new Error('Invalid async function call: ' + response.asyncFunctionName)
             }
