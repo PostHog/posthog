@@ -1,7 +1,9 @@
+from typing import Any
+
 from hogvm.python.operation import Operation
 
 
-def debugger(symbol: int, bytecode: list, ip: int, stack: list, call_stack: list):
+def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list):
     next_symbol = symbol
     try:
         next_symbol = print_symbol(Operation(next_symbol), ip, bytecode, stack, call_stack)
@@ -15,10 +17,14 @@ def debugger(symbol: int, bytecode: list, ip: int, stack: list, call_stack: list
     start_ip = ip - 2 if ip > 10 else 0
     end_ip = len(bytecode) if start_ip + 20 > len(bytecode) else (start_ip + 20)
     for i, op in enumerate(bytecode[start_ip:end_ip], start=start_ip):
-        if i == ip:
-            print(f"> {i}: {op}")  # noqa: T201
+        if i == 0 or (colored_bytecode[i] or "").startswith("op."):
+            line = f"{colored_bytecode[i]}"
         else:
-            print(f"  {i}: {op}")  # noqa: T201
+            line = f"    {colored_bytecode[i]}: {op}"
+        if i == ip:
+            print(f"> {i}: {line}")  # noqa: T201
+        else:
+            print(f"  {i}: {line}")  # noqa: T201
     input()
 
 
@@ -98,11 +104,9 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 else:
                     return "RETURN"
             case Operation.GET_LOCAL:
-                stack_start = 0 if not call_stack else call_stack[-1][1]
-                return f"GET_LOCAL({bytecode[ip+1 + stack_start]})"
+                return f"GET_LOCAL({bytecode[ip+1]})"
             case Operation.SET_LOCAL:
-                stack_start = 0 if not call_stack else call_stack[-1][1]
-                return f"GET_LOCAL({bytecode[ip + 1 + stack_start]}, {stack[-1]})"
+                return f"GET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
             case Operation.GET_PROPERTY:
                 return f"GET_PROPERTY({stack[-2]}, {stack[-1]})"
             case Operation.SET_PROPERTY:
@@ -121,9 +125,109 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
             case Operation.CALL:
                 return f"CALL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
-
         return symbol.name
-
     except Exception as e:
-        print(e)  # noqa: T201
-        return f"{symbol.name}(ERROR)"
+        return f"{symbol.name}(ERROR: {e})"
+
+
+def color_bytecode(bytecode: list) -> list:
+    colored = ["START"]
+    ip = 1
+    while ip < len(bytecode):
+        symbol = bytecode[ip]
+        match symbol:
+            case Operation.STRING:
+                add = ["op.STRING", "string"]
+            case Operation.INTEGER:
+                add = ["op.INTEGER", "integer"]
+            case Operation.FLOAT:
+                add = ["op.FLOAT", "float"]
+            case Operation.TRUE:
+                add = ["op.TRUE"]
+            case Operation.FALSE:
+                add = ["op.FALSE"]
+            case Operation.NULL:
+                add = ["op.NULL"]
+            case Operation.NOT:
+                add = ["op.NOT"]
+            case Operation.AND:
+                add = ["op.AND", "expr count"]
+            case Operation.OR:
+                add = ["op.OR", "expr count"]
+            case Operation.PLUS:
+                add = ["op.PLUS"]
+            case Operation.MINUS:
+                add = ["op.MINUS"]
+            case Operation.MULTIPLY:
+                add = ["op.MULTIPLY"]
+            case Operation.DIVIDE:
+                add = ["op.DIVIDE"]
+            case Operation.EQ:
+                add = ["op.EQ"]
+            case Operation.NOT_EQ:
+                add = ["op.NOT_EQ"]
+            case Operation.GT:
+                add = ["op.GT"]
+            case Operation.GT_EQ:
+                add = ["op.GT_EQ"]
+            case Operation.LT:
+                add = ["op.LT"]
+            case Operation.LT_EQ:
+                add = ["op.LT_EQ"]
+            case Operation.LIKE:
+                add = ["op.LIKE"]
+            case Operation.ILIKE:
+                add = ["op.ILIKE"]
+            case Operation.NOT_LIKE:
+                add = ["op.NOT_LIKE"]
+            case Operation.NOT_ILIKE:
+                add = ["op.NOT_ILIKE"]
+            case Operation.IN:
+                add = ["op.IN"]
+            case Operation.NOT_IN:
+                add = ["op.NOT_IN"]
+            case Operation.REGEX:
+                add = ["op.REGEX"]
+            case Operation.NOT_REGEX:
+                add = ["op.NOT_REGEX"]
+            case Operation.IREGEX:
+                add = ["op.IREGEX"]
+            case Operation.NOT_IREGEX:
+                add = ["op.NOT_IREGEX"]
+            case Operation.IN_COHORT:
+                add = ["op.IN_COHORT"]
+            case Operation.NOT_IN_COHORT:
+                add = ["op.NOT_IN_COHORT"]
+            case Operation.FIELD:
+                add = ["op.FIELD", "field count"]
+            case Operation.POP:
+                add = ["op.POP"]
+            case Operation.RETURN:
+                add = ["op.RETURN"]
+            case Operation.GET_LOCAL:
+                add = ["op.GET_LOCAL", "index"]
+            case Operation.SET_LOCAL:
+                add = ["op.SET_LOCAL", "index"]
+            case Operation.GET_PROPERTY:
+                add = ["op.GET_PROPERTY"]
+            case Operation.SET_PROPERTY:
+                add = ["op.SET_PROPERTY"]
+            case Operation.DICT:
+                add = ["op.DICT", "key count"]
+            case Operation.ARRAY:
+                add = ["op.ARRAY", "element count"]
+            case Operation.TUPLE:
+                add = ["op.TUPLE", "element count"]
+            case Operation.JUMP:
+                add = ["op.JUMP", "offset"]
+            case Operation.JUMP_IF_FALSE:
+                add = ["op.JUMP_IF_FALSE", "offset"]
+            case Operation.DECLARE_FN:
+                add = ["op.DECLARE_FN", "name", "args", "ops"]
+            case Operation.CALL:
+                add = ["op.CALL", "name", "args"]
+            case _:
+                add = ["ERROR"]
+        colored.extend(add)
+        ip += len(add)
+    return colored

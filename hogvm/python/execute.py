@@ -3,7 +3,7 @@ import time
 from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
-from hogvm.python.debugger import debugger
+from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -78,6 +78,7 @@ def execute_bytecode(
     ip = -1
     ops = 0
     stdout: list[str] = []
+    colored_bytecode = color_bytecode(bytecode) if debug else []
 
     def next_token():
         nonlocal ip
@@ -104,7 +105,7 @@ def execute_bytecode(
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, bytecode, ip, stack, call_stack)
+            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
         match symbol:
             case None:
                 break
@@ -251,7 +252,7 @@ def execute_bytecode(
         if ip == last_op:
             break
     if debug:
-        debugger(symbol, bytecode, ip, stack, call_stack)
+        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
     if len(stack) > 1:
         raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:
