@@ -10,6 +10,7 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../types'
+import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -255,6 +256,10 @@ export function formPipelineEvent(message: Message): PipelineEvent {
             '$set_once' in combinedEvent.properties ||
             '$unset' in combinedEvent.properties)
     ) {
+        status.info('👀', 'Found $set usage in non-person event', {
+            event: combinedEvent.event,
+            team_id: combinedEvent.team_id,
+        })
         setUsageInNonPersonEventsCounter.inc()
     }
 
