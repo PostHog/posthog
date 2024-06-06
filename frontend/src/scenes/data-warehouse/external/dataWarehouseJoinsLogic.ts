@@ -22,20 +22,16 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
         ],
     }),
     connect(() => ({
-        values: [databaseTableListLogic, ['dataWarehouseTablesMap', 'viewsMap']],
+        values: [databaseTableListLogic, ['allTablesMap']],
     })),
     selectors({
         personTableJoins: [(s) => [s.joins], (joins) => joins.filter((join) => join.source_table_name === 'persons')],
         tablesJoinedToPersons: [
-            (s) => [s.dataWarehouseTablesMap, s.viewsMap, s.personTableJoins],
-            (dataWarehouseTablesMap, viewsMap, personTableJoins) => {
+            (s) => [s.allTablesMap, s.personTableJoins],
+            (allTablesMap, personTableJoins) => {
                 return personTableJoins.map((join: DataWarehouseViewLink) => {
                     // valid join should have a joining table name
-                    let table = dataWarehouseTablesMap[join.joining_table_name as string]
-
-                    if (!table) {
-                        table = viewsMap[join.joining_table_name as string]
-                    }
+                    const table = allTablesMap[join.joining_table_name as string]
 
                     return {
                         table,
