@@ -1691,6 +1691,10 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
+export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
+    query: Node | null
+}
+
 export interface DashboardBasicType {
     id: number
     name: string

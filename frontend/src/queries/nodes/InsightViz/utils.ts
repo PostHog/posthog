@@ -8,7 +8,9 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    InsightVizNode,
     Node,
+    NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -18,7 +20,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
+import { ActionType, ChartDisplayType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -148,4 +150,18 @@ export const getCachedResults = (
     }
 
     return cachedInsight
+}
+
+export const getQueryBasedInsightModel = (insight: InsightModel): QueryBasedInsightModel => {
+    let query
+    if (insight.query) {
+        query = insight.query
+    } else if (insight.filters) {
+        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+    } else {
+        query = null
+    }
+
+    const { filters, ...baseInsight } = insight
+    return { ...baseInsight, query }
 }

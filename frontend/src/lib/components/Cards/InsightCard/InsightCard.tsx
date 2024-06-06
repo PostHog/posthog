@@ -16,7 +16,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import { insightDataLogic, queryFromFilters } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
@@ -31,7 +31,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { getCachedResults, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -266,6 +266,7 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const queryBasedInsight = getQueryBasedInsightModel(insight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
@@ -280,16 +281,6 @@ function InsightCardInternal(
     const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
-    let tooFewFunnelSteps = false
-    let empty = false
-    if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!isFunnelWithEnoughSteps) {
-            tooFewFunnelSteps = true
-        }
-        if (!hasFunnelResults && !apiErrored) {
-            empty = true
-        }
-    }
     if (insightLoading || insightDataLoading) {
         loading = true
     }
@@ -307,7 +298,7 @@ function InsightCardInternal(
         >
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
-                    insight={insight}
+                    insight={queryBasedInsight}
                     ribbonColor={ribbonColor}
                     dashboardId={dashboardId}
                     updateColor={updateColor}
@@ -327,7 +318,7 @@ function InsightCardInternal(
                 {insight.query || useQueryDashboardCards ? (
                     <div className="InsightCard__viz">
                         <Query
-                            query={insight.query || queryFromFilters(insight.filters)}
+                            query={queryBasedInsight.query}
                             cachedResults={insight}
                             context={{
                                 insightProps: insightLogicProps,
@@ -346,8 +337,8 @@ function InsightCardInternal(
                         setAreDetailsShown={setAreDetailsShown}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
-                        empty={empty}
-                        tooFewFunnelSteps={tooFewFunnelSteps}
+                        empty={insight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored}
+                        tooFewFunnelSteps={insight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps}
                         validationError={validationError}
                     />
                 )}
