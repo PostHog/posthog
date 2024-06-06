@@ -86,7 +86,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
 async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = []
-    const activePromises: Promise<void>[] = []
+    const activePromises: Set<Promise<void>> = new Set()
     const remainingTasks = [...tasks]
 
     const startTask = (task: () => Promise<T>): void => {
@@ -98,17 +98,17 @@ async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Prom
                 console.error('Error executing task:', error)
             })
             .finally(() => {
-                void activePromises.splice(activePromises.indexOf(promise), 1)
+                void activePromises.delete(promise)
             })
-        activePromises.push(promise)
+        activePromises.add(promise)
     }
 
     for (let i = 0; i < limit && remainingTasks.length > 0; i++) {
         startTask(remainingTasks.shift()!)
     }
 
-    while (remainingTasks.length > 0 || activePromises.length > 0) {
-        if (activePromises.length < limit && remainingTasks.length > 0) {
+    while (remainingTasks.length > 0 || activePromises.size > 0) {
+        if (activePromises.size < limit && remainingTasks.length > 0) {
             startTask(remainingTasks.shift()!)
         } else {
             await Promise.race(activePromises)
