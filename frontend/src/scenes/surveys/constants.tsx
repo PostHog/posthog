@@ -1,4 +1,10 @@
-import { Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
+import {
+    Survey,
+    SurveyQuestionDescriptionContentType,
+    SurveyQuestionType,
+    SurveyType,
+    SurveyUrlMatchType,
+} from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
@@ -37,6 +43,7 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.Open,
                 question: 'Give us feedback on our product!',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Submit',
             },
         ],
@@ -50,6 +57,7 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.Link,
                 question: 'Do you want to join our upcoming webinar?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Register',
             },
         ],
@@ -63,6 +71,7 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.Rating,
                 question: 'How likely are you to recommend us to a friend?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
                 scale: 10,
                 lowerBoundLabel: 'Unlikely',
@@ -80,6 +89,7 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.SingleChoice,
                 question: 'Have you found this tutorial useful?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 choices: ['Yes', 'No'],
                 buttonText: 'Submit',
             },
@@ -94,6 +104,7 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.MultipleChoice,
                 question: 'Which types of content would you like to see more of?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
                 buttonText: 'Submit',
             },
@@ -134,6 +145,8 @@ export const NEW_SURVEY: NewSurvey = {
             type: SurveyQuestionType.Open,
             question: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].question,
             description: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].description,
+            descriptionContentType:
+                defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].descriptionContentType,
             buttonText: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].buttonText,
         },
     ],
@@ -168,6 +181,8 @@ export const defaultSurveyTemplates = [
             {
                 type: SurveyQuestionType.Open,
                 question: 'What can we do to improve our product?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
         description: "Let your users share what's on their mind.",
@@ -180,6 +195,7 @@ export const defaultSurveyTemplates = [
                 type: SurveyQuestionType.Link,
                 question: 'Would you be interested in participating in a customer interview?',
                 description: 'We are looking for feedback on our product and would love to hear from you!',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Schedule',
             },
         ],
@@ -193,6 +209,7 @@ export const defaultSurveyTemplates = [
                 type: SurveyQuestionType.Rating,
                 question: 'How likely are you to recommend us to a friend?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
                 scale: 10,
                 lowerBoundLabel: 'Unlikely',
@@ -221,6 +238,7 @@ export const defaultSurveyTemplates = [
                 type: SurveyQuestionType.Rating,
                 question: 'How satisfied are you with PostHog surveys?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'emoji',
                 scale: 5,
                 lowerBoundLabel: 'Very dissatisfied',
@@ -238,6 +256,7 @@ export const defaultSurveyTemplates = [
                 type: SurveyQuestionType.Rating,
                 question: 'How easy was it to use our product?',
                 description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'emoji',
                 scale: 5,
                 lowerBoundLabel: 'Very difficult',
