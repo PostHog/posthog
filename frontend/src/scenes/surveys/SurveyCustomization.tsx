@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import {
     AvailableFeature,
@@ -128,6 +129,41 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
                         checked={appearance?.shuffleQuestions}
                     />
+                </div>
+                <div className="mt-1">
+                    <LemonField name="survey_popup_delay" className="font-medium">
+                        {({ onChange, value }) => {
+                            return (
+                                <div className="flex flex-row gap-2 items-center">
+                                    <LemonCheckbox
+                                        checked={!!value}
+                                        onChange={(checked) => {
+                                            const surveyPopupDelay = checked ? 60 : undefined
+                                            onChange(surveyPopupDelay)
+                                            onAppearanceChange({ ...appearance, surveyPopupDelay }) // TODO maybe I should explicitly differentiate between null and undefined.  Compiler seems happy enough for now.
+                                        }}
+                                    />
+                                    Delay survey popup after page load by{' '}
+                                    <LemonInput
+                                        type="number"
+                                        data-attr="survey-popup-delay-input" // TODO we need to hook into this
+                                        size="small"
+                                        min={1}
+                                        value={value || NaN}
+                                        onChange={(newValue) => {
+                                            if (newValue && newValue > 0) {
+                                                onChange(newValue)
+                                            } else {
+                                                onChange(null)
+                                            }
+                                        }}
+                                        className="w-12"
+                                    />{' '}
+                                    seconds.
+                                </div>
+                            )
+                        }}
+                    </LemonField>
                 </div>
             </div>
         </>

@@ -1243,6 +1243,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
                     "shuffleQuestions": True,
+                    "surveyPopupDelay": 60,
                 },
             },
             format="json",
@@ -1265,6 +1266,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
+            "surveyPopupDelay": 60,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
