@@ -197,7 +197,7 @@ function IframeErrorOverlay(): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
     const { iframeError } = useValues(logic)
     return iframeError ? (
-        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8">
+        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
             <LemonBanner className="w-full" type="error">
                 {iframeError}. You can click "Open in toolbar" above to visit your site and view the heatmap there.
             </LemonBanner>
