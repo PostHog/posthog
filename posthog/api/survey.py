@@ -123,6 +123,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
             )
 
+        survey_popup_delay_milliseconds = value.get("surveyPopupDelay")
+        if survey_popup_delay_milliseconds and survey_popup_delay_milliseconds < 0:
+            raise serializers.ValidationError("Survey popup delay must be a positive integer")
+
         return value
 
     def validate_questions(self, value):

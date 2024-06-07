@@ -138,7 +138,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                     <LemonCheckbox
                                         checked={!!appearance?.surveyPopupDelay}
                                         onChange={(checked) => {
-                                            const surveyPopupDelay = checked ? 60 : undefined
+                                            const surveyPopupDelay = checked ? 5 : undefined
                                             onChange(surveyPopupDelay)
                                             onAppearanceChange({ ...appearance, surveyPopupDelay }) // TODO maybe I should explicitly differentiate between null and undefined.  Compiler seems happy enough for now.
                                         }}

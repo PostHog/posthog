@@ -1672,6 +1672,38 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
 
+    def test_create_survey_with_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelay": 6000,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["surveyPopupDelay"] == 6000
+
+    def test_validate_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelay": -100,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Survey popup delay must be a positive integer"
+
     def test_create_survey_with_valid_question_description_content_type_html(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
