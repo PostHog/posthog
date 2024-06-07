@@ -161,7 +161,7 @@ class BytecodeBuilder(Visitor):
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
-        return [*chain, Operation.FIELD, len(node.chain)]
+        return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]

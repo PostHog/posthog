@@ -56,7 +56,7 @@ class TestBytecode(BaseTest):
         self.assertEqual(to_bytecode("3.14"), [_H, op.FLOAT, 3.14])
         self.assertEqual(
             to_bytecode("properties.bla"),
-            [_H, op.STRING, "bla", op.STRING, "properties", op.FIELD, 2],
+            [_H, op.STRING, "bla", op.STRING, "properties", op.GET_GLOBAL, 2],
         )
         self.assertEqual(
             to_bytecode("concat('arg', 'another')"),
@@ -64,7 +64,7 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("ifNull(properties.email, false)"),
-            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.FIELD, 2, op.CALL, "ifNull", 2],
+            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.GET_GLOBAL, 2, op.CALL, "ifNull", 2],
         )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])

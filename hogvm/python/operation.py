@@ -5,7 +5,7 @@ HOGQL_BYTECODE_FUNCTION = "_f"
 
 
 class Operation(int, Enum):
-    FIELD = 1
+    GET_GLOBAL = 1
     CALL = 2
     AND = 3
     OR = 4

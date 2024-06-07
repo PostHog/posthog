@@ -60,17 +60,29 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
-        expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.FIELD, 2], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2], options)).toBe('bar')
+        expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
         expect(
             execSync(
-                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2, op.CALL, 'ifNull', 2],
                 options
             )
         ).toBe('bar')
         expect(
             execSync(
-                ['_h', op.FALSE, op.STRING, 'nullValue', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                [
+                    '_h',
+                    op.FALSE,
+                    op.STRING,
+                    'nullValue',
+                    op.STRING,
+                    'properties',
+                    op.GET_GLOBAL,
+                    2,
+                    op.CALL,
+                    'ifNull',
+                    2,
+                ],
                 options
             )
         ).toBe(false)
@@ -438,9 +450,9 @@ describe('HogQL Bytecode', () => {
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
         // return {key: 'value'};
-        expect(exec(['_h', op.STRING, 'key', op.FIELD, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result).toEqual(
-            new Map([[null, 'value']])
-        )
+        expect(
+            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        ).toEqual(new Map([[null, 'value']]))
 
         // var key := 3; return {key: 'value'};
         expect(
@@ -1547,7 +1559,7 @@ describe('HogQL Bytecode', () => {
         )
     })
 
-    test('modify global event after copying', () => {
+    test('can not modify globalS', () => {
         const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
         expect(
             // let event := globalEvent;
@@ -1556,6 +1568,20 @@ describe('HogQL Bytecode', () => {
             exec(['_h', 32, 'globalEvent', 1, 1, 36, 0, 32, 'event', 32, '$autocapture', 46, 36, 0, 38, 35], {
                 globals,
             }).result
-        ).toEqual(map({ event: '$autocapture', properties: { $browser: 'Chrome' } }))
+        ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
+        expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
+    })
+
+    test('can modify globals after reading and copying', () => {
+        const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
+        expect(
+            // let event := globalEvent;
+            // event.event := '$autocapture';
+            // return event;
+            exec(['_h', 32, 'globalEvent', 1, 1, 36, 0, 32, 'event', 32, '$autocapture', 46, 36, 0, 38, 35], {
+                globals,
+            }).result
+        ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
+        expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
     })
 })

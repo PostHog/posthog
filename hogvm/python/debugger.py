@@ -234,8 +234,8 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.IN_COHORT"]
             case Operation.NOT_IN_COHORT:
                 add = ["op.NOT_IN_COHORT"]
-            case Operation.FIELD:
-                add = ["op.FIELD", "field count"]
+            case Operation.GET_GLOBAL:
+                add = ["op.GET_GLOBAL", "field count"]
             case Operation.POP:
                 add = ["op.POP"]
             case Operation.RETURN:
