@@ -509,6 +509,9 @@
             "properties": {
                 "cache_key": {
                     "type": ["string", "null"]
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
                 }
             },
             "required": ["cache_key"],
@@ -556,6 +559,10 @@
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -636,6 +643,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -713,6 +724,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
                 },
@@ -767,6 +782,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "anyOf": [
@@ -864,6 +883,10 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -992,6 +1015,10 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "series": {
                     "items": {
                         "additionalProperties": false,
@@ -1058,6 +1085,10 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -1112,6 +1143,10 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -1165,6 +1200,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1223,6 +1262,10 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/TimelineEntry"
@@ -1277,6 +1320,10 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -1330,6 +1377,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1390,6 +1441,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -1461,6 +1516,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -1523,6 +1582,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -5561,6 +5624,7 @@
             "additionalProperties": false,
             "properties": {
                 "async": {
+                    "deprecated": "Use `refresh` instead.",
                     "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
                     "examples": [true],
                     "type": "boolean"
@@ -5574,7 +5638,7 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "type": "boolean"
+                    "$ref": "#/definitions/RefreshType"
                 }
             },
             "required": ["query"],
@@ -6875,6 +6939,16 @@
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
             "type": "object"
         },
+        "QueryStatusResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
+                }
+            },
+            "required": ["query_status"],
+            "type": "object"
+        },
         "QueryTiming": {
             "additionalProperties": false,
             "properties": {
@@ -6924,6 +6998,33 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "RefreshType": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "const": "async",
+                    "type": "string"
+                },
+                {
+                    "const": "blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_async",
+                    "type": "string"
+                },
+                {
+                    "const": "force_blocking",
+                    "type": "string"
+                },
+                {
+                    "const": "force_cache",
+                    "type": "string"
+                }
+            ]
         },
         "RetentionEntity": {
             "additionalProperties": false,
@@ -7571,6 +7672,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},

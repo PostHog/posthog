@@ -319,6 +319,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
         )
 
         known_super_columns = ["properties", "set", "set_once", "person_properties"]
@@ -413,6 +414,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -464,6 +466,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             properties_data_type=inputs.properties_data_type,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(

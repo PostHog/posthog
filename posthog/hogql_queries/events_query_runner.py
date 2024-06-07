@@ -266,8 +266,5 @@ class EventsQueryRunner(QueryRunner):
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
 
-    def _is_stale(self, cached_result_package):
-        return True
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)
