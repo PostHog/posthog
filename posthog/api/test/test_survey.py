@@ -2023,6 +2023,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "start_date": None,
                         "end_date": None,
                         "current_iteration": None,
+                        "current_iteration_start_date": None,
                     },
                     {
                         "id": str(survey_with_flags.id),
@@ -2035,6 +2036,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
                         "current_iteration": None,
+                        "current_iteration_start_date": None,
                         "internal_targeting_flag_key": "custom-targeting-flag",
                         "start_date": None,
                         "end_date": None,

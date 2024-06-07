@@ -49,7 +49,6 @@ export default function SurveyEdit(): JSX.Element {
         isEditingSurvey,
         targetingFlagFilters,
         showSurveyRepeatSchedule,
-        surveysRecurringScheduleAvailable,
         schedule,
     } = useValues(surveyLogic)
     const {
@@ -60,7 +59,7 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         setSchedule,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType } = survey.appearance
