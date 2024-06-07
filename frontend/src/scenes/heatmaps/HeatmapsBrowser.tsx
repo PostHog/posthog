@@ -161,8 +161,8 @@ function HeatmapsBrowserIntro(): JSX.Element {
     const { setBrowserUrl } = useActions(logic)
 
     return (
-        <div className="flex-1 flex items-center justify-center overflow-y-auto">
-            <div className="max-w-[50rem] my-6 mx-3">
+        <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto">
+            <div className="max-w-[50rem] py-6 px-3 h-full w-full">
                 <div className="flex items-center flex-wrap gap-6">
                     <div className="w-50">
                         <DetectiveHog className="w-full h-full" />
