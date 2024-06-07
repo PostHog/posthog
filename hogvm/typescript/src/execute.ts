@@ -1,5 +1,5 @@
 import { Operation } from './operation'
-import { ASYNC_STL, STL } from './stl'
+import { ASYNC_STL, STL } from './stl/stl'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT = 5 // seconds
@@ -167,7 +167,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout * 1000) {
-            throw new Error(`Execution timed out after ${timeout} seconds`)
+            throw new Error(`Execution timed out after ${timeout} seconds. Performed ${ops} ops.`)
         }
     }
 
