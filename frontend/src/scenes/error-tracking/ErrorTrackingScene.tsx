@@ -19,7 +19,7 @@ export function ErrorTrackingScene(): JSX.Element {
         <LemonTable
             columns={[
                 {
-                    dataIndex: 'message',
+                    dataIndex: 'title',
                     width: '50%',
                 },
                 {
@@ -29,8 +29,8 @@ export function ErrorTrackingScene(): JSX.Element {
                 },
                 {
                     title: 'Sessions',
-                    dataIndex: 'unique_sessions',
-                    sorter: (a, b) => a.unique_sessions - b.unique_sessions,
+                    dataIndex: 'uniqueSessions',
+                    sorter: (a, b) => a.uniqueSessions - b.uniqueSessions,
                 },
             ]}
             loading={errorGroupsLoading}

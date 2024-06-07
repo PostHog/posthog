@@ -33,7 +33,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                             sampleEvent: { event: '$exception', properties: eventProperties },
                             title: eventProperties['$exception_message'] || 'No message',
                             occurrences: r[2],
-                            unique_sessions: r[3],
+                            uniqueSessions: r[3],
                         }
                     })
                 },
