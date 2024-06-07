@@ -14,6 +14,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
@@ -31,6 +32,7 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { createEmptyInsight, insightLogic } from './insightLogic'
@@ -277,8 +279,8 @@ describe('insightLogic', () => {
     describe('analytics', () => {
         it('reports insight changes on setFilter', async () => {
             const insight = {
-                filters: { insight: InsightType.TRENDS },
-            }
+                query: { kind: NodeKind.InsightVizNode, source: trendsQueryDefault },
+            } as unknown as QueryBasedInsightModel
             logic = insightLogic({
                 dashboardItemId: undefined,
                 cachedInsight: insight,
@@ -288,18 +290,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed(
-                    insight,
-                    { insight: InsightType.FUNNELS },
-                    ItemMode.View,
-                    true,
-                    false,
-                    0,
-                    {
-                        changed_insight: InsightType.TRENDS,
-                    },
-                    false
-                ),
+                eventUsageLogic.actionCreators.reportInsightViewed(insight, ItemMode.View, true, false, 0),
             ])
         })
     })

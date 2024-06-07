@@ -37,7 +37,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { InsightVizNode, Node } from '~/queries/schema'
+import { InsightVizNode } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import {
     ActionType,
@@ -53,7 +53,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, getInsightId } from './utils'
+import { getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -555,7 +555,7 @@ export const insightLogic = kea<insightLogicType>([
                 return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
             }
         },
-        reportInsightViewed: async ({}, breakpoint) => {
+        reportInsightViewed: async (_, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isInDashboardContext) {
                 const { fromDashboard } = router.values.hashParams
