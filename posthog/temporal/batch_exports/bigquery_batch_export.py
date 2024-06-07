@@ -36,7 +36,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -153,6 +153,7 @@ class BigQueryInsertInputs:
     use_json_type: bool = False
     batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 @contextlib.contextmanager
@@ -214,56 +215,45 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         inputs.table_id,
     )
 
-    should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+    async with Heartbeater() as heartbeater:
+        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
-    if should_resume is True and details is not None:
-        data_interval_start = details.last_inserted_at.isoformat()
-        last_inserted_at = details.last_inserted_at
-    else:
-        data_interval_start = inputs.data_interval_start
-        last_inserted_at = None
+        should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        if inputs.batch_export_schema is None:
-            fields = bigquery_default_fields()
-            query_parameters = None
-
+        if should_resume is True and details is not None:
+            data_interval_start = details.last_inserted_at.isoformat()
+            last_inserted_at = details.last_inserted_at
         else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            data_interval_start = inputs.data_interval_start
+            last_inserted_at = None
 
-        records_iterator = iter_records(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
-        )
+        async with get_client(team_id=inputs.team_id) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        bigquery_table = None
-        inserted_at = None
+            if inputs.batch_export_schema is None:
+                fields = bigquery_default_fields()
+                query_parameters = None
 
-        async def worker_shutdown_handler():
-            """Handle the Worker shutting down by heart-beating our latest status."""
-            await activity.wait_for_worker_shutdown()
-            logger.bind(last_inserted_at=last_inserted_at).debug("Worker shutting down!")
+            else:
+                fields = inputs.batch_export_schema["fields"]
+                query_parameters = inputs.batch_export_schema["values"]
 
-            if last_inserted_at is None:
-                # Don't heartbeat if worker shuts down before we could even send anything
-                # Just start from the beginning again.
-                return
+            records_iterator = iter_records(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=data_interval_start,
+                interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                fields=fields,
+                extra_query_parameters=query_parameters,
+                is_backfill=inputs.is_backfill,
+            )
 
-            activity.heartbeat(str(last_inserted_at))
+            bigquery_table = None
+            inserted_at = None
 
-        asyncio.create_task(worker_shutdown_handler())
-
-        async with Heartbeater() as heartbeater:
             with bigquery_client(inputs) as bq_client:
                 with BatchExportTemporaryFile() as jsonl_file:
                     rows_exported = get_rows_exported_metric()
@@ -379,6 +369,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -429,6 +420,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             use_json_type=inputs.use_json_type,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(

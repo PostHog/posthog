@@ -35,8 +35,5 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
 
         return InsightActorsQueryOptionsResponse(day=None, status=None, interval=None, breakdown=None, series=None)
 
-    def _is_stale(self, cached_result_package):
-        return True
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)

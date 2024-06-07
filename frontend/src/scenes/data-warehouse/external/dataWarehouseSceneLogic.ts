@@ -146,8 +146,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     }),
     listeners(({ actions, values }) => ({
         deleteDataWarehouseSavedQuery: async (tableId) => {
-            await api.dataWarehouseTables.delete(tableId)
+            await api.dataWarehouseSavedQueries.delete(tableId)
             actions.selectRow(null)
+            actions.loadDatabase()
             lemonToast.success('View successfully deleted')
         },
         selectRow: () => {

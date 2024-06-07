@@ -1,9 +1,10 @@
 import { IconDatabase } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { urls } from 'scenes/urls'
 
@@ -33,6 +34,7 @@ export function TableData(): JSX.Element {
     } = useActions(dataWarehouseSceneLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [localQuery, setLocalQuery] = useState<HogQLQuery>()
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
     const isExternalTable = table?.type === 'data_warehouse'
     const isManuallyLinkedTable = isExternalTable && !table.source
@@ -48,25 +50,12 @@ export function TableData(): JSX.Element {
             return <></>
         }
 
-        if (selectedRow.type === 'view') {
+        if (selectedRow.type === 'view' || selectedRow.type === 'data_warehouse') {
             return (
                 <LemonButton
                     type="secondary"
                     onClick={() => {
-                        deleteDataWarehouseSavedQuery(selectedRow.id)
-                    }}
-                >
-                    Delete
-                </LemonButton>
-            )
-        }
-
-        if (selectedRow.type === 'data_warehouse') {
-            return (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        deleteDataWarehouseTable(selectedRow.id)
+                        setIsDeleteModalOpen(true)
                     }}
                 >
                     Delete
@@ -267,6 +256,67 @@ export function TableData(): JSX.Element {
                     />
                 </div>
             )}
+            {table && (
+                <DeleteTableModal
+                    table={table}
+                    isOpen={isDeleteModalOpen}
+                    setIsOpen={setIsDeleteModalOpen}
+                    onDelete={() => {
+                        if (table) {
+                            if (table.type === 'view') {
+                                deleteDataWarehouseSavedQuery(table.id)
+                            } else {
+                                deleteDataWarehouseTable(table.id)
+                            }
+                        }
+                    }}
+                />
+            )}
         </div>
+    )
+}
+
+export function DeleteTableModal({
+    table,
+    isOpen,
+    setIsOpen,
+    onDelete,
+}: {
+    table: DatabaseSchemaTable
+    isOpen: boolean
+    onDelete: () => void
+    setIsOpen: Dispatch<SetStateAction<boolean>>
+}): JSX.Element {
+    let subject
+
+    if (table.type === 'view') {
+        subject = 'view'
+    } else {
+        subject = 'table'
+    }
+
+    return (
+        <LemonModal
+            title={`Delete ${capitalizeFirstLetter(subject)}?`}
+            onClose={() => setIsOpen(false)}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={() => onDelete()}
+                    >{`Delete ${table.name}`}</LemonButton>
+                </>
+            }
+            isOpen={isOpen}
+        >
+            <p>
+                {capitalizeFirstLetter(subject)} deletion <b>cannot be undone</b>. All{' '}
+                {table.type === 'view' ? 'joins' : 'views and joins'} related to this {subject} will be deleted
+            </p>
+        </LemonModal>
     )
 }

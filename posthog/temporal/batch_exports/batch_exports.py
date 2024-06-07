@@ -38,9 +38,9 @@ SELECT_QUERY_TEMPLATE = Template(
     $fields
     FROM events
     WHERE
-        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
-        AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
-        AND team_id = {team_id}
+        team_id = {team_id}
+        AND $timestamp_field >= toDateTime64({data_interval_start}, 6, 'UTC')
+        AND $timestamp_field < toDateTime64({data_interval_end}, 6, 'UTC')
         $timestamp
         $exclude_events
         $include_events
@@ -60,13 +60,22 @@ AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 )
 
 
-def get_timestamp_predicates_for_team(team_id: int) -> str:
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+def get_timestamp_predicates_for_team(team_id: int, is_backfill: bool = False) -> str:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS or is_backfill:
         return ""
     else:
         return TIMESTAMP_PREDICATES.substitute(
             lookback_days=settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS),
         )
+
+
+def get_timestamp_field(is_backfill: bool) -> str:
+    """Return the field to use for timestamp bounds."""
+    if is_backfill:
+        timestamp_field = "timestamp"
+    else:
+        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    return timestamp_field
 
 
 async def get_rows_count(
@@ -76,6 +85,7 @@ async def get_rows_count(
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
+    is_backfill: bool = False,
 ) -> int:
     """Return a count of rows to be batch exported."""
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
@@ -95,13 +105,15 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = get_timestamp_predicates_for_team(team_id)
+    timestamp_field = get_timestamp_field(is_backfill)
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
         distinct="",
+        timestamp_field=timestamp_field,
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -160,6 +172,7 @@ def iter_records(
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
+    is_backfill: bool = False,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -194,7 +207,8 @@ def iter_records(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = timestamp_predicates = get_timestamp_predicates_for_team(team_id)
+    timestamp_field = get_timestamp_field(is_backfill)
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     if fields is None:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
@@ -211,6 +225,7 @@ def iter_records(
         order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
         format="FORMAT ArrowStream",
         distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
+        timestamp_field=timestamp_field,
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -311,6 +326,7 @@ class StartBatchExportRunInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    is_backfill: bool = False
 
 
 RecordsTotalCount = int | None
@@ -348,6 +364,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
                     interval_end=inputs.data_interval_end,
                     exclude_events=inputs.exclude_events,
                     include_events=inputs.include_events,
+                    is_backfill=inputs.is_backfill,
                 ),
                 timeout=(delta / 12).total_seconds(),
             )
@@ -447,11 +464,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
         from posthog.tasks.email import send_batch_export_run_failure
 
-        if batch_export_run.status == BatchExportRun.Status.FAILED:
-            from posthog.tasks.email import send_batch_export_run_failure
-
-        from posthog.tasks.email import send_batch_export_run_failure
-
         try:
             await send_batch_export_run_failure(inputs.id)
         except Exception:
@@ -462,6 +474,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             check_window=inputs.failure_check_window,
             failure_threshold=inputs.failure_threshold,
         )
+
         if not is_over_failure_threshold:
             return
 

@@ -1071,7 +1071,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertRegex(response.url, url_pattern)
 
     def test_deprecated_activation_success(self):
-        url = "/api/billing-v2/activation"
+        url = "/api/billing-v2/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)

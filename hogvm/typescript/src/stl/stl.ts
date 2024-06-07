@@ -1,3 +1,5 @@
+import { printHogStringOutput } from './print'
+
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
     concat: (args) => {
         return args.map((arg: any) => (arg === null ? '' : String(arg))).join('')
@@ -41,7 +43,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     },
     print: (args) => {
         // eslint-disable-next-line no-console
-        console.log(...args)
+        console.log(...args.map(printHogStringOutput))
     },
     jsonParse: (args) => {
         // Recursively convert objects to maps
