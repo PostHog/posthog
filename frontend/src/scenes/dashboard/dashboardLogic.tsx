@@ -945,7 +945,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insightsToRefresh = values
                 .sortTilesByLayout(tiles || values.insightTiles || [])
                 .filter((t) => {
-                    if (!initialLoad || !t.last_refresh) {
+                    if (!initialLoad || !t.last_refresh || !!t.insight?.query_status) {
                         return true
                     }
 
@@ -1169,6 +1169,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (
+                !values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC] && // with async we straight up want to loop through all items
                 values.oldestRefreshed &&
                 values.oldestRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
                 !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
@@ -1176,11 +1177,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
                 allLoaded = false
             } else {
-                const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []
+                const tilesWithNoOrQueuedResults =
+                    values.tiles?.filter((t) => !!t.insight && (!t.insight.result || !!t.insight.query_status)) || []
 
-                if (tilesWithNoResults.length) {
+                if (tilesWithNoOrQueuedResults.length) {
                     actions.refreshAllDashboardItems({
-                        tiles: tilesWithNoResults,
+                        tiles: tilesWithNoOrQueuedResults,
                         action: 'load_missing',
                         initialLoad,
                         dashboardQueryId,
