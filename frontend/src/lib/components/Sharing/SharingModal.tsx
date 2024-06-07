@@ -69,7 +69,7 @@ export function SharingModalContent({
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
-    const showLegendCheckbox = isInsightVizNode(insight?.query) && isTrendsQuery(insight.query.source)
+    const showLegendCheckbox = isInsightVizNode(insight?.query) && isTrendsQuery(insight?.query.source)
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
 
     useEffect(() => {
