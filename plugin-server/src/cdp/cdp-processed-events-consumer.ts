@@ -7,11 +7,10 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, PluginsServerConfig, RawClickHouseEvent, RedisPool, TeamId } from '../types'
+import { GroupTypeToColumnIndex, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
-import { createRedisPool } from '../utils/utils'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
@@ -48,7 +47,6 @@ export interface TeamIDWithConfig {
 }
 
 export class CdpProcessedEventsConsumer {
-    redisPool: RedisPool
     // overflowDetection?: OverflowManager
     batchConsumer?: BatchConsumer
     teamManager: TeamManager
@@ -72,10 +70,6 @@ export class CdpProcessedEventsConsumer {
         // TODO: Add overflow topic
         this.topic = consumeOverflow ? KAFKA_EVENTS_JSON : KAFKA_EVENTS_JSON
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
-
-        // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
-        // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
-        this.redisPool = createRedisPool(this.config)
 
         // if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
         //     this.overflowDetection = new OverflowManager(
@@ -252,9 +246,6 @@ export class CdpProcessedEventsConsumer {
 
         await this.kafkaProducer?.disconnect()
         await this.hogFunctionManager.stop()
-        // Finally we clear up redis once we are sure everything else has been handled
-        await this.redisPool.drain()
-        await this.redisPool.clear()
 
         status.info('👍', 'cdp-function-executor - stopped!')
 
