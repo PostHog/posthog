@@ -96,14 +96,17 @@ export const settingsLogic = kea<settingsLogicType>([
                 }
 
                 return settings.filter((x) => {
+                    const isFlagConditionMet = !x.flag
+                        ? true // No flag condition
+                        : x.flag.startsWith('!')
+                        ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
+                        : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
                     if (x.flag && x.features) {
-                        return (
-                            x.features.some((feat) => hasAvailableFeature(feat)) || featureFlags[FEATURE_FLAGS[x.flag]]
-                        )
+                        return x.features.some((feat) => hasAvailableFeature(feat)) || isFlagConditionMet
                     } else if (x.features) {
                         return x.features.some((feat) => hasAvailableFeature(feat))
                     } else if (x.flag) {
-                        return featureFlags[FEATURE_FLAGS[x.flag]]
+                        return isFlagConditionMet
                     }
 
                     return true
