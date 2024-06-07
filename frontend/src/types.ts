@@ -988,6 +988,15 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
+export type ErrorTrackingGroup = {
+    id: string
+    name: string
+    sampleEvent: EventType
+    occurrences: number
+    unique_sessions: number
+    unique_users: number
+}
+
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
