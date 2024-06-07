@@ -26,6 +26,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -64,6 +65,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
+    "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
@@ -191,10 +193,19 @@ def select_from_sessions_table(
         ],
     )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$num_uniq_urls"] = ast.Call(
+        name="length",
+        args=[aggregate_fields["$urls"]],
+    )
+
+    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.uniq_urls:
+        bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
+    else:
+        bounce_pageview_count = aggregate_fields["$pageview_count"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
+            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",
@@ -294,7 +305,16 @@ def join_events_table_to_sessions_table(
 
 def get_lazy_session_table_properties(search: Optional[str]):
     # some fields shouldn't appear as properties
-    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls", "duration"}
+    hidden_fields = {
+        "team_id",
+        "distinct_id",
+        "session_id",
+        "id",
+        "$event_count_map",
+        "$urls",
+        "duration",
+        "$num_uniq_urls",
+    }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
