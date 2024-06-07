@@ -14,6 +14,7 @@ import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingDistinctIdBatchLengthSummary,
     ingestEventBatchingInputLengthSummary,
     ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
@@ -123,6 +124,10 @@ export async function eachBatchParallelIngestion(
 
         ingestEventBatchingInputLengthSummary.observe(messages.length)
         ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
+        splitBatch.toProcess.forEach((b) => {
+            ingestEventBatchingDistinctIdBatchLengthSummary.observe(b.length)
+        })
+
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []

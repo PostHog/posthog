@@ -34,6 +34,8 @@ let uniqueMemoizedIndex = 0
 export function TaxonomicPropertyFilter({
     pageKey: pageKeyInput,
     index,
+    filters,
+    setFilter,
     onComplete,
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,

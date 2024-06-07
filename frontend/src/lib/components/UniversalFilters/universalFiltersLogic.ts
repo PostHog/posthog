@@ -9,7 +9,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActionFilter, FilterLogicalOperator } from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
+import { UniversalFiltersGroup, UniversalFiltersGroupValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -55,8 +55,6 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
             propertyKey,
             item,
         }),
-        updateGroupFilter: (index: number, filter: UniversalFilterValue) => ({ index, filter }),
-        removeGroupFilter: (index: number) => ({ index }),
     }),
 
     reducers(({ props }) => ({

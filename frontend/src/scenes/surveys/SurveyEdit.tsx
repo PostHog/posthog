@@ -16,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -41,24 +42,18 @@ export default function SurveyEdit(): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
-        writingHTMLDescription,
         hasTargetingSet,
-        selectedQuestion,
+        selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
     } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        setWritingHTMLDescription,
-        resetTargeting,
-        setSelectedQuestion,
-        setSelectedSection,
-        setFlagPropertyErrors,
-    } = useActions(surveyLogic)
+    const { setSurveyValue, resetTargeting, setSelectedPageIndex, setSelectedSection, setFlagPropertyErrors } =
+        useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType } = survey.appearance
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -70,7 +65,7 @@ export default function SurveyEdit(): JSX.Element {
             return clone.map((child) => ({ ...child }))
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
-        setSelectedQuestion(newIndex)
+        setSelectedPageIndex(newIndex)
     }
 
     return (
@@ -113,11 +108,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearancePreview
-                                                            survey={survey}
-                                                            activePreview="survey"
-                                                            questionIndex={0}
-                                                        />
+                                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
@@ -175,9 +166,9 @@ export default function SurveyEdit(): JSX.Element {
                                             strategy={verticalListSortingStrategy}
                                         >
                                             <LemonCollapse
-                                                activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                                activeKey={selectedPageIndex === null ? undefined : selectedPageIndex}
                                                 onChange={(index) => {
-                                                    setSelectedQuestion(index)
+                                                    setSelectedPageIndex(index)
                                                 }}
                                                 panels={[
                                                     ...survey.questions.map(
@@ -193,7 +184,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 <SurveyEditQuestionHeader
                                                                     index={index}
                                                                     survey={survey}
-                                                                    setSelectedQuestion={setSelectedQuestion}
+                                                                    setSelectedPageIndex={setSelectedPageIndex}
                                                                     setSurveyValue={setSurveyValue}
                                                                 />
                                                             ),
@@ -218,7 +209,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
-                                                                                  setSelectedQuestion(
+                                                                                  setSelectedPageIndex(
                                                                                       survey.questions.length - 1
                                                                                   )
                                                                                   setSurveyValue('appearance', {
@@ -261,13 +252,25 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           ...survey.appearance,
                                                                                           thankYouMessageDescription:
                                                                                               val,
+                                                                                          thankYouMessageDescriptionContentType,
                                                                                       })
                                                                                   }
-                                                                                  writingHTMLDescription={
-                                                                                      writingHTMLDescription
-                                                                                  }
-                                                                                  setWritingHTMLDescription={
-                                                                                      setWritingHTMLDescription
+                                                                                  onTabChange={(key) => {
+                                                                                      const updatedAppearance = {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              key === 'html'
+                                                                                                  ? 'html'
+                                                                                                  : 'text',
+                                                                                      }
+                                                                                      setSurveyValue(
+                                                                                          'appearance',
+                                                                                          updatedAppearance
+                                                                                      )
+                                                                                  }}
+                                                                                  activeTab={
+                                                                                      thankYouMessageDescriptionContentType ??
+                                                                                      'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
@@ -316,7 +319,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.questions,
                                                         { ...defaultSurveyFieldValues.open.questions[0] },
                                                     ])
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add question
@@ -337,7 +340,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setSelectedQuestion(survey.questions.length)
+                                                    setSelectedPageIndex(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -599,6 +602,38 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
+                                                <LemonField.Pure label="User sends events">
+                                                    <EventSelect
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                events: {
+                                                                    values: includedEvents.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.events?.values &&
+                                                            survey.conditions?.events?.values.length > 0
+                                                                ? survey.conditions?.events?.values.map((v) => v.name)
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
                                         </>
                                     )}
                                 </LemonField.Pure>
@@ -651,9 +686,9 @@ export default function SurveyEdit(): JSX.Element {
             <LemonDivider vertical />
             <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
-                    activePreview={selectedQuestion || 0}
+                    previewPageIndex={selectedPageIndex || 0}
                     survey={survey}
-                    setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
                     isEditingSurvey={isEditingSurvey}
                 />
             </div>

@@ -8,10 +8,11 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
+    AlertType,
     BatchExportConfiguration,
     BatchExportLogEntry,
     BatchExportRun,
@@ -674,6 +675,15 @@ class ApiRequest {
 
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    }
+
+    // # Alerts
+    public alerts(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('alerts')
+    }
+
+    public alert(id: AlertType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.alerts(teamId).addPathComponent(id)
     }
 
     // Resource Access Permissions
@@ -2099,7 +2109,7 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatus> {
+        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
             return await new ApiRequest().queryStatus(queryId, showProgress).get()
         },
     },
@@ -2116,6 +2126,24 @@ const api = {
         },
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
+        },
+    },
+
+    alerts: {
+        async get(alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).get()
+        },
+        async create(data: Partial<AlertType>): Promise<AlertType> {
+            return await new ApiRequest().alerts().create({ data })
+        },
+        async update(alertId: AlertType['id'], data: Partial<AlertType>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).update({ data })
+        },
+        async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
+            return await new ApiRequest().alerts().withQueryString(`insight=${insightId}`).get()
+        },
+        async delete(alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId).delete()
         },
     },
 
@@ -2136,9 +2164,10 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
+        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

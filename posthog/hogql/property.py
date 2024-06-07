@@ -154,7 +154,7 @@ def property_to_expr(
             chain = ["events", "session"]
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
-                table, key = property.key.split(": ")
+                table, key = property.key.split(".")
                 chain = ["person", table]
                 property.key = key
             else:

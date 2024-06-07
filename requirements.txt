@@ -56,8 +56,6 @@ bcrypt==4.1.3
     # via paramiko
 billiard==4.1.0
     # via celery
-black==23.9.1
-    # via dlt
 boto3==1.28.16
     # via
     #   -r requirements.in
@@ -97,7 +95,6 @@ charset-normalizer==2.1.0
     #   snowflake-connector-python
 click==8.1.7
     # via
-    #   black
     #   celery
     #   click-didyoumean
     #   click-plugins
@@ -109,7 +106,7 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.3.0
     # via celery
-clickhouse-driver==0.2.6
+clickhouse-driver==0.2.7
     # via
     #   -r requirements.in
     #   clickhouse-pool
@@ -210,7 +207,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.4.9a2
+dlt==0.4.12
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -279,7 +276,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.10
+hogql-parser==1.0.11
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -345,8 +342,6 @@ multidict==6.0.2
     # via
     #   aiohttp
     #   yarl
-mypy-extensions==1.0.0
-    # via black
 nanoid==2.0.0
     # via -r requirements.in
 natsort==8.4.0
@@ -379,7 +374,6 @@ outcome==1.1.0
 packaging==23.1
     # via
     #   aiokafka
-    #   black
     #   dlt
     #   google-cloud-bigquery
     #   snowflake-connector-python
@@ -390,8 +384,6 @@ paramiko==3.4.0
     # via
     #   -r requirements.in
     #   sshtunnel
-pathspec==0.12.1
-    # via black
 pathvalidate==3.2.0
     # via dlt
 pendulum==2.1.2
@@ -401,9 +393,7 @@ phonenumberslite==8.13.6
 pillow==10.2.0
     # via -r requirements.in
 platformdirs==3.11.0
-    # via
-    #   black
-    #   snowflake-connector-python
+    # via snowflake-connector-python
 ply==3.11
     # via jsonpath-ng
 posthoganalytics==3.5.0
@@ -578,6 +568,10 @@ sniffio==1.2.0
     #   openai
     #   trio
 snowflake-connector-python==3.6.0
+    # via
+    #   -r requirements.in
+    #   snowflake-sqlalchemy
+snowflake-sqlalchemy==1.5.3
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
@@ -589,8 +583,10 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
-sqlalchemy==2.0.23
-    # via -r requirements.in
+sqlalchemy==1.4.52
+    # via
+    #   -r requirements.in
+    #   snowflake-sqlalchemy
 sqlparse==0.4.4
     # via
     #   -r requirements.in
@@ -619,8 +615,6 @@ tiktoken==0.6.0
     #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
-tomli==2.0.1
-    # via black
 tomlkit==0.12.3
     # via
     #   dlt
@@ -643,7 +637,6 @@ typing-extensions==4.7.1
     # via
     #   anyio
     #   asgiref
-    #   black
     #   dlt
     #   openai
     #   psycopg
@@ -651,7 +644,6 @@ typing-extensions==4.7.1
     #   pydantic-core
     #   qrcode
     #   snowflake-connector-python
-    #   sqlalchemy
     #   stripe
     #   temporalio
 tzdata==2023.3

@@ -40,6 +40,7 @@ import type {
     HogQLQueryModifiers,
     InsightVizNode,
     Node,
+    QueryStatus,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
 
@@ -665,6 +666,7 @@ export enum PipelineStage {
 
 export enum PipelineNodeTab {
     Configuration = 'configuration',
+    Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
@@ -1700,6 +1702,7 @@ export interface InsightModel extends Cacheable {
     disable_baseline?: boolean
     filters: Partial<FilterType>
     query?: Node | null
+    query_status?: QueryStatus
 }
 
 export interface DashboardBasicType {
@@ -2001,7 +2004,15 @@ export enum ChartDisplayCategory {
     TotalValue = 'TotalValue',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
+export type BreakdownType =
+    | 'cohort'
+    | 'person'
+    | 'event'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'data_warehouse'
+    | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -2560,6 +2571,11 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        events: {
+            values: {
+                name: string
+            }[]
+        } | null
     } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -2586,6 +2602,8 @@ export enum SurveyType {
     API = 'api',
 }
 
+export type SurveyQuestionDescriptionContentType = 'html' | 'text'
+
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
@@ -2599,6 +2617,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     autoDisappear?: boolean
     position?: string
     // widget only
@@ -2612,6 +2631,7 @@ export interface SurveyAppearance {
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
+    descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
 }
@@ -2864,6 +2884,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
+    Alerts = 'alerts',
 }
 
 export enum DashboardPlacement {
@@ -3709,7 +3730,9 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake', 'Manual'] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -4065,4 +4088,19 @@ export type OnboardingProduct = {
     iconColor: string
     url: string
     scene: Scene
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: {
+        lower?: number
+        upper?: number
+    }
+}
+
+export interface AlertType {
+    id: number
+    name: string
+    insight?: number
+    target_value: string
+    anomaly_condition: AnomalyCondition
 }

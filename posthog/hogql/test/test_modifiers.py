@@ -98,12 +98,12 @@ class TestModifiers(BaseTest):
                 PersonsOnEventsMode.person_id_override_properties_on_events,
                 [
                     "events.event AS event",
-                    "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
+                    "if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS id",
                     "events.person_properties AS properties",
-                    "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
+                    "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
                 ],
                 [
-                    "events__override ON equals(events.person_id, events__override.old_person_id)",
+                    "events__override ON equals(events.distinct_id, events__override.distinct_id)",
                 ],
             ),
             TestCase(

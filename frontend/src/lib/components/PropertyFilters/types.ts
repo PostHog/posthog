@@ -23,10 +23,10 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
     onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
-    filters: AnyPropertyFilter[]
-    setFilter: (index: number, property: AnyPropertyFilter) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    filters: AnyPropertyFilter[]
+    setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
     eventNames?: string[]
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }

@@ -1,16 +1,9 @@
 import dataclasses
 import os
 from collections import Counter
-from datetime import datetime
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
 from collections.abc import Sequence
+from datetime import datetime
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 import requests
 import structlog
@@ -78,23 +71,14 @@ USAGE_REPORT_TASK_KWARGS = {
 
 @dataclasses.dataclass
 class UsageReportCounters:
-    event_count_lifetime: int
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
-    event_count_in_month: int
     event_count_with_groups_in_period: int
-    # event_count_by_lib: Dict
-    # event_count_by_name: Dict
-
     # Recordings
     recording_count_in_period: int
-    recording_count_total: int
     mobile_recording_count_in_period: int
-
     # Persons and Groups
     group_types_total: int
-    # person_count_total: int
-    # person_count_in_period: int
     # Dashboards
     dashboard_count: int
     dashboard_template_count: int
@@ -104,11 +88,8 @@ class UsageReportCounters:
     ff_count: int
     ff_active_count: int
     decide_requests_count_in_period: int
-    decide_requests_count_in_month: int
     local_evaluation_requests_count_in_period: int
-    local_evaluation_requests_count_in_month: int
     billable_feature_flag_requests_count_in_period: int
-    billable_feature_flag_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -125,7 +106,6 @@ class UsageReportCounters:
     event_explorer_api_duration_ms: int
     # Surveys
     survey_responses_count_in_period: int
-    survey_responses_count_in_month: int
     # Data Warehouse
     rows_synced_in_period: int
 
@@ -378,21 +358,6 @@ def capture_event(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_lifetime() -> list[tuple[int, int]]:
-    result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
-        FROM events
-        GROUP BY team_id
-    """,
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
@@ -471,40 +436,6 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
-    results = sync_execute(
-        """
-        SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as count
-        FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        GROUP BY lib, team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return results
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
-    results = sync_execute(
-        """
-        SELECT team_id, event, COUNT(1) as count
-        FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        GROUP BY event, team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return results
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
@@ -538,21 +469,6 @@ def get_teams_with_recording_count_in_period(
         settings=CH_BILLING_SETTINGS,
     )
 
-    return result
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_recording_count_total() -> list[tuple[int, int]]:
-    result = sync_execute(
-        """
-        SELECT team_id, count(distinct session_id) as count
-        FROM session_replay_events
-        GROUP BY team_id
-    """,
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
     return result
 
 
@@ -727,22 +643,15 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     we count across all teams rather than doing it one by one
     """
     return {
-        "teams_with_event_count_lifetime": get_teams_with_event_count_lifetime(),
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
-        "teams_with_event_count_in_month": get_teams_with_billable_event_count_in_period(
-            period_start.replace(day=1), period_end
-        ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
-        # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
-        # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
-        "teams_with_recording_count_total": get_teams_with_recording_count_total(),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -752,14 +661,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.DECIDE
         ),
-        "teams_with_decide_requests_count_in_month": get_teams_with_feature_flag_requests_count_in_period(
-            period_start.replace(day=1), period_end, FlagRequestType.DECIDE
-        ),
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
-        ),
-        "teams_with_local_evaluation_requests_count_in_month": get_teams_with_feature_flag_requests_count_in_period(
-            period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
         ),
         "teams_with_group_types_total": list(
             GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
@@ -878,9 +781,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_survey_responses_count_in_period": get_teams_with_survey_responses_count_in_period(
             period_start, period_end
         ),
-        "teams_with_survey_responses_count_in_month": get_teams_with_survey_responses_count_in_period(
-            period_start.replace(day=1), period_end
-        ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
     }
 
@@ -906,34 +806,21 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
 
 
 def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounters:
-    decide_requests_count_in_month = all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0)
     decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
-    local_evaluation_requests_count_in_month = all_data["teams_with_local_evaluation_requests_count_in_month"].get(
-        team.id, 0
-    )
     return UsageReportCounters(
-        event_count_lifetime=all_data["teams_with_event_count_lifetime"].get(team.id, 0),
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
             team.id, 0
         ),
-        event_count_in_month=all_data["teams_with_event_count_in_month"].get(team.id, 0),
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),
-        # event_count_by_lib: Di all_data["teams_with_#"].get(team.id, 0),
-        # event_count_by_name: Di all_data["teams_with_#"].get(team.id, 0),
-        recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
-        decide_requests_count_in_month=decide_requests_count_in_month,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        local_evaluation_requests_count_in_month=local_evaluation_requests_count_in_month,
-        billable_feature_flag_requests_count_in_month=decide_requests_count_in_month
-        + (local_evaluation_requests_count_in_month * 10),
         billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
         + (local_evaluation_requests_count_in_period * 10),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
@@ -955,7 +842,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
-        survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
     )
 
@@ -995,20 +881,26 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
+    logger.info("Getting all usage data...")  # noqa T201
+    time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
+    logger.info("Getting teams for usage reports...")  # noqa T201
+    time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
+    logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     org_reports: dict[str, OrgReport] = {}
 
-    print("Generating reports for teams...")  # noqa T201
+    logger.info("Generating reports for teams...")  # noqa T201
     time_now = datetime.now()
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
     time_since = datetime.now() - time_now
-    print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+    logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
     return org_reports
 
 
@@ -1042,7 +934,7 @@ def send_all_org_usage_reports(
     try:
         org_reports = _get_all_org_reports(period_start, period_end)
 
-        print("Sending usage reports to PostHog and Billing...")  # noqa T201
+        logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
         for org_report in org_reports.values():
             org_id = org_report.organization_id
@@ -1065,7 +957,7 @@ def send_all_org_usage_reports(
             if has_non_zero_usage(full_report):
                 send_report_to_billing_service.delay(org_id, full_report_dict)
         time_since = datetime.now() - time_now
-        print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
         capture_exception(err)
         raise err

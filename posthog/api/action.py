@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from rest_framework import serializers, viewsets
 from django.db.models import Count
+from rest_framework import request
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -139,6 +140,15 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        # :HACKY: we need to override this viewset method until actions support
+        # better pagination in the taxonomic filter and on the actions page
+        actions = self.filter_queryset(self.get_queryset())
+        actions_list: list[dict[Any, Any]] = self.serializer_class(
+            actions, many=True, context={"request": request}
+        ).data  # type: ignore
+        return Response({"results": actions_list})
 
     @action(methods=["GET"], detail=True)
     def plugin_configs(self, request: Request, *args: Any, **kwargs: Any) -> Response:

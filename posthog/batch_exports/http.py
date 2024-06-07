@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -53,7 +53,7 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any) -> dt.datetime:
+def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
     """Parse any datetime input as a proper dt.datetime.
 
     Args:
@@ -73,6 +73,15 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+    if parsed.tzinfo is None:
+        if team:
+            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
+        else:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    else:
+        parsed = parsed.astimezone(dt.timezone.utc)
+
     return parsed
 
 
@@ -87,7 +96,6 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
 
 
 class RunsCursorPagination(CursorPagination):
-    ordering = "-created_at"
     page_size = 100
 
 
@@ -97,18 +105,30 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "data_interval_start"]
+    ordering = "-created_at"
 
     def safely_get_queryset(self, queryset):
-        after = self.request.GET.get("after", "-7d")
+        after = self.request.GET.get("after", None)
         before = self.request.GET.get("before", None)
-        after_datetime = relative_date_parse(after, self.team.timezone_info)
-        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
-        date_range = (after_datetime, before_datetime)
+        start = self.request.GET.get("start", None)
+        end = self.request.GET.get("end", None)
+        ordering = self.request.GET.get("ordering", None)
+
+        # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
+        if ordering == "data_interval_start" or ordering == "-data_interval_start":
+            start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
+            end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
+            queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
+        else:
+            after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
+            before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
+            date_range = (after_datetime, before_datetime)
+            queryset = queryset.filter(created_at__range=date_range)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-        queryset = queryset.filter(created_at__range=date_range)
-
-        return queryset.order_by("-created_at")
+        return queryset
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -346,8 +366,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input)
-        end_at = validate_date_input(end_at_input)
+        start_at = validate_date_input(start_at_input, request.user.current_team)
+        end_at = validate_date_input(end_at_input, request.user.current_team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")

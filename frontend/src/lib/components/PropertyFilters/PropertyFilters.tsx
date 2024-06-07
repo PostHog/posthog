@@ -113,9 +113,9 @@ export function PropertyFilters({
                                             key={index}
                                             pageKey={pageKey}
                                             index={index}
-                                            onComplete={onComplete}
                                             filters={filters}
                                             setFilter={setFilter}
+                                            onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             metadataSource={metadataSource}

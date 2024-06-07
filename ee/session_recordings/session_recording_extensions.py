@@ -6,7 +6,7 @@ from typing import Optional, cast
 
 import structlog
 from django.utils import timezone
-from prometheus_client import Histogram
+from prometheus_client import Histogram, Counter
 from sentry_sdk import capture_exception, capture_message
 
 from posthog import settings
@@ -19,8 +19,22 @@ logger = structlog.get_logger(__name__)
 
 SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
     "snapshot_persist_time_seconds",
-    "We persist recording snapshots from S3 or from ClickHouse, how long does that take?",
-    labelnames=["source"],
+    "We persist recording snapshots from S3, how long does that take?",
+)
+
+SNAPSHOT_PERSIST_SUCCESS_COUNTER = Counter(
+    "snapshot_persist_success",
+    "Count of session recordings that were successfully persisted",
+)
+
+SNAPSHOT_PERSIST_FAILURE_COUNTER = Counter(
+    "snapshot_persist_failure",
+    "Count of session recordings that failed to be persisted",
+)
+
+SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER = Counter(
+    "snapshot_persist_too_young",
+    "Count of session recordings that were too young to be persisted",
 )
 
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
@@ -98,19 +112,21 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             recording_id=recording_id,
             team_id=team_id,
         )
+        SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER.inc()
         recording.save()
         return
 
     target_prefix = recording.build_object_storage_path("2023-08-01")
     source_prefix = recording.build_blob_ingestion_storage_path()
     # if snapshots are already in blob storage, then we can just copy the files between buckets
-    with SNAPSHOT_PERSIST_TIME_HISTOGRAM.labels(source="S3").time():
+    with SNAPSHOT_PERSIST_TIME_HISTOGRAM.time():
         copied_count = object_storage.copy_objects(source_prefix, target_prefix)
 
     if copied_count > 0:
         recording.storage_version = "2023-08-01"
         recording.object_storage_path = target_prefix
         recording.save()
+        SNAPSHOT_PERSIST_SUCCESS_COUNTER.inc()
         logger.info(
             "Persisting recording: done!",
             recording_id=recording_id,
@@ -119,6 +135,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         )
         return
     else:
+        SNAPSHOT_PERSIST_FAILURE_COUNTER.inc()
         logger.error(
             "No snapshots found to copy in S3 when persisting a recording",
             recording_id=recording_id,
