@@ -10,6 +10,7 @@ from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.hog_functions.utils import generate_template_bytecode
+from posthog.permissions import PostHogFeatureFlagPermission
 
 
 logger = structlog.get_logger(__name__)
@@ -171,6 +172,10 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
+
+    permission_classes = [PostHogFeatureFlagPermission]
+
+    posthog_feature_flag = "hog-functions"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer

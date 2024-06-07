@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { HogQueryEditor } from 'scenes/debug/HogDebug'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -30,6 +31,8 @@ export function PipelineHogFunctionConfiguration({
         useValues(logic)
     const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
 
+    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
+
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
@@ -38,6 +41,16 @@ export function PipelineHogFunctionConfiguration({
         return <NotFound object="Hog function" />
     }
 
+    if (!hogFunctionsEnabled && !id) {
+        return (
+            <div className="space-y-3">
+                <div className="border rounded text-center p-4">
+                    <h2>Feature not enabled</h2>
+                    <p>Hog functions are not enabled for you yet. If you think they should be, contact support.</p>
+                </div>
+            </div>
+        )
+    }
     const buttons = (
         <>
             <LemonButton

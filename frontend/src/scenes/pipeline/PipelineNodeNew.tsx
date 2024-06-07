@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -144,11 +145,14 @@ function TransformationOptionsTable(): JSX.Element {
 }
 
 function DestinationOptionsTable(): JSX.Element {
+    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { batchExportServiceNames } = useValues(pipelineNodeNewLogic)
     const { plugins, loading, hogFunctionTemplates } = useValues(pipelineDestinationsLogic)
     const pluginTargets = Object.values(plugins).map(convertPluginToTableEntry)
     const batchExportTargets = Object.values(batchExportServiceNames).map(convertBatchExportToTableEntry)
-    const hogFunctionTargets = Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
+    const hogFunctionTargets = hogFunctionsEnabled
+        ? Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
+        : []
     const targets = [...batchExportTargets, ...pluginTargets, ...hogFunctionTargets]
     return <NodeOptionsTable stage={PipelineStage.Destination} targets={targets} loading={loading} />
 }
