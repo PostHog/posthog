@@ -31,6 +31,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
                 'setCommonFilters',
+                'toggleClickmapsEnabled',
             ],
         ],
     })),
@@ -309,6 +310,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
