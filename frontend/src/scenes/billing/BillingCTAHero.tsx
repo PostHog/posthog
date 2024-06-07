@@ -13,8 +13,8 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { width, ref: billingHeroRef } = useResizeObserver()
 
     const { redirectPath } = useValues(billingLogic)
-    const { isPlanComparisonModalOpen } = useValues(billingProductLogic({ product }))
-    const { toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
+    const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
+    const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     // TODO(@zach): add multiple variations of this copy
     return (
@@ -39,6 +39,8 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                         to={`/api/billing/activation?products=all_products:&redirect_path=${redirectPath}`}
                         type="primary"
                         disableClientSideRouting
+                        loading={!!billingProductLoading}
+                        onClick={() => setBillingProductLoading(product.type)}
                     >
                         Subscribe now!
                     </LemonButton>

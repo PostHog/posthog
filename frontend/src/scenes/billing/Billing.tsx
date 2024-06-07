@@ -25,6 +25,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
+import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -42,7 +43,7 @@ export function Billing(): JSX.Element {
         isAnnualPlan,
         billingError,
     } = useValues(billingLogic)
-    const { reportBillingV2Shown, deactivateProduct } = useActions(billingLogic)
+    const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -226,20 +227,8 @@ export function Billing(): JSX.Element {
                                 </LemonButton>
                             </div>
                             {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
-                                billing.subscription_level == 'paid' && (
-                                    <div className="bg-bg-light p-4 border rounded my-4">
-                                        <p>You're currently subscribed to the paid plan</p>
-                                        <LemonButton
-                                            status="danger"
-                                            type="primary"
-                                            onClick={() => {
-                                                deactivateProduct('all_products')
-                                            }}
-                                        >
-                                            Unsubscribe
-                                        </LemonButton>
-                                    </div>
-                                )}
+                                billing.subscription_level == 'paid' &&
+                                !!platformAndSupportProduct && <UnsubscribeCard product={platformAndSupportProduct} />}
                         </div>
                     )}
                 </div>

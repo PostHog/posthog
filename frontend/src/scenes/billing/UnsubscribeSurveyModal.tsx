@@ -25,7 +25,8 @@ export const UnsubscribeSurveyModal = ({
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
             (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
-                ?.subscribed)
+                ?.subscribed) ||
+        billing?.subscription_level === 'paid'
 
     return (
         <LemonModal
@@ -33,8 +34,12 @@ export const UnsubscribeSurveyModal = ({
                 reportSurveyDismissed(surveyID)
                 resetUnsubscribeError()
             }}
-            width="max(40vw)"
-            title={`Why are you unsubscribing from ${product.name}?`}
+            width="max(44vw)"
+            title={
+                billing?.subscription_level === 'paid'
+                    ? 'Why are you unsubscribing?'
+                    : `Why are you unsubscribing from ${product.name}?`
+            }
             footer={
                 <>
                     <LemonButton
@@ -49,7 +54,7 @@ export const UnsubscribeSurveyModal = ({
                         type={textAreaNotEmpty ? 'primary' : 'secondary'}
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
-                            deactivateProduct(product.type)
+                            deactivateProduct(billing?.subscription_level === 'paid' ? 'all_products' : product.type)
                         }}
                         loading={billingLoading}
                     >
@@ -68,7 +73,7 @@ export const UnsubscribeSurveyModal = ({
                 ) : (
                     <LemonBanner type="info">
                         <p>
-                            Your invoice will be billed immediately.{' '}
+                            Any outstanding invoices will be billed immediately.{' '}
                             <Link to={billing?.stripe_portal_url} target="_blank">
                                 View invoices
                             </Link>
