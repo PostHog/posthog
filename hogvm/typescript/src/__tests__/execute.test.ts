@@ -1559,7 +1559,7 @@ describe('HogQL Bytecode', () => {
         )
     })
 
-    test('can not modify globalS', () => {
+    test('can not modify globals', () => {
         const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
         expect(
             // let event := globalEvent;

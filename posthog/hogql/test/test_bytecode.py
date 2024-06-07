@@ -185,6 +185,18 @@ class TestBytecode(BaseTest):
             to_bytecode("1 in cohort 2")
         self.assertEqual(str(e.exception), "Cohort operations are not supported")
 
+        with self.assertRaises(NotImplementedError) as e:
+            execute_hog("globalVar := 1;")
+        self.assertEqual(
+            str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
+        )
+
+        with self.assertRaises(NotImplementedError) as e:
+            execute_hog("globalVar.properties.bla := 1;")
+        self.assertEqual(
+            str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
+        )
+
     def test_bytecode_execute(self):
         # Test a simple operations. The Hog execution itself is tested under hogvm/python/
         self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)

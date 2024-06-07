@@ -638,8 +638,10 @@ class TestBytecodeExecute:
             """
             let event := globalEvent;
             event.event := '$autocapture';
+            event.properties.$browser := 'Firefox';
             return event;
         """,
             globals=globals,
-        ) == {"event": "$autocapture", "properties": {"$browser": "Chrome"}}
+        ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
         assert globals["globalEvent"]["event"] == "$pageview"
+        assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
