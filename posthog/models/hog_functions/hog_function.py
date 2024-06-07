@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -35,15 +36,26 @@ class HogFunction(UUIDModel):
         except KeyError:
             return []
 
-    def compile_filters_bytecode(self, actions: dict[int, Action]):
+    def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
         from .utils import hog_function_filters_to_expr
         from posthog.hogql.bytecode import create_bytecode
+
+        if actions is None:
+            # If not provided as an optimization we fetch all actions
+            actions_list = Action.objects.filter(team=self.team_id).filter(id__in=self.filter_action_ids)
+            actions = {action.id: action for action in actions_list}
 
         try:
             self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self, actions))
         except Exception:
             # TODO: Capture exception
             self.filters["bytecode"] = None
+
+    def save(self, *args, **kwargs):
+        if self.filters:
+            self.compile_filters_bytecode()
+
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

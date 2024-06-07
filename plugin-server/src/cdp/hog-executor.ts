@@ -47,7 +47,31 @@ export class HogExecutor {
      * Intended to be invoked as a starting point from an event
      */
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<any> {
-        const functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
+        let functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
+
+        // Filter all functions based on the invocation
+        functions = Object.fromEntries(
+            Object.entries(functions).filter(([_key, value]) => {
+                const filters = value.filters
+
+                // TODO: Is it safer to make filters required, to make sure we don't execute functions
+                // that have some dodgy filters?
+                if (!filters?.bytecode) {
+                    return true
+                }
+
+                console.log('filtering!', filters)
+                const filterResult = exec(filters.bytecode, {
+                    fields: invocation.globals,
+                    timeout: 100,
+                    maxAsyncSteps: 0,
+                })
+
+                console.log(filterResult)
+
+                return false
+            })
+        )
 
         if (!Object.keys(functions).length) {
             return

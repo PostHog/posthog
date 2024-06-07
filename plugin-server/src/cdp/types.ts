@@ -31,6 +31,7 @@ export interface HogFunctionFilters {
     filter_test_accounts?: boolean
     // Loaded at run time from Team model
     filter_test_accounts_bytecode?: boolean
+    bytecode?: HogBytecode
 }
 
 export type HogFunctionInvocationContext = {

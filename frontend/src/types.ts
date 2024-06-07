@@ -4079,8 +4079,8 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
-    name: string
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    key: string
     label: string
     choices?: { value: string; label: string }[]
     required?: boolean

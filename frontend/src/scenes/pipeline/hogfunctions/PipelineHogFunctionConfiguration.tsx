@@ -194,10 +194,10 @@ export function PipelineHogFunctionConfiguration({
                                     {configuration?.inputs_schema?.length ? (
                                         configuration?.inputs_schema.map((schema) => {
                                             return (
-                                                <div key={schema.name}>
+                                                <div key={schema.key}>
                                                     <LemonField
-                                                        name={`inputs.${schema.name}`}
-                                                        label={schema.label || schema.name}
+                                                        name={`inputs.${schema.key}`}
+                                                        label={schema.label || schema.key}
                                                         showOptional={!schema.required}
                                                     >
                                                         {({ value, onChange }) => {

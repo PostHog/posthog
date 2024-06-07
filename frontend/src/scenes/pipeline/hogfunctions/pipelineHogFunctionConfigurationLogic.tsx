@@ -134,17 +134,17 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 const sanitizedInputs = {}
 
                 data.inputs_schema?.forEach((input) => {
-                    if (input.type === 'json' && typeof data.inputs[input.name].value === 'string') {
+                    if (input.type === 'json' && typeof data.inputs[input.key].value === 'string') {
                         try {
-                            sanitizedInputs[input.name] = {
-                                value: JSON.parse(data.inputs[input.name].value),
+                            sanitizedInputs[input.key] = {
+                                value: JSON.parse(data.inputs[input.key].value),
                             }
                         } catch (e) {
                             // Ignore
                         }
                     } else {
-                        sanitizedInputs[input.name] = {
-                            value: data.inputs[input.name].value,
+                        sanitizedInputs[input.key] = {
+                            value: data.inputs[input.key].value,
                         }
                     }
                 })
@@ -194,15 +194,15 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                 const inputErrors = {}
 
                 configuration.inputs_schema?.forEach((input) => {
-                    if (input.required && !inputs[input.name]) {
-                        inputErrors[input.name] = 'This field is required'
+                    if (input.required && !inputs[input.key]) {
+                        inputErrors[input.key] = 'This field is required'
                     }
 
-                    if (input.type === 'json' && typeof inputs[input.name] === 'string') {
+                    if (input.type === 'json' && typeof inputs[input.key] === 'string') {
                         try {
-                            JSON.parse(inputs[input.name].value)
+                            JSON.parse(inputs[input.key].value)
                         } catch (e) {
-                            inputErrors[input.name] = 'Invalid JSON'
+                            inputErrors[input.key] = 'Invalid JSON'
                         }
                     }
                 })

@@ -35,8 +35,8 @@ export function HogFunctionInputsEditor({ value, onChange }: HogFunctionInputsEd
                         <div className="flex-1 flex items-center gap-2 flex-wrap">
                             <LemonInput
                                 size="small"
-                                value={input.name}
-                                onChange={(name) => _onChange({ name })}
+                                value={input.key}
+                                onChange={(key) => _onChange({ key })}
                                 placeholder="Variable name"
                             />
                             <LemonSelect
@@ -104,7 +104,7 @@ export function HogFunctionInputsEditor({ value, onChange }: HogFunctionInputsEd
                     onClick={() => {
                         setInputs([
                             ...inputs,
-                            { type: 'string', name: `input_${inputs.length + 1}`, label: '', required: false },
+                            { type: 'string', key: `input_${inputs.length + 1}`, label: '', required: false },
                         ])
                     }}
                 >
