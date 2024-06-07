@@ -77,6 +77,9 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     })
 
     describe('general event processing', () => {
+        /**
+         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
+         */
         it('can parse incoming messages correctly', async () => {
             const hogFunction = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -87,7 +90,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             // Run the function and check that it was executed
             await processor.handleEachBatch([createMessage(createIncomingEvent(team.id, { event: '$pageview' }))], noop)
 
-            // Check that the function was executed correctly
+            // TODO: Add check for fetch called successfully
         })
     })
 })
