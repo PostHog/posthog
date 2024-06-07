@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.conf import settings
-from rest_framework import exceptions, filters, serializers, viewsets
+from rest_framework import exceptions, filters, serializers, viewsets, response, request, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -11,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.warehouse.models import DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -118,3 +118,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: DataWarehouseSavedQuery = self.get_object()
+        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+        self.perform_destroy(instance)
+
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
