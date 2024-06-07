@@ -18,7 +18,6 @@ import posthog from 'posthog-js'
 import {
     AnyPropertyFilter,
     DurationType,
-    FilterLogicalOperator,
     FilterType,
     PropertyFilterType,
     PropertyOperator,
@@ -121,11 +120,8 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
         ...partialFilters,
     })
 }
-function convertUniversalFiltersToLegacyFilters(
-    universalFilters: RecordingUniversalFilters
-): RecordingFilters & { operand: FilterLogicalOperator } {
+function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
     const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
-    const operand = nestedFilters.type
     const filters = nestedFilters.values as UniversalFilterValue[]
 
     const properties: AnyPropertyFilter[] = []
@@ -146,7 +142,6 @@ function convertUniversalFiltersToLegacyFilters(
 
     return {
         ...universalFilters,
-        operand,
         properties,
         events,
         actions,
