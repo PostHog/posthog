@@ -51,6 +51,19 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 return Object.values(database.tables)
             },
         ],
+        allTablesMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables).reduce((acc, cur) => {
+                    acc[cur.name] = database.tables[cur.name]
+                    return acc
+                }, {} as Record<string, DatabaseSchemaTable>)
+            },
+        ],
         posthogTables: [
             (s) => [s.database],
             (database): DatabaseSchemaTable[] => {

@@ -42,24 +42,18 @@ export default function SurveyEdit(): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
-        writingHTMLDescription,
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
     } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        setWritingHTMLDescription,
-        resetTargeting,
-        setSelectedPageIndex,
-        setSelectedSection,
-        setFlagPropertyErrors,
-    } = useActions(surveyLogic)
+    const { setSurveyValue, resetTargeting, setSelectedPageIndex, setSelectedSection, setFlagPropertyErrors } =
+        useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType } = survey.appearance
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -258,13 +252,25 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           ...survey.appearance,
                                                                                           thankYouMessageDescription:
                                                                                               val,
+                                                                                          thankYouMessageDescriptionContentType,
                                                                                       })
                                                                                   }
-                                                                                  writingHTMLDescription={
-                                                                                      writingHTMLDescription
-                                                                                  }
-                                                                                  setWritingHTMLDescription={
-                                                                                      setWritingHTMLDescription
+                                                                                  onTabChange={(key) => {
+                                                                                      const updatedAppearance = {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              key === 'html'
+                                                                                                  ? 'html'
+                                                                                                  : 'text',
+                                                                                      }
+                                                                                      setSurveyValue(
+                                                                                          'appearance',
+                                                                                          updatedAppearance
+                                                                                      )
+                                                                                  }}
+                                                                                  activeTab={
+                                                                                      thankYouMessageDescriptionContentType ??
+                                                                                      'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
