@@ -57,7 +57,9 @@ export class HogExecutor {
                 // TODO: Is it safer to make filters required, to make sure we don't execute functions
                 // that have some dodgy filters?
                 if (!filters?.bytecode) {
-                    return true
+                    // NOTE: If we don't have bytecode this indicates something went wrong.
+                    // The model will always safe a bytecode if it was compiled correctly
+                    return false
                 }
 
                 console.log('filtering!', filters)
