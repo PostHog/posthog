@@ -3,6 +3,8 @@ import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
+import { HOG_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
+import { insertHogFunction } from './fixtures'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,
@@ -19,7 +21,7 @@ const mockConsumer = {
     getMetadata: jest.fn(),
 }
 
-jest.mock('../../../../src/kafka/batch-consumer', () => {
+jest.mock('../../src/kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
             Promise.resolve({
@@ -63,5 +65,17 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
     afterAll(() => {
         jest.useRealTimers()
+    })
+
+    describe('general event processing', () => {
+        it('can parse incoming messages correctly', async () => {
+            const hogFunction = await insertHogFunction(hub.db.postgres, team, {
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            })
+
+            // Create a message that should be processed by this function
+            // Run the function and check that it was executed
+        })
     })
 })

@@ -52,24 +52,31 @@ export class HogExecutor {
         // Filter all functions based on the invocation
         functions = Object.fromEntries(
             Object.entries(functions).filter(([_key, value]) => {
-                const filters = value.filters
+                try {
+                    const filters = value.filters
 
-                // TODO: Is it safer to make filters required, to make sure we don't execute functions
-                // that have some dodgy filters?
-                if (!filters?.bytecode) {
-                    // NOTE: If we don't have bytecode this indicates something went wrong.
-                    // The model will always safe a bytecode if it was compiled correctly
-                    return false
+                    if (!filters?.bytecode) {
+                        // NOTE: If we don't have bytecode this indicates something went wrong.
+                        // The model will always safe a bytecode if it was compiled correctly
+                        return false
+                    }
+
+                    const filterResult = exec(filters.bytecode, {
+                        fields: invocation.globals,
+                        timeout: 100,
+                        maxAsyncSteps: 0,
+                    })
+
+                    if (typeof filterResult.result !== 'boolean') {
+                        // NOTE: If the result is not a boolean we should not execute the function
+                        return false
+                    }
+
+                    return filterResult.result
+                } catch (error) {
+                    // TODO: Do we report these to somewhere?
+                    console.error('Error filtering functions:', error)
                 }
-
-                console.log('filtering!', filters)
-                const filterResult = exec(filters.bytecode, {
-                    fields: invocation.globals,
-                    timeout: 100,
-                    maxAsyncSteps: 0,
-                })
-
-                console.log(filterResult)
 
                 return false
             })

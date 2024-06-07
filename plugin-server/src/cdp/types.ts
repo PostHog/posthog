@@ -85,13 +85,13 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationAsyncReque
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'number' | 'boolean' | 'dictionary' | 'choice' | 'json'
-    name: string
-    // label: string
+    key: string
+    label?: string
     choices?: { value: string; label: string }[]
     required?: boolean
-    // default?: any
-    // secret?: boolean
-    // description?: string
+    default?: any
+    secret?: boolean
+    description?: string
 }
 
 export type HogFunctionType = {
@@ -99,12 +99,14 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
+    hog: string
     bytecode: HogBytecode
+    inputs_schema: HogFunctionInputSchemaType[]
     inputs: Record<
         string,
         {
             value: any
-            bytecode?: HogBytecode
+            bytecode?: HogBytecode | object
         }
     >
     filters?: HogFunctionFilters | null

@@ -432,10 +432,10 @@ class PostHogFeatureFlagPermission(BasePermission):
                     str(user.distinct_id),
                     groups={"organization": str(organization.id)},
                     group_properties={"organization": {"id": str(organization.id)}},
-                    only_evaluate_locally=True,
+                    only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )
 
-                return enabled
+                return enabled or False
 
         return True
