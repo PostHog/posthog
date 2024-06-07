@@ -1546,4 +1546,16 @@ describe('HogQL Bytecode', () => {
             JSON.stringify({ event: '$pageview', properties: { $browser: 'Chrome', $os: 'Windows' } }, null, 2)
         )
     })
+
+    test('modify global event after copying', () => {
+        const globals = { globalEvent: { event: '$pageview', properties: { $browser: 'Chrome' } } }
+        expect(
+            // let event := globalEvent;
+            // event.event := '$autocapture';
+            // return event;
+            exec(['_h', 32, 'globalEvent', 1, 1, 36, 0, 32, 'event', 32, '$autocapture', 46, 36, 0, 38, 35], {
+                globals,
+            }).result
+        ).toEqual(map({ event: '$autocapture', properties: { $browser: 'Chrome' } }))
+    })
 })

@@ -51,7 +51,7 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
     }
 }
 
-interface VMState {
+export interface VMState {
     /** Bytecode running in the VM */
     bytecode: any[]
     /** Stack of the VM */
@@ -70,15 +70,15 @@ interface VMState {
     syncDuration: number
 }
 
-interface ExecOptions {
-    fields?: Record<string, any>
+export interface ExecOptions {
+    globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
     timeout?: number
     maxAsyncSteps?: number
 }
 
-interface ExecResult {
+export interface ExecResult {
     result: any
     finished: boolean
     asyncFunctionName?: string
@@ -291,7 +291,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                stack.push(options?.fields ? getNestedValue(options.fields, chain) : null)
+                stack.push(options?.globals ? getNestedValue(options.globals, chain) : null)
                 break
             }
             case Operation.POP:
