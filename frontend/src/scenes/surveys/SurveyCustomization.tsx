@@ -132,11 +132,11 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                 </div>
                 <div className="mt-1">
                     <LemonField name="survey_popup_delay" className="font-medium">
-                        {({ onChange, value }) => {
+                        {({ onChange }) => {
                             return (
                                 <div className="flex flex-row gap-2 items-center">
                                     <LemonCheckbox
-                                        checked={!!value}
+                                        checked={!!appearance?.surveyPopupDelay}
                                         onChange={(checked) => {
                                             const surveyPopupDelay = checked ? 60 : undefined
                                             onChange(surveyPopupDelay)
@@ -149,12 +149,14 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                         data-attr="survey-popup-delay-input" // TODO we need to hook into this
                                         size="small"
                                         min={1}
-                                        value={value || NaN}
+                                        value={appearance?.surveyPopupDelay || NaN}
                                         onChange={(newValue) => {
                                             if (newValue && newValue > 0) {
                                                 onChange(newValue)
+                                                onAppearanceChange({ ...appearance, surveyPopupDelay: newValue })
                                             } else {
                                                 onChange(null)
+                                                onAppearanceChange({ ...appearance, surveyPopupDelay: undefined })
                                             }
                                         }}
                                         className="w-12"
