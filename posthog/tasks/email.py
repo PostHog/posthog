@@ -161,10 +161,12 @@ def send_fatal_plugin_error(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 async def send_batch_export_run_failure(
-    batch_export_run_id: int,
+    batch_export_run_id: str,
+    logger,
 ) -> None:
     is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
     if not is_email_available_result:
+        logger.debug("Email service is not available")
         return
 
     batch_export_run: BatchExportRun = await sync_to_async(
@@ -189,6 +191,8 @@ async def send_batch_export_run_failure(
             "name": batch_export_run.batch_export.name,
         },
     )
+    logger.debug("Prepared notification email for campaign %s", campaign_key)
+
     memberships_to_email = []
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
         organization_id=team.organization_id
@@ -210,9 +214,13 @@ async def send_batch_export_run_failure(
             memberships_to_email.append(membership)
 
     if memberships_to_email:
+        logger.debug("Sending failure notification email")
+
         for membership in memberships_to_email:
             message.add_recipient(email=membership.user.email, name=membership.user.first_name)
         await sync_to_async(message.send)(send_async=True)
+    else:
+        logger.debug("No available recipients for notification email")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
