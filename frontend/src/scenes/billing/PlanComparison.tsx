@@ -190,7 +190,7 @@ export const PlanComparison = ({
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >

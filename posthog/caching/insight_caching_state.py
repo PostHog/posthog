@@ -29,6 +29,11 @@ TARGET_CACHE_AGE_COUNTER = Counter(
     labelnames=["target_cache_age"],
 )
 
+INSIGHT_CACHING_STATES_UPSERTED_COUNT = Counter(
+    "insight_cache_state_upserted_count",
+    "Count of insight caching states upserted, this is the success signal",
+)
+
 
 # :TODO: Make these configurable
 class TargetCacheAge(Enum):
@@ -278,3 +283,4 @@ def _execute_insert(states: list[Optional[InsightCachingState]]):
     with connection.cursor() as cursor:
         query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
         cursor.execute(query, params=params)
+        INSIGHT_CACHING_STATES_UPSERTED_COUNT.inc(cursor.rowcount)
