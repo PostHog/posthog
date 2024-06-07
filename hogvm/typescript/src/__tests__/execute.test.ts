@@ -15,8 +15,8 @@ const tuple = (array: any[]): any[] => {
 
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
-        const fields = { properties: { foo: 'bar', nullValue: null } }
-        const options = { fields }
+        const globals = { properties: { foo: 'bar', nullValue: null } }
+        const options = { globals }
         expect(execSync(['_h'], options)).toBe(null)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], options)).toBe(3)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], options)).toBe(-1)
@@ -98,8 +98,8 @@ describe('HogQL Bytecode', () => {
     })
 
     test('error handling', async () => {
-        const fields = { properties: { foo: 'bar' } }
-        const options = { fields }
+        const globals = { properties: { foo: 'bar' } }
+        const options = { globals }
         expect(() => execSync([], options)).toThrowError("Invalid HogQL bytecode, must start with '_h'")
         await expect(execAsync([], options)).rejects.toThrowError("Invalid HogQL bytecode, must start with '_h'")
         expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrowError(
