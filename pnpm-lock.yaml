@@ -18,704 +18,1006 @@ patchedDependencies:
     hash: e2gmypqces37eklplr5o3rvywa
     path: patches/rrweb@2.0.0-alpha.13.patch
 
-dependencies:
-  '@ant-design/icons':
-    specifier: ^4.7.0
-    version: 4.7.0(react-dom@18.2.0)(react@18.2.0)
-  '@babel/runtime':
-    specifier: ^7.24.0
-    version: 7.24.0
-  '@dnd-kit/core':
-    specifier: ^6.0.8
-    version: 6.0.8(react-dom@18.2.0)(react@18.2.0)
-  '@dnd-kit/modifiers':
-    specifier: ^6.0.1
-    version: 6.0.1(@dnd-kit/core@6.0.8)(react@18.2.0)
-  '@dnd-kit/sortable':
-    specifier: ^7.0.2
-    version: 7.0.2(@dnd-kit/core@6.0.8)(react@18.2.0)
-  '@dnd-kit/utilities':
-    specifier: ^3.2.1
-    version: 3.2.1(react@18.2.0)
-  '@floating-ui/react':
-    specifier: ^0.26.9
-    version: 0.26.9(react-dom@18.2.0)(react@18.2.0)
-  '@lottiefiles/react-lottie-player':
-    specifier: ^3.4.7
-    version: 3.4.7(react@18.2.0)
-  '@medv/finder':
-    specifier: ^3.1.0
-    version: 3.1.0
-  '@microlink/react-json-view':
-    specifier: ^1.21.3
-    version: 1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
-  '@monaco-editor/react':
-    specifier: 4.4.6
-    version: 4.4.6(monaco-editor@0.39.0)(react-dom@18.2.0)(react@18.2.0)
-  '@posthog/icons':
-    specifier: 0.7.0
-    version: 0.7.0(react-dom@18.2.0)(react@18.2.0)
-  '@posthog/plugin-scaffold':
-    specifier: ^1.4.4
-    version: 1.4.4
-  '@react-hook/size':
-    specifier: ^2.1.2
-    version: 2.1.2(react@18.2.0)
-  '@rrweb/types':
-    specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13
-  '@sentry/react':
-    specifier: 7.112.1
-    version: 7.112.1(react@18.2.0)
-  '@tailwindcss/container-queries':
-    specifier: ^0.1.1
-    version: 0.1.1(tailwindcss@3.4.0)
-  '@testing-library/dom':
-    specifier: '>=7.21.4'
-    version: 8.19.0
-  '@tiptap/core':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/pm@2.1.16)
-  '@tiptap/extension-document':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)
-  '@tiptap/extension-floating-menu':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
-  '@tiptap/extension-placeholder':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
-  '@tiptap/extension-task-item':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
-  '@tiptap/extension-task-list':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)
-  '@tiptap/pm':
-    specifier: ^2.1.16
-    version: 2.1.16
-  '@tiptap/react':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)(react-dom@18.2.0)(react@18.2.0)
-  '@tiptap/starter-kit':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/pm@2.1.16)
-  '@tiptap/suggestion':
-    specifier: ^2.1.16
-    version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
-  '@types/md5':
-    specifier: ^2.3.0
-    version: 2.3.2
-  '@types/react-transition-group':
-    specifier: ^4.4.5
-    version: 4.4.5
-  '@types/react-virtualized':
-    specifier: ^9.21.23
-    version: 9.21.26
-  ajv:
-    specifier: ^8.12.0
-    version: 8.12.0
-  algoliasearch:
-    specifier: ^4.22.1
-    version: 4.22.1
-  antd:
-    specifier: ^4.17.1
-    version: 4.17.1(react-dom@18.2.0)(react@18.2.0)
-  antd-dayjs-webpack-plugin:
-    specifier: ^1.0.6
-    version: 1.0.6(dayjs@1.11.6)
-  autoprefixer:
-    specifier: ^10.4.13
-    version: 10.4.13(postcss@8.4.31)
-  babel-preset-nano-react-app:
-    specifier: ^0.1.0
-    version: 0.1.0
-  chart.js:
-    specifier: ^3.9.1
-    version: 3.9.1
-  chartjs-adapter-dayjs-3:
-    specifier: ^1.2.3
-    version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.6)
-  chartjs-plugin-annotation:
-    specifier: 2.2.1
-    version: 2.2.1(chart.js@3.9.1)
-  chartjs-plugin-crosshair:
-    specifier: ^1.2.0
-    version: 1.2.0(chart.js@3.9.1)
-  chartjs-plugin-datalabels:
-    specifier: ^2.2.0
-    version: 2.2.0(chart.js@3.9.1)
-  chartjs-plugin-stacked100:
-    specifier: ^1.4.0
-    version: 1.4.0(chart.js@3.9.1)
-  chokidar:
-    specifier: ^3.5.3
-    version: 3.5.3
-  clsx:
-    specifier: ^1.1.1
-    version: 1.2.1
-  core-js:
-    specifier: ^3.32.0
-    version: 3.32.0
-  cors:
-    specifier: ^2.8.5
-    version: 2.8.5
-  cssnano:
-    specifier: ^6.0.3
-    version: 6.0.3(postcss@8.4.31)
-  d3:
-    specifier: ^7.8.2
-    version: 7.8.2
-  d3-sankey:
-    specifier: ^0.12.3
-    version: 0.12.3
-  dayjs:
-    specifier: ^1.10.7
-    version: 1.11.6
-  dompurify:
-    specifier: ^3.0.6
-    version: 3.0.6
-  esbuild:
-    specifier: ^0.19.8
-    version: 0.19.8
-  esbuild-plugin-less:
-    specifier: ^1.3.1
-    version: 1.3.1(esbuild@0.19.8)
-  esbuild-sass-plugin:
-    specifier: ^3.0.0
-    version: 3.0.0(esbuild@0.19.8)
-  expr-eval:
-    specifier: ^2.0.2
-    version: 2.0.2
-  express:
-    specifier: ^4.17.1
-    version: 4.18.2
-  fast-deep-equal:
-    specifier: ^3.1.3
-    version: 3.1.3
-  fflate:
-    specifier: ^0.7.4
-    version: 0.7.4
-  fs-extra:
-    specifier: ^10.0.0
-    version: 10.1.0
-  fuse.js:
-    specifier: ^6.6.2
-    version: 6.6.2
-  heatmap.js:
-    specifier: ^2.0.5
-    version: 2.0.5(patch_hash=gydrxrztd4ruyhouu6tu7zh43e)
-  husky:
-    specifier: ^7.0.4
-    version: 7.0.4
-  image-blob-reduce:
-    specifier: ^4.1.0
-    version: 4.1.0
-  kea:
-    specifier: ^3.1.5
-    version: 3.1.5(react@18.2.0)
-  kea-forms:
-    specifier: ^3.1.3
-    version: 3.1.3(kea@3.1.5)
-  kea-loaders:
-    specifier: ^3.0.0
-    version: 3.0.0(kea@3.1.5)
-  kea-localstorage:
-    specifier: ^3.1.0
-    version: 3.1.0(kea@3.1.5)
-  kea-router:
-    specifier: ^3.1.4
-    version: 3.1.4(kea@3.1.5)
-  kea-subscriptions:
-    specifier: ^3.0.1
-    version: 3.0.1(kea@3.1.5)
-  kea-test-utils:
-    specifier: ^0.2.4
-    version: 0.2.4(kea@3.1.5)
-  kea-waitfor:
-    specifier: ^0.2.1
-    version: 0.2.1(kea@3.1.5)
-  kea-window-values:
-    specifier: ^3.0.0
-    version: 3.0.0(kea@3.1.5)
-  maplibre-gl:
-    specifier: ^3.5.1
-    version: 3.5.1
-  md5:
-    specifier: ^2.3.0
-    version: 2.3.0
-  monaco-editor:
-    specifier: ^0.39.0
-    version: 0.39.0
-  natural-orderby:
-    specifier: ^3.0.2
-    version: 3.0.2
-  papaparse:
-    specifier: ^5.4.1
-    version: 5.4.1
-  pmtiles:
-    specifier: ^2.11.0
-    version: 2.11.0
-  postcss:
-    specifier: ^8.4.31
-    version: 8.4.31
-  postcss-preset-env:
-    specifier: ^9.3.0
-    version: 9.3.0(postcss@8.4.31)
-  posthog-js:
-    specifier: 1.138.0
-    version: 1.138.0
-  posthog-js-lite:
-    specifier: 3.0.0
-    version: 3.0.0
-  prettier:
-    specifier: ^2.8.8
-    version: 2.8.8
-  prop-types:
-    specifier: ^15.7.2
-    version: 15.8.1
-  protomaps-themes-base:
-    specifier: 2.0.0-alpha.1
-    version: 2.0.0-alpha.1
-  query-selector-shadow-dom:
-    specifier: ^1.0.0
-    version: 1.0.0
-  rc-trigger:
-    specifier: ^5.2.5
-    version: 5.3.3(react-dom@18.2.0)(react@18.2.0)
-  react:
-    specifier: ^18.2.0
-    version: 18.2.0
-  react-dom:
-    specifier: ^18.2.0
-    version: 18.2.0(react@18.2.0)
-  react-draggable:
-    specifier: ^4.2.0
-    version: 4.4.5(react-dom@18.2.0)(react@18.2.0)
-  react-grid-layout:
-    specifier: ^1.3.0
-    version: 1.3.4(react-dom@18.2.0)(react@18.2.0)
-  react-instantsearch:
-    specifier: ^7.6.0
-    version: 7.6.0(algoliasearch@4.22.1)(react-dom@18.2.0)(react@18.2.0)
-  react-intersection-observer:
-    specifier: ^9.5.3
-    version: 9.5.3(react@18.2.0)
-  react-markdown:
-    specifier: ^5.0.3
-    version: 5.0.3(@types/react@17.0.52)(react@18.2.0)
-  react-modal:
-    specifier: ^3.15.1
-    version: 3.16.1(react-dom@18.2.0)(react@18.2.0)
-  react-resizable:
-    specifier: ^3.0.5
-    version: 3.0.5(react-dom@18.2.0)(react@18.2.0)
-  react-shadow:
-    specifier: ^20.3.0
-    version: 20.4.0(prop-types@15.8.1)(react-dom@18.2.0)(react@18.2.0)
-  react-syntax-highlighter:
-    specifier: ^15.5.0
-    version: 15.5.0(react@18.2.0)
-  react-textarea-autosize:
-    specifier: ^8.3.3
-    version: 8.3.4(@types/react@17.0.52)(react@18.2.0)
-  react-toastify:
-    specifier: ^8.2.0
-    version: 8.2.0(react-dom@18.2.0)(react@18.2.0)
-  react-transition-group:
-    specifier: ^4.4.5
-    version: 4.4.5(react-dom@18.2.0)(react@18.2.0)
-  react-virtualized:
-    specifier: ^9.22.5
-    version: 9.22.5(react-dom@18.2.0)(react@18.2.0)
-  resize-observer-polyfill:
-    specifier: ^1.5.1
-    version: 1.5.1
-  rrweb:
-    specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13(patch_hash=e2gmypqces37eklplr5o3rvywa)
-  sass:
-    specifier: ^1.26.2
-    version: 1.56.0
-  tailwind-merge:
-    specifier: ^2.2.2
-    version: 2.2.2
-  tailwindcss:
-    specifier: ^3.4.0
-    version: 3.4.0(ts-node@10.9.1)
-  use-debounce:
-    specifier: ^9.0.3
-    version: 9.0.3(react@18.2.0)
-  use-resize-observer:
-    specifier: ^8.0.0
-    version: 8.0.0(react-dom@18.2.0)(react@18.2.0)
-  zxcvbn:
-    specifier: ^4.4.2
-    version: 4.4.2
+importers:
 
-optionalDependencies:
-  fsevents:
-    specifier: ^2.3.2
-    version: 2.3.3
+  .:
+    dependencies:
+      '@ant-design/icons':
+        specifier: ^4.7.0
+        version: 4.7.0(react-dom@18.2.0)(react@18.2.0)
+      '@babel/runtime':
+        specifier: ^7.24.0
+        version: 7.24.0
+      '@dnd-kit/core':
+        specifier: ^6.0.8
+        version: 6.0.8(react-dom@18.2.0)(react@18.2.0)
+      '@dnd-kit/modifiers':
+        specifier: ^6.0.1
+        version: 6.0.1(@dnd-kit/core@6.0.8)(react@18.2.0)
+      '@dnd-kit/sortable':
+        specifier: ^7.0.2
+        version: 7.0.2(@dnd-kit/core@6.0.8)(react@18.2.0)
+      '@dnd-kit/utilities':
+        specifier: ^3.2.1
+        version: 3.2.1(react@18.2.0)
+      '@floating-ui/react':
+        specifier: ^0.26.9
+        version: 0.26.9(react-dom@18.2.0)(react@18.2.0)
+      '@lottiefiles/react-lottie-player':
+        specifier: ^3.4.7
+        version: 3.4.7(react@18.2.0)
+      '@medv/finder':
+        specifier: ^3.1.0
+        version: 3.1.0
+      '@microlink/react-json-view':
+        specifier: ^1.21.3
+        version: 1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+      '@monaco-editor/react':
+        specifier: 4.4.6
+        version: 4.4.6(monaco-editor@0.39.0)(react-dom@18.2.0)(react@18.2.0)
+      '@posthog/icons':
+        specifier: 0.7.0
+        version: 0.7.0(react-dom@18.2.0)(react@18.2.0)
+      '@posthog/plugin-scaffold':
+        specifier: ^1.4.4
+        version: 1.4.4
+      '@react-hook/size':
+        specifier: ^2.1.2
+        version: 2.1.2(react@18.2.0)
+      '@rrweb/types':
+        specifier: 2.0.0-alpha.13
+        version: 2.0.0-alpha.13
+      '@sentry/react':
+        specifier: 7.112.1
+        version: 7.112.1(react@18.2.0)
+      '@tailwindcss/container-queries':
+        specifier: ^0.1.1
+        version: 0.1.1(tailwindcss@3.4.0)
+      '@testing-library/dom':
+        specifier: '>=7.21.4'
+        version: 8.19.0
+      '@tiptap/core':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/pm@2.1.16)
+      '@tiptap/extension-document':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)
+      '@tiptap/extension-floating-menu':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
+      '@tiptap/extension-placeholder':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
+      '@tiptap/extension-task-item':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
+      '@tiptap/extension-task-list':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)
+      '@tiptap/pm':
+        specifier: ^2.1.16
+        version: 2.1.16
+      '@tiptap/react':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)(react-dom@18.2.0)(react@18.2.0)
+      '@tiptap/starter-kit':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/pm@2.1.16)
+      '@tiptap/suggestion':
+        specifier: ^2.1.16
+        version: 2.1.16(@tiptap/core@2.1.16)(@tiptap/pm@2.1.16)
+      '@types/md5':
+        specifier: ^2.3.0
+        version: 2.3.2
+      '@types/react-transition-group':
+        specifier: ^4.4.5
+        version: 4.4.5
+      '@types/react-virtualized':
+        specifier: ^9.21.23
+        version: 9.21.26
+      ajv:
+        specifier: ^8.12.0
+        version: 8.12.0
+      algoliasearch:
+        specifier: ^4.22.1
+        version: 4.22.1
+      antd:
+        specifier: ^4.17.1
+        version: 4.17.1(react-dom@18.2.0)(react@18.2.0)
+      antd-dayjs-webpack-plugin:
+        specifier: ^1.0.6
+        version: 1.0.6(dayjs@1.11.6)
+      autoprefixer:
+        specifier: ^10.4.13
+        version: 10.4.13(postcss@8.4.31)
+      babel-preset-nano-react-app:
+        specifier: ^0.1.0
+        version: 0.1.0
+      chart.js:
+        specifier: ^3.9.1
+        version: 3.9.1
+      chartjs-adapter-dayjs-3:
+        specifier: ^1.2.3
+        version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.6)
+      chartjs-plugin-annotation:
+        specifier: 2.2.1
+        version: 2.2.1(chart.js@3.9.1)
+      chartjs-plugin-crosshair:
+        specifier: ^1.2.0
+        version: 1.2.0(chart.js@3.9.1)
+      chartjs-plugin-datalabels:
+        specifier: ^2.2.0
+        version: 2.2.0(chart.js@3.9.1)
+      chartjs-plugin-stacked100:
+        specifier: ^1.4.0
+        version: 1.4.0(chart.js@3.9.1)
+      chokidar:
+        specifier: ^3.5.3
+        version: 3.5.3
+      clsx:
+        specifier: ^1.1.1
+        version: 1.2.1
+      core-js:
+        specifier: ^3.32.0
+        version: 3.32.0
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      cssnano:
+        specifier: ^6.0.3
+        version: 6.0.3(postcss@8.4.31)
+      d3:
+        specifier: ^7.8.2
+        version: 7.8.2
+      d3-sankey:
+        specifier: ^0.12.3
+        version: 0.12.3
+      dayjs:
+        specifier: ^1.10.7
+        version: 1.11.6
+      dompurify:
+        specifier: ^3.0.6
+        version: 3.0.6
+      esbuild:
+        specifier: ^0.19.8
+        version: 0.19.8
+      esbuild-plugin-less:
+        specifier: ^1.3.1
+        version: 1.3.1(esbuild@0.19.8)
+      esbuild-sass-plugin:
+        specifier: ^3.0.0
+        version: 3.0.0(esbuild@0.19.8)
+      expr-eval:
+        specifier: ^2.0.2
+        version: 2.0.2
+      express:
+        specifier: ^4.17.1
+        version: 4.18.2
+      fast-deep-equal:
+        specifier: ^3.1.3
+        version: 3.1.3
+      fflate:
+        specifier: ^0.7.4
+        version: 0.7.4
+      fs-extra:
+        specifier: ^10.0.0
+        version: 10.1.0
+      fuse.js:
+        specifier: ^6.6.2
+        version: 6.6.2
+      heatmap.js:
+        specifier: ^2.0.5
+        version: 2.0.5(patch_hash=gydrxrztd4ruyhouu6tu7zh43e)
+      husky:
+        specifier: ^7.0.4
+        version: 7.0.4
+      image-blob-reduce:
+        specifier: ^4.1.0
+        version: 4.1.0
+      kea:
+        specifier: ^3.1.5
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: ^3.1.3
+        version: 3.1.3(kea@3.1.5)
+      kea-loaders:
+        specifier: ^3.0.0
+        version: 3.0.0(kea@3.1.5)
+      kea-localstorage:
+        specifier: ^3.1.0
+        version: 3.1.0(kea@3.1.5)
+      kea-router:
+        specifier: ^3.1.4
+        version: 3.1.4(kea@3.1.5)
+      kea-subscriptions:
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.5)
+      kea-test-utils:
+        specifier: ^0.2.4
+        version: 0.2.4(kea@3.1.5)
+      kea-waitfor:
+        specifier: ^0.2.1
+        version: 0.2.1(kea@3.1.5)
+      kea-window-values:
+        specifier: ^3.0.0
+        version: 3.0.0(kea@3.1.5)
+      maplibre-gl:
+        specifier: ^3.5.1
+        version: 3.5.1
+      md5:
+        specifier: ^2.3.0
+        version: 2.3.0
+      monaco-editor:
+        specifier: ^0.39.0
+        version: 0.39.0
+      natural-orderby:
+        specifier: ^3.0.2
+        version: 3.0.2
+      papaparse:
+        specifier: ^5.4.1
+        version: 5.4.1
+      pmtiles:
+        specifier: ^2.11.0
+        version: 2.11.0
+      postcss:
+        specifier: ^8.4.31
+        version: 8.4.31
+      postcss-preset-env:
+        specifier: ^9.3.0
+        version: 9.3.0(postcss@8.4.31)
+      posthog-js:
+        specifier: 1.138.0
+        version: 1.138.0
+      posthog-js-lite:
+        specifier: 3.0.0
+        version: 3.0.0
+      prettier:
+        specifier: ^2.8.8
+        version: 2.8.8
+      prop-types:
+        specifier: ^15.7.2
+        version: 15.8.1
+      protomaps-themes-base:
+        specifier: 2.0.0-alpha.1
+        version: 2.0.0-alpha.1
+      query-selector-shadow-dom:
+        specifier: ^1.0.0
+        version: 1.0.0
+      rc-trigger:
+        specifier: ^5.2.5
+        version: 5.3.3(react-dom@18.2.0)(react@18.2.0)
+      react:
+        specifier: ^18.2.0
+        version: 18.2.0
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.2.0(react@18.2.0)
+      react-draggable:
+        specifier: ^4.2.0
+        version: 4.4.5(react-dom@18.2.0)(react@18.2.0)
+      react-grid-layout:
+        specifier: ^1.3.0
+        version: 1.3.4(react-dom@18.2.0)(react@18.2.0)
+      react-instantsearch:
+        specifier: ^7.6.0
+        version: 7.6.0(algoliasearch@4.22.1)(react-dom@18.2.0)(react@18.2.0)
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.2.0)
+      react-markdown:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/react@17.0.52)(react@18.2.0)
+      react-modal:
+        specifier: ^3.15.1
+        version: 3.16.1(react-dom@18.2.0)(react@18.2.0)
+      react-resizable:
+        specifier: ^3.0.5
+        version: 3.0.5(react-dom@18.2.0)(react@18.2.0)
+      react-shadow:
+        specifier: ^20.3.0
+        version: 20.4.0(prop-types@15.8.1)(react-dom@18.2.0)(react@18.2.0)
+      react-syntax-highlighter:
+        specifier: ^15.5.0
+        version: 15.5.0(react@18.2.0)
+      react-textarea-autosize:
+        specifier: ^8.3.3
+        version: 8.3.4(@types/react@17.0.52)(react@18.2.0)
+      react-toastify:
+        specifier: ^8.2.0
+        version: 8.2.0(react-dom@18.2.0)(react@18.2.0)
+      react-transition-group:
+        specifier: ^4.4.5
+        version: 4.4.5(react-dom@18.2.0)(react@18.2.0)
+      react-virtualized:
+        specifier: ^9.22.5
+        version: 9.22.5(react-dom@18.2.0)(react@18.2.0)
+      resize-observer-polyfill:
+        specifier: ^1.5.1
+        version: 1.5.1
+      rrweb:
+        specifier: 2.0.0-alpha.13
+        version: 2.0.0-alpha.13(patch_hash=e2gmypqces37eklplr5o3rvywa)
+      sass:
+        specifier: ^1.26.2
+        version: 1.56.0
+      tailwind-merge:
+        specifier: ^2.2.2
+        version: 2.2.2
+      tailwindcss:
+        specifier: ^3.4.0
+        version: 3.4.0(ts-node@10.9.1)
+      use-debounce:
+        specifier: ^9.0.3
+        version: 9.0.3(react@18.2.0)
+      use-resize-observer:
+        specifier: ^8.0.0
+        version: 8.0.0(react-dom@18.2.0)(react@18.2.0)
+      zxcvbn:
+        specifier: ^4.4.2
+        version: 4.4.2
+    optionalDependencies:
+      fsevents:
+        specifier: ^2.3.2
+        version: 2.3.3
+    devDependencies:
+      '@babel/core':
+        specifier: ^7.22.10
+        version: 7.22.10
+      '@babel/plugin-proposal-class-properties':
+        specifier: ^7.18.6
+        version: 7.18.6(@babel/core@7.22.10)
+      '@babel/plugin-proposal-nullish-coalescing-operator':
+        specifier: ^7.18.6
+        version: 7.18.6(@babel/core@7.22.10)
+      '@babel/plugin-proposal-private-property-in-object':
+        specifier: ^7.21.11
+        version: 7.21.11(@babel/core@7.22.10)
+      '@babel/plugin-transform-react-jsx':
+        specifier: ^7.22.5
+        version: 7.22.5(@babel/core@7.22.10)
+      '@babel/plugin-transform-runtime':
+        specifier: ^7.22.10
+        version: 7.22.10(@babel/core@7.22.10)
+      '@babel/preset-env':
+        specifier: ^7.22.10
+        version: 7.22.10(@babel/core@7.22.10)
+      '@babel/preset-react':
+        specifier: ^7.22.5
+        version: 7.22.5(@babel/core@7.22.10)
+      '@babel/preset-typescript':
+        specifier: ^7.22.5
+        version: 7.22.5(@babel/core@7.22.10)
+      '@cypress/webpack-preprocessor':
+        specifier: ^5.17.1
+        version: 5.17.1(@babel/core@7.22.10)(@babel/preset-env@7.22.10)(babel-loader@8.3.0)(webpack@5.88.2)
+      '@playwright/test':
+        specifier: 1.41.2
+        version: 1.41.2
+      '@sentry/types':
+        specifier: 7.112.1
+        version: 7.112.1
+      '@storybook/addon-a11y':
+        specifier: ^7.6.4
+        version: 7.6.4
+      '@storybook/addon-actions':
+        specifier: ^7.6.4
+        version: 7.6.4
+      '@storybook/addon-essentials':
+        specifier: ^7.6.4
+        version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/addon-links':
+        specifier: ^7.6.4
+        version: 7.6.4(react@18.2.0)
+      '@storybook/addon-storysource':
+        specifier: ^7.6.4
+        version: 7.6.4
+      '@storybook/addons':
+        specifier: ^7.6.4
+        version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/api':
+        specifier: ^7.6.4
+        version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/blocks':
+        specifier: ^7.6.4
+        version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/components':
+        specifier: ^7.6.4
+        version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/core-events':
+        specifier: ^7.6.4
+        version: 7.6.4
+      '@storybook/csf':
+        specifier: ^0.1.2
+        version: 0.1.2
+      '@storybook/react':
+        specifier: ^7.6.4
+        version: 7.6.4(react-dom@18.2.0)(react@18.2.0)(typescript@4.9.5)
+      '@storybook/react-webpack5':
+        specifier: ^7.6.4
+        version: 7.6.4(@babel/core@7.22.10)(@swc/core@1.3.93)(esbuild@0.19.8)(react-dom@18.2.0)(react@18.2.0)(typescript@4.9.5)(webpack-cli@5.1.4)
+      '@storybook/test-runner':
+        specifier: ^0.16.0
+        version: 0.16.0(@types/node@18.11.9)(ts-node@10.9.1)
+      '@storybook/theming':
+        specifier: ^7.6.4
+        version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
+      '@storybook/types':
+        specifier: ^7.6.4
+        version: 7.6.4
+      '@sucrase/jest-plugin':
+        specifier: ^3.0.0
+        version: 3.0.0(jest@29.7.0)(sucrase@3.29.0)
+      '@testing-library/jest-dom':
+        specifier: ^5.16.2
+        version: 5.16.5
+      '@testing-library/react':
+        specifier: ^13.4.0
+        version: 13.4.0(react-dom@18.2.0)(react@18.2.0)
+      '@testing-library/react-hooks':
+        specifier: ^8.0.1
+        version: 8.0.1(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+      '@testing-library/user-event':
+        specifier: ^13.5.0
+        version: 13.5.0(@testing-library/dom@8.19.0)
+      '@types/chartjs-plugin-crosshair':
+        specifier: ^1.1.1
+        version: 1.1.1
+      '@types/clone':
+        specifier: ^2.1.1
+        version: 2.1.1
+      '@types/d3':
+        specifier: ^7.4.0
+        version: 7.4.0
+      '@types/d3-sankey':
+        specifier: ^0.12.1
+        version: 0.12.1
+      '@types/dompurify':
+        specifier: ^3.0.3
+        version: 3.0.3
+      '@types/heatmap.js':
+        specifier: ^2.0.41
+        version: 2.0.41
+      '@types/image-blob-reduce':
+        specifier: ^4.1.1
+        version: 4.1.1
+      '@types/jest':
+        specifier: ^29.5.12
+        version: 29.5.12
+      '@types/jest-image-snapshot':
+        specifier: ^6.1.0
+        version: 6.1.0
+      '@types/node':
+        specifier: ^18.11.9
+        version: 18.11.9
+      '@types/papaparse':
+        specifier: ^5.3.8
+        version: 5.3.8
+      '@types/pixelmatch':
+        specifier: ^5.2.4
+        version: 5.2.4
+      '@types/pngjs':
+        specifier: ^6.0.1
+        version: 6.0.1
+      '@types/query-selector-shadow-dom':
+        specifier: ^1.0.0
+        version: 1.0.0
+      '@types/react':
+        specifier: ^17.0.39
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: ^18.2.8
+        version: 18.2.14
+      '@types/react-grid-layout':
+        specifier: ^1.1.2
+        version: 1.3.2
+      '@types/react-modal':
+        specifier: ^3.13.1
+        version: 3.13.1
+      '@types/react-resizable':
+        specifier: ^3.0.4
+        version: 3.0.4
+      '@types/react-syntax-highlighter':
+        specifier: ^15.5.7
+        version: 15.5.7
+      '@types/testing-library__jest-dom':
+        specifier: ^5.14.5
+        version: 5.14.5
+      '@types/zxcvbn':
+        specifier: ^4.4.0
+        version: 4.4.1
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^7.1.1
+        version: 7.1.1(@typescript-eslint/parser@7.1.1)(eslint@8.52.0)(typescript@4.9.5)
+      '@typescript-eslint/parser':
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@8.52.0)(typescript@4.9.5)
+      axe-core:
+        specifier: ^4.4.3
+        version: 4.5.1
+      babel-loader:
+        specifier: ^8.0.6
+        version: 8.3.0(@babel/core@7.22.10)(webpack@5.88.2)
+      babel-plugin-import:
+        specifier: ^1.13.0
+        version: 1.13.8
+      concurrently:
+        specifier: ^5.3.0
+        version: 5.3.0
+      css-loader:
+        specifier: ^3.4.2
+        version: 3.6.0(webpack@5.88.2)
+      cypress:
+        specifier: ^13.3.0
+        version: 13.3.0
+      cypress-axe:
+        specifier: ^1.5.0
+        version: 1.5.0(axe-core@4.5.1)(cypress@13.3.0)
+      cypress-terminal-report:
+        specifier: ^5.3.7
+        version: 5.3.7(cypress@13.3.0)
+      esbuild-visualizer:
+        specifier: ^0.6.0
+        version: 0.6.0
+      eslint:
+        specifier: ^8.52.0
+        version: 8.52.0
+      eslint-config-prettier:
+        specifier: ^9.1.0
+        version: 9.1.0(eslint@8.52.0)
+      eslint-plugin-compat:
+        specifier: ^4.2.0
+        version: 4.2.0(eslint@8.52.0)
+      eslint-plugin-cypress:
+        specifier: ^2.15.1
+        version: 2.15.1(eslint@8.52.0)
+      eslint-plugin-eslint-comments:
+        specifier: ^3.2.0
+        version: 3.2.0(eslint@8.52.0)
+      eslint-plugin-import:
+        specifier: ^2.29.0
+        version: 2.29.0(@typescript-eslint/parser@7.1.1)(eslint@8.52.0)
+      eslint-plugin-jest:
+        specifier: ^27.4.3
+        version: 27.4.3(@typescript-eslint/eslint-plugin@7.1.1)(eslint@8.52.0)(jest@29.7.0)(typescript@4.9.5)
+      eslint-plugin-no-only-tests:
+        specifier: ^3.1.0
+        version: 3.1.0
+      eslint-plugin-posthog:
+        specifier: link:./eslint-rules
+        version: link:eslint-rules
+      eslint-plugin-react:
+        specifier: ^7.33.2
+        version: 7.33.2(eslint@8.52.0)
+      eslint-plugin-simple-import-sort:
+        specifier: ^10.0.0
+        version: 10.0.0(eslint@8.52.0)
+      eslint-plugin-storybook:
+        specifier: ^0.6.15
+        version: 0.6.15(eslint@8.52.0)(typescript@4.9.5)
+      eslint-plugin-unused-imports:
+        specifier: ^3.1.0
+        version: 3.1.0(@typescript-eslint/eslint-plugin@7.1.1)(eslint@8.52.0)
+      file-loader:
+        specifier: ^6.1.0
+        version: 6.2.0(webpack@5.88.2)
+      givens:
+        specifier: ^1.3.6
+        version: 1.3.9
+      history:
+        specifier: ^5.0.1
+        version: 5.3.0
+      html-webpack-harddisk-plugin:
+        specifier: ^2.0.0
+        version: 2.0.0(html-webpack-plugin@5.5.3)(webpack@5.88.2)
+      html-webpack-plugin:
+        specifier: ^5.5.3
+        version: 5.5.3(webpack@5.88.2)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@18.11.9)(ts-node@10.9.1)
+      jest-canvas-mock:
+        specifier: ^2.4.0
+        version: 2.4.0
+      jest-environment-jsdom:
+        specifier: ^29.3.1
+        version: 29.3.1
+      jest-image-snapshot:
+        specifier: ^6.1.0
+        version: 6.1.0(jest@29.7.0)
+      kea-typegen:
+        specifier: ^3.3.0
+        version: 3.3.0(typescript@4.9.5)
+      less:
+        specifier: ^3.12.2
+        version: 3.13.1
+      less-loader:
+        specifier: ^7.0.2
+        version: 7.3.0(less@3.13.1)(webpack@5.88.2)
+      lint-staged:
+        specifier: ~10.2.13
+        version: 10.2.13
+      mockdate:
+        specifier: ^3.0.5
+        version: 3.0.5
+      monaco-editor-webpack-plugin:
+        specifier: ^7.0.1
+        version: 7.0.1(monaco-editor@0.39.0)(webpack@5.88.2)
+      msw:
+        specifier: ^0.49.0
+        version: 0.49.0(typescript@4.9.5)
+      path-browserify:
+        specifier: ^1.0.1
+        version: 1.0.1
+      pixelmatch:
+        specifier: ^5.3.0
+        version: 5.3.0
+      pngjs:
+        specifier: ^6.0.0
+        version: 6.0.0
+      postcss-loader:
+        specifier: ^4.3.0
+        version: 4.3.0(postcss@8.4.31)(webpack@5.88.2)
+      process:
+        specifier: ^0.11.10
+        version: 0.11.10
+      raw-loader:
+        specifier: ^4.0.2
+        version: 4.0.2(webpack@5.88.2)
+      redis:
+        specifier: ^4.6.13
+        version: 4.6.13
+      safe-stable-stringify:
+        specifier: ^2.4.3
+        version: 2.4.3
+      sass-loader:
+        specifier: ^10.0.1
+        version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
+      storybook:
+        specifier: ^7.6.4
+        version: 7.6.4
+      storybook-addon-pseudo-states:
+        specifier: 2.1.2
+        version: 2.1.2(@storybook/components@7.6.4)(@storybook/core-events@7.6.4)(@storybook/manager-api@7.6.19)(@storybook/preview-api@7.6.19)(@storybook/theming@7.6.4)(react-dom@18.2.0)(react@18.2.0)
+      style-loader:
+        specifier: ^2.0.0
+        version: 2.0.0(webpack@5.88.2)
+      stylelint:
+        specifier: ^15.11.0
+        version: 15.11.0(typescript@4.9.5)
+      stylelint-config-recess-order:
+        specifier: ^4.3.0
+        version: 4.3.0(stylelint@15.11.0)
+      stylelint-config-standard-scss:
+        specifier: ^11.1.0
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0)
+      stylelint-order:
+        specifier: ^6.0.3
+        version: 6.0.3(stylelint@15.11.0)
+      sucrase:
+        specifier: ^3.29.0
+        version: 3.29.0
+      timekeeper:
+        specifier: ^2.2.0
+        version: 2.2.0
+      ts-json-schema-generator:
+        specifier: ^1.5.0
+        version: 1.5.0
+      ts-node:
+        specifier: ^10.9.1
+        version: 10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5)
+      typescript:
+        specifier: ~4.9.5
+        version: 4.9.5
+      webpack:
+        specifier: ^5.88.2
+        version: 5.88.2(@swc/core@1.3.93)(esbuild@0.19.8)(webpack-cli@5.1.4)
+      webpack-cli:
+        specifier: ^5.1.4
+        version: 5.1.4(webpack@5.88.2)
+      whatwg-fetch:
+        specifier: ^3.6.2
+        version: 3.6.2
 
-devDependencies:
-  '@babel/core':
-    specifier: ^7.22.10
-    version: 7.22.10
-  '@babel/plugin-proposal-class-properties':
-    specifier: ^7.18.6
-    version: 7.18.6(@babel/core@7.22.10)
-  '@babel/plugin-proposal-nullish-coalescing-operator':
-    specifier: ^7.18.6
-    version: 7.18.6(@babel/core@7.22.10)
-  '@babel/plugin-proposal-private-property-in-object':
-    specifier: ^7.21.11
-    version: 7.21.11(@babel/core@7.22.10)
-  '@babel/plugin-transform-react-jsx':
-    specifier: ^7.22.5
-    version: 7.22.5(@babel/core@7.22.10)
-  '@babel/plugin-transform-runtime':
-    specifier: ^7.22.10
-    version: 7.22.10(@babel/core@7.22.10)
-  '@babel/preset-env':
-    specifier: ^7.22.10
-    version: 7.22.10(@babel/core@7.22.10)
-  '@babel/preset-react':
-    specifier: ^7.22.5
-    version: 7.22.5(@babel/core@7.22.10)
-  '@babel/preset-typescript':
-    specifier: ^7.22.5
-    version: 7.22.5(@babel/core@7.22.10)
-  '@cypress/webpack-preprocessor':
-    specifier: ^5.17.1
-    version: 5.17.1(@babel/core@7.22.10)(@babel/preset-env@7.22.10)(babel-loader@8.3.0)(webpack@5.88.2)
-  '@playwright/test':
-    specifier: 1.41.2
-    version: 1.41.2
-  '@sentry/types':
-    specifier: 7.112.1
-    version: 7.112.1
-  '@storybook/addon-a11y':
-    specifier: ^7.6.4
-    version: 7.6.4
-  '@storybook/addon-actions':
-    specifier: ^7.6.4
-    version: 7.6.4
-  '@storybook/addon-essentials':
-    specifier: ^7.6.4
-    version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/addon-links':
-    specifier: ^7.6.4
-    version: 7.6.4(react@18.2.0)
-  '@storybook/addon-storysource':
-    specifier: ^7.6.4
-    version: 7.6.4
-  '@storybook/addons':
-    specifier: ^7.6.4
-    version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/api':
-    specifier: ^7.6.4
-    version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/blocks':
-    specifier: ^7.6.4
-    version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/components':
-    specifier: ^7.6.4
-    version: 7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/core-events':
-    specifier: ^7.6.4
-    version: 7.6.4
-  '@storybook/csf':
-    specifier: ^0.1.2
-    version: 0.1.2
-  '@storybook/react':
-    specifier: ^7.6.4
-    version: 7.6.4(react-dom@18.2.0)(react@18.2.0)(typescript@4.9.5)
-  '@storybook/react-webpack5':
-    specifier: ^7.6.4
-    version: 7.6.4(@babel/core@7.22.10)(@swc/core@1.3.93)(esbuild@0.19.8)(react-dom@18.2.0)(react@18.2.0)(typescript@4.9.5)(webpack-cli@5.1.4)
-  '@storybook/test-runner':
-    specifier: ^0.16.0
-    version: 0.16.0(@types/node@18.11.9)(ts-node@10.9.1)
-  '@storybook/theming':
-    specifier: ^7.6.4
-    version: 7.6.4(react-dom@18.2.0)(react@18.2.0)
-  '@storybook/types':
-    specifier: ^7.6.4
-    version: 7.6.4
-  '@sucrase/jest-plugin':
-    specifier: ^3.0.0
-    version: 3.0.0(jest@29.7.0)(sucrase@3.29.0)
-  '@testing-library/jest-dom':
-    specifier: ^5.16.2
-    version: 5.16.5
-  '@testing-library/react':
-    specifier: ^13.4.0
-    version: 13.4.0(react-dom@18.2.0)(react@18.2.0)
-  '@testing-library/react-hooks':
-    specifier: ^8.0.1
-    version: 8.0.1(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
-  '@testing-library/user-event':
-    specifier: ^13.5.0
-    version: 13.5.0(@testing-library/dom@8.19.0)
-  '@types/chartjs-plugin-crosshair':
-    specifier: ^1.1.1
-    version: 1.1.1
-  '@types/clone':
-    specifier: ^2.1.1
-    version: 2.1.1
-  '@types/d3':
-    specifier: ^7.4.0
-    version: 7.4.0
-  '@types/d3-sankey':
-    specifier: ^0.12.1
-    version: 0.12.1
-  '@types/dompurify':
-    specifier: ^3.0.3
-    version: 3.0.3
-  '@types/heatmap.js':
-    specifier: ^2.0.41
-    version: 2.0.41
-  '@types/image-blob-reduce':
-    specifier: ^4.1.1
-    version: 4.1.1
-  '@types/jest':
-    specifier: ^29.5.12
-    version: 29.5.12
-  '@types/jest-image-snapshot':
-    specifier: ^6.1.0
-    version: 6.1.0
-  '@types/node':
-    specifier: ^18.11.9
-    version: 18.11.9
-  '@types/papaparse':
-    specifier: ^5.3.8
-    version: 5.3.8
-  '@types/pixelmatch':
-    specifier: ^5.2.4
-    version: 5.2.4
-  '@types/pngjs':
-    specifier: ^6.0.1
-    version: 6.0.1
-  '@types/query-selector-shadow-dom':
-    specifier: ^1.0.0
-    version: 1.0.0
-  '@types/react':
-    specifier: ^17.0.39
-    version: 17.0.52
-  '@types/react-dom':
-    specifier: ^18.2.8
-    version: 18.2.14
-  '@types/react-grid-layout':
-    specifier: ^1.1.2
-    version: 1.3.2
-  '@types/react-modal':
-    specifier: ^3.13.1
-    version: 3.13.1
-  '@types/react-resizable':
-    specifier: ^3.0.4
-    version: 3.0.4
-  '@types/react-syntax-highlighter':
-    specifier: ^15.5.7
-    version: 15.5.7
-  '@types/testing-library__jest-dom':
-    specifier: ^5.14.5
-    version: 5.14.5
-  '@types/zxcvbn':
-    specifier: ^4.4.0
-    version: 4.4.1
-  '@typescript-eslint/eslint-plugin':
-    specifier: ^7.1.1
-    version: 7.1.1(@typescript-eslint/parser@7.1.1)(eslint@8.52.0)(typescript@4.9.5)
-  '@typescript-eslint/parser':
-    specifier: ^7.1.1
-    version: 7.1.1(eslint@8.52.0)(typescript@4.9.5)
-  axe-core:
-    specifier: ^4.4.3
-    version: 4.5.1
-  babel-loader:
-    specifier: ^8.0.6
-    version: 8.3.0(@babel/core@7.22.10)(webpack@5.88.2)
-  babel-plugin-import:
-    specifier: ^1.13.0
-    version: 1.13.8
-  concurrently:
-    specifier: ^5.3.0
-    version: 5.3.0
-  css-loader:
-    specifier: ^3.4.2
-    version: 3.6.0(webpack@5.88.2)
-  cypress:
-    specifier: ^13.3.0
-    version: 13.3.0
-  cypress-axe:
-    specifier: ^1.5.0
-    version: 1.5.0(axe-core@4.5.1)(cypress@13.3.0)
-  cypress-terminal-report:
-    specifier: ^5.3.7
-    version: 5.3.7(cypress@13.3.0)
-  esbuild-visualizer:
-    specifier: ^0.6.0
-    version: 0.6.0
-  eslint:
-    specifier: ^8.52.0
-    version: 8.52.0
-  eslint-config-prettier:
-    specifier: ^9.1.0
-    version: 9.1.0(eslint@8.52.0)
-  eslint-plugin-compat:
-    specifier: ^4.2.0
-    version: 4.2.0(eslint@8.52.0)
-  eslint-plugin-cypress:
-    specifier: ^2.15.1
-    version: 2.15.1(eslint@8.52.0)
-  eslint-plugin-eslint-comments:
-    specifier: ^3.2.0
-    version: 3.2.0(eslint@8.52.0)
-  eslint-plugin-import:
-    specifier: ^2.29.0
-    version: 2.29.0(@typescript-eslint/parser@7.1.1)(eslint@8.52.0)
-  eslint-plugin-jest:
-    specifier: ^27.4.3
-    version: 27.4.3(@typescript-eslint/eslint-plugin@7.1.1)(eslint@8.52.0)(jest@29.7.0)(typescript@4.9.5)
-  eslint-plugin-no-only-tests:
-    specifier: ^3.1.0
-    version: 3.1.0
-  eslint-plugin-posthog:
-    specifier: link:./eslint-rules
-    version: link:eslint-rules
-  eslint-plugin-react:
-    specifier: ^7.33.2
-    version: 7.33.2(eslint@8.52.0)
-  eslint-plugin-simple-import-sort:
-    specifier: ^10.0.0
-    version: 10.0.0(eslint@8.52.0)
-  eslint-plugin-storybook:
-    specifier: ^0.6.15
-    version: 0.6.15(eslint@8.52.0)(typescript@4.9.5)
-  eslint-plugin-unused-imports:
-    specifier: ^3.1.0
-    version: 3.1.0(@typescript-eslint/eslint-plugin@7.1.1)(eslint@8.52.0)
-  file-loader:
-    specifier: ^6.1.0
-    version: 6.2.0(webpack@5.88.2)
-  givens:
-    specifier: ^1.3.6
-    version: 1.3.9
-  history:
-    specifier: ^5.0.1
-    version: 5.3.0
-  html-webpack-harddisk-plugin:
-    specifier: ^2.0.0
-    version: 2.0.0(html-webpack-plugin@5.5.3)(webpack@5.88.2)
-  html-webpack-plugin:
-    specifier: ^5.5.3
-    version: 5.5.3(webpack@5.88.2)
-  jest:
-    specifier: ^29.7.0
-    version: 29.7.0(@types/node@18.11.9)(ts-node@10.9.1)
-  jest-canvas-mock:
-    specifier: ^2.4.0
-    version: 2.4.0
-  jest-environment-jsdom:
-    specifier: ^29.3.1
-    version: 29.3.1
-  jest-image-snapshot:
-    specifier: ^6.1.0
-    version: 6.1.0(jest@29.7.0)
-  kea-typegen:
-    specifier: ^3.3.0
-    version: 3.3.0(typescript@4.9.5)
-  less:
-    specifier: ^3.12.2
-    version: 3.13.1
-  less-loader:
-    specifier: ^7.0.2
-    version: 7.3.0(less@3.13.1)(webpack@5.88.2)
-  lint-staged:
-    specifier: ~10.2.13
-    version: 10.2.13
-  mockdate:
-    specifier: ^3.0.5
-    version: 3.0.5
-  monaco-editor-webpack-plugin:
-    specifier: ^7.0.1
-    version: 7.0.1(monaco-editor@0.39.0)(webpack@5.88.2)
-  msw:
-    specifier: ^0.49.0
-    version: 0.49.0(typescript@4.9.5)
-  path-browserify:
-    specifier: ^1.0.1
-    version: 1.0.1
-  pixelmatch:
-    specifier: ^5.3.0
-    version: 5.3.0
-  pngjs:
-    specifier: ^6.0.0
-    version: 6.0.0
-  postcss-loader:
-    specifier: ^4.3.0
-    version: 4.3.0(postcss@8.4.31)(webpack@5.88.2)
-  process:
-    specifier: ^0.11.10
-    version: 0.11.10
-  raw-loader:
-    specifier: ^4.0.2
-    version: 4.0.2(webpack@5.88.2)
-  redis:
-    specifier: ^4.6.13
-    version: 4.6.13
-  safe-stable-stringify:
-    specifier: ^2.4.3
-    version: 2.4.3
-  sass-loader:
-    specifier: ^10.0.1
-    version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
-  storybook:
-    specifier: ^7.6.4
-    version: 7.6.4
-  storybook-addon-pseudo-states:
-    specifier: 2.1.2
-    version: 2.1.2(@storybook/components@7.6.4)(@storybook/core-events@7.6.4)(@storybook/manager-api@7.6.19)(@storybook/preview-api@7.6.19)(@storybook/theming@7.6.4)(react-dom@18.2.0)(react@18.2.0)
-  style-loader:
-    specifier: ^2.0.0
-    version: 2.0.0(webpack@5.88.2)
-  stylelint:
-    specifier: ^15.11.0
-    version: 15.11.0(typescript@4.9.5)
-  stylelint-config-recess-order:
-    specifier: ^4.3.0
-    version: 4.3.0(stylelint@15.11.0)
-  stylelint-config-standard-scss:
-    specifier: ^11.1.0
-    version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0)
-  stylelint-order:
-    specifier: ^6.0.3
-    version: 6.0.3(stylelint@15.11.0)
-  sucrase:
-    specifier: ^3.29.0
-    version: 3.29.0
-  timekeeper:
-    specifier: ^2.2.0
-    version: 2.2.0
-  ts-json-schema-generator:
-    specifier: ^1.5.0
-    version: 1.5.0
-  ts-node:
-    specifier: ^10.9.1
-    version: 10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5)
-  typescript:
-    specifier: ~4.9.5
-    version: 4.9.5
-  webpack:
-    specifier: ^5.88.2
-    version: 5.88.2(@swc/core@1.3.93)(esbuild@0.19.8)(webpack-cli@5.1.4)
-  webpack-cli:
-    specifier: ^5.1.4
-    version: 5.1.4(webpack@5.88.2)
-  whatwg-fetch:
-    specifier: ^3.6.2
-    version: 3.6.2
+  hogvm/typescript:
+    devDependencies:
+      '@swc-node/register':
+        specifier: ^1.9.1
+        version: 1.9.1(@swc/core@1.5.7)(@swc/types@0.1.7)(typescript@5.4.5)
+      '@swc/core':
+        specifier: ^1.5.7
+        version: 1.5.7
+      '@swc/jest':
+        specifier: ^0.2.36
+        version: 0.2.36(@swc/core@1.5.7)
+      jest:
+        specifier: ^28.1.1
+        version: 28.1.1(@types/node@18.11.9)(ts-node@10.9.1)
+      prettier:
+        specifier: ^3.2.5
+        version: 3.2.5
+      typescript:
+        specifier: ^5.4.5
+        version: 5.4.5
+
+  plugin-server:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.315.0
+        version: 3.315.0
+      '@aws-sdk/lib-storage':
+        specifier: ^3.315.0
+        version: 3.315.0(@aws-sdk/abort-controller@3.374.0)(@aws-sdk/client-s3@3.315.0)
+      '@babel/core':
+        specifier: ^7.18.10
+        version: 7.22.10
+      '@babel/plugin-transform-react-jsx':
+        specifier: ^7.18.10
+        version: 7.22.5(@babel/core@7.22.10)
+      '@babel/preset-env':
+        specifier: ^7.18.10
+        version: 7.22.10(@babel/core@7.22.10)
+      '@babel/preset-typescript':
+        specifier: ^7.18.6
+        version: 7.22.5(@babel/core@7.22.10)
+      '@babel/standalone':
+        specifier: ^7.18.12
+        version: 7.18.12
+      '@google-cloud/pubsub':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@google-cloud/storage':
+        specifier: ^5.8.5
+        version: 5.8.5
+      '@maxmind/geoip2-node':
+        specifier: ^3.4.0
+        version: 3.5.0
+      '@posthog/clickhouse':
+        specifier: ^1.7.0
+        version: 1.7.0
+      '@posthog/hogvm':
+        specifier: workspace:~*
+        version: link:../hogvm/typescript
+      '@posthog/plugin-scaffold':
+        specifier: 1.4.4
+        version: 1.4.4
+      '@sentry/node':
+        specifier: ^7.49.0
+        version: 7.49.0
+      '@sentry/profiling-node':
+        specifier: ^0.3.0
+        version: 0.3.0
+      '@sentry/tracing':
+        specifier: ^7.17.4
+        version: 7.17.4
+      '@sentry/utils':
+        specifier: ^7.17.4
+        version: 7.17.4
+      '@types/lru-cache':
+        specifier: ^5.1.0
+        version: 5.1.0
+      '@types/tail':
+        specifier: ^2.2.1
+        version: 2.2.1
+      asn1.js:
+        specifier: ^5.4.1
+        version: 5.4.1
+      aws-sdk:
+        specifier: ^2.927.0
+        version: 2.927.0
+      escape-string-regexp:
+        specifier: ^4.0.0
+        version: 4.0.0
+      express:
+        specifier: ^4.18.2
+        version: 4.18.2
+      faker:
+        specifier: ^5.5.3
+        version: 5.5.3
+      fast-deep-equal:
+        specifier: ^3.1.3
+        version: 3.1.3
+      generic-pool:
+        specifier: ^3.7.1
+        version: 3.9.0
+      graphile-worker:
+        specifier: 0.13.0
+        version: 0.13.0
+      ioredis:
+        specifier: ^4.27.6
+        version: 4.27.6
+      ipaddr.js:
+        specifier: ^2.1.0
+        version: 2.1.0
+      kafkajs:
+        specifier: ^2.2.0
+        version: 2.2.0
+      kafkajs-snappy:
+        specifier: ^1.1.0
+        version: 1.1.0
+      lru-cache:
+        specifier: ^6.0.0
+        version: 6.0.0
+      luxon:
+        specifier: ^1.27.0
+        version: 1.27.0
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.7
+      node-rdkafka:
+        specifier: ^2.17.0
+        version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+      node-schedule:
+        specifier: ^2.1.0
+        version: 2.1.0
+      pg:
+        specifier: ^8.6.0
+        version: 8.6.0
+      pino:
+        specifier: ^8.6.0
+        version: 8.6.0
+      posthog-node:
+        specifier: 2.0.2
+        version: 2.0.2
+      pretty-bytes:
+        specifier: ^5.6.0
+        version: 5.6.0
+      prom-client:
+        specifier: ^14.2.0
+        version: 14.2.0
+      re2:
+        specifier: ^1.20.3
+        version: 1.20.3
+      safe-stable-stringify:
+        specifier: ^2.4.0
+        version: 2.4.3
+      tail:
+        specifier: ^2.2.6
+        version: 2.2.6
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+      v8-profiler-next:
+        specifier: ^1.9.0
+        version: 1.9.0
+      vm2:
+        specifier: 3.9.18
+        version: 3.9.18
+    devDependencies:
+      0x:
+        specifier: ^5.5.0
+        version: 5.5.0
+      '@babel/cli':
+        specifier: ^7.18.10
+        version: 7.18.10(@babel/core@7.22.10)
+      '@babel/types':
+        specifier: ^7.20.2
+        version: 7.23.0
+      '@sentry/types':
+        specifier: ^7.17.4
+        version: 7.112.1
+      '@swc-node/register':
+        specifier: ^1.5.1
+        version: 1.9.1(@swc/core@1.5.7)(@swc/types@0.1.7)(typescript@4.9.5)
+      '@swc/core':
+        specifier: ^1.2.186
+        version: 1.5.7
+      '@swc/jest':
+        specifier: ^0.2.21
+        version: 0.2.36(@swc/core@1.5.7)
+      '@types/adm-zip':
+        specifier: ^0.4.34
+        version: 0.4.34
+      '@types/babel__core':
+        specifier: ^7.1.19
+        version: 7.20.5
+      '@types/babel__standalone':
+        specifier: ^7.1.4
+        version: 7.1.4
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
+      '@types/faker':
+        specifier: ^5.5.7
+        version: 5.5.7
+      '@types/generic-pool':
+        specifier: ^3.1.9
+        version: 3.1.9
+      '@types/ioredis':
+        specifier: ^4.26.4
+        version: 4.26.4
+      '@types/jest':
+        specifier: ^28.1.1
+        version: 28.1.1
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.0
+      '@types/luxon':
+        specifier: ^1.27.0
+        version: 1.27.0
+      '@types/node':
+        specifier: ^16.0.0
+        version: 16.0.0
+      '@types/node-fetch':
+        specifier: ^2.5.10
+        version: 2.6.4
+      '@types/node-schedule':
+        specifier: ^2.1.0
+        version: 2.1.0
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.0
+      '@types/redlock':
+        specifier: ^4.0.1
+        version: 4.0.1
+      '@types/snowflake-sdk':
+        specifier: ^1.5.1
+        version: 1.5.1
+      '@types/tar-stream':
+        specifier: ^2.2.0
+        version: 2.2.0
+      '@types/uuid':
+        specifier: ^9.0.1
+        version: 9.0.7
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^7.1.1
+        version: 7.1.1(@typescript-eslint/parser@7.1.1)(eslint@8.53.0)(typescript@4.9.5)
+      '@typescript-eslint/parser':
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@8.53.0)(typescript@4.9.5)
+      babel-eslint:
+        specifier: ^10.1.0
+        version: 10.1.0(eslint@8.53.0)
+      c8:
+        specifier: ^7.12.0
+        version: 7.12.0
+      deepmerge:
+        specifier: ^4.2.2
+        version: 4.2.2
+      eslint:
+        specifier: ^8.53.0
+        version: 8.53.0
+      eslint-config-prettier:
+        specifier: ^9.1.0
+        version: 9.1.0(eslint@8.53.0)
+      eslint-plugin-eslint-comments:
+        specifier: ^3.2.0
+        version: 3.2.0(eslint@8.53.0)
+      eslint-plugin-import:
+        specifier: ^2.29.0
+        version: 2.29.0(@typescript-eslint/parser@7.1.1)(eslint@8.53.0)
+      eslint-plugin-no-only-tests:
+        specifier: ^3.1.0
+        version: 3.1.0
+      eslint-plugin-node:
+        specifier: ^11.1.0
+        version: 11.1.0(eslint@8.53.0)
+      eslint-plugin-promise:
+        specifier: ^6.1.1
+        version: 6.1.1(eslint@8.53.0)
+      eslint-plugin-simple-import-sort:
+        specifier: ^7.0.0
+        version: 7.0.0(eslint@8.53.0)
+      jest:
+        specifier: ^28.1.1
+        version: 28.1.1(@types/node@16.0.0)(ts-node@10.9.1)
+      nodemon:
+        specifier: ^2.0.22
+        version: 2.0.22
+      parse-prometheus-text-format:
+        specifier: ^1.1.1
+        version: 1.1.1
+      pino-pretty:
+        specifier: ^9.1.0
+        version: 9.1.0
+      prettier:
+        specifier: ^2.8.8
+        version: 2.8.8
+      ts-node:
+        specifier: ^10.9.1
+        version: 10.9.1(@swc/core@1.5.7)(@types/node@16.0.0)(typescript@4.9.5)
+      typescript:
+        specifier: ^4.7.4
+        version: 4.9.5
 
 packages:
 
@@ -5766,7 +6068,6 @@ packages:
       jest-mock: 29.7.0
     dev: true
 
-<<<<<<< HEAD
   /@jest/expect-utils@28.1.3:
     resolution: {integrity: sha512-wvbi9LUrHJLn3NlDW6wF2hvIMtd4JUl2QNVrjq+IBSHirgfrR3o9RnVtxzdEGO2n9JyIWwHnLfby5KzqBGg2YA==}
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
@@ -5781,8 +6082,6 @@ packages:
       jest-get-type: 29.6.3
     dev: true
 
-=======
->>>>>>> master
   /@jest/expect-utils@29.7.0:
     resolution: {integrity: sha512-GlsNBWiFQFCVi9QVSx7f5AgMeLxe9YCCs5PuP2O2LdjDAA8Jh9eX7lA1Jq/xdXw3Wb3hyvlFNfZIfcRetSzYcA==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -9806,8 +10105,8 @@ packages:
   /@types/jest@29.5.12:
     resolution: {integrity: sha512-eDC8bTvT/QhYdxJAulQikueigY5AsdBRH2yDKW3yveW7svY3+DzN84/2NUgkw10RTiJbWqZrTtoGVdYlvFJdLw==}
     dependencies:
-      expect: 29.7.0
-      pretty-format: 29.7.0
+      expect: 29.3.1
+      pretty-format: 29.3.1
     dev: true
 
   /@types/js-levenshtein@1.1.1:
@@ -13997,7 +14296,6 @@ packages:
     resolution: {integrity: sha512-gxtyfqMg7GKyhQmb056K7M3xszy/myH8w+B4RT+QXBQsvAOdc3XymqDDPHx1BgPgsdAA5SIifona89YtRATDzw==}
     dev: false
 
-<<<<<<< HEAD
   /diff-sequences@27.5.1:
     resolution: {integrity: sha512-k1gCAXAsNgLwEL+Y8Wvl+M6oEFj5bgazfZULpS5CneoPPXRaCCW7dm+q21Ky2VEE5X+VeRDBVg1Pcvvsr4TtNQ==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -14008,8 +14306,6 @@ packages:
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
     dev: true
 
-=======
->>>>>>> master
   /diff-sequences@29.6.3:
     resolution: {integrity: sha512-EjePK1srD3P08o2j4f0ExnylqRs5B9tJjcp9t1krH2qRi8CCdsYfwe9JgSLurFBWwq4uOlipzfk5fHNvwFKr8Q==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -15295,7 +15591,6 @@ packages:
     resolution: {integrity: sha512-+kn8561vHAY+dt+0gMqqj1oY+g5xWrsuGMk4QGxotT2WS545nVqqjs37z6hrYfIuucwqthzwJfCJUEYqixyljg==}
     dev: true
 
-<<<<<<< HEAD
   /expect@28.1.3:
     resolution: {integrity: sha512-eEh0xn8HlsuOBxFgIss+2mX85VAS4Qy3OSkjV7rlBWljtA4oWH37glVGyOZSZvErDT/yBywZdPGwCXuTvSG85g==}
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
@@ -15318,8 +15613,6 @@ packages:
       jest-util: 29.3.1
     dev: true
 
-=======
->>>>>>> master
   /expect@29.7.0:
     resolution: {integrity: sha512-2Zks0hf1VLFYI1kbh0I5jP3KHHyCHpkfyHBzsSXRFgl/Bg9mWYfMW8oD+PdMPlEwy5HNsR9JutYy6pMeOh61nw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -17075,7 +17368,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.21.0
+      preact: 10.22.0
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -18029,7 +18322,6 @@ packages:
       - supports-color
     dev: true
 
-<<<<<<< HEAD
   /jest-diff@27.5.1:
     resolution: {integrity: sha512-m0NvkX55LDt9T4mctTEgnZk3fmEg3NRYutvMPWM/0iPnkFj2wIeF45O1718cMSOFO1vINkqmxqD8vE37uTEbqw==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -18050,8 +18342,6 @@ packages:
       pretty-format: 28.1.3
     dev: true
 
-=======
->>>>>>> master
   /jest-diff@29.7.0:
     resolution: {integrity: sha512-LMIgiIrhigmPrs03JHpxUh2yISK3vLFPkAodPeo0+BuF7wA2FoQbkEg1u8gBYBThncu7e1oEDUfIXVuTqLRUjw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -18145,7 +18435,6 @@ packages:
       jest-util: 29.7.0
     dev: true
 
-<<<<<<< HEAD
   /jest-get-type@27.5.1:
     resolution: {integrity: sha512-2KY95ksYSaK7DMBWQn6dQz3kqAf3BB64y2udeG+hv4KfSOb9qwcYQstTJc1KCbsix+wLZWZYN8t7nwX3GOBLRw==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -18161,8 +18450,6 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dev: true
 
-=======
->>>>>>> master
   /jest-get-type@29.6.3:
     resolution: {integrity: sha512-zrteXnqYxfQh7l5FHyL38jL39di8H8rHoecLH3JNxH3BwOrBsNeabdap5e0I23lD4HHI8W5VFBZqG4Eaq5LNcw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -18250,7 +18537,6 @@ packages:
       pretty-format: 29.7.0
     dev: true
 
-<<<<<<< HEAD
   /jest-matcher-utils@27.5.1:
     resolution: {integrity: sha512-z2uTx/T6LBaCoNWNFWwChLBKYxTMcGBRjAt+2SbP929/Fflb9aa5LGma654Rz8z9HLxsrUaYzxE9T/EFIL/PAw==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
@@ -18281,8 +18567,6 @@ packages:
       pretty-format: 29.7.0
     dev: true
 
-=======
->>>>>>> master
   /jest-matcher-utils@29.7.0:
     resolution: {integrity: sha512-sBkD+Xi9DtcChsI3L3u0+N0opgPYnCRPtGcQYrgXmR+hmt/fYfWAL0xRXYU8eWOdfuLgBe0YCW3AFtnRLagq/g==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -22233,7 +22517,7 @@ packages:
     resolution: {integrity: sha512-Pmvt5KmYPT3Je0auBq3Q3YSvHkPHUiW8Iy1UwS8mN/bQS19u8ls1UoMe6yiGijvnvHYmORjkMu6RYbmlTiKFZg==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.21.0
+      preact: 10.22.0
     dev: false
 
   /posthog-node@2.0.2:
@@ -22247,8 +22531,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.21.0:
-    resolution: {integrity: sha512-aQAIxtzWEwH8ou+OovWVSVNlFImL7xUCwJX3YMqA3U8iKCNC34999fFOnWjYNsylgfPgMexpbk7WYOLtKr/mxg==}
+  /preact@10.22.0:
+    resolution: {integrity: sha512-RRurnSjJPj4rp5K6XoP45Ui33ncb7e4H7WiOHVpjbkvqvA3U+N8Z6Qbo0AE6leGYBV66n8EhEaFixvIu3SkxFw==}
     dev: false
 
   /prelude-ls@1.1.2:
@@ -22291,7 +22575,6 @@ packages:
       ansi-styles: 5.2.0
       react-is: 17.0.2
 
-<<<<<<< HEAD
   /pretty-format@28.1.3:
     resolution: {integrity: sha512-8gFb/To0OmxHR9+ZTb14Df2vNxdGCX8g1xWGUTqUw5TiZvcQf5sHKObd5UcPyLLyowNwDAMTF3XWOG1B6mxl1Q==}
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
@@ -22311,8 +22594,6 @@ packages:
       react-is: 18.2.0
     dev: true
 
-=======
->>>>>>> master
   /pretty-format@29.7.0:
     resolution: {integrity: sha512-Pdlw/oPxN+aXdmM9R00JVC9WVFoCLTKJvDVLgmJ+qAffBMxsV85l/Lu7sNx4zSzPyoL2euImuEwHhOXdEgNFZQ==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
