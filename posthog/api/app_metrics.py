@@ -7,7 +7,6 @@ from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import fetch_batch_export_run_count
 from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
@@ -85,6 +84,8 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         Raises:
             ValueError: If provided 'batch_export_id' is not a valid UUID.
         """
+        from posthog.batch_exports.models import fetch_batch_export_run_count
+
         batch_export_uuid = uuid.UUID(batch_export_id)
 
         after = self.request.GET.get("date_from", "-30d")
