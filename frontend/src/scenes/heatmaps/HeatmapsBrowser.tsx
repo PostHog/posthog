@@ -199,7 +199,7 @@ function IframeErrorOverlay(): JSX.Element | null {
     return iframeError ? (
         <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8">
             <LemonBanner className="w-full" type="error">
-                {iframeError}. You can click open in toolbar above to visit your site and view the heatmap there.
+                {iframeError}. You can click "Open in toolbar" above to visit your site and view the heatmap there.
             </LemonBanner>
         </div>
     ) : null
