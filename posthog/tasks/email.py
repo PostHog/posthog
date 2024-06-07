@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
+from structlog.typing import FilteringBoundLogger
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
@@ -162,7 +163,7 @@ def send_fatal_plugin_error(
 @shared_task(**EMAIL_TASK_KWARGS)
 async def send_batch_export_run_failure(
     batch_export_run_id: str,
-    logger,
+    logger: FilteringBoundLogger,
 ) -> None:
     is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
     if not is_email_available_result:
