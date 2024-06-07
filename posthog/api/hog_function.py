@@ -174,7 +174,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     filterset_fields = ["id", "team", "created_by", "enabled"]
 
     permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": "create"}
+    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer

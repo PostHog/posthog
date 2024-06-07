@@ -422,6 +422,8 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         if isinstance(flag, str):
             config[flag] = ["*"]
+        else:
+            config = flag
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
