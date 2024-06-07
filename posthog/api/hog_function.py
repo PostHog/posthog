@@ -174,41 +174,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     filterset_fields = ["id", "team", "created_by", "enabled"]
 
     permission_classes = [PostHogFeatureFlagPermission]
-
-    posthog_feature_flag = "hog-functions"
+    posthog_feature_flag = {"hog-functions": "create"}
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
-
-    # def safely_get_queryset(self, queryset) -> QuerySet:
-    #     if not self.action.endswith("update"):
-    #         # Soft-deleted notebooks can be brought back with a PATCH request
-    #         queryset = queryset.filter(deleted=False)
-
-    #     queryset = queryset.select_related("created_by", "last_modified_by", "team")
-    #     if self.action == "list":
-    #         queryset = queryset.filter(deleted=False)
-    #         queryset = self._filter_list_request(self.request, queryset)
-
-    #     order = self.request.GET.get("order", None)
-    #     if order:
-    #         queryset = queryset.order_by(order)
-    #     else:
-    #         queryset = queryset.order_by("-last_modified_at")
-
-    #     return queryset
-
-    # @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
-    # def activity(self, request: Request, **kwargs):
-    #     notebook = self.get_object()
-    #     limit = int(request.query_params.get("limit", "10"))
-    #     page = int(request.query_params.get("page", "1"))
-
-    #     activity_page = load_activity(
-    #         scope="Notebook",
-    #         team_id=self.team_id,
-    #         item_ids=[notebook.id, notebook.short_id],
-    #         limit=limit,
-    #         page=page,
-    #     )
-    #     return activity_page_response(activity_page, limit, page, request)
