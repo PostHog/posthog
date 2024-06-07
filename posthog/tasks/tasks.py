@@ -48,9 +48,7 @@ def redis_heartbeat() -> None:
     max_retries=20,
 )
 @limit_concurrency(70)  # Do not go above what CH can handle
-@limit_concurrency(
-    5, key=lambda *args, **kwargs: kwargs.get("team_id", "default")
-)  # Do not run too many queries at once for the same team
+@limit_concurrency(5, key=lambda *args, **kwargs: args[0])  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
     user_id: Optional[int],
