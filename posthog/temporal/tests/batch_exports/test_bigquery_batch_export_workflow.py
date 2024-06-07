@@ -455,7 +455,6 @@ async def test_bigquery_export_workflow(
         run = runs[0]
         assert run.status == "Completed"
         assert run.records_completed == 100
-        assert run.records_total_count == 100
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
         assert_clickhouse_records_in_bigquery(
@@ -570,7 +569,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
     assert run.status == "Failed"
     assert run.latest_error == "RefreshError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):

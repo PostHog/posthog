@@ -44,7 +44,6 @@ from posthog.temporal.tests.utils.models import (
     adelete_batch_export,
     afetch_batch_export_runs,
 )
-
 from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -813,7 +812,6 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     run = runs[0]
     assert run.status == "Completed"
     assert run.records_completed == 100
-    assert run.records_total_count == 100
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -899,7 +897,6 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     run = runs[0]
     assert run.status == "Completed"
     assert run.records_completed == 100
-    assert run.records_total_count == 100
 
     expected_key_prefix = s3_key_prefix.format(
         table="events",
@@ -976,7 +973,6 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):

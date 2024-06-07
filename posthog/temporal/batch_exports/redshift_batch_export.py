@@ -21,7 +21,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
     iter_records,
     start_batch_export_run,
@@ -420,7 +419,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -438,20 +437,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
-
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
 
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
