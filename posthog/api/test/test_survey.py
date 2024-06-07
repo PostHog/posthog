@@ -1781,10 +1781,14 @@ class TestSurveysRecurringIterations(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": f"Recurring NPS Survey {random_id}",
-                "question": "this is my question",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "questions": "this is my question",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
                 "iteration_count": 2,
                 "iteration_frequency_days": 30,
             },
