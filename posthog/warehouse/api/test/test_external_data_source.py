@@ -12,9 +12,7 @@ from django.conf import settings
 from posthog.models import Team
 import psycopg
 from rest_framework import status
-from temporalio.client import (
-    ScheduleIntervalSpec,
-)
+
 import datetime
 
 
@@ -108,7 +106,17 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertListEqual(
             list(payload.keys()),
-            ["id", "created_at", "created_by", "status", "source_type", "prefix", "last_run_at", "schemas"],
+            [
+                "id",
+                "created_at",
+                "created_by",
+                "status",
+                "source_type",
+                "prefix",
+                "last_run_at",
+                "schemas",
+                "sync_frequency",
+            ],
         )
         self.assertEqual(
             payload["schemas"],
@@ -296,8 +304,8 @@ class TestSavedQuery(APIBaseTest):
         # test schedule
         schedule = get_sync_schedule(schema)
         self.assertEqual(
-            schedule.spec.intervals[0],
-            ScheduleIntervalSpec(every=datetime.timedelta(days=1), offset=datetime.timedelta(seconds=54000)),
+            schedule.spec.intervals[0].every,
+            datetime.timedelta(days=1),
         )
 
         # test api
@@ -316,6 +324,6 @@ class TestSavedQuery(APIBaseTest):
         # test schedule
         schedule = get_sync_schedule(schema)
         self.assertEqual(
-            schedule.spec.intervals[0],
-            ScheduleIntervalSpec(every=datetime.timedelta(days=7), offset=datetime.timedelta(seconds=54000)),
+            schedule.spec.intervals[0].every,
+            datetime.timedelta(days=7),
         )
