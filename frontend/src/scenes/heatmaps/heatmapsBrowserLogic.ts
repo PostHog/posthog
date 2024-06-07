@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
+import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
@@ -309,24 +310,24 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/heatmaps': (_, searchParams) => {
-            if (searchParams.pageURL) {
+            if (searchParams.pageURL && searchParams.pageURL !== values.browserUrl) {
                 actions.setBrowserUrl(searchParams.pageURL)
-                // otherwise we could have a race
-                // between the aftermount setting the loading state and the toolbar load cancelling it
-                actions.setLoading(false)
             }
-            if (searchParams.heatmapFilters) {
+            if (searchParams.heatmapFilters && !objectsEqual(searchParams.heatmapFilters, values.heatmapFilters)) {
                 actions.patchHeatmapFilters(searchParams.heatmapFilters)
             }
-            if (searchParams.heatmapPalette) {
+            if (searchParams.heatmapPalette && searchParams.heatmapPalette !== values.heatmapColorPalette) {
                 actions.setHeatmapColorPalette(searchParams.heatmapPalette)
             }
-            if (searchParams.heatmapFixedPositionMode) {
+            if (
+                searchParams.heatmapFixedPositionMode &&
+                searchParams.heatmapFixedPositionMode !== values.heatmapFixedPositionMode
+            ) {
                 actions.setHeatmapFixedPositionMode(searchParams.heatmapFixedPositionMode as HeatmapFixedPositionMode)
             }
-            if (searchParams.commonFilters) {
+            if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
             }
         },
