@@ -152,11 +152,11 @@ export const getCachedResults = (
     return cachedInsight
 }
 
-export const getQueryBasedInsightModel = (insight: InsightModel): QueryBasedInsightModel => {
+export const getQueryBasedInsightModel = (insight: Partial<InsightModel>): Partial<QueryBasedInsightModel> => {
     let query
     if (insight.query) {
         query = insight.query
-    } else if (insight.filters) {
+    } else if (insight.filters && Object.keys(insight.filters).length > 0) {
         query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
     } else {
         query = null
