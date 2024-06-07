@@ -91,6 +91,7 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
+    const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref} className="pb-60">
             {showLicenseDirectInput && (
@@ -124,7 +125,13 @@ export function Billing(): JSX.Element {
             ) : null}
             {!billing?.has_active_subscription && (
                 <div className="my-8">
-                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? <BillingCTAHero /> : <BillingHero />}
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? (
+                        platformAndSupportProduct ? (
+                            <BillingCTAHero product={platformAndSupportProduct} />
+                        ) : null
+                    ) : (
+                        <BillingHero />
+                    )}
                 </div>
             )}
 

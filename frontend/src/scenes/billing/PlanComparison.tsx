@@ -11,7 +11,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
-import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
@@ -135,13 +134,7 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : !plan.included_if
-                            ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
-                            : plan.included_if == 'has_subscription' &&
-                              i >= currentPlanIndex &&
-                              !billing?.has_active_subscription
-                            ? urls.organizationBilling()
-                            : undefined
+                            : getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -182,7 +175,7 @@ export const PlanComparison = ({
                         : plan.included_if == 'has_subscription' &&
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
-                        ? 'View products'
+                        ? 'Subscribe'
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
                         : 'Subscribe'}
@@ -225,7 +218,7 @@ export const PlanComparison = ({
                             hasActiveSubscription: billing?.has_active_subscription,
                         })
                         return (
-                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-medium">
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
@@ -233,7 +226,7 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? 'Free, included with any product subscription'
+                                    ? 'Usage-based - starts at $0'
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
@@ -345,7 +338,7 @@ export const PlanComparison = ({
                         className={clsx(
                             i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
-                                : ''
+                                : 'border-b'
                         )}
                     >
                         <th
@@ -398,7 +391,7 @@ export const PlanComparison = ({
                                 )
                                 return (
                                     <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
-                                        <tr>
+                                        <tr className="border-b">
                                             <th
                                                 colSpan={3}
                                                 className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
@@ -418,7 +411,7 @@ export const PlanComparison = ({
                                         {includedPlans
                                             .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
                                             ?.features?.map((feature, i) => (
-                                                <tr key={`tr-${feature.key}`}>
+                                                <tr key={`tr-${feature.key}`} className="border-b">
                                                     <th
                                                         className={clsx(
                                                             'text-muted PlanTable__th__feature',
@@ -480,20 +473,22 @@ export const PlanComparison = ({
 
 export const PlanComparisonModal = ({
     product,
+    title,
     includeAddons = false,
     modalOpen,
     onClose,
 }: {
     product: BillingProductV2Type
+    title?: string
     includeAddons?: boolean
     modalOpen: boolean
     onClose?: () => void
 }): JSX.Element | null => {
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
+            <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
                 <div className="text-left bg-bg-light rounded relative w-full">
-                    <h2>{product.name} plans</h2>
+                    {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>
             </div>

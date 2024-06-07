@@ -1,9 +1,20 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
 import useResizeObserver from 'use-resize-observer'
 
-export const BillingCTAHero = (): JSX.Element => {
+import { BillingProductV2Type } from '~/types'
+
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
+import { PlanComparisonModal } from './PlanComparison'
+
+export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { width, ref: billingHeroRef } = useResizeObserver()
+
+    const { redirectPath } = useValues(billingLogic)
+    const { isPlanComparisonModalOpen } = useValues(billingProductLogic({ product }))
+    const { toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
 
     // TODO(@zach): add multiple variations of this copy
     return (
@@ -15,11 +26,19 @@ export const BillingCTAHero = (): JSX.Element => {
                     You're currently on the free plan. It's free but limited in features. Subscribe and upgrade to our
                     paid plan where you pay per use (after the generous free tier).
                 </p>
-                <div>
+                <div className="flex justify-start space-x-2">
                     <LemonButton
                         className="mt-4 inline-block"
-                        to="/api/billing/activation?products=all_products"
+                        onClick={() => toggleIsPlanComparisonModalOpen()}
+                        type="secondary"
+                    >
+                        Compare plans
+                    </LemonButton>
+                    <LemonButton
+                        className="mt-4 inline-block"
+                        to={`/api/billing/activation?products=all_products:&redirect_path=${redirectPath}`}
                         type="primary"
+                        disableClientSideRouting
                     >
                         Subscribe now!
                     </LemonButton>
@@ -30,6 +49,13 @@ export const BillingCTAHero = (): JSX.Element => {
                     <BlushingHog className="w-50 h-50 -my-5" />
                 </div>
             )}
+            <PlanComparisonModal
+                product={product}
+                title="Compare our plans"
+                includeAddons={false}
+                modalOpen={isPlanComparisonModalOpen}
+                onClose={() => toggleIsPlanComparisonModalOpen()}
+            />
         </div>
     )
 }
