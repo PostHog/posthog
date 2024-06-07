@@ -98,6 +98,7 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 isAddonProduct={isAddonProduct}
                 featureInfoOnNextPlan={featureInfoOnNextPlan}
+                handleCtaClick={handleCtaClick}
             >
                 {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
                 {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
@@ -134,6 +135,7 @@ interface PayGateContentProps {
     isAddonProduct?: boolean
     featureInfoOnNextPlan?: BillingV2FeatureType
     children: React.ReactNode
+    handleCtaClick: () => void
 }
 
 function PayGateContent({
@@ -147,6 +149,7 @@ function PayGateContent({
     isAddonProduct,
     featureInfoOnNextPlan,
     children,
+    handleCtaClick,
 }: PayGateContentProps): JSX.Element {
     return (
         <div
@@ -166,7 +169,8 @@ function PayGateContent({
                 gateVariant,
                 featureInfo,
                 productWithFeature,
-                isAddonProduct
+                isAddonProduct,
+                handleCtaClick
             )}
             {isGrandfathered && <GrandfatheredMessage />}
             {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
@@ -181,7 +185,8 @@ const renderUsageLimitMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingV2FeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    isAddonProduct?: boolean
+    isAddonProduct?: boolean,
+    handleCtaClick?: () => void
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
         return (
@@ -203,10 +208,19 @@ const renderUsageLimitMessage = (
                     </span>
                 </p>
                 {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
-                    <p>
-                        Please enter your credit card details by subscribing to any product (eg. Product analytics or
-                        Session replay) to create up to {featureInfoOnNextPlan?.limit} projects.
-                    </p>
+                    <>
+                        <p>
+                            Please enter your credit card details by subscribing to any product (eg. Product analytics
+                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                        </p>
+                        <p className="italic text-xs text-muted mb-4">
+                            Need unlimited projects? Check out the{' '}
+                            <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
+                                Teams addon
+                            </Link>
+                            .
+                        </p>
+                    </>
                 ) : (
                     <p>
                         Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
