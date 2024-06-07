@@ -21,6 +21,11 @@ export const eventDroppedCounter = new Counter({
     labelNames: ['event_type', 'drop_cause'],
 })
 
+export const setUsageInNonPersonEventsCounter = new Counter({
+    name: 'set_usage_in_non_person_events',
+    help: 'Count of events where $set usage was found in non-person events',
+})
+
 export const kafkaConsumerEventCounter = new Counter({
     name: 'kafka_consumer_event_total',
     help: 'Count of events emitted by the Kafka consumer by event type',

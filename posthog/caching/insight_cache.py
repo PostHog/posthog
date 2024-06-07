@@ -7,7 +7,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.utils.timezone import now
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge
 from sentry_sdk.api import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -37,11 +37,6 @@ CACHE_UPDATE_FAILED_COUNTER = Counter(
 CACHE_UPDATE_SHARED_GAUGE = Gauge(
     "insight_cache_state_update_rows_updated",
     "Number of rows updated during insight cache refresh. A single cache key can be shared by more than one insight/tile.",
-)
-CACHE_UPDATE_TIMING = Histogram(
-    "insight_cache_state_update_timing",
-    "Time spent updating the cache",
-    buckets=[0.1, 0.5, 1, 1.5, 2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 120, 240],
 )
 
 
@@ -134,7 +129,7 @@ def update_cache(caching_state_id: UUID):
                 insight.team,
                 insight.query,
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
-                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
             cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
@@ -142,39 +137,38 @@ def update_cache(caching_state_id: UUID):
             capture_exception(err, metadata)
             exception = err
 
-    with CACHE_UPDATE_TIMING.time():
-        if exception is None:
-            assert cache_key is not None
-            timestamp = now()
-            rows_updated = update_cached_state(
-                caching_state.team_id,
-                cache_key,
-                timestamp,
-                {"result": result, "type": cache_type, "last_refresh": timestamp} if result is not None else None,
-            )
-            CACHE_UPDATE_SUCCEEDED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
-            CACHE_UPDATE_SHARED_GAUGE.inc(rows_updated)
-            logger.warn(
-                "Re-calculated insight cache",
-                rows_updated=rows_updated,
-                **metadata,
-            )
-        else:
-            logger.warn(
-                "Failed to re-calculate insight cache",
-                exception=exception,
-                **metadata,
-                refresh_attempt=caching_state.refresh_attempt,
-            )
-            CACHE_UPDATE_FAILED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
+    if exception is None:
+        assert cache_key is not None
+        timestamp = now()
+        rows_updated = update_cached_state(
+            caching_state.team_id,
+            cache_key,
+            timestamp,
+            {"result": result, "type": cache_type, "last_refresh": timestamp} if result is not None else None,
+        )
+        CACHE_UPDATE_SUCCEEDED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
+        CACHE_UPDATE_SHARED_GAUGE.inc(rows_updated)
+        logger.warn(
+            "Re-calculated insight cache",
+            rows_updated=rows_updated,
+            **metadata,
+        )
+    else:
+        logger.warn(
+            "Failed to re-calculate insight cache",
+            exception=exception,
+            **metadata,
+            refresh_attempt=caching_state.refresh_attempt,
+        )
+        CACHE_UPDATE_FAILED_COUNTER.labels(is_dashboard=dashboard is not None).inc()
 
-            if caching_state.refresh_attempt < MAX_ATTEMPTS:
-                update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
+        if caching_state.refresh_attempt < MAX_ATTEMPTS:
+            update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
-            InsightCachingState.objects.filter(pk=caching_state.pk).update(
-                refresh_attempt=caching_state.refresh_attempt + 1,
-                last_refresh_queued_at=now(),
-            )
+        InsightCachingState.objects.filter(pk=caching_state.pk).update(
+            refresh_attempt=caching_state.refresh_attempt + 1,
+            last_refresh_queued_at=now(),
+        )
 
 
 def update_cached_state(

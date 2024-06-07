@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Optional
 from django.db import models
-
+import snowflake.connector
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
@@ -78,6 +78,31 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+
+
+def get_snowflake_schemas(
+    account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
+) -> list[Any]:
+    with snowflake.connector.connect(
+        user=user,
+        password=password,
+        account=account_id,
+        warehouse=warehouse,
+        database=database,
+        schema="information_schema",
+        role=role,
+    ) as connection:
+        with connection.cursor() as cursor:
+            if cursor is None:
+                raise Exception("Can't create cursor to Snowflake")
+
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            results = cursor.fetchall()
+            results = [row[0] for row in results]
+
+            return results
 
 
 def get_postgres_schemas(
