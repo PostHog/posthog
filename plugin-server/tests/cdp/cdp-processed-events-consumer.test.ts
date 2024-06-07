@@ -4,7 +4,7 @@ import { Hub, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { insertHogFunction } from './fixtures'
+import { createIncomingEvent, createMessage, insertHogFunction as _insertHogFunction } from './fixtures'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,
@@ -37,13 +37,22 @@ jest.mock('../../src/kafka/batch-consumer', () => {
 
 jest.setTimeout(1000)
 
+const noop = () => {}
+
 describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOverflow) => {
     let processor: CdpProcessedEventsConsumer
 
     let hub: Hub
     let closeHub: () => Promise<void>
     let team: Team
-    let teamToken = ''
+
+    const insertHogFunction = async (hogFunction) => {
+        const item = await _insertHogFunction(hub.postgres, team, hogFunction)
+
+        // TRigger the reload that django would do
+        await processor.hogFunctionManager.reloadAllHogFunctions()
+        return item
+    }
 
     beforeAll(async () => {
         await resetTestDatabase()
@@ -52,7 +61,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
-        teamToken = team.api_token
 
         processor = new CdpProcessedEventsConsumer(config, hub.postgres, consumeOverflow)
         await processor.start()
@@ -60,6 +68,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
     afterEach(async () => {
         jest.setTimeout(10000)
+        await processor.stop()
         await closeHub()
     })
 
@@ -69,14 +78,16 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
     describe('general event processing', () => {
         it('can parse incoming messages correctly', async () => {
-            const hogFunction = await insertHogFunction(hub.db.postgres, team, {
+            const hogFunction = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
-
             // Create a message that should be processed by this function
             // Run the function and check that it was executed
+            await processor.handleEachBatch([createMessage(createIncomingEvent(team.id, { event: '$pageview' }))], noop)
+
+            // Check that the function was executed correctly
         })
     })
 })
