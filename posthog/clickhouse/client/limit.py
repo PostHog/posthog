@@ -19,7 +19,7 @@ end
 """
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
-    "celery_concurrent_tasks_limit_exceeded",
+    "posthog_celery_task_concurrency_limit_exceeded",
     "Number of times a Celery task exceeded the concurrency limit",
     ["task_name", "limit", "key"],
 )
