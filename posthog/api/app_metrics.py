@@ -2,12 +2,12 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from django.db.models import Q, Sum
-from django.db.models.functions import Coalesce, TruncDay
+from django.db.models.functions import TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.batch_exports.models import fetch_batch_export_run_count
 from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
@@ -32,11 +32,8 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
-            rows = self.get_batch_export_runs_app_metrics_queryset(batch_export_id=kwargs["pk"])
+            dates, successes, failures = self.get_batch_export_runs_app_metrics_queryset(batch_export_id=kwargs["pk"])
 
-            dates = [row["dates"].strftime("%Y-%m-%d") for row in rows]
-            successes = [row["successes"] for row in rows]
-            failures = [row["failures"] for row in rows]
             return response.Response(
                 {
                     "metrics": {
@@ -83,30 +80,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         return response.Response({"result": error_details})
 
     def get_batch_export_runs_app_metrics_queryset(self, batch_export_id: str):
-        """Use the Django ORM to fetch app metrics for batch export runs.
-
-        Attempts to (roughly) match the following (much more readable) query:
-        ```
-        select
-            date_trunc('day', last_updated_at) as dates,
-            sum(case when status = 'Completed' then coalesce(records_total_count, 0) else 0) as successes,
-            sum(case when status != 'Completed' then coalesce(records_total_count, 0) else 0) as failures
-        from
-            posthog_batchexportrun
-        where
-            batch_export_id = :batch_export_id
-            and last_updated_at between :date_from and :date_to
-            and status != 'Running'
-        group by
-            date_trunc('day', last_updated_at)
-        order by
-            dates
-        ```
-
-        A truncated 'last_updated_at' is used as the grouping date as it reflects when a particular run
-        was last updated. It feels easier to explain to users that if they see metrics for today, those
-        correspond to runs that happened today, even if the runs themselves exported data from a year ago
-        (because it was a backfill).
+        """Use the Django ORM and ClickHouse to fetch app metrics for batch export runs.
 
         Raises:
             ValueError: If provided 'batch_export_id' is not a valid UUID.
@@ -120,21 +94,51 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             relative_date_parse(before, self.team.timezone_info) if before else dt.datetime.now(dt.timezone.utc)
         )
         date_range = (after_datetime, before_datetime)
-        return (
-            BatchExportRun.objects.filter(batch_export_id=batch_export_uuid, last_updated_at__range=date_range)
-            .annotate(dates=TruncDay("last_updated_at"))
-            .values("dates")
-            .annotate(
-                successes=Sum(
-                    Coalesce("records_total_count", 0), filter=Q(status=BatchExportRun.Status.COMPLETED), default=0
-                ),
-                failures=Sum(
-                    Coalesce("records_total_count", 0), filter=~Q(status=BatchExportRun.Status.COMPLETED), default=0
+        runs = (
+            BatchExportRun.objects.filter(
+                batch_export_id=batch_export_uuid,
+                last_updated_at__range=date_range,
+                status__in=(
+                    BatchExportRun.Status.COMPLETED,
+                    BatchExportRun.Status.FAILED,
+                    BatchExportRun.Status.FAILED_RETRYABLE,
                 ),
             )
-            .order_by("dates")
+            .annotate(day=TruncDay("last_updated_at"))
+            .order_by("day")
             .all()
         )
+
+        dates = []
+        successes = []
+        failures = []
+        current_day = None
+        for run in runs:
+            if current_day is None:
+                current_day = run.day
+                dates.append(current_day.strftime("%Y-%m-%d"))
+                successes.append(0)
+                failures.append(0)
+
+            elif current_day < run.day:
+                current_day = run.day
+                dates.append(current_day.strftime("%Y-%m-%d"))
+                successes.append(0)
+                failures.append(0)
+
+            count = fetch_batch_export_run_count(
+                team_id=run.batch_export.team_id,
+                data_interval_start=run.data_interval_start,
+                data_interval_end=run.data_interval_end,
+            )
+
+            if run.status == BatchExportRun.Status.COMPLETED:
+                successes[-1] += count
+
+            elif run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
+                failures[-1] += count
+
+        return dates, successes, failures
 
 
 class HistoricalExportsAppMetricsViewSet(
