@@ -129,8 +129,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"IN_COHORT({stack[-2]}, {stack[-1]})"
             case Operation.NOT_IN_COHORT:
                 return f"NOT_IN_COHORT({stack[-2]}, {stack[-1]})"
-            case Operation.FIELD:
-                return f"FIELD({', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
+            case Operation.GET_GLOBAL:
+                return f"GET_GLOBAL({', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
             case Operation.POP:
                 return f"POP({stack[-1]})"
             case Operation.RETURN:
