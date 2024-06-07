@@ -44,13 +44,20 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant, isAddonProduct } = useValues(
-        payGateMiniLogic({ featureKey: feature, currentUsage })
-    )
+    const {
+        productWithFeature,
+        featureInfo,
+        featureAvailableOnOrg,
+        gateVariant,
+        isAddonProduct,
+        featureInfoOnNextPlan,
+    } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
     const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
+
+    const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
 
     useEffect(() => {
         if (gateVariant) {
@@ -90,6 +97,7 @@ export function PayGateMini({
                 productWithFeature={productWithFeature}
                 isGrandfathered={isGrandfathered}
                 isAddonProduct={isAddonProduct}
+                featureInfoOnNextPlan={featureInfoOnNextPlan}
             >
                 {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
                 {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
@@ -105,6 +113,7 @@ export function PayGateMini({
                         featureInfo={featureInfo}
                         onCtaClick={handleCtaClick}
                         billing={billing}
+                        scrollToProduct={scrollToProduct}
                     />
                 )}
             </PayGateContent>
@@ -123,6 +132,7 @@ interface PayGateContentProps {
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
     isAddonProduct?: boolean
+    featureInfoOnNextPlan?: BillingV2FeatureType
     children: React.ReactNode
 }
 
@@ -135,6 +145,7 @@ function PayGateContent({
     productWithFeature,
     isGrandfathered,
     isAddonProduct,
+    featureInfoOnNextPlan,
     children,
 }: PayGateContentProps): JSX.Element {
     return (
@@ -151,6 +162,7 @@ function PayGateContent({
             <h3>{featureInfo.name}</h3>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,
+                featureInfoOnNextPlan,
                 gateVariant,
                 featureInfo,
                 productWithFeature,
@@ -165,6 +177,7 @@ function PayGateContent({
 
 const renderUsageLimitMessage = (
     featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
+    featureInfoOnNextPlan: BillingV2FeatureType | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingV2FeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
@@ -189,9 +202,16 @@ const renderUsageLimitMessage = (
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
                     </span>
                 </p>
-                <p>
-                    Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
-                </p>
+                {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
+                    <p>
+                        Please enter your credit card details by subscribing to any product (eg. Product analytics or
+                        Session replay) to create up to {featureInfoOnNextPlan?.limit} projects.
+                    </p>
+                ) : (
+                    <p>
+                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                    </p>
+                )}
             </div>
         )
     }
