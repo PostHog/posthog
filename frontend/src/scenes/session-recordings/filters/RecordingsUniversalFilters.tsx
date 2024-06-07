@@ -66,6 +66,7 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                                 },
                             })
                         }}
+                        disabledReason="'Or' filtering is not supported yet"
                         topLevelFilter={true}
                         suffix={['filter', 'filters']}
                     />
