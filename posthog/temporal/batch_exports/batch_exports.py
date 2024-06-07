@@ -69,6 +69,15 @@ def get_timestamp_predicates_for_team(team_id: int, is_backfill: bool = False) -
         )
 
 
+def get_timestamp_field(is_backfill: bool) -> str:
+    """Return the field to use for timestamp bounds."""
+    if is_backfill:
+        timestamp_field = "timestamp"
+    else:
+        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    return timestamp_field
+
+
 async def get_rows_count(
     client: ClickHouseClient,
     team_id: int,
@@ -96,10 +105,7 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    if is_backfill:
-        timestamp_field = "timestamp"
-    else:
-        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    timestamp_field = get_timestamp_field(is_backfill)
     timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
@@ -201,10 +207,7 @@ def iter_records(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    if is_backfill:
-        timestamp_field = "timestamp"
-    else:
-        timestamp_field = "COALESCE(inserted_at, _timestamp)"
+    timestamp_field = get_timestamp_field(is_backfill)
     timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
 
     if fields is None:
@@ -458,11 +461,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
         logger.error("Batch export failed with non-retryable error: %s", batch_export_run.latest_error)
-
-        from posthog.tasks.email import send_batch_export_run_failure
-
-        if batch_export_run.status == BatchExportRun.Status.FAILED:
-            from posthog.tasks.email import send_batch_export_run_failure
 
         from posthog.tasks.email import send_batch_export_run_failure
 

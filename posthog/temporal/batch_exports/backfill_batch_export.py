@@ -108,7 +108,7 @@ class BackfillScheduleInputs:
     start_at: str
     end_at: str | None
     frequency_seconds: float
-    start_delay: float = 1.0
+    start_delay: float = 5.0
 
 
 def get_utcnow():
@@ -193,6 +193,8 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         args = await client.data_converter.decode(schedule_action.args)
         args[0]["is_backfill"] = True
 
+        await asyncio.sleep(inputs.start_delay)
+
         workflow_handle = await client.start_workflow(
             schedule_action.workflow,
             *args,
@@ -217,7 +219,7 @@ async def wait_for_workflow_with_heartbeat(
     heartbeat_details: HeartbeatDetails,
     workflow_handle: temporalio.client.WorkflowHandle,
     heartbeat_timeout: dt.timedelta | None = None,
-    start_delay: float = 0.0,
+    sleep_on_failure: float = 5.0,
 ):
     """Decide if heartbeating is required while waiting for a backfill in range to finish."""
     if heartbeat_timeout:
@@ -227,15 +229,14 @@ async def wait_for_workflow_with_heartbeat(
     else:
         wait_func = workflow_handle.result
 
-    await asyncio.sleep(start_delay)
-
     try:
         await wait_func()
     except temporalio.client.WorkflowFailureError:
         # `WorkflowFailureError` includes cancellations, terminations, timeouts, and errors.
         # Common errors should be handled by the workflow itself (i.e. by retrying an activity).
+        # We briefly sleep to allow heartbeating to potentially receive a cancellation request.
         # TODO: Log anyways if we land here.
-        pass
+        await asyncio.sleep(sleep_on_failure)
 
 
 async def check_temporal_schedule_exists(client: temporalio.client.Client, schedule_id: str) -> bool:
