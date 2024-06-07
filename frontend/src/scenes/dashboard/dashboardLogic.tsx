@@ -821,7 +821,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: 'async',
+                        refresh: 'force_cache',
                         action: 'initial_load',
                     })
                 }
@@ -994,7 +994,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
+                    refresh: hardRefreshWithoutCache ? 'force_blocking' : 'blocking',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
