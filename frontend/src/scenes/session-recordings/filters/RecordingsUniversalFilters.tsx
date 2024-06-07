@@ -57,11 +57,11 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                 <div>
                     <AndOrFilterSelect
                         value={universalFilters.filter_group.type}
-                        onChange={(value) => {
+                        onChange={(type) => {
                             setUniversalFilters({
                                 ...universalFilters,
                                 filter_group: {
-                                    type: value,
+                                    type: type,
                                     values: universalFilters.filter_group.values,
                                 },
                             })

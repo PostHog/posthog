@@ -93,7 +93,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 )
                 props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
-                return
             }
         },
     })),

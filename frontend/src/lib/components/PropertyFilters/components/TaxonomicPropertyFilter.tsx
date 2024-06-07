@@ -43,8 +43,6 @@ export function TaxonomicPropertyFilter({
     schemaColumns,
     propertyGroupType,
     orFiltering,
-    filters,
-    setFilter,
     addText = 'Add filter',
     hasRowOperator,
     metadataSource,

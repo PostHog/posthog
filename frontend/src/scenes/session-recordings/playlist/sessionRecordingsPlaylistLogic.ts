@@ -142,7 +142,7 @@ function convertUniversalFiltersToLegacyFilters(
         }
     })
 
-    // TODO: add console log and duration filtering
+    // TODO: add console log and duration filtering (not yet supported in universal filtering)
 
     return {
         ...universalFilters,
@@ -243,7 +243,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {} as Record<string, boolean>,
             {
                 loadEventsHaveSessionId: async () => {
-                    const events = 'events' in values.filters ? values.filters.events : []
+                    const events = values.filters.events
                     if (events === undefined || events.length === 0) {
                         return {}
                     }
@@ -262,17 +262,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as SessionRecordingsResponse,
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
-                    const filters = values.useUniversalFiltering
-                        ? convertUniversalFiltersToLegacyFilters(values.filters as RecordingUniversalFilters)
-                        : { ...values.filters, operand: FilterLogicalOperator.And }
-
                     const params = {
-                        ...filters,
+                        ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                         hog_ql_filtering: values.useHogQLFiltering,
-                        universal_filtering: values.useUniversalFiltering,
                     }
 
                     if (values.artificialLag && !params.date_to) {
@@ -592,14 +587,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         filters: [
             (s) => [s.simpleFilters, s.advancedFilters, s.universalFilters, s.featureFlags],
-            (
-                simpleFilters,
-                advancedFilters,
-                universalFilters,
-                featureFlags
-            ): RecordingFilters | RecordingUniversalFilters => {
+            (simpleFilters, advancedFilters, universalFilters, featureFlags): RecordingFilters => {
                 if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]) {
-                    return universalFilters
+                    return convertUniversalFiltersToLegacyFilters(universalFilters)
                 }
 
                 return {
@@ -677,30 +667,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         totalFiltersCount: [
-            (s) => [s.filters, (_, props) => props.personUUID, s.useUniversalFiltering],
-            (filters, personUUID, useUniversalFiltering) => {
+            (s) => [s.filters, (_, props) => props.personUUID],
+            (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
 
-                if (useUniversalFiltering) {
-                    // TODO: add an actual value here
-                    return 0
-                }
-
-                const recordingFilters = filters as RecordingFilters
-
                 return (
-                    (recordingFilters?.actions?.length || 0) +
-                    (recordingFilters?.events?.length || 0) +
-                    (recordingFilters?.properties?.length || 0) +
-                    (equal(recordingFilters.session_recording_duration, defaultFilters.session_recording_duration)
+                    (filters?.actions?.length || 0) +
+                    (filters?.events?.length || 0) +
+                    (filters?.properties?.length || 0) +
+                    (equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ? 0 : 1) +
+                    (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1) +
-                    (recordingFilters.date_from === defaultFilters.date_from &&
-                    recordingFilters.date_to === defaultFilters.date_to
-                        ? 0
-                        : 1) +
-                    (recordingFilters.console_logs?.length || 0) +
-                    (recordingFilters.console_search_query?.length ? 1 : 0)
+                    (filters.console_logs?.length || 0) +
+                    (filters.console_search_query?.length ? 1 : 0)
                 )
             },
         ],
