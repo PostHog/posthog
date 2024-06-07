@@ -11,7 +11,6 @@
 !posthog.json
 !package.json
 !pnpm-lock.yaml
-!pnpm-workspace.yaml
 !webpack.config.js
 !playwright.config.ts
 !tailwind.config.js
@@ -34,7 +33,6 @@
 !plugin-server/.prettierrc
 !share/GeoLite2-City.mmdb
 !hogvm/python
-!hogvm/typescript
 !unit.json.tpl
 !plugin-transpiler/src
 !plugin-transpiler/*.*
