@@ -106,6 +106,7 @@ class HttpInsertInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
@@ -191,6 +192,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
+            is_backfill=inputs.is_backfill,
         )
 
         last_uploaded_timestamp: str | None = None
@@ -324,6 +326,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -368,6 +371,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(
