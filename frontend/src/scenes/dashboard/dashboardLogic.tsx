@@ -18,6 +18,7 @@ import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
+    FEATURE_FLAGS,
     OrganizationMembershipLevel,
 } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -812,7 +813,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, cache, props }) => ({
+    events(({ actions, cache, props, values }) => ({
         afterMount: () => {
             if (props.id) {
                 if (props.dashboard) {
@@ -821,7 +822,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: 'async',
+                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC] ? 'async' : 'blocking',
                         action: 'initial_load',
                     })
                 }
@@ -994,7 +995,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
+                    refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC]
+                        ? hardRefreshWithoutCache
+                            ? 'force_async'
+                            : 'async'
+                        : hardRefreshWithoutCache
+                        ? 'force_blocking'
+                        : 'blocking',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
@@ -1034,7 +1041,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     if (refreshedInsight.query_status) {
-                        pollForResults(refreshedInsight.query_status.id, false, methodOptions)
+                        await pollForResults(refreshedInsight.query_status.id, false, methodOptions)
                             .then(async () => {
                                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams(
                                     {

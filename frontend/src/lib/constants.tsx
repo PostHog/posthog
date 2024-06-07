@@ -167,6 +167,7 @@ export const FEATURE_FLAGS = {
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     HOGQL_DASHBOARD_CARDS: 'hogql-dashboard-cards', // owner: @thmsobrmlr
+    HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
