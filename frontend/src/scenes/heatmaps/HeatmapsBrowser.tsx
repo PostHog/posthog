@@ -193,6 +193,18 @@ function FilterPanel(): JSX.Element {
     )
 }
 
+function IframeErrorOverlay(): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+    const { iframeError } = useValues(logic)
+    return iframeError ? (
+        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8">
+            <LemonBanner className="w-full" type="error">
+                {iframeError}. You can click open in toolbar above to visit your site and view the heatmap there.
+            </LemonBanner>
+        </div>
+    ) : null
+}
+
 function EmbeddedHeatmapBrowser({
     iframeRef,
 }: {
@@ -200,7 +212,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl, loading } = useValues(logic)
+    const { browserUrl, loading, iframeError } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -211,26 +223,28 @@ function EmbeddedHeatmapBrowser({
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
-            <iframe
-                ref={iframeRef}
-                className="flex-1"
-                src={appEditorUrl(browserUrl, {
-                    userIntent: 'heatmaps',
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: '#FFF',
-                }}
-                onLoad={onIframeLoad}
-                // these two sandbox values are necessary so that the site and toolbar can run
-                // this is a very loose sandbox,
-                // but we specify it so that at least other capabilities are denied
-                sandbox="allow-scripts allow-same-origin"
-                // we don't allow things such as camera access though
-                allow=""
-            />
-
-            {loading && <SpinnerOverlay />}
+            <div className="relative flex-1 w-full h-full">
+                {iframeError && <IframeErrorOverlay />}
+                {loading && <SpinnerOverlay />}
+                <iframe
+                    ref={iframeRef}
+                    className="w-full h-full"
+                    src={appEditorUrl(browserUrl, {
+                        userIntent: 'heatmaps',
+                    })}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        background: '#FFF',
+                    }}
+                    onLoad={onIframeLoad}
+                    // these two sandbox values are necessary so that the site and toolbar can run
+                    // this is a very loose sandbox,
+                    // but we specify it so that at least other capabilities are denied
+                    sandbox="allow-scripts allow-same-origin"
+                    // we don't allow things such as camera access though
+                    allow=""
+                />
+            </div>
         </div>
     ) : null
 }

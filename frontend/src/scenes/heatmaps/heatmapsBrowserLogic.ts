@@ -50,6 +50,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
+        setIframeError: (error: string | null) => ({ error }),
     }),
 
     loaders(({ values }) => ({
@@ -174,6 +175,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 onIframeToolbarLoad: () => false,
             },
         ],
+        iframeError: [
+            null as string | null,
+            {
+                setIframeError: (_, { error }) => error,
+            },
+        ],
     }),
 
     selectors({
@@ -242,6 +249,27 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         onIframeLoad: () => {
             // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error
+
+            // Attempt to access iframe content
+            // this lets us probe for errors like X-Frame-Origin issues
+            try {
+                const theIframe = props.iframeRef.current
+                const iframeContent = theIframe?.contentWindow?.document || theIframe?.contentDocument
+
+                // Check if we can access iframe content
+                if (iframeContent?.body.innerHTML) {
+                    actions.setIframeError(null)
+                } else {
+                    actions.setIframeError(
+                        'Could not embed this URL in PostHog - check your X-Frame-Origin settings or CSP'
+                    )
+                }
+            } catch (error) {
+                actions.setIframeError(
+                    'Could not embed this URL in PostHog - check your X-Frame-Origin settings or CSP'
+                )
+            }
+
             const init = (): void => {
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT, {
                     filters: values.heatmapFilters,
