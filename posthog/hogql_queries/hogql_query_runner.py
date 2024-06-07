@@ -66,6 +66,9 @@ class HogQLQueryRunner(QueryRunner):
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
 
+    def _is_stale(self, cached_result_package):
+        return True
+
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 

@@ -99,31 +99,6 @@ const SYNC_ONLY_QUERY_KINDS = [
     'DatabaseSchemaQuery',
 ] satisfies NodeKind[keyof NodeKind][]
 
-export async function pollForResults(
-    queryId: string,
-    showProgress: boolean,
-    methodOptions?: ApiMethodOptions,
-    callback?: (response: QueryStatus) => void
-): Promise<QueryStatus> {
-    const pollStart = performance.now()
-    let currentDelay = 300 // start low, because all queries will take at minimum this
-
-    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-
-        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
-
-        if (statusResponse.complete || statusResponse.error) {
-            return statusResponse
-        }
-        if (callback) {
-            callback(statusResponse)
-        }
-    }
-    throw new Error('Query timed out')
-}
-
 /**
  * Execute a query node and return the response, use async query if enabled
  */
@@ -142,17 +117,32 @@ async function executeQuery<N extends DataNode>(
 
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
-    if (!response.query_status?.query_async) {
+    if (!response.query_async) {
         // Executed query synchronously
         return response
     }
-    if (response.query_status?.complete || response.query_status?.error) {
+    if (response.complete || response.error) {
         // Async query returned immediately
         return response.results
     }
 
-    const statusResponse = await pollForResults(response.query_status.id, showProgress, methodOptions, setPollResponse)
-    return statusResponse.results
+    const pollStart = performance.now()
+    let currentDelay = 300 // start low, because all queries will take at minimum this
+
+    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+        await delay(currentDelay, methodOptions?.signal)
+        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+
+        const statusResponse = await api.queryStatus.get(response.id, showProgress)
+
+        if (statusResponse.complete || statusResponse.error) {
+            return statusResponse.results
+        }
+        if (setPollResponse) {
+            setPollResponse(statusResponse)
+        }
+    }
+    throw new Error('Query timed out')
 }
 
 // Return data for a given query

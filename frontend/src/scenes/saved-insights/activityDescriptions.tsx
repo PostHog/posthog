@@ -44,8 +44,9 @@ type DashboardLink = TileStyleDashboardLink | BareDashboardLink
 const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
     if ('dashboard' in boxedLink) {
         return boxedLink.dashboard
+    } else {
+        return boxedLink
     }
-    return boxedLink
 }
 
 const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
@@ -220,15 +221,14 @@ const insightActionsMapping: Record<
     last_refresh: () => null,
     next_allowed_client_refresh: () => null,
     last_modified_by: () => null,
-    next: () => null,
+    next: () => null, // only used by frontend
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
-    effective_restriction_level: () => null,
-    effective_privilege_level: () => null,
+    effective_restriction_level: () => null, // read from dashboards
+    effective_privilege_level: () => null, // read from dashboards
     disable_baseline: () => null,
-    dashboard_tiles: () => null,
-    query_status: () => null,
+    dashboard_tiles: () => null, // changes are sent as dashboards
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

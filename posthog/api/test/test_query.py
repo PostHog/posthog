@@ -831,27 +831,25 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select * from events")
             api_response = self.client.post(
-                f"/api/projects/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
+                f"/api/projects/{self.team.id}/query/", {"query": query.dict(), "async": True}
             )
 
             self.assertEqual(api_response.status_code, 202)  # This means "Accepted" (for processing)
             self.assertEqual(
                 api_response.json(),
                 {
-                    "query_status": {
-                        "complete": False,
-                        "end_time": None,
-                        "error": False,
-                        "error_message": None,
-                        "expiration_time": None,
-                        "id": mock.ANY,
-                        "query_async": True,
-                        "results": None,
-                        "start_time": "2020-01-10T12:14:00Z",
-                        "task_id": mock.ANY,
-                        "team_id": mock.ANY,
-                        "query_progress": None,
-                    }
+                    "complete": False,
+                    "end_time": None,
+                    "error": False,
+                    "error_message": None,
+                    "expiration_time": None,
+                    "id": mock.ANY,
+                    "query_async": True,
+                    "results": None,
+                    "start_time": "2020-01-10T12:14:00Z",
+                    "task_id": mock.ANY,
+                    "team_id": mock.ANY,
+                    "query_progress": None,
                 },
             )
 
@@ -992,7 +990,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["query_status"]["complete"], True, response.content)
+        self.assertEqual(response.json()["complete"], True, response.content)
 
     def test_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None
@@ -1010,7 +1008,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["query_status"]["complete"])
+        self.assertTrue(response.json()["complete"])
 
     def test_running_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1022,7 +1020,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 202)
-        self.assertFalse(response.json()["query_status"]["complete"])
+        self.assertFalse(response.json()["complete"])
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1035,7 +1033,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 500)
-        self.assertTrue(response.json()["query_status"]["error"])
+        self.assertTrue(response.json()["error"])
 
     def test_failed_query_with_exposed_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1048,7 +1046,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
-        self.assertTrue(response.json()["query_status"]["error"])
+        self.assertTrue(response.json()["error"])
 
     def test_destroy(self):
         self.redis_client_mock.get.return_value = json.dumps(

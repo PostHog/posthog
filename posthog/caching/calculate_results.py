@@ -27,7 +27,6 @@ from posthog.models import (
     Insight,
     RetentionFilter,
     Team,
-    User,
 )
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -122,7 +121,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode, user: User
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -131,21 +130,18 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    response = process_response = process_query_dict(
+    response = process_query_dict(
         insight.team,
         insight.query,
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
         execution_mode=execution_mode,
-        user=user,
     )
 
-    if isinstance(process_response, BaseModel):
-        response = process_response.model_dump(by_alias=True)
+    if isinstance(response, CacheMissResponse):
+        return NothingInCacheResult(cache_key=response.cache_key)
 
-    assert isinstance(response, dict)
-
-    if isinstance(process_response, CacheMissResponse):
-        return NothingInCacheResult(cache_key=process_response.cache_key, query_status=response.get("query_status"))
+    if isinstance(response, BaseModel):
+        response = response.model_dump(by_alias=True)
 
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")
@@ -168,7 +164,6 @@ def calculate_for_query_based_insight(
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
         timings=response.get("timings"),
-        query_status=response.get("query_status"),
     )
 
 

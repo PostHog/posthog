@@ -63,7 +63,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -98,6 +98,7 @@ from posthog.rate_limit import (
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
+    cache_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
@@ -267,7 +268,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     """,
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
-    query_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -300,7 +300,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "effective_privilege_level",
             "timezone",
             "is_cached",
-            "query_status",
         ]
         read_only_fields = (
             "created_at",
@@ -493,9 +492,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
-    def get_query_status(self, insight: Insight):
-        return self.insight_result(insight).query_status
-
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -553,13 +549,16 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         with conversion_to_query_based(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
-                execution_mode = execution_mode_from_refresh(refresh_requested)
+                execution_mode = (
+                    ExecutionMode.CALCULATION_ALWAYS if refresh_requested else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                )
+                if refresh_requested and cache_requested_by_client(self.context["request"]):
+                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
 
                 return calculate_for_query_based_insight(
                     insight,
                     dashboard=dashboard,
                     execution_mode=execution_mode,
-                    user=self.context["request"].user,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))

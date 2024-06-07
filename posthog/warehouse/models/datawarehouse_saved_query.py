@@ -56,7 +56,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         from posthog.api.services.query import process_query_dict
         from posthog.hogql_queries.query_runner import ExecutionMode
 
-        response = process_query_dict(self.team, self.query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = process_query_dict(self.team, self.query, execution_mode=ExecutionMode.CALCULATION_ALWAYS)
         types = getattr(response, "types", {})
         return dict(types)
 

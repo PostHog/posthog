@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -2109,7 +2109,7 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
+        async get(queryId: string, showProgress: boolean): Promise<QueryStatus> {
             return await new ApiRequest().queryStatus(queryId, showProgress).get()
         },
     },
@@ -2164,10 +2164,9 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

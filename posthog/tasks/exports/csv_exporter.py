@@ -254,7 +254,7 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
                 team=exported_asset.team,
                 query_json=query,
                 limit_context=LimitContext.EXPORT,
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
             )
         except QuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:

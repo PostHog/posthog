@@ -229,8 +229,7 @@ export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
     limit?: integer
     offset?: integer
 }
-
-export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
+export type CachedHogQLQueryResponse = HogQLQueryResponse & CachedQueryResponseMixin
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
@@ -427,8 +426,7 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     limit?: integer
     offset?: integer
 }
-
-export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
+export type CachedEventsQueryResponse = EventsQueryResponse & CachedQueryResponseMixin
 
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -699,8 +697,7 @@ export type TrendsFilter = {
 }
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-
-export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
+export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryResponseMixin
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -792,8 +789,7 @@ export interface FunnelsQueryResponse
     extends AnalyticsQueryResponseBase<
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     > {}
-
-export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
+export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryResponseMixin
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
@@ -822,8 +818,7 @@ export interface RetentionResult {
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
-
-export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
+export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryResponseMixin
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
@@ -832,8 +827,7 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
 }
 
 export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-
-export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
+export type CachedPathsQueryResponse = PathsQueryResponse & CachedQueryResponseMixin
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type PathsFilterLegacy = Omit<
@@ -896,8 +890,7 @@ export type StickinessFilter = {
 }
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-
-export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
+export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQueryResponseMixin
 
 export interface StickinessQuery
     extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
@@ -926,20 +919,17 @@ export type LifecycleFilter = {
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
-export type RefreshType = boolean | 'async' | 'blocking' | 'force_async' | 'force_blocking' | 'force_cache'
-
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    refresh?: boolean
     /**
      * (Experimental)
      * Whether to run the query asynchronously. Defaults to False.
      * If True, the `id` of the query can be used to check the status and to cancel it.
      * @example true
-     * @deprecated Use `refresh` instead.
      */
     async?: boolean
-    refresh?: RefreshType
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -980,24 +970,15 @@ interface CachedQueryResponseMixin {
     next_allowed_client_refresh: string
     cache_key: string
     timezone: string
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatus
-}
-
-type CachedQueryResponse<T> = T & CachedQueryResponseMixin
-
-export interface QueryStatusResponse {
-    query_status: QueryStatus
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
+export type TestCachedBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
 
 export interface CacheMissResponse {
     cache_key: string | null
-    query_status?: QueryStatus
 }
 
 export type ClickhouseQueryProgress = {
@@ -1034,8 +1015,7 @@ export type QueryStatus = {
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
-
-export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
+export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryResponseMixin
 
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
@@ -1059,8 +1039,7 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     offset: integer
     missing_actors_count?: integer
 }
-
-export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
+export type CachedActorsQueryResponse = ActorsQueryResponse & CachedQueryResponseMixin
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
@@ -1087,8 +1066,7 @@ export interface TimelineEntry {
 export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
     hasMore?: boolean
 }
-
-export type CachedSessionsTimelineQueryResponse = CachedQueryResponse<SessionsTimelineQueryResponse>
+export type CachedSessionsTimelineQueryResponse = SessionsTimelineQueryResponse & CachedQueryResponseMixin
 
 export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryResponse> {
     kind: NodeKind.SessionsTimelineQuery
@@ -1136,8 +1114,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     dateFrom?: string
     dateTo?: string
 }
-
-export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
     kind: NodeKind.WebTopClicksQuery
@@ -1147,8 +1124,7 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
     columns?: unknown[]
     samplingRate?: SamplingRate
 }
-
-export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
+export type CachedWebTopClicksQueryResponse = WebTopClicksQueryResponse & CachedQueryResponseMixin
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1185,8 +1161,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     limit?: integer
     offset?: integer
 }
-
-export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+export type CachedWebStatsTableQueryResponse = WebStatsTableQueryResponse & CachedQueryResponseMixin
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1349,7 +1324,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'compare',
 ]
 
-export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<InsightActorsQueryOptionsResponse>
+export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
