@@ -182,8 +182,5 @@ class SessionsTimelineQueryRunner(QueryRunner):
             hogql=query_result.hogql,
         )
 
-    def _is_stale(self, cached_result_package):
-        return True  # TODO: Make sure this is cached
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)  # TODO: Make sure this is cached
