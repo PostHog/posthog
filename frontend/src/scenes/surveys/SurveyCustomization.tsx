@@ -140,13 +140,13 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                         onChange={(checked) => {
                                             const surveyPopupDelay = checked ? 5 : undefined
                                             onChange(surveyPopupDelay)
-                                            onAppearanceChange({ ...appearance, surveyPopupDelay }) // TODO maybe I should explicitly differentiate between null and undefined.  Compiler seems happy enough for now.
+                                            onAppearanceChange({ ...appearance, surveyPopupDelay })
                                         }}
                                     />
                                     Delay survey popup after page load by{' '}
                                     <LemonInput
                                         type="number"
-                                        data-attr="survey-popup-delay-input" // TODO we need to hook into this
+                                        data-attr="survey-popup-delay-input"
                                         size="small"
                                         min={1}
                                         value={appearance?.surveyPopupDelay || NaN}
