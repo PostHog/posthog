@@ -3,7 +3,7 @@ import { defaultConfig } from '../../src/config/config'
 import { Hub, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { HOG_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { insertHogFunction } from './fixtures'
 
 const config: PluginsServerConfig = {
@@ -72,6 +72,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const hogFunction = await insertHogFunction(hub.db.postgres, team, {
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
             // Create a message that should be processed by this function
