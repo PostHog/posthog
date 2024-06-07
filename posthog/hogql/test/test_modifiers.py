@@ -1,4 +1,5 @@
 from typing import NamedTuple
+from unittest.mock import patch
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -45,6 +46,18 @@ class TestModifiers(BaseTest):
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+    @patch(
+        # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag
+        "posthog.models.team.Team._person_on_events_person_id_override_properties_on_events",
+        True,
+    )
+    def test_modifiers_persons_on_events_default_is_based_on_team_property(self):
+        assert self.team.modifiers is None
+        modifiers = create_default_modifiers_for_team(self.team)
+        assert self.team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"

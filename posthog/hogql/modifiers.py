@@ -34,7 +34,7 @@ def create_default_modifiers_for_team(
 
 def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode
+        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
