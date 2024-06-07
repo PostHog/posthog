@@ -25,12 +25,9 @@ export function HeatmapsBrowser(): JSX.Element {
         browserUrl,
         loading,
         isBrowserUrlAuthorized,
-        topUrls,
-        topUrlsLoading,
         heatmapColorPalette,
         heatmapFixedPositionMode,
         viewportRange,
-        noPageviews,
         commonFilters,
     } = useValues(logic)
     const {
@@ -146,47 +143,61 @@ export function HeatmapsBrowser(): JSX.Element {
                             )}
                         </>
                     ) : (
-                        <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                            <div className="max-w-[50rem] my-6 mx-3">
-                                <div className="flex items-center flex-wrap gap-6">
-                                    <div className="w-50">
-                                        <DetectiveHog className="w-full h-full" />
-                                    </div>
+                        <HeatmapsBrowserIntro />
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
 
-                                    <div className="flex-1">
-                                        <h2>Welcome to Heatmaps</h2>
-                                        <p>
-                                            Heatmaps are powered by the embedded JavaScript SDK and allow you to see a
-                                            range of user interactions directly on your website via the Toolbar.
-                                        </p>
-                                        <p>
-                                            You can also view heatmaps for any page on your website by entering the URL
-                                            above. As long as the page has the PostHog Toolbar installed, and can be
-                                            loaded in an iframe, you can view heatmaps for it.
-                                        </p>
-                                    </div>
-                                </div>
+function HeatmapsBrowserIntro(): JSX.Element {
+    // the heatmaps browserLogic is not keyed on its props, so we can reference it here
+    // without passing them around
+    const logic = heatmapsBrowserLogic()
 
-                                <div className="gap-y-px p-2 border bg-bg-light rounded">
-                                    {topUrlsLoading ? (
-                                        <LemonSkeleton className="h-10" repeat={10} />
-                                    ) : noPageviews ? (
-                                        <LemonBanner type="info">
-                                            No pageview events have been received yet. Once you have some data, you'll
-                                            see the most viewed pages here.
-                                        </LemonBanner>
-                                    ) : (
-                                        <>
-                                            {topUrls?.map(({ url }) => (
-                                                <LemonButton key={url} fullWidth onClick={() => setBrowserUrl(url)}>
-                                                    {url}
-                                                </LemonButton>
-                                            ))}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+    const { topUrls, topUrlsLoading, noPageviews } = useValues(logic)
+
+    const { setBrowserUrl } = useActions(logic)
+
+    return (
+        <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto">
+            <div className="max-w-[50rem] py-6 px-3 h-full w-full">
+                <div className="flex items-center flex-wrap gap-6">
+                    <div className="w-50">
+                        <DetectiveHog className="w-full h-full" />
+                    </div>
+
+                    <div className="flex-1">
+                        <h2>Welcome to Heatmaps</h2>
+                        <p>
+                            Heatmaps are powered by the embedded JavaScript SDK and allow you to see a range of user
+                            interactions directly on your website via the Toolbar.
+                        </p>
+                        <p>
+                            You can also view heatmaps for any page on your website by entering the URL above. As long
+                            as the page has the PostHog Toolbar installed, and can be loaded in an iframe, you can view
+                            heatmaps for it.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="gap-y-px p-2 border bg-bg-light rounded">
+                    {topUrlsLoading ? (
+                        <LemonSkeleton className="h-10" repeat={10} />
+                    ) : noPageviews ? (
+                        <LemonBanner type="info">
+                            No pageview events have been received yet. Once you have some data, you'll see the most
+                            viewed pages here.
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            {topUrls?.map(({ url }) => (
+                                <LemonButton key={url} fullWidth onClick={() => setBrowserUrl(url)}>
+                                    {url}
+                                </LemonButton>
+                            ))}
+                        </>
                     )}
                 </div>
             </div>
