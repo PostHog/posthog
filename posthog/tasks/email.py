@@ -8,7 +8,6 @@ from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
-from structlog.typing import FilteringBoundLogger
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
@@ -163,8 +162,9 @@ def send_fatal_plugin_error(
 @shared_task(**EMAIL_TASK_KWARGS)
 async def send_batch_export_run_failure(
     batch_export_run_id: str,
-    logger: FilteringBoundLogger,
 ) -> None:
+    logger = structlog.get_logger()
+
     is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
     if not is_email_available_result:
         logger.debug("Email service is not available")
@@ -174,6 +174,8 @@ async def send_batch_export_run_failure(
         BatchExportRun.objects.select_related("batch_export__team").get
     )(id=batch_export_run_id)
     team: Team = batch_export_run.batch_export.team
+    logger = logger.new(team_id=team.id)
+
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
