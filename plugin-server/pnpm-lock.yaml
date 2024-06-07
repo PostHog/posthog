@@ -43,6 +43,9 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/hogvm':
+    specifier: ^1.0.8
+    version: 1.0.8
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -3102,6 +3105,10 @@ packages:
   /@posthog/clickhouse@1.7.0:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
+    dev: false
+
+  /@posthog/hogvm@1.0.8:
+    resolution: {integrity: sha512-Rs7Ujyi/k0uMl4XOv8ACkF7fgZWUk/knlM2nq/LsDBdBvwA8h851iseNUxaHyI5xzK7Ye9fn3sK9qS9l/DGLJg==}
     dev: false
 
   /@posthog/plugin-scaffold@1.4.4:
