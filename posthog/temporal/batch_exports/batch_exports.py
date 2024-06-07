@@ -464,11 +464,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
         from posthog.tasks.email import send_batch_export_run_failure
 
-        if batch_export_run.status == BatchExportRun.Status.FAILED:
-            from posthog.tasks.email import send_batch_export_run_failure
-
-        from posthog.tasks.email import send_batch_export_run_failure
-
         try:
             await send_batch_export_run_failure(inputs.id)
         except Exception:
