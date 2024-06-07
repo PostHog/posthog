@@ -16,9 +16,10 @@ from django.test import override_settings
 class TestModifiers(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_create_default_modifiers_for_team_init(self):
-        assert self.team.person_on_events_mode == "disabled"
+        assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # NB! not a None
+        # The default is not None! It's explicitly `PERSON_ID_OVERRIDE_PROPERTIES_JOINED`
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
         modifiers = create_default_modifiers_for_team(
             self.team,
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
@@ -34,13 +35,19 @@ class TestModifiers(BaseTest):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # the default mode
+        assert (
+            modifiers.personsOnEventsMode
+            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # the default mode
+        )
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-        assert self.team.default_modifiers["personsOnEventsMode"] == PersonsOnEventsMode.DISABLED  # no change here
+        assert (
+            self.team.default_modifiers["personsOnEventsMode"]
+            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # no change here
+        )
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
@@ -55,9 +62,9 @@ class TestModifiers(BaseTest):
     def test_modifiers_persons_on_events_default_is_based_on_team_property(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
-        assert self.team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"

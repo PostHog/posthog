@@ -326,27 +326,17 @@ class Team(UUIDClassicModel):
             return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_no_override_properties_on_events:
-            # also tag person_on_events_enabled for legacy compatibility
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            )
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        if self._person_on_events_person_id_override_properties_joined:
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-            )
-            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
-
-        return PersonsOnEventsMode.DISABLED  # Fall back to no persons-on-events disabled
+        tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode in (
+        return self.person_on_events_mode in (  # Whether person properties on events are in use by default
             PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         )
@@ -392,26 +382,6 @@ class Team(UUIDClassicModel):
             )
 
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
-
-    @property
-    def _person_on_events_person_id_override_properties_joined(self) -> bool:
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-person-id-override-properties-joined",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return False
 
     @property
     def strict_caching_enabled(self) -> bool:
