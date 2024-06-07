@@ -993,8 +993,7 @@ export type ErrorTrackingGroup = {
     name: string
     sampleEvent: EventType
     occurrences: number
-    unique_sessions: number
-    unique_users: number
+    uniqueSessions: number
 }
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
