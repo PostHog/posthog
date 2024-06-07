@@ -239,6 +239,7 @@ class PostgresInsertInputs:
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 @activity.defn
@@ -277,6 +278,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=query_parameters,
+            is_backfill=inputs.is_backfill,
         )
 
         if inputs.batch_export_schema is None:
@@ -384,6 +386,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
