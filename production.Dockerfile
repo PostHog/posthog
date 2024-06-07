@@ -25,7 +25,7 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
@@ -43,10 +43,12 @@ RUN pnpm build
 # ---------------------------------------------------------
 #
 FROM node:18.19.1-bullseye-slim AS plugin-server-build
-WORKDIR /code
+WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -56,19 +58,10 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY patches/ patches/
-COPY hogvm hogvm/
-COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
-COPY ./plugin-server/patches/ ./plugin-server/patches/
-
-# RUN ls -la && ls -la plugin-server && ls -la hogvm && exit 1
-
-RUN corepack enable && pnpm --version && \
+    rm -rf /var/lib/apt/lists/* && \
+    corepack enable && \
     mkdir /tmp/pnpm-store && \
-    cd plugin-server && pnpm install --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
@@ -76,7 +69,7 @@ RUN corepack enable && pnpm --version && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
-RUN cd plugin-server && pnpm build
+RUN pnpm build
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
