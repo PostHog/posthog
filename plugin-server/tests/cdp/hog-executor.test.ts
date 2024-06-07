@@ -2,6 +2,7 @@ import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
+import { RustyHook } from '../../src/worker/rusty-hook'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
@@ -18,8 +19,16 @@ describe('Hog Executor', () => {
         getTeamHogFunctions: jest.fn(),
     }
 
+    const mockRustyHook = {
+        enqueueIfEnabledForTeam: jest.fn(),
+    }
+
     beforeEach(() => {
-        executor = new HogExecutor(config, mockFunctionManager as any as HogFunctionManager)
+        executor = new HogExecutor(
+            config,
+            mockFunctionManager as any as HogFunctionManager,
+            mockRustyHook as any as RustyHook
+        )
     })
 
     describe('general event processing', () => {
@@ -30,7 +39,7 @@ describe('Hog Executor', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue({
@@ -43,7 +52,39 @@ describe('Hog Executor', () => {
                 globals: createHogExecutionGlobals(),
             })
 
-            // TODO: Add check for fetch called successfully
+            expect(mockRustyHook.enqueueIfEnabledForTeam).toHaveBeenCalledTimes(1)
+            expect(mockRustyHook.enqueueIfEnabledForTeam.mock.calls[0]).toMatchInlineSnapshot(`
+                Array [
+                  Object {
+                    "pluginConfigId": -3,
+                    "pluginId": -3,
+                    "teamId": 1,
+                    "webhook": Object {
+                      "body": "{
+                    \\"event\\": {
+                        \\"uuid\\": \\"uuid\\",
+                        \\"name\\": \\"test\\",
+                        \\"distinct_id\\": \\"distinct_id\\",
+                        \\"url\\": \\"http://localhost:8000/events/1\\",
+                        \\"properties\\": {},
+                        \\"timestamp\\": \\"2024-06-07T16:15:49.481Z\\"
+                    },
+                    \\"groups\\": null,
+                    \\"nested\\": {
+                        \\"foo\\": \\"http://localhost:8000/events/1\\"
+                    },
+                    \\"person\\": null,
+                    \\"event_url\\": \\"http://localhost:8000/events/1-test\\"
+                }",
+                      "headers": Object {
+                        "version": "v=",
+                      },
+                      "method": "POST",
+                      "url": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                    },
+                  },
+                ]
+            `)
         })
     })
 })

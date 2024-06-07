@@ -37,11 +37,11 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
 }
 
 export class HogExecutor {
-    private rustyHook: RustyHook
-
-    constructor(private serverConfig: PluginsServerConfig, private hogFunctionManager: HogFunctionManager) {
-        this.rustyHook = new RustyHook(serverConfig)
-    }
+    constructor(
+        private serverConfig: PluginsServerConfig,
+        private hogFunctionManager: HogFunctionManager,
+        private rustyHook: RustyHook
+    ) {}
 
     /**
      * Intended to be invoked as a starting point from an event

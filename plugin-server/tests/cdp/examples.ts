@@ -110,6 +110,7 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
 }
 
 export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters'>> = {
+    no_filters: { filters: { events: [], actions: [], bytecode: ['_h', 29] } },
     pageview_or_autocapture_filter: {
         filters: {
             events: [

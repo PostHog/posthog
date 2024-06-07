@@ -1,5 +1,6 @@
 import { features, KafkaConsumer, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -86,7 +87,7 @@ export class CdpProcessedEventsConsumer {
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
-        this.hogExecutor = new HogExecutor(config, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(config, this.hogFunctionManager, new RustyHook(config))
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
