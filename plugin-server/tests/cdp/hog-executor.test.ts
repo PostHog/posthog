@@ -20,10 +20,12 @@ describe('Hog Executor', () => {
     }
 
     const mockRustyHook = {
-        enqueueIfEnabledForTeam: jest.fn(),
+        enqueueIfEnabledForTeam: jest.fn(() => true),
     }
 
     beforeEach(() => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         executor = new HogExecutor(
             config,
             mockFunctionManager as any as HogFunctionManager,
@@ -67,7 +69,7 @@ describe('Hog Executor', () => {
                         \\"distinct_id\\": \\"distinct_id\\",
                         \\"url\\": \\"http://localhost:8000/events/1\\",
                         \\"properties\\": {},
-                        \\"timestamp\\": \\"2024-06-07T16:15:49.481Z\\"
+                        \\"timestamp\\": \\"2024-06-07T12:00:00.000Z\\"
                     },
                     \\"groups\\": null,
                     \\"nested\\": {
