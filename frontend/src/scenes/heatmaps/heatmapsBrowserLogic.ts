@@ -5,6 +5,8 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
@@ -15,6 +17,11 @@ import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
 export type HeatmapsBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
+}
+
+export interface IFrameBanner {
+    level: LemonBannerProps['type']
+    message: string | JSX.Element
 }
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
@@ -50,7 +57,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
-        setIframeError: (error: string | null) => ({ error }),
+        setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
     }),
 
     loaders(({ values }) => ({
@@ -173,12 +180,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setLoading: (_, { loading }) => loading,
                 setBrowserUrl: () => true,
                 onIframeToolbarLoad: () => false,
+                setIframeBanner: (state, { banner }) => (banner?.level == 'error' ? false : state),
             },
         ],
-        iframeError: [
-            null as string | null,
+        iframeBanner: [
+            null as IFrameBanner | null,
             {
-                setIframeError: (_, { error }) => error,
+                setIframeBanner: (_, { banner }) => banner,
             },
         ],
     }),
@@ -214,7 +222,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, cache, props, values }) => ({
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
@@ -248,27 +256,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
-            // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error
-
-            // Attempt to access iframe content
-            // this lets us probe for errors like X-Frame-Origin issues
-            try {
-                const theIframe = props.iframeRef.current
-                const iframeContent = theIframe?.contentWindow?.document || theIframe?.contentDocument
-
-                // Check if we can access iframe content
-                if (iframeContent?.body.innerHTML) {
-                    actions.setIframeError(null)
-                } else {
-                    actions.setIframeError(
-                        'Could not embed this URL in PostHog - check your X-Frame-Origin settings or CSP'
-                    )
-                }
-            } catch (error) {
-                actions.setIframeError(
-                    'Could not embed this URL in PostHog - check your X-Frame-Origin settings or CSP'
-                )
-            }
+            // we get this callback whether the iframe loaded successfully or not
+            // and don't get a signal if the load was successful, so we have to check
+            // but there's no slam dunk way to do that
 
             const init = (): void => {
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT, {
@@ -290,7 +280,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 }
                 if (!values.checkUrlIsAuthorized(e.origin)) {
                     console.warn(
-                        'ignoring message from iframe with origin not in uathorized toolbar urls',
+                        'ignoring message from iframe with origin not in authorized toolbar urls',
                         e.origin,
                         e.data
                     )
@@ -301,6 +291,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
+                        clearTimeout(cache.errorTimeout)
+                        clearTimeout(cache.warnTimeout)
+                        actions.setIframeBanner(null)
+
                         posthog.capture('in-app heatmap loaded', {
                             inapp_heatmap_page_url_visited: values.browserUrl,
                             inapp_heatmap_filters: values.heatmapFilters,
@@ -309,7 +303,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         })
                         return actions.onIframeToolbarLoad()
                     default:
-                        console.warn(`[PostHog Heatmpas] Received unknown child window message: ${type}`)
+                        console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
             }
 
@@ -326,6 +320,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setBrowserUrl: () => {
             actions.maybeLoadTopUrls()
+
+            // we expect to get a message from the toolbar in the iframe when it's ready
+            // these timeouts are cleared when the heatmap is ready
+            cache.errorTimeout = setTimeout(() => {
+                actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
+            }, 7500)
+
+            cache.warnTimeout = setTimeout(() => {
+                actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
+            }, 2500)
         },
     })),
 
@@ -337,24 +341,24 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/heatmaps': (_, searchParams) => {
-            if (searchParams.pageURL) {
+            if (searchParams.pageURL && searchParams.pageURL !== values.browserUrl) {
                 actions.setBrowserUrl(searchParams.pageURL)
-                // otherwise we could have a race
-                // between the aftermount setting the loading state and the toolbar load cancelling it
-                actions.setLoading(false)
             }
-            if (searchParams.heatmapFilters) {
+            if (searchParams.heatmapFilters && !objectsEqual(searchParams.heatmapFilters, values.heatmapFilters)) {
                 actions.patchHeatmapFilters(searchParams.heatmapFilters)
             }
-            if (searchParams.heatmapPalette) {
+            if (searchParams.heatmapPalette && searchParams.heatmapPalette !== values.heatmapColorPalette) {
                 actions.setHeatmapColorPalette(searchParams.heatmapPalette)
             }
-            if (searchParams.heatmapFixedPositionMode) {
+            if (
+                searchParams.heatmapFixedPositionMode &&
+                searchParams.heatmapFixedPositionMode !== values.heatmapFixedPositionMode
+            ) {
                 actions.setHeatmapFixedPositionMode(searchParams.heatmapFixedPositionMode as HeatmapFixedPositionMode)
             }
-            if (searchParams.commonFilters) {
+            if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
             }
         },

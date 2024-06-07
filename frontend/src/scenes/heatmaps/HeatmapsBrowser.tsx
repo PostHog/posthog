@@ -1,5 +1,5 @@
 import { IconCollapse } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -195,12 +195,23 @@ function FilterPanel(): JSX.Element {
 
 function IframeErrorOverlay(): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
-    const { iframeError } = useValues(logic)
-    return iframeError ? (
+    const { iframeBanner } = useValues(logic)
+    return iframeBanner ? (
         <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
-            <LemonBanner className="w-full" type="error">
-                {iframeError}. You can click "Open in toolbar" above to visit your site and view the heatmap there.
+            <LemonBanner className="w-full" type={iframeBanner.level}>
+                {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
+                toolbar" above to visit your site and view the heatmap there.
             </LemonBanner>
+        </div>
+    ) : null
+}
+
+function LoadingOverlay(): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+    const { loading } = useValues(logic)
+    return loading ? (
+        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
+            <Spinner className="text-5xl" textColored={true} />
         </div>
     ) : null
 }
@@ -212,7 +223,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl, loading, iframeError } = useValues(logic)
+    const { browserUrl, iframeBanner } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -224,8 +235,8 @@ function EmbeddedHeatmapBrowser({
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
             <div className="relative flex-1 w-full h-full">
-                {iframeError && <IframeErrorOverlay />}
-                {loading && <SpinnerOverlay />}
+                {iframeBanner && <IframeErrorOverlay />}
+                <LoadingOverlay />
                 <iframe
                     ref={iframeRef}
                     className="w-full h-full"
