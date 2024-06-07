@@ -55,9 +55,6 @@ class InputsItemSerializer(serializers.Serializer):
         value = attrs["value"]
 
         # Validate each type
-
-        print("VALUE", value, item_type)
-
         if item_type == "string":
             if not isinstance(value, str):
                 raise serializers.ValidationError("Value must be a string.")

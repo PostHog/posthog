@@ -27,12 +27,12 @@ class HogFunction(UUIDModel):
     # TODO: Rename to "variables"
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
-    filters: models.JSONField = models.JSONField(null=True, blank=True)
+    filters: models.JSONField = models.JSONField(null=True, blank=True, default=lambda: {})
 
     @property
     def filter_action_ids(self) -> list[int]:
         try:
-            return [int(action["id"]) for action in self.filters["actions"]]
+            return [int(action["id"]) for action in self.filters.get("actions", [])]
         except KeyError:
             return []
 
@@ -42,19 +42,19 @@ class HogFunction(UUIDModel):
 
         if actions is None:
             # If not provided as an optimization we fetch all actions
-            actions_list = Action.objects.filter(team=self.team_id).filter(id__in=self.filter_action_ids)
+            actions_list = (
+                Action.objects.select_related("team").filter(team_id=self.team_id).filter(id__in=self.filter_action_ids)
+            )
             actions = {action.id: action for action in actions_list}
 
         try:
-            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self, actions))
-        except Exception:
-            # TODO: Capture exception
+            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
+        except Exception as e:
+            # TODO: Capture exception and indicate an issue
             self.filters["bytecode"] = None
 
     def save(self, *args, **kwargs):
-        if self.filters:
-            self.compile_filters_bytecode()
-
+        self.compile_filters_bytecode()
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -75,8 +75,8 @@ def action_saved(sender, instance: Action, created, **kwargs):
     # and trigger a refresh of the filters bytecode
 
     affected_hog_functions = (
-        HogFunction.objects.prefetch_related("team")
-        .filter(team=instance.team_id)
+        HogFunction.objects.select_related("team")
+        .filter(team_id=instance.team_id)
         .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
     )
 
@@ -86,8 +86,8 @@ def action_saved(sender, instance: Action, created, **kwargs):
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: Team, created, **kwargs):
     affected_hog_functions = (
-        HogFunction.objects.prefetch_related("team")
-        .filter(team=instance.id)
+        HogFunction.objects.select_related("team")
+        .filter(team_id=instance.id)
         .filter(filters__contains={"filter_test_accounts": True})
     )
 
@@ -95,8 +95,14 @@ def team_saved(sender, instance: Team, created, **kwargs):
 
 
 def refresh_hog_functions(team_id: int, affected_hog_functions: list[HogFunction]) -> int:
-    all_related_actions = Action.objects.filter(team=team_id).filter(
-        id__in=[action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids]
+    all_related_actions = (
+        Action.objects.select_related("team")
+        .filter(team_id=team_id)
+        .filter(
+            id__in=[
+                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
+            ]
+        )
     )
 
     actions_by_id = {action.id: action for action in all_related_actions}

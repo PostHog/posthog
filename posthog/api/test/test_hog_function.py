@@ -3,6 +3,7 @@ from unittest.mock import ANY
 
 from rest_framework import status
 
+from posthog.models.action.action import Action
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 
@@ -76,7 +77,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "bytecode": ["_h", 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
             "inputs_schema": [],
             "inputs": {},
-            "filters": {},
+            "filters": {"bytecode": ["_h", 29]},
         }
 
     def test_inputs_required(self):
@@ -173,6 +174,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
     def test_generates_filters_bytecode(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
         self.team.test_account_filters = [
             {
                 "key": "email",
@@ -182,17 +189,60 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         ]
         self.team.save()
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["filters"] == {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-            "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+            "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
                 "_h",
-                33,
+                32,
+                "%docs%",
+                32,
+                "$current_url",
+                32,
+                "properties",
+                1,
                 2,
-                33,
+                17,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                3,
+                2,
+                32,
+                "%@posthog.com%",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                20,
+                3,
+                2,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
                 1,
                 11,
                 32,
@@ -208,19 +258,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 20,
                 3,
                 2,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                20,
-                3,
-                1,
                 4,
                 2,
             ],
