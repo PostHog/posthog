@@ -1,4 +1,5 @@
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconCollapse } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -7,7 +8,7 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -128,30 +129,79 @@ function ForbiddenURL(): JSX.Element {
     )
 }
 
-interface EmbeddedHeatmapBrowserProps {
-    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
-}
-
-function EmbeddedHeatmapBrowser({ iframeRef }: EmbeddedHeatmapBrowserProps): JSX.Element | null {
+function FilterPanel(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
     const {
         heatmapFilters,
-        browserUrl,
-        loading,
         heatmapColorPalette,
         heatmapFixedPositionMode,
         viewportRange,
         commonFilters,
+        filterPanelCollapsed,
     } = useValues(logic)
     const {
-        onIframeLoad,
         patchHeatmapFilters,
         setHeatmapColorPalette,
         setHeatmapFixedPositionMode,
         setCommonFilters,
-        setIframeWidth,
+        toggleFilterPanelCollapsed,
     } = useActions(logic)
+
+    return (
+        <div className="flex flex-col gap-y-2 px-2 py-1 border-r">
+            {filterPanelCollapsed ? (
+                <Tooltip title="Expand heatmap settings">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight />}
+                        onClick={() => toggleFilterPanelCollapsed()}
+                    />
+                </Tooltip>
+            ) : (
+                <>
+                    <div className="flex flex-row items-center">
+                        <Tooltip title="Collapse heatmap settings">
+                            <LemonButton
+                                size="small"
+                                icon={<IconCollapse className="rotate-90" />}
+                                onClick={() => toggleFilterPanelCollapsed()}
+                            />
+                        </Tooltip>
+                        <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
+                    </div>
+                    <DateFilter
+                        dateFrom={commonFilters.date_from}
+                        dateTo={commonFilters.date_to}
+                        onChange={(fromDate, toDate) => {
+                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                        }}
+                        dateOptions={heatmapDateOptions}
+                    />
+                    <HeatmapsSettings
+                        heatmapFilters={heatmapFilters}
+                        patchHeatmapFilters={patchHeatmapFilters}
+                        viewportRange={viewportRange}
+                        heatmapColorPalette={heatmapColorPalette}
+                        setHeatmapColorPalette={setHeatmapColorPalette}
+                        heatmapFixedPositionMode={heatmapFixedPositionMode}
+                        setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
+                    />
+                </>
+            )}
+        </div>
+    )
+}
+
+function EmbeddedHeatmapBrowser({
+    iframeRef,
+}: {
+    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+}): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+
+    const { browserUrl, loading } = useValues(logic)
+    const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
@@ -160,25 +210,7 @@ function EmbeddedHeatmapBrowser({ iframeRef }: EmbeddedHeatmapBrowserProps): JSX
 
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
-            <div className="flex flex-col gap-y-2 px-2 py-1">
-                <DateFilter
-                    dateFrom={commonFilters.date_from}
-                    dateTo={commonFilters.date_to}
-                    onChange={(fromDate, toDate) => {
-                        setCommonFilters({ date_from: fromDate, date_to: toDate })
-                    }}
-                    dateOptions={heatmapDateOptions}
-                />
-                <HeatmapsSettings
-                    heatmapFilters={heatmapFilters}
-                    patchHeatmapFilters={patchHeatmapFilters}
-                    viewportRange={viewportRange}
-                    heatmapColorPalette={heatmapColorPalette}
-                    setHeatmapColorPalette={setHeatmapColorPalette}
-                    heatmapFixedPositionMode={heatmapFixedPositionMode}
-                    setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                />
-            </div>
+            <FilterPanel />
             <iframe
                 ref={iframeRef}
                 className="flex-1"
