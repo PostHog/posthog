@@ -391,7 +391,7 @@ class TestBillingAPI(APILicensedTest):
                         },
                     ],
                     "tiered": True,
-                    "current_amount_usd": 0.00,
+                    "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "usage_limit": None,
                     "percentage_usage": 0,
@@ -402,7 +402,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.00,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
@@ -512,7 +512,7 @@ class TestBillingAPI(APILicensedTest):
                     ],
                     "current_usage": 0,
                     "percentage_usage": 0,
-                    "current_amount_usd": 0.0,
+                    "current_amount_usd": "0.00",
                     "has_exceeded_limit": False,
                     "projected_amount_usd": 0.0,
                     "projected_amount": 0,
@@ -525,7 +525,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.0,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
