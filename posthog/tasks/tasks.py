@@ -43,12 +43,12 @@ def redis_heartbeat() -> None:
         CHQueryErrorTooManySimultaneousQueries,
         CeleryConcurrencyLimitExceeded,
     ),
-    retry_backoff=True,
+    retry_backoff=1,
     retry_backoff_max=10,
-    max_retries=20,
+    max_retries=3,
 )
-@limit_concurrency(70)  # Do not go above what CH can handle
-@limit_concurrency(5, key=lambda *args, **kwargs: args[0])  # Do not run too many queries at once for the same team
+@limit_concurrency(90)  # Do not go above what CH can handle
+@limit_concurrency(10, key=lambda *args, **kwargs: args[0])  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
     user_id: Optional[int],
