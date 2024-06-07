@@ -1,5 +1,6 @@
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { IconCollapse } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -7,153 +8,58 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useEffect, useRef } from 'react'
+import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import React, { useEffect, useRef } from 'react'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
-export function HeatmapsBrowser(): JSX.Element {
-    const iframeRef = useRef<HTMLIFrameElement | null>(null)
+function UrlSearchHeader(): JSX.Element {
+    const logic = heatmapsBrowserLogic()
 
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
-
-    const logic = heatmapsBrowserLogic({ iframeRef })
-
-    const {
-        heatmapFilters,
-        browserUrlSearchOptions,
-        browserUrl,
-        loading,
-        isBrowserUrlAuthorized,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-    } = useValues(logic)
-    const {
-        setBrowserSearch,
-        setBrowserUrl,
-        onIframeLoad,
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        setIframeWidth,
-    } = useActions(logic)
-
-    useEffect(() => {
-        setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth])
+    const { browserUrlSearchOptions, browserUrl } = useValues(logic)
+    const { setBrowserSearch, setBrowserUrl } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="flex flex-wrap gap-2">
-            <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
-                <div className="bg-accent-3000 p-2 border-b flex items-center gap-2">
-                    <span className="flex-1">
-                        <LemonInputSelect
-                            mode="single"
-                            allowCustomValues
-                            placeholder={`e.g. ${placeholderUrl}`}
-                            onInputChange={(e) => setBrowserSearch(e)}
-                            value={browserUrl ? [browserUrl] : undefined}
-                            onChange={(v) => setBrowserUrl(v[0] ?? null)}
-                            options={
-                                browserUrlSearchOptions?.map((x) => ({
-                                    label: x,
-                                    key: x,
-                                })) ?? []
-                            }
-                        />
-                    </span>
+        <div className="bg-accent-3000 p-2 border-b flex items-center gap-2">
+            <span className="flex-1">
+                <LemonInputSelect
+                    mode="single"
+                    allowCustomValues
+                    placeholder={`e.g. ${placeholderUrl}`}
+                    onInputChange={(e) => setBrowserSearch(e)}
+                    value={browserUrl ? [browserUrl] : undefined}
+                    onChange={(v) => setBrowserUrl(v[0] ?? null)}
+                    options={
+                        browserUrlSearchOptions?.map((x) => ({
+                            label: x,
+                            key: x,
+                        })) ?? []
+                    }
+                />
+            </span>
 
-                    <LemonButton
-                        type="secondary"
-                        sideIcon={<IconOpenInNew />}
-                        to={
-                            browserUrl
-                                ? appEditorUrl(browserUrl, {
-                                      userIntent: 'heatmaps',
-                                  })
-                                : undefined
-                        }
-                        targetBlank
-                        disabledReason={!browserUrl ? 'Select a URL first' : undefined}
-                    >
-                        Open in toolbar
-                    </LemonButton>
-                </div>
-
-                <div className="relative flex flex-1 bg-accent-3000 overflow-hidden">
-                    {browserUrl ? (
-                        <>
-                            {!isBrowserUrlAuthorized ? (
-                                <div className="flex-1 p-4 gap-y-4">
-                                    <LemonBanner type="error">
-                                        {browserUrl} is not an authorized URL. Please add it to the list of authorized
-                                        URLs to view heatmaps on this page.
-                                    </LemonBanner>
-
-                                    <h2>Authorized Toolbar URLs</h2>
-                                    <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
-                                </div>
-                            ) : (
-                                <div className="flex flex-row gap-x-2 w-full">
-                                    <div className="flex flex-col gap-y-2 px-2 py-1">
-                                        <DateFilter
-                                            dateFrom={commonFilters.date_from}
-                                            dateTo={commonFilters.date_to}
-                                            onChange={(fromDate, toDate) => {
-                                                setCommonFilters({ date_from: fromDate, date_to: toDate })
-                                            }}
-                                            dateOptions={heatmapDateOptions}
-                                        />
-                                        <HeatmapsSettings
-                                            heatmapFilters={heatmapFilters}
-                                            patchHeatmapFilters={patchHeatmapFilters}
-                                            viewportRange={viewportRange}
-                                            heatmapColorPalette={heatmapColorPalette}
-                                            setHeatmapColorPalette={setHeatmapColorPalette}
-                                            heatmapFixedPositionMode={heatmapFixedPositionMode}
-                                            setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                                        />
-                                    </div>
-                                    <iframe
-                                        ref={iframeRef}
-                                        className="flex-1"
-                                        src={appEditorUrl(browserUrl, {
-                                            userIntent: 'heatmaps',
-                                        })}
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            background: '#FFF',
-                                        }}
-                                        onLoad={onIframeLoad}
-                                        // these two sandbox values are necessary so that the site and toolbar can run
-                                        // this is a very loose sandbox,
-                                        // but we specify it so that at least other capabilities are denied
-                                        sandbox="allow-scripts allow-same-origin"
-                                        // we don't allow things such as camera access though
-                                        allow=""
-                                    />
-
-                                    {loading && <SpinnerOverlay />}
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <HeatmapsBrowserIntro />
-                    )}
-                </div>
-            </div>
+            <LemonButton
+                type="secondary"
+                sideIcon={<IconOpenInNew />}
+                to={
+                    browserUrl
+                        ? appEditorUrl(browserUrl, {
+                              userIntent: 'heatmaps',
+                          })
+                        : undefined
+                }
+                targetBlank
+                disabledReason={!browserUrl ? 'Select a URL first' : undefined}
+            >
+                Open in toolbar
+            </LemonButton>
         </div>
     )
 }
 
 function HeatmapsBrowserIntro(): JSX.Element {
-    // the heatmaps browserLogic is not keyed on its props, so we can reference it here
-    // without passing them around
     const logic = heatmapsBrowserLogic()
 
     const { topUrls, topUrlsLoading, noPageviews } = useValues(logic)
@@ -202,5 +108,163 @@ function HeatmapsBrowserIntro(): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+function ForbiddenURL(): JSX.Element {
+    const logic = heatmapsBrowserLogic()
+
+    const { browserUrl } = useValues(logic)
+
+    return (
+        <div className="flex-1 p-4 gap-y-4">
+            <LemonBanner type="error">
+                {browserUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
+                this page.
+            </LemonBanner>
+
+            <h2>Authorized Toolbar URLs</h2>
+            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+        </div>
+    )
+}
+
+function FilterPanel(): JSX.Element {
+    const logic = heatmapsBrowserLogic()
+
+    const {
+        heatmapFilters,
+        heatmapColorPalette,
+        heatmapFixedPositionMode,
+        viewportRange,
+        commonFilters,
+        filterPanelCollapsed,
+    } = useValues(logic)
+    const {
+        patchHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        setCommonFilters,
+        toggleFilterPanelCollapsed,
+    } = useActions(logic)
+
+    return (
+        <div className="flex flex-col gap-y-2 px-2 py-1 border-r">
+            {filterPanelCollapsed ? (
+                <Tooltip title="Expand heatmap settings">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight />}
+                        onClick={() => toggleFilterPanelCollapsed()}
+                    />
+                </Tooltip>
+            ) : (
+                <>
+                    <div className="flex flex-row items-center">
+                        <Tooltip title="Collapse heatmap settings">
+                            <LemonButton
+                                size="small"
+                                icon={<IconCollapse className="rotate-90" />}
+                                onClick={() => toggleFilterPanelCollapsed()}
+                            />
+                        </Tooltip>
+                        <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
+                    </div>
+                    <DateFilter
+                        dateFrom={commonFilters.date_from}
+                        dateTo={commonFilters.date_to}
+                        onChange={(fromDate, toDate) => {
+                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                        }}
+                        dateOptions={heatmapDateOptions}
+                    />
+                    <HeatmapsSettings
+                        heatmapFilters={heatmapFilters}
+                        patchHeatmapFilters={patchHeatmapFilters}
+                        viewportRange={viewportRange}
+                        heatmapColorPalette={heatmapColorPalette}
+                        setHeatmapColorPalette={setHeatmapColorPalette}
+                        heatmapFixedPositionMode={heatmapFixedPositionMode}
+                        setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
+                    />
+                </>
+            )}
+        </div>
+    )
+}
+
+function EmbeddedHeatmapBrowser({
+    iframeRef,
+}: {
+    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+}): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+
+    const { browserUrl, loading } = useValues(logic)
+    const { onIframeLoad, setIframeWidth } = useActions(logic)
+
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    useEffect(() => {
+        setIframeWidth(iframeWidth ?? null)
+    }, [iframeWidth])
+
+    return browserUrl ? (
+        <div className="flex flex-row gap-x-2 w-full">
+            <FilterPanel />
+            <iframe
+                ref={iframeRef}
+                className="flex-1"
+                src={appEditorUrl(browserUrl, {
+                    userIntent: 'heatmaps',
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    background: '#FFF',
+                }}
+                onLoad={onIframeLoad}
+                // these two sandbox values are necessary so that the site and toolbar can run
+                // this is a very loose sandbox,
+                // but we specify it so that at least other capabilities are denied
+                sandbox="allow-scripts allow-same-origin"
+                // we don't allow things such as camera access though
+                allow=""
+            />
+
+            {loading && <SpinnerOverlay />}
+        </div>
+    ) : null
+}
+
+export function HeatmapsBrowser(): JSX.Element {
+    const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+    const logicProps = { ref: iframeRef }
+
+    const logic = heatmapsBrowserLogic({ iframeRef })
+
+    const { browserUrl, isBrowserUrlAuthorized } = useValues(logic)
+
+    return (
+        <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
+            <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
+                    <UrlSearchHeader />
+
+                    <div className="relative flex flex-1 bg-accent-3000 overflow-hidden">
+                        {browserUrl ? (
+                            <>
+                                {!isBrowserUrlAuthorized ? (
+                                    <ForbiddenURL />
+                                ) : (
+                                    <EmbeddedHeatmapBrowser iframeRef={iframeRef} />
+                                )}
+                            </>
+                        ) : (
+                            <HeatmapsBrowserIntro />
+                        )}
+                    </div>
+                </div>
+            </div>
+        </BindLogic>
     )
 }
