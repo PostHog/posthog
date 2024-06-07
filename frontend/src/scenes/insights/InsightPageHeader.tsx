@@ -30,7 +30,7 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, InsightModel, ItemMode, NotebookNodeType } from '~/types'
+import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -47,7 +47,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hasDashboardItemId,
     } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
-    const insight = getQueryBasedInsightModel(legacyInsight as InsightModel)
+    const insight = getQueryBasedInsightModel(legacyInsight)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -70,14 +70,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
                         title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
@@ -90,8 +90,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     />
                     <AlertsModal
                         isOpen={insightMode === ItemMode.Alerts}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
-                        insightShortId={insight.short_id}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insight.short_id as InsightShortId}
                         alertId={subscriptionId}
                     />
                     <NewDashboardModal />
