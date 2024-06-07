@@ -504,6 +504,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 setSurveyMissing: () => true,
             },
         ],
+
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
@@ -617,6 +618,12 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        descriptionContentType: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number) => {
+                return survey.questions[questionIndex].descriptionContentType
             },
         ],
         hasTargetingSet: [
@@ -765,6 +772,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
+                // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayload)
@@ -776,11 +784,12 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     urlToAction(({ actions, props }) => ({
         [urls.survey(props.id ?? 'new')]: (_, __, ___, { method }) => {
-            // If the URL was pushed (user clicked on a link), reset the scene's data.
-            // This avoids resetting form fields if you click back/forward.
+            // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
             }
+            // If the URL was pushed (user clicked on a link), reset the scene's data.
+            // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
                     actions.loadSurvey()

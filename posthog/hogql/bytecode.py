@@ -324,7 +324,16 @@ class BytecodeBuilder(Visitor):
             raise NotImplementedError(f"Function `{node.name}` already declared")
         all_known_functions = self.supported_functions.union(set(self.functions.keys()))
         all_known_functions.add(node.name)
-        bytecode = create_bytecode(node.body, all_known_functions, node.params)
+
+        # add an implicit return if none at the end of the function
+        body = node.body
+        if isinstance(node.body, ast.Block):
+            if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
+                body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])
+        elif not isinstance(node.body, ast.ReturnStatement):
+            body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
+
+        bytecode = create_bytecode(body, all_known_functions, node.params)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
 
@@ -356,7 +365,7 @@ class BytecodeBuilder(Visitor):
 
 def execute_hog(
     source_code: str,
-    team: "Team",
+    team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,

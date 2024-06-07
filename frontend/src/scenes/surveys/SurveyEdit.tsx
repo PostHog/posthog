@@ -16,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -41,24 +42,18 @@ export default function SurveyEdit(): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
-        writingHTMLDescription,
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
     } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        setWritingHTMLDescription,
-        resetTargeting,
-        setSelectedPageIndex,
-        setSelectedSection,
-        setFlagPropertyErrors,
-    } = useActions(surveyLogic)
+    const { setSurveyValue, resetTargeting, setSelectedPageIndex, setSelectedSection, setFlagPropertyErrors } =
+        useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType } = survey.appearance
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -257,13 +252,25 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           ...survey.appearance,
                                                                                           thankYouMessageDescription:
                                                                                               val,
+                                                                                          thankYouMessageDescriptionContentType,
                                                                                       })
                                                                                   }
-                                                                                  writingHTMLDescription={
-                                                                                      writingHTMLDescription
-                                                                                  }
-                                                                                  setWritingHTMLDescription={
-                                                                                      setWritingHTMLDescription
+                                                                                  onTabChange={(key) => {
+                                                                                      const updatedAppearance = {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescriptionContentType:
+                                                                                              key === 'html'
+                                                                                                  ? 'html'
+                                                                                                  : 'text',
+                                                                                      }
+                                                                                      setSurveyValue(
+                                                                                          'appearance',
+                                                                                          updatedAppearance
+                                                                                      )
+                                                                                  }}
+                                                                                  activeTab={
+                                                                                      thankYouMessageDescriptionContentType ??
+                                                                                      'text'
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
@@ -595,6 +602,38 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_EVENTS] && (
+                                                <LemonField.Pure label="User sends events">
+                                                    <EventSelect
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                events: {
+                                                                    values: includedEvents.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.events?.values &&
+                                                            survey.conditions?.events?.values.length > 0
+                                                                ? survey.conditions?.events?.values.map((v) => v.name)
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
                                         </>
                                     )}
                                 </LemonField.Pure>

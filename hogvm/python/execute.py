@@ -1,13 +1,19 @@
 import re
-from typing import Any, Optional
-from collections.abc import Callable
 import time
+from typing import Any, Optional, TYPE_CHECKING
+from collections.abc import Callable
 
+from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
-from hogvm.python.vm_utils import HogVMException
-from posthog.models import Team
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+
+class HogVMException(Exception):
+    pass
 
 
 def like(string, pattern, flags=0):
@@ -59,8 +65,9 @@ def execute_bytecode(
     bytecode: list[Any],
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=10,
-    team: Team | None = None,
+    timeout=5,
+    team: Optional["Team"] = None,
+    debug=False,
 ) -> BytecodeResult:
     result = None
     start_time = time.time()
@@ -71,6 +78,7 @@ def execute_bytecode(
     ip = -1
     ops = 0
     stdout: list[str] = []
+    colored_bytecode = color_bytecode(bytecode) if debug else []
 
     def next_token():
         nonlocal ip
@@ -88,14 +96,16 @@ def execute_bytecode(
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
     def check_timeout():
-        if time.time() - start_time > timeout:
-            raise HogVMException(f"Execution timed out after {timeout} seconds")
+        if time.time() - start_time > timeout and not debug:
+            raise HogVMException(f"Execution timed out after {timeout} seconds. Performed {ops} ops.")
 
     while True:
         ops += 1
+        symbol = next_token()
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
-        symbol = next_token()
+        elif debug:
+            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
         match symbol:
             case None:
                 break
@@ -241,7 +251,8 @@ def execute_bytecode(
                     stack.append(STL[name](name, args, team, stdout, timeout))
         if ip == last_op:
             break
-
+    if debug:
+        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
     if len(stack) > 1:
         raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:
