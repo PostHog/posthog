@@ -288,7 +288,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/insights/:shortId(/:mode)(/:subscriptionId)': (
+        '/insights/:shortId(/:mode)(/:itemId)': (
             _, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters } // hash params
