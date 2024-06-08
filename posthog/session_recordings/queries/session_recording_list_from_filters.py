@@ -278,7 +278,7 @@ class PersonsSubQuery:
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_query(self) -> ast.SelectQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         if self.person_properties:
             return parse_select(
                 """
@@ -287,7 +287,7 @@ class PersonsSubQuery:
                 WHERE {where_predicates}
                 """,
                 {
-                    "where_predicates": self._where_predicates(),
+                    "where_predicates": self._where_predicates,
                 },
             )
         else:
@@ -305,8 +305,13 @@ class PersonsSubQuery:
             else None
         )
 
-    def _where_predicates(self):
-        return property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+    @cached_property
+    def _where_predicates(self) -> ast.Expr:
+        return (
+            property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+            if self.person_properties
+            else ast.Constant(value=True)
+        )
 
 
 class EventsSubQuery:
