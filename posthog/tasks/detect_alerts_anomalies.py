@@ -1,12 +1,14 @@
+from typing import cast
+
 import structlog
 from celery import shared_task
-from typing import cast
-from posthog.schema import HogQLQueryResponse
-from posthog.models import Alert, AnomalyCondition
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.email import EmailMessage
 from django.utils import timezone
+
+from posthog.email import EmailMessage
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import Alert, AnomalyCondition
+from posthog.schema import HogQLQueryResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +51,7 @@ def check_alert(id: int) -> None:
         logger.info("no anomalies", alert_id=alert.id)
         return
 
-    subject = f"PostHog alert {alert.name}"
+    subject = f"PostHog alert {alert.name} has anomalies"
     campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
@@ -67,7 +69,9 @@ def check_alert(id: int) -> None:
     )
     targets = list(filter(len, alert.target_value.split(",")))
     if not targets:
-        raise RuntimeError(f"no targets configured for alert {alert.id}")
+        raise RuntimeError(f"no targets configured for the alert {alert.id}")
     for target in targets:
         message.add_recipient(email=target)
+
+    logger.info(f"Send notifications about {len(anomalies_descriptions)} anomalies", alert_id=alert.id)
     message.send()

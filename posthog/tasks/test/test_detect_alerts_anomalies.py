@@ -1,7 +1,9 @@
-from unittest.mock import MagicMock, patch
 import pytest
 from typing import Optional
+from unittest.mock import MagicMock, patch
+
 from freezegun import freeze_time
+
 from posthog.models.instance_setting import set_instance_setting
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
@@ -50,6 +52,10 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             data={"anomaly_condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
         )
 
+    def get_recepients(self, mocked_email_messages) -> list[list[str]]:
+        recipients = [sorted([to["recipient"] for to in message.to]) for message in mocked_email_messages]
+        return sorted(recipients)
+
     def test_alert_is_triggered_for_values_above_higher_threshold(self, MockEmailMessage: MagicMock):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(upper=0)
@@ -65,10 +71,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         check_all_alerts()
 
         assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].to == [
-            {"recipient": "a@b.c", "raw_email": "a@b.c"},
-            {"recipient": "d@e.f", "raw_email": "d@e.f"},
-        ]
+        assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"]]
         assert "The trend value (1) is above the upper threshold (0)" in mocked_email_messages[0].html_body
 
     def test_alert_is_triggered_for_value_below_lower_threshold(self, MockEmailMessage: MagicMock):
@@ -131,9 +134,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert len(mocked_email_messages) == 2
         assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[0].html_body
         assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[1].html_body
-        recipients = [[to["recipient"] for to in message.to] for message in mocked_email_messages]
-        recipients = sorted(recipients)
-        assert recipients == [["a@b.c", "d@e.f"], ["email@address.com"]]
+        assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"], ["email@address.com"]]
 
     def test_alert_with_insight_with_filter(self, MockEmailMessage: MagicMock):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
