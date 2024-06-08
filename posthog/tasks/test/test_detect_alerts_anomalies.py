@@ -109,8 +109,8 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
 
-        # in production one alert failure won't cause an exception in check_all_alerts
-        # because execution won't be eager (see CELERY_TASK_ALWAYS_EAGER in the set up)
+        # in production failure of a single alert won't cause an exception in check_all_alerts
+        # because the execution won't be eager (see CELERY_TASK_ALWAYS_EAGER in the set up)
         with pytest.raises(KeyError):
             check_all_alerts()
 
