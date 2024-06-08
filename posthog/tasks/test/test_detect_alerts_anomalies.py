@@ -1,5 +1,5 @@
 import pytest
-from typing import Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
@@ -46,17 +46,17 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             },
         ).json()
 
-    def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None):
+    def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
             data={"anomaly_condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
         )
 
-    def get_recepients(self, mocked_email_messages) -> list[list[str]]:
+    def get_recepients(self, mocked_email_messages: list[Any]) -> list[list[str]]:
         recipients = [sorted([to["recipient"] for to in message.to]) for message in mocked_email_messages]
         return sorted(recipients)
 
-    def test_alert_is_triggered_for_values_above_higher_threshold(self, MockEmailMessage: MagicMock):
+    def test_alert_is_triggered_for_values_above_higher_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(upper=0)
 
@@ -74,7 +74,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"]]
         assert "The trend value (1) is above the upper threshold (0)" in mocked_email_messages[0].html_body
 
-    def test_alert_is_triggered_for_value_below_lower_threshold(self, MockEmailMessage: MagicMock):
+    def test_alert_is_triggered_for_value_below_lower_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(lower=1)
 
@@ -83,7 +83,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert len(mocked_email_messages) == 1
         assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[0].html_body
 
-    def test_alert_is_not_triggered_for_normal_values(self, MockEmailMessage: MagicMock):
+    def test_alert_is_not_triggered_for_normal_values(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(lower=0, upper=1)
 
@@ -91,7 +91,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert len(mocked_email_messages) == 0
 
-    def test_error_while_calculating_no_alert(self, MockEmailMessage: MagicMock):
+    def test_error_while_calculating_no_alert(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         query_dict = TrendsQuery(
             series=[
@@ -116,7 +116,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert len(mocked_email_messages) == 0
 
-    def test_two_alerts_are_triggered(self, MockEmailMessage: MagicMock):
+    def test_two_alerts_are_triggered(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(lower=1)
         self.client.post(
@@ -136,7 +136,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "The trend value (0) is below the lower threshold (1)" in mocked_email_messages[1].html_body
         assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"], ["email@address.com"]]
 
-    def test_alert_with_insight_with_filter(self, MockEmailMessage: MagicMock):
+    def test_alert_with_insight_with_filter(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         insight = self.dashboard_api.create_insight(
             data={"name": "insight", "filters": {"events": [{"id": "$pageview"}], "display": "BoldNumber"}}
