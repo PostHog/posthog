@@ -128,7 +128,6 @@ def property_to_expr(
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=True)
     else:
-        breakpoint()
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
