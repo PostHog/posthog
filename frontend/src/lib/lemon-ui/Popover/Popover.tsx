@@ -73,7 +73,7 @@ let nestedPopoverReceivedClick = false
 
 /** This is a custom popover control that uses `floating-ui` to position DOM nodes.
  *
- * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithDropdown`.
+ * Often used with buttons for various menus. If this is your intention, use `LemonButtonWithDropdown`.
  */
 export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function PopoverInternal(
     {

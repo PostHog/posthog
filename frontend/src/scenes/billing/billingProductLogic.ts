@@ -72,8 +72,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             product,
             redirectPath,
         }),
+        openUpgradeOverlay: true,
+        toggleUpgradeOverlay: true,
+        closeUpgradeOverlay: false,
     }),
     reducers({
+        upgradeOverlayOpen: [
+            false,
+            {
+                closeUpgradeOverlay: false,
+                openUpgradeOverlay: true,
+                toggleUpgradeOverlay: (state) => !state,
+            },
+        ],
         billingLimitInput: [
             { input: DEFAULT_BILLING_LIMIT },
             {

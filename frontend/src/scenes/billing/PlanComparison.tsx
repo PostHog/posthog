@@ -1,7 +1,7 @@
 import './PlanComparison.scss'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSwitch, LemonTag, Link, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -106,6 +106,65 @@ const PricingTiers = ({
     )
 }
 
+export const BillingUpgradePopover = ({
+    addons,
+    plan,
+    includeAddons,
+}: {
+    addons: BillingProductV2AddonType[]
+    plan: BillingPlanV2Type
+    includeAddons: boolean
+}): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const [inputValue, setInputValue] = useState(500)
+    return (
+        <div>
+            <h3>Configure your subscription</h3>
+            <h4>Set a billing limit</h4>
+            <LemonInput
+                type="number"
+                fullWidth={false}
+                status="default"
+                value={inputValue}
+                onChange={(value) => value && setInputValue(value)}
+                prefix={<b>$</b>}
+                min={0}
+                step={10}
+                suffix={<>/ month</>}
+                size="small"
+            />
+            {!plan.current_plan && !plan.free_allocation && includeAddons && addons.length > 0 && (
+                <div>
+                    <h4>Enable add-ons</h4>
+                    {addons
+                        ?.filter((addon) => {
+                            if (addon.inclusion_only) {
+                                if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+                                    return false
+                                }
+                            }
+                            if (plan.free_allocation && !plan.tiers) {
+                                return false
+                            }
+                            return true
+                        })
+                        .map((addon) => {
+                            return (
+                                <div key={addon.name} className="flex gap-4">
+                                    <span>{addon.name}</span>
+                                    <LemonSwitch checked={false} />
+                                </div>
+                            )
+                        })}
+                </div>
+            )}
+            <div className="flex gap-2">
+                <LemonButton status="default">Subscribe as configured</LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -119,75 +178,133 @@ export const PlanComparison = ({
     if (plans?.length === 0) {
         return null
     }
+
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
-    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const { surveyID, comparisonModalHighlightedFeatureKey, upgradeOverlayOpen } = useValues(
+        billingProductLogic({ product })
+    )
+    const { reportSurveyShown, setSurveyResponse, closeUpgradeOverlay, toggleUpgradeOverlay } = useActions(
+        billingProductLogic({ product })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
-                <BillingUpgradeCTA
-                    to={
-                        plan.contact_support
-                            ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : !plan.included_if
-                            ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                {!plan.free_allocation ? (
+                    <Popover
+                        overlay={
+                            <BillingUpgradePopover plan={plan} includeAddons={includeAddons} addons={product.addons} />
+                        }
+                        visible={upgradeOverlayOpen}
+                        onClickOutside={() => closeUpgradeOverlay(false)}
+                        placement="bottom-end"
+                        matchWidth={true}
+                    >
+                        <LemonButton
+                            fullWidth
+                            center
+                            data-attr={`upgrade-${plan.name}`}
+                            type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
+                            status={
+                                plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
+                                    ? 'default'
+                                    : 'alt'
+                            }
+                            onClick={() => toggleUpgradeOverlay(true)}
+                        >
+                            {plan.current_plan
+                                ? 'Current plan'
+                                : i < currentPlanIndex
+                                ? 'Downgrade'
+                                : plan.contact_support
+                                ? 'Get in touch'
+                                : plan.included_if == 'has_subscription' &&
+                                  i >= currentPlanIndex &&
+                                  !billing?.has_active_subscription
+                                ? 'View products'
+                                : plan.free_allocation && !plan.tiers
+                                ? 'Select' // Free plan
+                                : 'Subscribe'}
+                        </LemonButton>
+                    </Popover>
+                ) : (
+                    <LemonButton
+                        fullWidth
+                        center
+                        data-attr={`upgrade-${plan.name}`}
+                        type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
+                        status={
+                            plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
+                                ? 'default'
+                                : 'alt'
+                        }
+                        onClick={() => setUpgradeOverlayOpen(true)}
+                    >
+                        {plan.current_plan
+                            ? 'Current plan'
+                            : i < currentPlanIndex
+                            ? 'Downgrade'
+                            : plan.contact_support
+                            ? 'Get in touch'
                             : plan.included_if == 'has_subscription' &&
                               i >= currentPlanIndex &&
                               !billing?.has_active_subscription
-                            ? urls.organizationBilling()
-                            : undefined
-                    }
-                    type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
-                    status={
-                        plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
-                            ? 'default'
-                            : 'alt'
-                    }
-                    fullWidth
-                    center
-                    disableClientSideRouting={!plan.contact_support}
-                    disabledReason={
-                        plan.included_if == 'has_subscription' && i >= currentPlanIndex
-                            ? billing?.has_active_subscription
-                                ? 'Unsubscribe from all products to remove'
-                                : null
-                            : plan.current_plan
-                            ? 'Current plan'
-                            : undefined
-                    }
-                    onClick={() => {
-                        if (!plan.current_plan) {
-                            // TODO: add current plan key and new plan key
-                            reportBillingUpgradeClicked(product.type)
+                            ? 'View products'
+                            : plan.free_allocation && !plan.tiers
+                            ? 'Select' // Free plan
+                            : 'Subscribe'}
+                    </LemonButton>
+                )}
+                {/* <BillingUpgradeCTA
+                        // to={
+                        //     plan.contact_support
+                        //         ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
+                        //         : !plan.included_if
+                        //         ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                        //         : plan.included_if == 'has_subscription' &&
+                        //           i >= currentPlanIndex &&
+                        //           !billing?.has_active_subscription
+                        //         ? urls.organizationBilling()
+                        //         : undefined
+                        // }
+                        type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
+                        status={
+                            plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
+                                ? 'default'
+                                : 'alt'
                         }
-                        if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
-                            setSurveyResponse(product.type, '$survey_response_1')
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                        fullWidth
+                        center
+                        disableClientSideRouting={!plan.contact_support}
+                        disabledReason={
+                            plan.included_if == 'has_subscription' && i >= currentPlanIndex
+                                ? billing?.has_active_subscription
+                                    ? 'Unsubscribe from all products to remove'
+                                    : null
+                                : plan.current_plan
+                                ? 'Current plan'
+                                : undefined
                         }
-                    }}
-                    data-attr={`upgrade-${plan.name}`}
-                >
-                    {plan.current_plan
-                        ? 'Current plan'
-                        : i < currentPlanIndex
-                        ? 'Downgrade'
-                        : plan.contact_support
-                        ? 'Get in touch'
-                        : plan.included_if == 'has_subscription' &&
-                          i >= currentPlanIndex &&
-                          !billing?.has_active_subscription
-                        ? 'View products'
-                        : plan.free_allocation && !plan.tiers
-                        ? 'Select' // Free plan
-                        : 'Subscribe'}
-                </BillingUpgradeCTA>
-                {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
+                        onClick={() => {
+                            setUpgradeOverlayOpen(true)
+                            // if (!plan.current_plan) {
+                            //     // TODO: add current plan key and new plan key
+                            //     reportBillingUpgradeClicked(product.type)
+                            // }
+                            // if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
+                            //     setSurveyResponse(product.type, '$survey_response_1')
+                            //     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                            // }
+                        }}
+                        data-attr={`upgrade-${plan.name}`}
+                    ></BillingUpgradeCTA> */}
+
+                {/* {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
@@ -197,7 +314,7 @@ export const PlanComparison = ({
                             or subscribe without addons
                         </Link>
                     </p>
-                )}
+                )} */}
             </td>
         )
     })
@@ -209,7 +326,7 @@ export const PlanComparison = ({
                     <td />
                     {plans?.map((plan) => (
                         <td key={`plan-type-${plan.plan_key}`}>
-                            <h3 className="font-bold">{plan.name}</h3>
+                            <h2 className="font-bold">{plan.name}</h2>
                         </td>
                     ))}
                 </tr>

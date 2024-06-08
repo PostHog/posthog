@@ -7,7 +7,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
-import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparison } from 'scenes/billing/PlanComparison'
@@ -94,7 +93,6 @@ export const OnboardingBillingStep = ({
 
                     {(!product.subscribed || showPlanComp) && (
                         <>
-                            <BillingHero />
                             <PlanComparison product={product} includeAddons />
                         </>
                     )}
