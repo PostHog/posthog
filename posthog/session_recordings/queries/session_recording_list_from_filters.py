@@ -170,7 +170,7 @@ class SessionRecordingListFromFilters:
             )
 
         # we want to avoid a join to persons since we don't ever need to select from them
-        person_subquery = PersonsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
             exprs.append(
                 ast.CompareOperation(
@@ -184,13 +184,13 @@ class SessionRecordingListFromFilters:
         if non_person_properties:
             exprs.append(property_to_expr(non_person_properties, team=self._team, scope="replay"))
 
-        if self._filter.person_uuid:
-            # TODO this will probably generate a join too, so we can optimise that away
+        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if person_id_subquery:
             exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["person_id"]),
-                    right=ast.Constant(value=self._filter.person_uuid),
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=person_id_subquery,
                 )
             )
 
@@ -268,7 +268,7 @@ class SessionRecordingListFromFilters:
         )
 
 
-class PersonsSubQuery:
+class PersonsPropertiesSubQuery:
     _team: Team
     _filter: SessionRecordingsFilter
     _ttl_days: int
@@ -288,6 +288,52 @@ class PersonsSubQuery:
                 """,
                 {
                     "where_predicates": self._where_predicates,
+                },
+            )
+        else:
+            return None
+
+    @cached_property
+    def person_properties(self) -> PropertyGroup | None:
+        person_property_groups = [g for g in self._filter.property_groups.flat if g.type == "person" in g.type]
+        return (
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=person_property_groups,
+            )
+            if person_property_groups
+            else None
+        )
+
+    @cached_property
+    def _where_predicates(self) -> ast.Expr:
+        return (
+            property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+            if self.person_properties
+            else ast.Constant(value=True)
+        )
+
+
+class PersonsIdSubQuery:
+    _team: Team
+    _filter: SessionRecordingsFilter
+    _ttl_days: int
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+        self._team = team
+        self._filter = filter
+        self._ttl_days = ttl_days
+
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+        if self._filter.person_uuid:
+            return parse_select(
+                """
+                SELECT distinct_id
+                FROM person_distinct_ids
+                WHERE person.id = {person_id}
+                """,
+                {
+                    "person_id": ast.Constant(value=self._filter.person_uuid),
                 },
             )
         else:
