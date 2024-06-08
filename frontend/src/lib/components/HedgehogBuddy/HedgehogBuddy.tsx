@@ -1,7 +1,8 @@
 import './HedgehogBuddy.scss'
 
 import { ProfilePicture } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, useValues } from 'kea'
+import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
@@ -57,11 +58,11 @@ export class HedgehogActor {
     xVelocity = 0
     ground: Element | null = null
     jumpCount = 0
-
     animationName: string = 'fall'
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
+    animationCompletionHandler?: () => boolean | void
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
@@ -86,6 +87,21 @@ export class HedgehogActor {
             // eslint-disable-next-line no-console
             console.log(`[HedgehogActor] ${message}`)
         }
+    }
+
+    setOnFire(times = 3): void {
+        this.setAnimation('heatmaps', {
+            onComplete: () => {
+                if (times == 1) {
+                    return
+                }
+                this.setOnFire(times - 1)
+                return true
+            },
+        })
+        this.direction = sampleOne(['left', 'right'])
+        this.xVelocity = this.direction === 'left' ? -5 : 5
+        this.jump()
     }
 
     setupKeyboardListeners(): () => void {
@@ -153,10 +169,19 @@ export class HedgehogActor {
         }
     }
 
-    setAnimation(animationName: string): void {
+    setAnimation(
+        animationName: string,
+        options?: {
+            onComplete: () => boolean | void
+        }
+    ): void {
         this.animationName = animationName
         this.animation = this.animations[animationName]
         this.animationFrame = 0
+        this.animationCompletionHandler = () => {
+            this.animationCompletionHandler = undefined
+            return options?.onComplete()
+        }
         if (this.animationName !== 'stop') {
             this.direction = this.animation.forceDirection || sampleOne(['left', 'right'])
         }
@@ -216,7 +241,11 @@ export class HedgehogActor {
             if (this.animationIterations === 0) {
                 this.animationIterations = null
                 // End of the animation, set the next one
-                this.setRandomAnimation()
+
+                const preventNextAnimation = this.animationCompletionHandler?.()
+                if (!preventNextAnimation) {
+                    this.setRandomAnimation()
+                }
             }
 
             this.animationFrame = 0
@@ -424,6 +453,13 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     const actor = actorRef.current
     const [_, setTimerLoop] = useState(0)
+    const { currentLocation } = useValues(router)
+
+    useEffect(() => {
+        if (currentLocation.pathname.includes('/heatmaps')) {
+            actor?.setOnFire()
+        }
+    }, [currentLocation.pathname])
 
     useEffect(() => {
         if (hedgehogConfig) {
