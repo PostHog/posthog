@@ -169,17 +169,6 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        # other_property_groups, person_property_groups = self._split_property_groups(self._filter.property_groups)
-        # if person_property_groups:
-        #     persons_sub_query = PersonsSubQuery(self._team, self._filter, self.ttl_days).get_query()
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.In,
-        #             left=ast.Field(chain=["s", "distinct_id"]),
-        #             right=persons_sub_query,
-        #         )
-        #     )
-
         # we want to avoid a join to persons since we don't ever need to select from them
         person_subquery = PersonsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
