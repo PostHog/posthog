@@ -604,7 +604,7 @@ class QueryMatchingTest:
         # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
         # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
         query = re.sub(
-            r"ifNull\(equals\(([^.]+\.)?person.id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull\(equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\), \d+\)",
             r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
             query,
         )
