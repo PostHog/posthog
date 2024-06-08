@@ -267,7 +267,7 @@ class SessionRecordingListFromFilters:
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
 
     def _strip_person_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
-        property_groups_to_keep = [g for g in property_group.flat if g.type != "person" in g.type]
+        property_groups_to_keep = [g for g in property_group.flat if g.type != "person"]
 
         return (
             PropertyGroup(

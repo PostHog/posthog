@@ -70,7 +70,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -128,6 +128,7 @@ def property_to_expr(
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=True)
     else:
+        breakpoint()
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
