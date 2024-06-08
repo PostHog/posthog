@@ -1,5 +1,5 @@
 import { Operation } from './operation'
-import { ASYNC_STL, STL } from './stl'
+import { ASYNC_STL, STL } from './stl/stl'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT = 5 // seconds
@@ -51,7 +51,7 @@ function setNestedValue(obj: any, chain: any[], value: any): void {
     }
 }
 
-interface VMState {
+export interface VMState {
     /** Bytecode running in the VM */
     bytecode: any[]
     /** Stack of the VM */
@@ -70,7 +70,7 @@ interface VMState {
     syncDuration: number
 }
 
-interface ExecOptions {
+export interface ExecOptions {
     fields?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
@@ -78,7 +78,7 @@ interface ExecOptions {
     maxAsyncSteps?: number
 }
 
-interface ExecResult {
+export interface ExecResult {
     result: any
     finished: boolean
     asyncFunctionName?: string
@@ -167,7 +167,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout * 1000) {
-            throw new Error(`Execution timed out after ${timeout} seconds`)
+            throw new Error(`Execution timed out after ${timeout} seconds. Performed ${ops} ops.`)
         }
     }
 

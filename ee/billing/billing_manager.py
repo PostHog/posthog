@@ -179,7 +179,7 @@ class BillingManager:
                     product["tiers"] = compute_usage_per_tier(
                         limited_usage, product["projected_usage"], product["tiers"]
                     )
-                    product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
+                    product["current_amount_usd"] = str(sum_total_across_tiers(product["tiers"]))
 
                 # Update the add on tiers
                 # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
@@ -207,7 +207,7 @@ class BillingManager:
                         # Otherwise, do increment toady's usage
                         limited_usage = current_usage
                     addon["tiers"] = compute_usage_per_tier(limited_usage, addon["projected_usage"], addon["tiers"])
-                    addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
+                    addon["current_amount_usd"] = str(sum_total_across_tiers(addon["tiers"]))
         else:
             products = self.get_default_products(organization)
             response = {
