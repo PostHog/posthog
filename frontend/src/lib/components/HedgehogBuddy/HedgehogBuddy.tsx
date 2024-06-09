@@ -285,6 +285,14 @@ export class HedgehogActor {
                 // If the ground has moved up relative to the hedgehog we need to make him jump
                 this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -GRAVITY_PIXELS * 20)
             }
+
+            if (screenMoveX !== 0) {
+                if (this.animationName !== 'stop') {
+                    this.setAnimation('stop')
+                }
+                // Somewhat random numbers here to find what felt fun
+                this.xVelocity = Math.max(Math.min(this.xVelocity + screenMoveX * 10, 200), -200)
+            }
         }
 
         this.applyVelocity()
