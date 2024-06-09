@@ -94,6 +94,7 @@ export class HedgehogActor {
     animationCompletionHandler?: () => boolean | void
     ignoreGroundAboveY?: number
     showTooltip = false
+    lastScreenPosition = [window.screenX, window.screenY + window.innerHeight]
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
@@ -261,6 +262,31 @@ export class HedgehogActor {
     }
 
     update(): void {
+        // Get the velocity of the screen changing
+        const screenPosition = [window.screenX, window.screenY + window.innerHeight]
+
+        const [screenMoveX, screenMoveY] = [
+            screenPosition[0] - this.lastScreenPosition[0],
+            screenPosition[1] - this.lastScreenPosition[1],
+        ]
+
+        this.lastScreenPosition = screenPosition
+
+        if (screenMoveX || screenMoveY) {
+            this.ground = null
+            // Offset the hedgehog by the screen movement
+            this.x -= screenMoveX
+            // Add the screen movement to the y velocity
+            this.y += screenMoveY
+            // Bit of a hack but it works to avoid the moving screen affecting the hedgehog
+            this.ignoreGroundAboveY = -10000
+
+            if (screenMoveY < 0) {
+                // If the ground has moved up relative to the hedgehog we need to make him jump
+                this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -GRAVITY_PIXELS * 20)
+            }
+        }
+
         this.applyVelocity()
 
         // Ensure we are falling or not
