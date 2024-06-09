@@ -94,7 +94,6 @@ export class HedgehogActor {
     hedgehogConfig: Partial<HedgehogConfig> = {}
 
     constructor() {
-        ;(window as any)._posthogDebugHedgehog = true
         this.setAnimation('fall')
     }
 
@@ -210,11 +209,6 @@ export class HedgehogActor {
         this.animation = this.animations[animationName]
         this.animationFrame = 0
         this.animationCompletionHandler = () => {
-            console.log(
-                'clearing animation completion handler',
-                !!this.animationCompletionHandler,
-                !!options?.onComplete
-            )
             this.animationCompletionHandler = undefined
 
             return options?.onComplete()
@@ -581,7 +575,6 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         if (hedgehogConfig) {
-            console.log('UPDATED CONNFIG', hedgehogConfig)
             actor.hedgehogConfig = hedgehogConfig
             actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
