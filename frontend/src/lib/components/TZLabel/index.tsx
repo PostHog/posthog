@@ -23,6 +23,7 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showSeconds?: boolean
     formatDate?: string
     formatTime?: string
+    /** whether to show a popover on hover - defaults to true */
     showPopover?: boolean
     noStyles?: boolean
     className?: string
