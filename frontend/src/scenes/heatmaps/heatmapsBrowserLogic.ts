@@ -38,7 +38,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setBrowserUrl: (url: string) => ({ url }),
-        setIframePosthogJsConnected: (ready: boolean) => ({ ready }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -167,13 +166,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setBrowserUrl: (_, { url }) => url,
             },
         ],
-        iframePosthogJsConnected: [
-            false as boolean,
-            {
-                setIframePosthogJsConnected: (_, { ready }) => ready,
-            },
-        ],
-
         loading: [
             false as boolean,
             {
