@@ -543,14 +543,14 @@ devDependencies:
     specifier: ^3.4.2
     version: 3.6.0(webpack@5.88.2)
   cypress:
-    specifier: ^13.3.0
-    version: 13.3.0
+    specifier: ^13.11.0
+    version: 13.11.0
   cypress-axe:
     specifier: ^1.5.0
-    version: 1.5.0(axe-core@4.5.1)(cypress@13.3.0)
+    version: 1.5.0(axe-core@4.5.1)(cypress@13.11.0)
   cypress-terminal-report:
-    specifier: ^5.3.7
-    version: 5.3.7(cypress@13.3.0)
+    specifier: ^6.1.0
+    version: 6.1.0(cypress@13.11.0)
   esbuild-visualizer:
     specifier: ^0.6.0
     version: 0.6.0
@@ -10946,7 +10946,7 @@ packages:
       fs-exists-sync: 0.1.0
     dev: true
 
-  /cypress-axe@1.5.0(axe-core@4.5.1)(cypress@13.3.0):
+  /cypress-axe@1.5.0(axe-core@4.5.1)(cypress@13.11.0):
     resolution: {integrity: sha512-Hy/owCjfj+25KMsecvDgo4fC/781ccL+e8p+UUYoadGVM2ogZF9XIKbiM6KI8Y3cEaSreymdD6ZzccbI2bY0lQ==}
     engines: {node: '>=10'}
     peerDependencies:
@@ -10954,31 +10954,30 @@ packages:
       cypress: ^10 || ^11 || ^12 || ^13
     dependencies:
       axe-core: 4.5.1
-      cypress: 13.3.0
+      cypress: 13.11.0
     dev: true
 
-  /cypress-terminal-report@5.3.7(cypress@13.3.0):
-    resolution: {integrity: sha512-VQH4oLo5ifofuwA0Jv3qWLzij9YU8bSGOAKKuNwu2pKhBvS3BOG36SM/P8y99G1DbhGPmZImg7DKf0KjXwBc6Q==}
+  /cypress-terminal-report@6.1.0(cypress@13.11.0):
+    resolution: {integrity: sha512-IC72OQvzZsTlkr3XcnIBF6VXOYUbhivJmdpCg8mywObW297SgEyMLz8V3+lz9LopOuW9cyJ15AolhA8r0bVeSA==}
     peerDependencies:
       cypress: '>=10.0.0'
     dependencies:
       chalk: 4.1.2
-      cypress: 13.3.0
+      cypress: 13.11.0
       fs-extra: 10.1.0
       process: 0.11.10
       semver: 7.5.4
       tv4: 1.3.0
     dev: true
 
-  /cypress@13.3.0:
-    resolution: {integrity: sha512-mpI8qcTwLGiA4zEQvTC/U1xGUezVV4V8HQCOYjlEOrVmU1etVvxOjkCXHGwrlYdZU/EPmUiWfsO3yt1o+Q2bgw==}
+  /cypress@13.11.0:
+    resolution: {integrity: sha512-NXXogbAxVlVje4XHX+Cx5eMFZv4Dho/2rIcdBHg9CNPFUGZdM4cRdgIgM7USmNYsC12XY0bZENEQ+KBk72fl+A==}
     engines: {node: ^16.0.0 || ^18.0.0 || >=20.0.0}
     hasBin: true
     requiresBuild: true
     dependencies:
       '@cypress/request': 3.0.1
       '@cypress/xvfb': 1.2.4(supports-color@8.1.1)
-      '@types/node': 18.18.4
       '@types/sinonjs__fake-timers': 8.1.1
       '@types/sizzle': 2.3.3
       arch: 2.2.0
@@ -15556,7 +15555,7 @@ packages:
       log-update: 4.0.0
       p-map: 4.0.0
       rfdc: 1.3.0
-      rxjs: 7.5.7
+      rxjs: 7.8.1
       through: 2.3.8
       wrap-ansi: 7.0.0
     dev: true
@@ -18070,7 +18069,7 @@ packages:
     resolution: {integrity: sha512-OQiU+C+Ds5qiH91qh/mg0w+8nwQuLjM4F4M/PbmhDOoYehPh+Fb0bDjtR1sOvy7YKxvj28Y/M0PhP5uVX0kB+g==}
     engines: {node: '>=0.6'}
     dependencies:
-      side-channel: 1.0.4
+      side-channel: 1.0.6
     dev: true
 
   /qs@6.11.0:
