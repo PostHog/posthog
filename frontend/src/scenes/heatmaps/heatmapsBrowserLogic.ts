@@ -45,7 +45,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             type,
             payload,
         }),
-        setLoading: (loading: boolean) => ({ loading }),
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
@@ -180,11 +179,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loading: [
             false as boolean,
             {
-                setLoading: (_, { loading }) => loading,
                 setBrowserUrl: () => true,
                 onIframeToolbarLoad: () => false,
                 setIframeBanner: (state, { banner }) => (banner?.level == 'error' ? false : state),
                 toolbarHeatmapLoading: (_, { loading }) => loading,
+                startTrackingLoading: () => true,
+                stopTrackingLoading: () => false,
             },
         ],
         iframeBanner: [
@@ -350,17 +350,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
 
-        setLoading: ({ loading }) => {
-            if (loading) {
-                actions.startTrackingLoading()
-            }
-        },
-
         toolbarHeatmapLoading: ({ loading }) => {
             if (loading) {
-                // we can extend warning timers when we see the toolbar has starated loading...
+                // we can extend warning timers when we see the toolbar has started loading
                 actions.startTrackingLoading()
             } else {
+                // we know we're completely loaded when the toolbar signals the heatmap is loaded
                 actions.stopTrackingLoading()
             }
         },
@@ -380,15 +375,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         stopTrackingLoading: () => {
+            actions.setIframeBanner(null)
+
             clearTimeout(cache.errorTimeout)
             clearTimeout(cache.warnTimeout)
-            actions.setIframeBanner(null)
         },
     })),
 
     afterMount(({ actions, values }) => {
         if (values.browserUrl) {
-            actions.setLoading(true)
+            actions.startTrackingLoading()
         } else {
             actions.maybeLoadTopUrls()
         }
