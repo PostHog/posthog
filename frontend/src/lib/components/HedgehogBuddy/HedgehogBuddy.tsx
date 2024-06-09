@@ -463,7 +463,7 @@ export class HedgehogActor {
                 this.isDragging = false
                 // get the velocity as an average of the last moves
 
-                const relevantPositions = lastPositions.filter(([x, y, t]) => {
+                const relevantPositions = lastPositions.filter(([_x, _y, t]) => {
                     // We only consider the last 500ms but not the last 100ms (to avoid delays in letting go)
                     return t > Date.now() - 500 && t < Date.now() - 20
                 })
