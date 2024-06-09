@@ -804,7 +804,7 @@ describe('migrate()', () => {
         ],
     ]
 
-    it.each(contentToExpected)('migrates %s', (name, prevContent, nextContent) => {
+    it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
             content: { type: 'doc', content: prevContent },
