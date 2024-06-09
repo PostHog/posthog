@@ -55,6 +55,7 @@ type Box = {
 
 const elementToBox = (element: Element): Box => {
     if (element === document.body) {
+        // It is easier to treat the floor as a box below the screen for simpler calculations
         return {
             x: 0,
             y: -1000,
@@ -531,9 +532,15 @@ export class HedgehogActor {
                     {this.tooltip && !this.isDragging && (
                         <div
                             className={clsx(
-                                'border bg-bg-light rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
+                                'rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
                                 this.showTooltip ? 'opacity-100' : 'opacity-0  translate-y-10'
                             )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
+                                border: '1px solid var(--border)',
+                                backgroundColor: 'var(--bg-light)',
+                            }}
                         >
                             {this.tooltip}
                         </div>
