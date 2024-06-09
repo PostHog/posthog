@@ -1,7 +1,7 @@
 import './HedgehogBuddy.scss'
 
 import { ProfilePicture } from '@posthog/lemon-ui'
-import { useActions, useValues, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -18,7 +18,6 @@ import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
     baseSpritePath,
-    SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
     standardAccessories,
@@ -44,17 +43,53 @@ export type HedgehogBuddyProps = {
     hedgehogConfig?: HedgehogConfig
 }
 
+type Box = {
+    // Simplified rect based on bottom left xy and width/height
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
+const rectToBox = (rect: DOMRect): Box => {
+    return {
+        x: rect.left,
+        y: window.innerHeight - rect.bottom,
+        width: rect.width,
+        height: rect.height,
+    }
+}
+
+const elementToBox = (element: Element): Box => {
+    if (element === document.body) {
+        return {
+            x: 0,
+            y: -1000,
+            width: window.innerWidth,
+            height: 1000,
+        }
+    }
+    const isHedgehog = element.classList.contains('HedgehogBuddy')
+    const rect = element.getBoundingClientRect()
+    return {
+        x: rect.left + (isHedgehog ? 20 : 0),
+        y: window.innerHeight - rect.bottom + (isHedgehog ? 5 : 0),
+        width: rect.width - (isHedgehog ? 40 : 0),
+        height: rect.height - (isHedgehog ? 30 : 0),
+    }
+}
+
 export class HedgehogActor {
+    element?: HTMLDivElement | null
     animations = standardAnimations
-    iterationCount = 0
-    frameRef = 0
     direction: 'left' | 'right' = 'right'
     startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
     startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
     x = this.startX
     y = this.startY
     isDragging = false
-    yVelocity = -30
+    isControlledByUser = false
+    yVelocity = -30 // Appears as if jumping out of thin air
     xVelocity = 0
     ground: Element | null = null
     jumpCount = 0
@@ -63,11 +98,13 @@ export class HedgehogActor {
     animationFrame = 0
     animationIterations: number | null = null
     animationCompletionHandler?: () => boolean | void
+    ignoreGroundAboveY?: number
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
 
     constructor() {
+        ;(window as any)._posthogDebugHedgehog = true
         this.setAnimation('fall')
     }
 
@@ -82,14 +119,15 @@ export class HedgehogActor {
         return randomChoiceList
     }
 
-    private log(message: string): void {
+    private log(message: string, ...args: any[]): void {
         if ((window as any)._posthogDebugHedgehog) {
             // eslint-disable-next-line no-console
-            console.log(`[HedgehogActor] ${message}`)
+            console.log(`[HedgehogActor] ${message}`, ...args)
         }
     }
 
     setOnFire(times = 3): void {
+        this.log('setting on fire, iterations remaining:', times)
         this.setAnimation('heatmaps', {
             onComplete: () => {
                 if (times == 1) {
@@ -117,13 +155,19 @@ export class HedgehogActor {
             }
 
             if (['arrowdown', 's'].includes(key)) {
-                if (this.animationName !== 'wave') {
-                    this.setAnimation('wave')
+                if (this.ground === document.body) {
+                    if (this.animationName !== 'wave') {
+                        this.setAnimation('wave')
+                    }
+                } else if (this.ground) {
+                    const box = elementToBox(this.ground)
+                    this.ignoreGroundAboveY = box.y + box.height - SPRITE_SIZE
+                    this.ground = null
                 }
-                this.animationIterations = null
             }
 
             if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
+                this.isControlledByUser = true
                 if (this.animationName !== 'walk') {
                     this.setAnimation('walk')
                 }
@@ -149,14 +193,10 @@ export class HedgehogActor {
 
             const key = e.key.toLowerCase()
 
-            if (['arrowdown', 's'].includes(key)) {
+            if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
                 this.setAnimation('stop')
                 this.animationIterations = FPS * 2 // Wait 2 seconds before doing something else
-            }
-
-            if (['arrowleft', 'a', 'arrowright', 'd', 'arrowdown', 's'].includes(key)) {
-                this.setAnimation('stop')
-                this.animationIterations = FPS * 2 // Wait 2 seconds before doing something else
+                this.isControlledByUser = false
             }
         }
 
@@ -193,7 +233,7 @@ export class HedgehogActor {
 
         if (animationName === 'walk') {
             this.xVelocity = this.direction === 'left' ? -1 : 1
-        } else {
+        } else if (animationName === 'stop' && !this.isControlledByUser) {
             this.xVelocity = 0
         }
 
@@ -218,15 +258,16 @@ export class HedgehogActor {
         if (this.jumpCount >= MAX_JUMP_COUNT) {
             return
         }
+        this.ground = null
         this.jumpCount += 1
         this.yVelocity = -GRAVITY_PIXELS * 5
     }
 
     update(): void {
-        this.applyGravity()
+        this.applyVelocity()
 
         // Ensure we are falling or not
-        if (this.animationName === 'fall' && this.ground) {
+        if (this.animationName === 'fall' && !this.isFalling) {
             this.setAnimation('stop')
         }
 
@@ -253,100 +294,162 @@ export class HedgehogActor {
 
         this.x = this.x + this.xVelocity
 
-        if (this.x < boundaryPadding) {
-            this.direction = 'right'
-            this.x = boundaryPadding
-            this.xVelocity = -this.xVelocity
+        if (this.x < 0) {
+            this.x = 0
+            if (!this.isControlledByUser) {
+                this.xVelocity = -this.xVelocity
+                this.direction = 'right'
+            }
         }
 
-        if (this.x > window.innerWidth - SPRITE_SIZE - boundaryPadding) {
-            this.direction = 'left'
-            this.x = window.innerWidth - SPRITE_SIZE - boundaryPadding
-            this.xVelocity = -this.xVelocity
+        if (this.x > window.innerWidth - SPRITE_SIZE) {
+            this.x = window.innerWidth - SPRITE_SIZE
+            if (!this.isControlledByUser) {
+                this.xVelocity = -this.xVelocity
+                this.direction = 'left'
+            }
         }
     }
 
-    private applyGravity(): void {
+    private applyVelocity(): void {
         if (this.isDragging) {
+            this.ground = null
             return
         }
 
+        this.ground = this.findGround()
         this.yVelocity += GRAVITY_PIXELS
 
-        const groundBoundingRect = this.detectCollision()
+        // We decelerate the x velocity if the hedgehog is doing anything except moving or falling
+        if (!['walk', 'fall'].includes(this.animationName) && !this.isControlledByUser) {
+            this.xVelocity = this.xVelocity * 0.6
+        }
 
-        if (this.ground) {
-            if (!groundBoundingRect) {
-                this.y = 0
+        let newY = this.y - this.yVelocity
+
+        if (this.yVelocity > 0) {
+            // We are falling - detect ground
+            const groundBoundingRect = elementToBox(this.ground)
+            const groundY = groundBoundingRect.y + groundBoundingRect.height
+
+            if (newY - this.yVelocity <= groundY) {
+                // Next frame would put it below the ground so we apply
+                newY = groundY
+                this.yVelocity = -this.yVelocity * 0.4
+
+                // Clear flags as we have hit the ground
+                this.ignoreGroundAboveY = undefined
+                this.jumpCount = 0
             } else {
-                this.y = window.innerHeight - groundBoundingRect.top
-            }
-            this.jumpCount = 0
-
-            // Apply bounce with friction
-            this.yVelocity = -this.yVelocity * 0.4
-
-            if (this.yVelocity > -GRAVITY_PIXELS) {
-                // We are so close to the ground that we may as well be on it
-                this.yVelocity = 0
+                // this.y = groundY
+                // this.yVelocity = 0
+                // this.jumpCount = 0
             }
         }
+
+        this.y = newY
+
+        // if (this.yVelocity > -GRAVITY_PIXELS) {
+        //     // We are so close to the ground that we may as well be on it
+        //     this.yVelocity = 0
+        // }
+
+        // const groundBoundingRect = this.detectCollision()
+
+        // if (this.onGround()) {
+        //     this.y = window.innerHeight - this.ground.getBoundingClientRect().top
+        //     this.jumpCount = 0
+        //     return
+        // }
+
+        // if (!groundBoundingRect) {
+        //     this.y = 0
+        // } else {
+        //     this.y = window.innerHeight - groundBoundingRect.top
+        // }
+        // this.jumpCount = 0
+
+        // // Apply bounce with friction
+        // this.yVelocity = -this.yVelocity * 0.4
+
+        // if (this.yVelocity > -GRAVITY_PIXELS) {
+        //     // We are so close to the ground that we may as well be on it
+        //     this.yVelocity = 0
+        // }
     }
 
-    private detectCollision(): DOMRect | null {
-        this.ground = null
-        if (this.yVelocity < 0) {
-            // Don't detect collisions when jumping
-            this.y -= this.yVelocity
-            return null
+    private findGround(): Element {
+        // We reset the ground when he is moved or x changes
+
+        if (!this.hedgehogConfig.interactions_enabled || !this.element || this.y <= 0) {
+            return document.body
         }
-        // Apply a granular approach to collision detection to prevent clipping at high speed
-        const velocityDirection = Math.sign(this.yVelocity)
-        let velocityLeftToApply = Math.abs(this.yVelocity)
-        let groundBoundingRect: DOMRect | null = null
-        while (velocityLeftToApply > 0) {
-            let blocksWithBoundingRects: [Element, DOMRect][] | undefined
-            const velocityToApplyInIteration = Math.min(velocityLeftToApply, COLLISION_DETECTION_DISTANCE_INCREMENT)
-            velocityLeftToApply -= velocityToApplyInIteration
-            this.y -= velocityToApplyInIteration * velocityDirection
-            if (this.y <= 0) {
-                this.ground = document.body
-            } else if (this.hedgehogConfig.interactions_enabled) {
-                const hedgehogBoundingRect = {
-                    left: this.x,
-                    right: this.x + SPRITE_SIZE,
-                    top: window.innerHeight - this.y,
-                    bottom: window.innerHeight - this.y + SPRITE_SIZE,
-                }
-                if (!blocksWithBoundingRects) {
-                    // Only calculate block bounding rects once we need to
-                    blocksWithBoundingRects = Array.from(
-                        document.querySelectorAll(
-                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable'
-                        )
-                    ).map((block) => [block, block.getBoundingClientRect()])
-                }
-                for (const [block, blockBoundingRect] of blocksWithBoundingRects) {
-                    if (
-                        // Only allow standing on reasonably wide blocks
-                        blockBoundingRect.width > SPRITE_SIZE / 2 &&
-                        // Use block as ground when the hedgehog intersects the top border, but not the bottom
-                        hedgehogBoundingRect.top < blockBoundingRect.top + SPRITE_SIZE &&
-                        hedgehogBoundingRect.bottom > blockBoundingRect.top + SPRITE_SIZE &&
-                        // Ensure alignment in the X axis too
-                        hedgehogBoundingRect.left < blockBoundingRect.right &&
-                        hedgehogBoundingRect.right > blockBoundingRect.left
-                    ) {
-                        this.ground = block
-                        groundBoundingRect = blockBoundingRect
-                    }
-                }
+
+        const hedgehogBox = elementToBox(this.element)
+
+        if (this.ground && this.ground !== document.body) {
+            // Check if the current ground is still valid - if so we stick with it to stop flickering
+            const groundBoundingRect = elementToBox(this.ground)
+
+            if (
+                hedgehogBox.x + hedgehogBox.width > groundBoundingRect.x &&
+                hedgehogBox.x < groundBoundingRect.x + groundBoundingRect.width &&
+                // Check still on screen
+                groundBoundingRect.y + groundBoundingRect.height + hedgehogBox.height < window.innerHeight &&
+                groundBoundingRect.y >= 0
+            ) {
+                // We are still on the same ground
+                return this.ground
             }
         }
-        // Adjust bounce basis velocity appropriately based on where collusion occurred
-        // (i.e. if collision happened earlier in acceleration, bounce should be reduced)
-        this.yVelocity -= velocityLeftToApply * velocityDirection
-        return groundBoundingRect
+
+        // Only calculate block bounding rects once we need to
+        const blocksWithBoxes: [Element, Box][] = Array.from(
+            document.querySelectorAll(
+                '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .HedgehogBuddy'
+            )
+        )
+            .filter((x) => x !== this.element)
+            .map((block) => [block, elementToBox(block)])
+
+        // The highest candidate is our new ground
+        let highestCandidate: [Element, Box] | null = null
+
+        blocksWithBoxes.forEach(([block, box]) => {
+            if (box.y + box.height > window.innerHeight || box.y < 0) {
+                return
+            }
+
+            if (this.ignoreGroundAboveY && box.y + box.height > this.ignoreGroundAboveY) {
+                return
+            }
+
+            const isAboveOrOn =
+                hedgehogBox.x + hedgehogBox.width > box.x &&
+                hedgehogBox.x < box.x + box.width &&
+                hedgehogBox.y >= box.y + box.height
+
+            if (isAboveOrOn) {
+                if (!highestCandidate || box.y > highestCandidate[1].y) {
+                    highestCandidate = [block, box]
+                }
+            }
+        })
+
+        return highestCandidate?.[0] ?? document.body
+    }
+
+    private get onGround(): boolean {
+        if (this.ground) {
+            const groundLevel = elementToBox(this.ground).y + elementToBox(this.ground).height
+            return this.y <= groundLevel
+        }
+
+        return false
+    }
+
+    private get isFalling(): boolean {
+        return !this.onGround && Math.abs(this.yVelocity) > 1
     }
 
     render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
@@ -363,79 +466,113 @@ export class HedgehogActor {
         const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
 
         return (
-            <div
-                ref={ref}
-                className="HedgehogBuddy"
-                data-content={preloadContent}
-                onMouseDown={(e) => {
-                    if (e.button !== 0) {
-                        return
-                    }
-                    let moved = false
-                    const onMouseMove = (e: any): void => {
-                        moved = true
-                        this.isDragging = true
-                        this.setAnimation('fall')
-                        this.x = e.clientX - SPRITE_SIZE / 2
-                        this.y = window.innerHeight - e.clientY - SPRITE_SIZE / 2
-                    }
-
-                    const onWindowUp = (): void => {
-                        if (!moved) {
-                            onClick()
-                        }
-                        this.isDragging = false
-                        this.setAnimation('fall')
-                        window.removeEventListener('mouseup', onWindowUp)
-                        window.removeEventListener('mousemove', onMouseMove)
-                    }
-                    window.addEventListener('mousemove', onMouseMove)
-                    window.addEventListener('mouseup', onWindowUp)
-                }}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    position: 'fixed',
-                    left: this.x,
-                    bottom: this.y - SHADOW_HEIGHT / 2,
-                    transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
-                    transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
-                    cursor: 'pointer',
-                    margin: 0,
-                }}
-            >
+            <>
                 <div
+                    ref={(r) => {
+                        this.element = r
+                        if (r) {
+                            // TODO: Fix this
+                            ref?.(r)
+                        }
+                    }}
+                    className="HedgehogBuddy"
+                    data-content={preloadContent}
+                    onMouseDown={(e) => {
+                        if (e.button !== 0) {
+                            return
+                        }
+                        let moved = false
+                        const onMouseMove = (e: any): void => {
+                            moved = true
+                            this.isDragging = true
+                            this.setAnimation('fall')
+                            this.x = e.clientX - SPRITE_SIZE / 2
+                            this.y = window.innerHeight - e.clientY - SPRITE_SIZE / 2
+                        }
+
+                        const onWindowUp = (): void => {
+                            if (!moved) {
+                                onClick()
+                            }
+                            this.isDragging = false
+                            this.setAnimation('fall')
+                            window.removeEventListener('mouseup', onWindowUp)
+                            window.removeEventListener('mousemove', onMouseMove)
+                        }
+                        window.addEventListener('mousemove', onMouseMove)
+                        window.addEventListener('mouseup', onWindowUp)
+                    }}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        imageRendering: 'pixelated',
-                        width: SPRITE_SIZE,
-                        height: SPRITE_SIZE,
-                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
-                        backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
-                            Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
-                        }px`,
-                        filter: imageFilter as any,
+                        position: 'fixed',
+                        left: this.x,
+                        bottom: this.y,
+                        transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
+                        transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
+                        cursor: 'pointer',
+                        margin: 0,
                     }}
-                />
-                {this.accessories().map((accessory, index) => (
+                >
                     <div
-                        key={index}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
-                            transform: accessoryPosition
-                                ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
-                                : undefined,
+                            backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
+                            backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
+                                Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
+                            }px`,
                             filter: imageFilter as any,
                         }}
                     />
-                ))}
-            </div>
+                    {this.accessories().map((accessory, index) => (
+                        <div
+                            key={index}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                imageRendering: 'pixelated',
+                                width: SPRITE_SIZE,
+                                height: SPRITE_SIZE,
+                                backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
+                                transform: accessoryPosition
+                                    ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
+                                    : undefined,
+                                filter: imageFilter as any,
+                            }}
+                        />
+                    ))}
+                </div>
+                {(window as any)._posthogDebugHedgehog && (
+                    <>
+                        {[this.element && elementToBox(this.element), this.ground && elementToBox(this.ground)].map(
+                            (box, i) => {
+                                if (!box) {
+                                    return
+                                }
+                                return (
+                                    <div
+                                        key={i}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            outline: '1px solid red',
+                                            position: 'fixed',
+                                            pointerEvents: 'none',
+                                            top: window.innerHeight - box.y - box.height,
+                                            left: box.x,
+                                            width: box.width,
+                                            height: box.height,
+                                        }}
+                                    />
+                                )
+                            }
+                        )}
+                    </>
+                )}
+            </>
         )
     }
 }
@@ -456,6 +593,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     const { currentLocation } = useValues(router)
 
     useEffect(() => {
+        console.log('EFFECT FIRED', actor)
         if (currentLocation.pathname.includes('/heatmaps')) {
             actor?.setOnFire()
         }
