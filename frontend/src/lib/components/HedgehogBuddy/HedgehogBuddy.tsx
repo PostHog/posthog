@@ -324,7 +324,6 @@ export class HedgehogActor {
             const groundY = groundBoundingRect.y + groundBoundingRect.height
 
             if (newY <= groundY) {
-                // Next frame would put it below the ground so we apply
                 newY = groundY
                 this.yVelocity = -this.yVelocity * 0.4
 
