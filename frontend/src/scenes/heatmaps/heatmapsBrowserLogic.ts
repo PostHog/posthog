@@ -40,7 +40,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setBrowserUrl: (url: string) => ({ url }),
         setIframePosthogJsConnected: (ready: boolean) => ({ ready }),
         onIframeLoad: true,
-        onIframeToolbarLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
             payload,
@@ -57,7 +56,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
-        toolbarHeatmapLoading: (loading: boolean) => ({ loading }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
     }),
@@ -179,10 +177,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loading: [
             false as boolean,
             {
-                setBrowserUrl: () => true,
-                onIframeToolbarLoad: () => false,
+                setBrowserUrl: (state, { url }) => (url.trim().length ? true : state),
                 setIframeBanner: (state, { banner }) => (banner?.level == 'error' ? false : state),
-                toolbarHeatmapLoading: (_, { loading }) => loading,
                 startTrackingLoading: () => true,
                 stopTrackingLoading: () => false,
             },
@@ -305,10 +301,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                             inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                         })
                         // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
-                        actions.startTrackingLoading()
-                        return actions.onIframeToolbarLoad()
+                        return actions.startTrackingLoading()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING:
-                        return actions.toolbarHeatmapLoading(true)
+                        return actions.startTrackingLoading()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED:
                         posthog.capture('in-app heatmap loaded', {
                             inapp_heatmap_page_url_visited: values.browserUrl,
@@ -316,7 +311,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                             inapp_heatmap_color_palette: values.heatmapColorPalette,
                             inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                         })
-                        return actions.toolbarHeatmapLoading(false)
+                        return actions.stopTrackingLoading()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED:
                         posthog.capture('in-app heatmap failed', {
                             inapp_heatmap_page_url_visited: values.browserUrl,
@@ -345,18 +340,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setBrowserUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
-            if (url) {
+            if (url.trim().length) {
                 actions.startTrackingLoading()
-            }
-        },
-
-        toolbarHeatmapLoading: ({ loading }) => {
-            if (loading) {
-                // we can extend warning timers when we see the toolbar has started loading
-                actions.startTrackingLoading()
-            } else {
-                // we know we're completely loaded when the toolbar signals the heatmap is loaded
-                actions.stopTrackingLoading()
             }
         },
 
