@@ -37,7 +37,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
-        setBrowserUrl: (url: string) => ({ url }),
+        setBrowserUrl: (url: string | null) => ({ url }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -169,7 +169,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loading: [
             false as boolean,
             {
-                setBrowserUrl: (state, { url }) => (url.trim().length ? true : state),
+                setBrowserUrl: (state, { url }) => (url?.trim().length ? true : state),
                 setIframeBanner: (state, { banner }) => (banner?.level == 'error' ? false : state),
                 startTrackingLoading: () => true,
                 stopTrackingLoading: () => false,
@@ -332,7 +332,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setBrowserUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
-            if (url.trim().length) {
+            if (url?.trim().length) {
                 actions.startTrackingLoading()
             }
         },
@@ -360,7 +360,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.browserUrl) {
+        if (values.browserUrl?.trim().length) {
             actions.startTrackingLoading()
         } else {
             actions.maybeLoadTopUrls()
