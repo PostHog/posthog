@@ -298,7 +298,7 @@ export class HedgehogActor {
         this.applyVelocity()
 
         // Ensure we are falling or not
-        if (this.animationName === 'fall' && !this.isFalling) {
+        if (this.animationName === 'fall' && !this.isFalling()) {
             this.setAnimation('stop')
         }
 
@@ -444,7 +444,7 @@ export class HedgehogActor {
         return highestCandidate?.[0] ?? document.body
     }
 
-    private get onGround(): boolean {
+    private onGround(): boolean {
         if (this.ground) {
             const groundLevel = elementToBox(this.ground).y + elementToBox(this.ground).height
             return this.y <= groundLevel
@@ -453,8 +453,8 @@ export class HedgehogActor {
         return false
     }
 
-    private get isFalling(): boolean {
-        return !this.onGround && Math.abs(this.yVelocity) > 1
+    private isFalling(): boolean {
+        return !this.onGround() && Math.abs(this.yVelocity) > 1
     }
 
     render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
@@ -542,8 +542,7 @@ export class HedgehogActor {
                 <div
                     ref={(r) => {
                         this.element = r
-                        if (r) {
-                            // TODO: Fix this
+                        if (r && typeof ref === 'function') {
                             ref?.(r)
                         }
                     }}
