@@ -1,6 +1,7 @@
 import './HedgehogBuddy.scss'
 
 import { ProfilePicture } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,6 +9,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
+import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
@@ -40,6 +42,7 @@ export type HedgehogBuddyProps = {
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     hedgehogConfig?: HedgehogConfig
+    tooltip?: JSX.Element
 }
 
 type Box = {
@@ -89,9 +92,11 @@ export class HedgehogActor {
     animationIterations: number | null = null
     animationCompletionHandler?: () => boolean | void
     ignoreGroundAboveY?: number
+    showTooltip = false
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
+    tooltip?: JSX.Element
 
     constructor() {
         this.setAnimation('fall')
@@ -431,6 +436,7 @@ export class HedgehogActor {
         const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
 
         const onTouchOrMouseStart = (): void => {
+            this.showTooltip = false
             let moved = false
             const lastPositions: [number, number, number][] = []
 
@@ -510,49 +516,67 @@ export class HedgehogActor {
                     data-content={preloadContent}
                     onTouchStart={() => onTouchOrMouseStart()}
                     onMouseDown={() => onTouchOrMouseStart()}
+                    onMouseOver={() => (this.showTooltip = true)}
+                    onMouseOut={() => (this.showTooltip = false)}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: 'fixed',
                         left: this.x,
                         bottom: this.y - SHADOW_HEIGHT * 0.5,
                         transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
-                        transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                         cursor: 'pointer',
                         margin: 0,
                     }}
                 >
+                    {this.tooltip && !this.isDragging && (
+                        <div
+                            className={clsx(
+                                'border bg-bg-light rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
+                                this.showTooltip ? 'opacity-100' : 'opacity-0  translate-y-10'
+                            )}
+                        >
+                            {this.tooltip}
+                        </div>
+                    )}
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            imageRendering: 'pixelated',
-                            width: SPRITE_SIZE,
-                            height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
-                            backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
-                                Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
-                            }px`,
-                            filter: imageFilter as any,
+                            transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                         }}
-                    />
-                    {this.accessories().map((accessory, index) => (
+                    >
                         <div
-                            key={index}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
                                 imageRendering: 'pixelated',
                                 width: SPRITE_SIZE,
                                 height: SPRITE_SIZE,
-                                backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
-                                transform: accessoryPosition
-                                    ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
-                                    : undefined,
+                                backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
+                                backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
+                                    Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
+                                }px`,
                                 filter: imageFilter as any,
                             }}
                         />
-                    ))}
+                        {this.accessories().map((accessory, index) => (
+                            <div
+                                key={index}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    imageRendering: 'pixelated',
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
+                                    backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
+                                    transform: accessoryPosition
+                                        ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
+                                        : undefined,
+                                    filter: imageFilter as any,
+                                }}
+                            />
+                        ))}
+                    </div>
                 </div>
                 {(window as any)._posthogDebugHedgehog && (
                     <>
@@ -586,7 +610,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -611,7 +635,11 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
             actor.hedgehogConfig = hedgehogConfig
             actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
-    }, [hedgehogConfig])
+
+        if (tooltip) {
+            actor.tooltip = tooltip
+        }
+    }, [hedgehogConfig, tooltip])
 
     useEffect(() => {
         let timer: any = null
@@ -657,6 +685,7 @@ export function MyHedgehogBuddy({
 }: HedgehogBuddyProps): JSX.Element {
     const [actor, setActor] = useState<HedgehogActor | null>(null)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         return actor?.setupKeyboardListeners()
@@ -707,6 +736,13 @@ export function MyHedgehogBuddy({
                 onClick={onClick}
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
+                tooltip={
+                    hedgehogConfig.party_mode_enabled ? (
+                        <div className="whitespace-nowrap flex items-center justify-center p-2">
+                            <ProfilePicture user={user} size="md" showName />
+                        </div>
+                    ) : undefined
+                }
             />
         </Popover>
     )
@@ -761,7 +797,15 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                 </div>
             }
         >
-            <HedgehogBuddy onClick={onClick} hedgehogConfig={memberHedgehogConfig} />
+            <HedgehogBuddy
+                onClick={onClick}
+                hedgehogConfig={memberHedgehogConfig}
+                tooltip={
+                    <div className="whitespace-nowrap flex items-center justify-center p-2">
+                        <ProfilePicture user={member.user} size="md" showName />
+                    </div>
+                }
+            />
         </Popover>
     )
 }
