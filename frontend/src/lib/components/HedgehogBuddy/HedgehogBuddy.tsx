@@ -311,7 +311,7 @@ export class HedgehogActor {
         this.ground = this.findGround()
         this.yVelocity -= GRAVITY_PIXELS
 
-        // We decelerate the x velocity if the hedgehog is doing anything except moving or falling
+        // We decelerate the x velocity if the hedgehog is stopped
         if (['stop'].includes(this.animationName) && !this.isControlledByUser) {
             this.xVelocity = this.xVelocity * 0.6
         }
