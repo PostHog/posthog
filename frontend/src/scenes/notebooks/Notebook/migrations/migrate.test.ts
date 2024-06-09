@@ -804,18 +804,16 @@ describe('migrate()', () => {
         ],
     ]
 
-    contentToExpected.forEach(([name, prevContent, nextContent]) => {
-        it(name, () => {
-            const prevNotebook: NotebookType = {
-                ...mockNotebook,
-                content: { type: 'doc', content: prevContent },
-            }
-            const nextNotebook: NotebookType = {
-                ...mockNotebook,
-                content: { type: 'doc', content: nextContent },
-            }
+    it.each(contentToExpected)('migrates %s', (name, prevContent, nextContent) => {
+        const prevNotebook: NotebookType = {
+            ...mockNotebook,
+            content: { type: 'doc', content: prevContent },
+        }
+        const nextNotebook: NotebookType = {
+            ...mockNotebook,
+            content: { type: 'doc', content: nextContent },
+        }
 
-            expect(migrate(prevNotebook)).toEqual(nextNotebook)
-        })
+        expect(migrate(prevNotebook)).toEqual(nextNotebook)
     })
 })
