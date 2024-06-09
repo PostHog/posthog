@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { ForwardedRef, useEffect, useRef, useState } from 'react'
+import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
@@ -18,6 +18,7 @@ import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
     baseSpritePath,
+    SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
     standardAccessories,
@@ -25,11 +26,9 @@ import {
 } from './sprites/sprites'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
-const boundaryPadding = 20
 const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
-const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
@@ -49,15 +48,6 @@ type Box = {
     y: number
     width: number
     height: number
-}
-
-const rectToBox = (rect: DOMRect): Box => {
-    return {
-        x: rect.left,
-        y: window.innerHeight - rect.bottom,
-        width: rect.width,
-        height: rect.height,
-    }
 }
 
 const elementToBox = (element: Element): Box => {
@@ -163,6 +153,7 @@ export class HedgehogActor {
                     const box = elementToBox(this.ground)
                     this.ignoreGroundAboveY = box.y + box.height - SPRITE_SIZE
                     this.ground = null
+                    this.setAnimation('fall')
                 }
             }
 
@@ -219,7 +210,13 @@ export class HedgehogActor {
         this.animation = this.animations[animationName]
         this.animationFrame = 0
         this.animationCompletionHandler = () => {
+            console.log(
+                'clearing animation completion handler',
+                !!this.animationCompletionHandler,
+                !!options?.onComplete
+            )
             this.animationCompletionHandler = undefined
+
             return options?.onComplete()
         }
         if (this.animationName !== 'stop') {
@@ -321,7 +318,7 @@ export class HedgehogActor {
         this.yVelocity += GRAVITY_PIXELS
 
         // We decelerate the x velocity if the hedgehog is doing anything except moving or falling
-        if (!['walk', 'fall'].includes(this.animationName) && !this.isControlledByUser) {
+        if (['stop'].includes(this.animationName) && !this.isControlledByUser) {
             this.xVelocity = this.xVelocity * 0.6
         }
 
@@ -332,7 +329,7 @@ export class HedgehogActor {
             const groundBoundingRect = elementToBox(this.ground)
             const groundY = groundBoundingRect.y + groundBoundingRect.height
 
-            if (newY - this.yVelocity <= groundY) {
+            if (newY <= groundY) {
                 // Next frame would put it below the ground so we apply
                 newY = groundY
                 this.yVelocity = -this.yVelocity * 0.4
@@ -340,42 +337,13 @@ export class HedgehogActor {
                 // Clear flags as we have hit the ground
                 this.ignoreGroundAboveY = undefined
                 this.jumpCount = 0
-            } else {
-                // this.y = groundY
-                // this.yVelocity = 0
-                // this.jumpCount = 0
             }
+        } else {
+            // If we are going up we can reset the ground
+            this.ground = null
         }
 
         this.y = newY
-
-        // if (this.yVelocity > -GRAVITY_PIXELS) {
-        //     // We are so close to the ground that we may as well be on it
-        //     this.yVelocity = 0
-        // }
-
-        // const groundBoundingRect = this.detectCollision()
-
-        // if (this.onGround()) {
-        //     this.y = window.innerHeight - this.ground.getBoundingClientRect().top
-        //     this.jumpCount = 0
-        //     return
-        // }
-
-        // if (!groundBoundingRect) {
-        //     this.y = 0
-        // } else {
-        //     this.y = window.innerHeight - groundBoundingRect.top
-        // }
-        // this.jumpCount = 0
-
-        // // Apply bounce with friction
-        // this.yVelocity = -this.yVelocity * 0.4
-
-        // if (this.yVelocity > -GRAVITY_PIXELS) {
-        //     // We are so close to the ground that we may as well be on it
-        //     this.yVelocity = 0
-        // }
     }
 
     private findGround(): Element {
@@ -506,7 +474,7 @@ export class HedgehogActor {
                     style={{
                         position: 'fixed',
                         left: this.x,
-                        bottom: this.y,
+                        bottom: this.y - SHADOW_HEIGHT * 0.5,
                         transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
                         transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                         cursor: 'pointer',
@@ -593,7 +561,6 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     const { currentLocation } = useValues(router)
 
     useEffect(() => {
-        console.log('EFFECT FIRED', actor)
         if (currentLocation.pathname.includes('/heatmaps')) {
             actor?.setOnFire()
         }
@@ -601,6 +568,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         if (hedgehogConfig) {
+            console.log('UPDATED CONNFIG', hedgehogConfig)
             actor.hedgehogConfig = hedgehogConfig
             actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
@@ -710,11 +678,14 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    const memberHedgehogConfig: HedgehogConfig = {
-        ...hedgehogConfig,
-        ...member.user.hedgehog_config,
-        controls_enabled: false,
-    }
+    const memberHedgehogConfig: HedgehogConfig = useMemo(
+        () => ({
+            ...hedgehogConfig,
+            ...member.user.hedgehog_config,
+            controls_enabled: false,
+        }),
+        [hedgehogConfig, member.user.hedgehog_config]
+    )
 
     const onClick = (): void => {
         setPopoverVisible(!popoverVisible)
