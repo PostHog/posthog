@@ -257,7 +257,7 @@ export class HedgehogActor {
         }
         this.ground = null
         this.jumpCount += 1
-        this.yVelocity = -GRAVITY_PIXELS * 5
+        this.yVelocity = GRAVITY_PIXELS * 5
     }
 
     update(): void {
@@ -315,16 +315,16 @@ export class HedgehogActor {
         }
 
         this.ground = this.findGround()
-        this.yVelocity += GRAVITY_PIXELS
+        this.yVelocity -= GRAVITY_PIXELS
 
         // We decelerate the x velocity if the hedgehog is doing anything except moving or falling
         if (['stop'].includes(this.animationName) && !this.isControlledByUser) {
             this.xVelocity = this.xVelocity * 0.6
         }
 
-        let newY = this.y - this.yVelocity
+        let newY = this.y + this.yVelocity
 
-        if (this.yVelocity > 0) {
+        if (this.yVelocity < 0) {
             // We are falling - detect ground
             const groundBoundingRect = elementToBox(this.ground)
             const groundY = groundBoundingRect.y + groundBoundingRect.height
@@ -450,12 +450,20 @@ export class HedgehogActor {
                             return
                         }
                         let moved = false
+                        const lastMoves: [number, number][] = []
+
                         const onMouseMove = (e: any): void => {
                             moved = true
                             this.isDragging = true
                             this.setAnimation('fall')
                             this.x = e.clientX - SPRITE_SIZE / 2
                             this.y = window.innerHeight - e.clientY - SPRITE_SIZE / 2
+
+                            if (lastMoves.length > 5) {
+                                lastMoves.shift()
+                            }
+                            // -2 multiple makes it feel more responsive
+                            lastMoves.push([e.movementX, e.movementY * -2])
                         }
 
                         const onWindowUp = (): void => {
@@ -463,6 +471,11 @@ export class HedgehogActor {
                                 onClick()
                             }
                             this.isDragging = false
+
+                            // use the average of the last moves
+                            this.xVelocity = lastMoves.reduce((acc, [x]) => acc + x, 0) / lastMoves.length
+                            this.yVelocity = lastMoves.reduce((acc, [, y]) => acc + y, 0) / lastMoves.length
+
                             this.setAnimation('fall')
                             window.removeEventListener('mouseup', onWindowUp)
                             window.removeEventListener('mousemove', onMouseMove)
