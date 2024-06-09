@@ -1,15 +1,18 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { isBoldNumberDisplay } from 'scenes/insights/sharedUtils'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { AlertType, InsightShortId } from '~/types'
+import { AlertType, FilterType, InsightShortId } from '~/types'
 
 import type { alertsLogicType } from './alertsLogicType'
 
 export interface AlertsLogicProps {
     insightShortId: InsightShortId
 }
+
+export const areAlertsSupportedForInsight = (filters?: Partial<FilterType>): boolean => isBoldNumberDisplay(filters)
 
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),

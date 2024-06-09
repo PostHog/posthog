@@ -5,12 +5,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isBoldNumberDisplay } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { InsightModel, InsightShortId } from '~/types'
 
+import { areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
 import { ManageAlerts } from './views/ManageAlerts'
 
@@ -61,8 +61,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    const isAlertAvailableForInsight = isBoldNumberDisplay(insight.filters)
-    if (!isAlertAvailableForInsight) {
+    if (!areAlertsSupportedForInsight(insight.filters)) {
         return (
             <LemonButton
                 data-attr="disabled-alerts-button"

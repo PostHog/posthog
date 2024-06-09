@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning.tsx'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -17,6 +18,7 @@ export function InsightsNav(): JSX.Element {
     return (
         <>
             <FunnelsCue />
+            <AlertDeletionWarning />
             <LemonTabs
                 activeKey={activeView}
                 onChange={(newKey) => setActiveView(newKey)}

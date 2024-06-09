@@ -8,8 +8,7 @@ import { isEmail } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertType } from '~/types'
-import { InsightShortId } from '~/types'
+import { AlertType, InsightShortId } from '~/types'
 
 import type { alertLogicType } from './alertLogicType'
 import { alertsLogic } from './alertsLogic'
