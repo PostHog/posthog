@@ -11,6 +11,9 @@ export enum PostHogAppToolbarEvent {
     PH_HEATMAPS_FIXED_POSITION_MODE = 'ph-heatmaps-fixed-position-mode',
     PH_HEATMAPS_COLOR_PALETTE = 'ph-heatmaps-color-palette',
     PH_HEATMAPS_COMMON_FILTERS = 'ph-heatmaps-common-filters',
+    PH_TOOLBAR_HEATMAP_LOADING = 'ph-toolbar-heatmap-loading',
+    PH_TOOLBAR_HEATMAP_LOADED = 'ph-toolbar-heatmap-loaded',
+    PH_TOOLBAR_HEATMAP_FAILED = 'ph-toolbar-heatmap-failed',
 }
 
 export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {

@@ -58,6 +58,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
+        toolbarHeatmapLoading: (loading: boolean) => ({ loading }),
+        startTrackingLoading: true,
+        stopTrackingLoading: true,
     }),
 
     loaders(({ values }) => ({
@@ -181,6 +184,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setBrowserUrl: () => true,
                 onIframeToolbarLoad: () => false,
                 setIframeBanner: (state, { banner }) => (banner?.level == 'error' ? false : state),
+                toolbarHeatmapLoading: (_, { loading }) => loading,
             },
         ],
         iframeBanner: [
@@ -241,16 +245,19 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         patchHeatmapFilters: ({ filters }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
         },
+
         setHeatmapFixedPositionMode: ({ mode }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE, {
                 fixedPositionMode: mode,
             })
         },
+
         setHeatmapColorPalette: ({ Palette }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE, {
                 colorPalette: Palette,
             })
         },
+
         setCommonFilters: ({ filters }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
         },
@@ -291,17 +298,35 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
-                        clearTimeout(cache.errorTimeout)
-                        clearTimeout(cache.warnTimeout)
-                        actions.setIframeBanner(null)
-
+                        posthog.capture('in-app heatmap frame loaded', {
+                            inapp_heatmap_page_url_visited: values.browserUrl,
+                            inapp_heatmap_filters: values.heatmapFilters,
+                            inapp_heatmap_color_palette: values.heatmapColorPalette,
+                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                        })
+                        // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
+                        actions.startTrackingLoading()
+                        return actions.onIframeToolbarLoad()
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING:
+                        return actions.toolbarHeatmapLoading(true)
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED:
                         posthog.capture('in-app heatmap loaded', {
                             inapp_heatmap_page_url_visited: values.browserUrl,
                             inapp_heatmap_filters: values.heatmapFilters,
                             inapp_heatmap_color_palette: values.heatmapColorPalette,
                             inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                         })
-                        return actions.onIframeToolbarLoad()
+                        return actions.toolbarHeatmapLoading(false)
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED:
+                        posthog.capture('in-app heatmap failed', {
+                            inapp_heatmap_page_url_visited: values.browserUrl,
+                            inapp_heatmap_filters: values.heatmapFilters,
+                            inapp_heatmap_color_palette: values.heatmapColorPalette,
+                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                        })
+                        actions.stopTrackingLoading()
+                        actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load.' })
+                        return
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
@@ -318,18 +343,46 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
 
-        setBrowserUrl: () => {
+        setBrowserUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
+            if (url) {
+                actions.startTrackingLoading()
+            }
+        },
 
-            // we expect to get a message from the toolbar in the iframe when it's ready
-            // these timeouts are cleared when the heatmap is ready
+        setLoading: ({ loading }) => {
+            if (loading) {
+                actions.startTrackingLoading()
+            }
+        },
+
+        toolbarHeatmapLoading: ({ loading }) => {
+            if (loading) {
+                // we can extend warning timers when we see the toolbar has starated loading...
+                actions.startTrackingLoading()
+            } else {
+                actions.stopTrackingLoading()
+            }
+        },
+
+        startTrackingLoading: () => {
+            actions.setIframeBanner(null)
+
+            clearTimeout(cache.errorTimeout)
             cache.errorTimeout = setTimeout(() => {
                 actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
             }, 7500)
 
+            clearTimeout(cache.warnTimeout)
             cache.warnTimeout = setTimeout(() => {
                 actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
-            }, 2500)
+            }, 3000)
+        },
+
+        stopTrackingLoading: () => {
+            clearTimeout(cache.errorTimeout)
+            clearTimeout(cache.warnTimeout)
+            actions.setIframeBanner(null)
         },
     })),
 
