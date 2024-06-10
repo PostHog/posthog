@@ -109,8 +109,7 @@ class SessionRecordingListFromFilters:
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
             query=cast(ast.SelectQuery, query),
             team=self._team,
-            # TODO - should we have our own query type 🤷
-            query_type="hogql_query",
+            query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
         )
 
