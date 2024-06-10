@@ -124,6 +124,47 @@ function FirstStep(): JSX.Element {
 
     return (
         <ModalPage page={1}>
+            <h2 className="mt-4">Managed by PostHog</h2>
+
+            <span>Data will be synced to PostHog and regularly refreshed</span>
+            <LemonTable
+                dataSource={connectors}
+                loading={false}
+                disableTableWhileLoading={false}
+                columns={[
+                    {
+                        title: 'Source',
+                        width: 0,
+                        render: function RenderAppInfo(_, sourceConfig) {
+                            return <RenderDataWarehouseSourceIcon type={sourceConfig.name} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, sourceConfig) {
+                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, sourceConfig) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    <LemonButton onClick={() => onClick(sourceConfig)} className="my-2" type="primary">
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+
+            <h2 className="mt-4">Self Managed</h2>
+
+            <span>Data will be queried directly from your data source</span>
             <LemonTable
                 dataSource={connectors}
                 loading={false}

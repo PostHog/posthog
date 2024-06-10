@@ -279,12 +279,9 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
-    Manual: {
-        name: 'Manual',
-        caption: <>If you have a data source that isn't listed here, you can manually link it to PostHog.</>,
-        fields: [],
-    },
 }
+
+export const MANUAL_SOURCE_DETAILS = {}
 
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
@@ -548,7 +545,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.currentStep],
             (currentStep) => {
                 if (currentStep === 1) {
-                    return 'Select a data source to get started'
+                    return ''
                 }
                 if (currentStep === 2) {
                     return 'Link your data source'
