@@ -32,6 +32,7 @@ class AvailableFeature(str, Enum):
     RECORDINGS_PERFORMANCE = "recordings_performance"
     SURVEYS_STYLING = "surveys_styling"
     SURVEYS_TEXT_HTML = "surveys_text_html"
+    SURVEYS_RECURRING = "surveys_recurring"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"

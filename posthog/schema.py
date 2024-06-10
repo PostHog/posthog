@@ -112,13 +112,6 @@ class BreakdownValueInt(RootModel[int]):
     root: int
 
 
-class CacheMissResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: Optional[str] = None
-
-
 class BreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -492,6 +485,11 @@ class HogQLNotice(BaseModel):
     start: Optional[int] = None
 
 
+class BounceRatePageViewMode(str, Enum):
+    count_pageviews = "count_pageviews"
+    uniq_urls = "uniq_urls"
+
+
 class InCohortVia(str, Enum):
     auto = "auto"
     leftjoin = "leftjoin"
@@ -528,6 +526,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
@@ -838,6 +837,13 @@ class QueryStatus(BaseModel):
     team_id: int
 
 
+class QueryStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query_status: QueryStatus
+
+
 class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -998,6 +1004,9 @@ class TestCachedBasicQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1287,6 +1296,14 @@ class BreakdownFilter(BaseModel):
     breakdowns: Optional[list[Breakdown]] = None
 
 
+class CacheMissResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: Optional[str] = None
+    query_status: Optional[QueryStatus] = None
+
+
 class CachedActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1308,6 +1325,9 @@ class CachedActorsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: str
     offset: int
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1336,6 +1356,9 @@ class CachedEventsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: str
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1364,6 +1387,9 @@ class CachedFunnelCorrelationResponse(BaseModel):
     )
     next_allowed_client_refresh: str
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: FunnelCorrelationResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1388,6 +1414,9 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1407,6 +1436,9 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     is_cached: bool
     last_refresh: str
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
     timezone: str
@@ -1428,6 +1460,9 @@ class CachedLifecycleQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1451,6 +1486,9 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1475,6 +1513,9 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[TimelineEntry]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1498,6 +1539,9 @@ class CachedStickinessQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1521,6 +1565,9 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -1546,6 +1593,9 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timezone: str
@@ -1574,6 +1624,9 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: str
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timezone: str
@@ -1600,6 +1653,9 @@ class CachedWebTopClicksQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timezone: str
@@ -2683,6 +2739,9 @@ class CachedHogQLQueryResponse(BaseModel):
     next_allowed_client_refresh: str
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -2707,6 +2766,9 @@ class CachedRetentionQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[RetentionResult]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -4373,7 +4435,7 @@ class QueryRequest(BaseModel):
         description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
         discriminator="kind",
     )
-    refresh: Optional[bool] = None
+    refresh: Optional[Union[bool, str]] = None
 
 
 class QuerySchemaRoot(

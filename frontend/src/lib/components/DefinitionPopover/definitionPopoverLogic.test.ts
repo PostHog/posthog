@@ -172,7 +172,7 @@ describe('definitionPopoverLogic', () => {
             ]
 
             groups.forEach((group) => {
-                it(group.type, async () => {
+                it(`with ${group.type}`, async () => {
                     logic = definitionPopoverLogic({
                         type: group.type,
                     })
@@ -192,7 +192,7 @@ describe('definitionPopoverLogic', () => {
                     await expectChain
 
                     if (group.url) {
-                        expect(api.update).toBeCalledWith(
+                        expect(api.update).toHaveBeenCalledWith(
                             group.url,
                             expect.objectContaining({ description: 'new and improved description' })
                         )
@@ -280,7 +280,7 @@ describe('definitionPopoverLogic', () => {
             ]
 
             groups.forEach((group) => {
-                it(group.type, async () => {
+                it(`with ${group.type}`, async () => {
                     logic = definitionPopoverLogic({
                         type: group.type,
                     })
