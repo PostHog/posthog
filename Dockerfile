@@ -16,9 +16,9 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir share && \
-    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=/mmdb.db ) && \
-    chmod -R 755 /mmdb.db
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=/GeoLite2-City.mmdb ) && \
+    chmod -R 755 /GeoLite2-City.mmdb
 
 FROM ubuntu
-COPY --from=builder /livestream /mmdb.db /
+COPY --from=builder /livestream /GeoLite2-City.mmdb /
 CMD ["/livestream"]
