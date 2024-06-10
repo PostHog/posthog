@@ -58,7 +58,7 @@ WEB_VITALS_TABLE_SQL = lambda: (
     table_name=WEB_VITALS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=WEB_VITALS_DATA_TABLE_ENGINE(),
-    ttl_period=ttl_period("timestamp", 366, unit="DAY"),
+    ttl_period=ttl_period("timestamp", 1, unit="YEAR"),
 )
 
 KAFKA_WEB_VITALS_TABLE_SQL = lambda: KAFKA_WEB_VITALS_TABLE_BASE_SQL.format(

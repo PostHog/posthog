@@ -42,7 +42,12 @@ def kafka_engine(topic: str, kafka_host: str | None = None, group="group1") -> s
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
 
 
-def ttl_period(field: str = "created_at", amount: int = 3, unit: Literal["DAY", "WEEK"] = "WEEK") -> str:
+def ttl_period(
+    field: str = "created_at",
+    amount: int = 3,
+    # support a subset of valid options for clickhouse interval
+    unit: Literal["DAY", "WEEK", "MONTH", "YEAR"] = "WEEK",
+) -> str:
     return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {amount} {unit}"
 
 
