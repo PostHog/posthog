@@ -210,7 +210,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             const savedValue = values.hogFunction ?? values.template
             actions.resetConfiguration({
                 ...savedValue,
-                inputs: savedValue?.inputs ?? {},
+                inputs: (savedValue as any)?.inputs ?? {},
                 ...(cache.configFromUrl || {}),
             })
         },
