@@ -10,8 +10,9 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
@@ -22,7 +23,9 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.tasks.exports.image_exporter import export_image
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from posthog.utils import absolute_uri
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -60,15 +63,21 @@ class TestExports(APIBaseTest):
             created_by=cls.user,
             name="example insight",
         )
+        cls.tile = DashboardTile.objects.create(dashboard=cls.dashboard, insight=cls.insight)
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
+    @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
-    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
+    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task, mock_export_to_png) -> None:
+        # add filter to dashboard
+        self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
+        self.dashboard.save()
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "dashboard": self.dashboard.id},
+            {"export_format": "image/png", "dashboard": self.dashboard.id, "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
@@ -79,7 +88,7 @@ class TestExports(APIBaseTest):
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
-            "insight": None,
+            "insight": self.insight.id,
             "export_context": None,
             # without an expiry being set at creation, the default is 6 months
             "expires_after": (now() + timedelta(weeks=26))
@@ -89,6 +98,22 @@ class TestExports(APIBaseTest):
         }
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+        # look at the page the screenshot will be taken of
+        exported_asset = ExportedAsset.objects.get(pk=data["id"])
+        access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
+        url_to_render = absolute_uri(f"/exporter?token={access_token}")
+
+        # Request does not calculate the result and cache is not warmed up
+        response = self.client.get(url_to_render)
+        self.assertContains(response, '"result": null')
+
+        # Should warm up the cache
+        export_image(exported_asset)
+        mock_export_to_png.assert_called_once_with(exported_asset)
+
+        response = self.client.get(url_to_render)
+        self.assertNotContains(response, '"result": null')
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
