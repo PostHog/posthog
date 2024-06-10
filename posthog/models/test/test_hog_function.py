@@ -123,7 +123,9 @@ class TestHogFunction(TestCase):
         # Some json serialization is needed to compare the bytecode more easily in tests
         json_filters = to_dict(item.filters)
 
-        assert json.dumps(json_filters["bytecode"]) == snapshot()
+        assert json.dumps(json_filters["bytecode"]) == snapshot(
+            '["_h", 29, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 5, 2, "ifNull", 2, 3, 1]'
+        )
 
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
