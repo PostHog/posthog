@@ -12,18 +12,15 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import {
-    LEGACY_FilterBasedBreakdownSummary,
-    LEGACY_FilterBasedSeriesSummary,
-    PropertiesSummary,
-} from 'lib/components/Cards/InsightCard/InsightDetails'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema } from '~/queries/schema'
+import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
@@ -235,13 +232,15 @@ const insightActionsMapping: Record<
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
+    const query = filtersToQueryNode(filtersAfter)
+
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
-                <LEGACY_FilterBasedSeriesSummary filters={filtersAfter} />
-                <PropertiesSummary properties={filtersAfter.properties} />
-                {filtersAfter.breakdown_type && <LEGACY_FilterBasedBreakdownSummary filters={filtersAfter} />}
+                <SeriesSummary query={query} />
+                <PropertiesSummary properties={query.properties} />
+                {(query as TrendsQuery)?.breakdownFilter?.breakdown_type && <BreakdownSummary query={query} />}
             </div>
         ),
     }

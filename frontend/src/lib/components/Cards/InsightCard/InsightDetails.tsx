@@ -15,9 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -46,8 +44,6 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
-    InsightType,
-    PathsFilterType,
     PropertyGroupFilter,
     QueryBasedInsightModel,
 } from '~/types'
@@ -149,90 +145,6 @@ function CompactPropertyFiltersDisplay({
     )
 }
 
-function LEGACY_FilterBasedSeriesDisplay({
-    filter,
-    insightType = InsightType.TRENDS,
-    index,
-    hasBreakdown,
-}: {
-    filter: LocalFilter
-    insightType?: InsightType
-    index: number
-    hasBreakdown: boolean
-}): JSX.Element {
-    const { mathDefinitions } = useValues(mathsLogic)
-
-    const mathDefinition = mathDefinitions[
-        insightType === InsightType.LIFECYCLE
-            ? 'dau'
-            : filter.math
-            ? apiValueToMathType(filter.math, filter.math_group_type_index)
-            : 'total'
-    ] as MathDefinition | undefined
-
-    return (
-        <LemonRow
-            fullWidth
-            className="SeriesDisplay"
-            icon={<SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />}
-            extendedContent={
-                filter.properties &&
-                filter.properties.length > 0 && (
-                    <CompactPropertyFiltersDisplay
-                        groupFilter={{
-                            type: FilterLogicalOperator.And,
-                            values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
-                        }}
-                        embedded
-                    />
-                )
-            }
-        >
-            <span>
-                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.type === 'actions' && filter.id ? (
-                    <Link
-                        to={urls.action(filter.id)}
-                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                        title="Action series"
-                    >
-                        {filter.name}
-                    </Link>
-                ) : (
-                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
-                    </span>
-                )}
-                {insightType !== InsightType.FUNNELS && (
-                    <span className="leading-none">
-                        counted by{' '}
-                        {mathDefinition?.category === MathCategory.HogQLExpression ? (
-                            <code>{filter.math_hogql}</code>
-                        ) : (
-                            <>
-                                {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
-                                    <>
-                                        {' '}
-                                        event's
-                                        <span className="SeriesDisplay__raw-name">
-                                            <PropertyKeyInfo
-                                                value={filter.math_property}
-                                                type={TaxonomicFilterGroupType.EventProperties}
-                                            />
-                                        </span>
-                                    </>
-                                )}
-                                <b>{mathDefinition?.name.toLowerCase()}</b>
-                            </>
-                        )}
-                    </span>
-                )}
-            </span>
-        </LemonRow>
-    )
-}
-
 function SeriesDisplay({
     query,
     seriesIndex,
@@ -320,27 +232,6 @@ function SeriesDisplay({
     )
 }
 
-function LEGACY_FilterBasedPathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
-    // Sync format with summarizePaths in utils
-    return (
-        <div className="SeriesDisplay">
-            <div>
-                User paths based on <b>{humanizePathsEventTypes(filters.include_event_types).join(' and ')}</b>
-            </div>
-            {filters.start_point && (
-                <div>
-                    starting at <b>{filters.start_point}</b>
-                </div>
-            )}
-            {filters.end_point && (
-                <div>
-                    ending at <b>{filters.end_point}</b>
-                </div>
-            )}
-        </div>
-    )
-}
-
 function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     // Sync format with summarizePaths in utils
     const { includeEventTypes, startPoint, endPoint } = query.pathsFilter
@@ -360,59 +251,6 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
                 </div>
             )}
         </div>
-    )
-}
-
-export function LEGACY_FilterBasedSeriesSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const localFilters = toLocalFilters(filters)
-
-    return (
-        <>
-            <h5>Query summary</h5>
-            <section className="InsightDetails__query">
-                {isTrendsFilter(filters) && filters.formula && (
-                    <>
-                        <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                            <span>
-                                Formula:<code>{filters.formula}</code>
-                            </span>
-                        </LemonRow>
-                        <LemonDivider />
-                    </>
-                )}
-                {isPathsFilter(filters) || localFilters.length > 0 ? (
-                    <div className="InsightDetails__series">
-                        {isPathsFilter(filters) ? (
-                            <LEGACY_FilterBasedPathsSummary filters={filters} />
-                        ) : (
-                            <>
-                                <LEGACY_FilterBasedSeriesDisplay
-                                    hasBreakdown={!!filters.breakdown}
-                                    filter={localFilters[0]}
-                                    insightType={filters.insight}
-                                    index={0}
-                                />
-                                {localFilters.slice(1).map((filter, index) => (
-                                    <>
-                                        <LemonDivider className="my-1" />
-                                        <LEGACY_FilterBasedSeriesDisplay
-                                            hasBreakdown={!!filters.breakdown}
-                                            key={index}
-                                            filter={filter}
-                                            insightType={filters.insight}
-                                            index={index + 1}
-                                        />
-                                    </>
-                                ))}
-                            </>
-                        )}
-                    </div>
-                ) : (
-                    /* TODO: Add support for Retention to InsightDetails */
-                    <i>Unavailable for this insight type.</i>
-                )}
-            </section>
-        </>
     )
 }
 
