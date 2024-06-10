@@ -994,7 +994,7 @@ export interface RecordingUniversalFilters {
     live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
-    duration?: RecordingDurationFilter[]
+    duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
 }
