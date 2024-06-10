@@ -42,6 +42,7 @@ impl Team {
                 }
             })?;
 
+        // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team: {}", e);
             FlagError::DataParsingError

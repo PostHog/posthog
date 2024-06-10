@@ -709,6 +709,7 @@ dependencies = [
  "serde",
  "serde-pickle",
  "serde_json",
+ "sha1",
  "thiserror",
  "tokio",
  "tracing",

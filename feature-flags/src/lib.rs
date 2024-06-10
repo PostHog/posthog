@@ -1,6 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod flag_definitions;
+pub mod flag_matching;
 pub mod redis;
 pub mod router;
 pub mod server;

@@ -3,7 +3,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::{
-    flag_definitions,
+    flag_definitions::{self, FeatureFlag},
     redis::{Client, RedisClient},
     team::{self, Team},
 };
@@ -90,4 +90,37 @@ pub fn setup_redis_client(url: Option<String>) -> Arc<RedisClient> {
     };
     let client = RedisClient::new(redis_url).expect("Failed to create redis client");
     Arc::new(client)
+}
+
+pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
+    let payload = match json_value {
+        Some(value) => value,
+        None => json!([{
+            "id": 1,
+            "key": "flag1",
+            "name": "flag1 description",
+            "active": true,
+            "deleted": false,
+            "team_id": 1,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "a@b.com",
+                                "type": "person",
+                            },
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ],
+            },
+        }])
+        .to_string(),
+    };
+
+    let flags: Vec<FeatureFlag> =
+        serde_json::from_str(&payload).expect("Failed to parse data to flags list");
+    flags
 }
