@@ -68,19 +68,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: true,
     }),
-    // connect(() => ({
-    //     values: [
-    //         teamLogic,
-    //         ['currentTeamId'],
-    //         pipelineTransformationsLogic,
-    //         ['nextAvailableOrder'],
-    //         featureFlagLogic,
-    //         ['featureFlags'],
-    //         pipelineAccessLogic,
-    //         ['canEnableNewDestinations'],
-    //     ],
-    // })),
-
     reducers({
         showSource: [
             false,
@@ -240,20 +227,6 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             }
         },
     })),
-    // // TODO: Add this back in once we have a plan for handling automatic url changes
-    // beforeUnload(({ actions, values, cache }) => ({
-    //     enabled: () => {
-    //         if (cache.ignoreUrlChange) {
-    //             cache.ignoreUrlChange = false
-    //             return false
-    //         }
-    //         return values.configurationChanged
-    //     },
-    //     message: 'Leave action?\nChanges you made will be discarded.',
-    //     onConfirm: () => {
-    //         actions.resetConfiguration()
-    //     },
-    // })),
     afterMount(({ props, actions, cache }) => {
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
