@@ -695,16 +695,38 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortedDates[0]
             },
         ],
+        sortedClientRefreshAllowed: [
+            (s) => [s.insightTiles],
+            (insightTiles): Dayjs[] => {
+                if (!insightTiles || !insightTiles.length) {
+                    return []
+                }
+
+                const validDates = insightTiles
+                    .filter((i) => !!i.insight?.next_allowed_client_refresh)
+                    .map((i) => dayjs(i.insight?.next_allowed_client_refresh))
+                    .filter((date) => date.isValid())
+                return sortDayJsDates(validDates)
+            },
+        ],
+        oldestClientRefreshAllowed: [
+            (s) => [s.sortedClientRefreshAllowed],
+            (sortedClientRefreshAllowed): Dayjs | null => {
+                if (!sortedClientRefreshAllowed.length) {
+                    return null
+                }
+
+                return sortedClientRefreshAllowed[0]
+            },
+        ],
         blockRefresh: [
             // page visibility is only here to trigger a recompute when the page is hidden/shown
-            (s) => [s.newestRefreshed, s.placement, s.pageVisibility],
-            (newestRefreshed: Dayjs, placement: DashboardPlacement) => {
+            (s) => [s.newestRefreshed, s.placement, s.oldestClientRefreshAllowed, s.pageVisibility],
+            (newestRefreshed: Dayjs, placement: DashboardPlacement, oldestClientRefreshAllowed: Dayjs | null) => {
                 return (
                     !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
-                    now()
-                        .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(newestRefreshed)
+                    oldestClientRefreshAllowed?.isAfter(now())
                 )
             },
         ],
@@ -821,7 +843,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: 'async',
+                        refresh: 'force_cache',
                         action: 'initial_load',
                     })
                 }
@@ -994,7 +1016,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'force_async' : 'async',
+                    refresh: hardRefreshWithoutCache ? 'force_blocking' : 'blocking',
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),

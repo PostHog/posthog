@@ -79,7 +79,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     name: 'Views',
                     items: views.map((table) => ({
                         name: table.name,
-                        items: Object.values(table).map((column) => ({
+                        items: Object.values(table.fields).map((column) => ({
                             name: column.name,
                             type: column.type,
                             icon: <IconDatabase />,

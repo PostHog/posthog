@@ -43,6 +43,8 @@ const MOCK_BASIC_SURVEY: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -81,6 +83,8 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -152,6 +156,8 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_SHOWN = {

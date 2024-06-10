@@ -70,7 +70,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity", "recording"] = "event",
+    scope: Literal["event", "person", "session", "replay", "recording", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:

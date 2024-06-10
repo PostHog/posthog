@@ -4221,6 +4221,10 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "bounceRatePageViewMode": {
+                    "enum": ["count_pageviews", "uniq_urls"],
+                    "type": "string"
+                },
                 "dataWarehouseEventsModifiers": {
                     "items": {
                         "$ref": "#/definitions/DataWarehouseEventsModifier"

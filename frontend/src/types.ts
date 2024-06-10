@@ -5,6 +5,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -87,6 +88,7 @@ export enum AvailableFeature {
     SURVEYS_LINK_QUESTION_TYPE = 'surveys_link_question_type',
     SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
+    SURVEYS_RECURRING = 'surveys_recurring',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -989,6 +991,17 @@ export interface RecordingFilters {
     filter_test_accounts?: boolean
 }
 
+export interface RecordingUniversalFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
+    date_from?: string | null
+    date_to?: string | null
+    filter_test_accounts?: boolean
+    filter_group: UniversalFiltersGroup
+}
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -1708,6 +1721,10 @@ export interface InsightModel extends Cacheable {
     filters: Partial<FilterType>
     query?: Node | null
     query_status?: QueryStatus
+}
+
+export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
+    query: Node | null
 }
 
 export interface DashboardBasicType {
@@ -2591,6 +2608,11 @@ export interface Survey {
     archived: boolean
     remove_targeting_flag?: boolean
     responses_limit: number | null
+    iteration_count?: number | null
+    iteration_frequency_days?: number | null
+    iteration_start_dates?: string[]
+    current_iteration?: number | null
+    current_iteration_start_date?: string
 }
 
 export enum SurveyUrlMatchType {
