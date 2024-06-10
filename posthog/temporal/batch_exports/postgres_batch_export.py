@@ -281,6 +281,9 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
             )
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+            if first_record_batch is None:
+                return 0
 
             if inputs.batch_export_schema is None:
                 table_fields = [
@@ -298,10 +301,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 ]
 
             else:
-                first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
-                column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                record_schema = first_record.select(column_names).schema
+                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+                record_schema = first_record_batch.select(column_names).schema
                 table_fields = get_postgres_fields_from_record_schema(
                     record_schema, known_json_columns=["properties", "set", "set_once", "person_properties"]
                 )

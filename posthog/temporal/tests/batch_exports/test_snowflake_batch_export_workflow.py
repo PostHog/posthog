@@ -275,7 +275,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
                         "rowset": rowset,
                         "total": 1,
                         "returned": 1,
-                        "queryId": "query-id",
+                        "queryId": str(uuid4()),
                         "queryResultFormat": "json",
                     },
                 }
@@ -463,7 +463,7 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval):
+async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval, truncate_events):
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,

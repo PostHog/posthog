@@ -464,6 +464,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 is_backfill=inputs.is_backfill,
             )
 
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+
+            if first_record_batch is None:
+                return 0
+
             async with s3_upload as s3_upload:
 
                 async def flush_to_s3(
@@ -487,7 +492,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
-                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
                 first_record_batch = cast_record_batch_json_columns(first_record_batch)
                 column_names = first_record_batch.column_names
                 column_names.pop(column_names.index("_inserted_at"))

@@ -324,6 +324,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 extra_query_parameters=query_parameters,
                 is_backfill=inputs.is_backfill,
             )
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+            if first_record_batch is None:
+                return 0
 
             known_super_columns = ["properties", "set", "set_once", "person_properties"]
 
@@ -347,10 +350,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     ("timestamp", "TIMESTAMP WITH TIME ZONE"),
                 ]
             else:
-                first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
-                column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                record_schema = first_record.select(column_names).schema
+                column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
+                record_schema = first_record_batch.select(column_names).schema
                 table_fields = get_redshift_fields_from_record_schema(
                     record_schema, known_super_columns=known_super_columns
                 )

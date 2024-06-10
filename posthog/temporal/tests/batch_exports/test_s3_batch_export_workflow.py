@@ -528,6 +528,75 @@ async def test_s3_export_workflow_with_minio_bucket(
     )
 
 
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+async def test_s3_export_workflow_with_minio_bucket_without_events(
+    clickhouse_client,
+    minio_client,
+    ateam,
+    s3_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    s3_key_prefix,
+    batch_export_schema,
+):
+    """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
+
+    The workflow should update the batch export run status to completed and produce the expected
+    records to the MinIO bucket.
+
+    We use a BatchExport model to provide accurate inputs to the Workflow and because the Workflow
+    will require its prescense in the database when running. This model is indirectly parametrized
+    by several fixtures. Refer to them for more information.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_schema=batch_export_schema,
+        **s3_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_s3_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                S3BatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(minutes=10),
+            )
+
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+    assert run.records_completed == 0
+
+    objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=s3_key_prefix)
+    assert len(objects.get("Contents", [])) == 0
+
+
 @pytest_asyncio.fixture
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with an S3 bucket.

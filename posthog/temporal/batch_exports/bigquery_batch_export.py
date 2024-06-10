@@ -250,6 +250,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 is_backfill=inputs.is_backfill,
             )
 
+            first_record_batch, records_iterator = peek_first_and_rewind(records_iterator)
+            if first_record_batch is None:
+                return 0
+
             bigquery_table = None
             inserted_at = None
 
@@ -268,8 +272,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
                         rows_exported.add(jsonl_file.records_since_last_reset)
                         bytes_exported.add(jsonl_file.bytes_since_last_reset)
-
-                    first_record, records_iterator = peek_first_and_rewind(records_iterator)
 
                     if inputs.use_json_type is True:
                         json_type = "JSON"
@@ -295,8 +297,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         ]
 
                     else:
-                        column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
-                        record_schema = first_record.select(column_names).schema
+                        column_names = [
+                            column for column in first_record_batch.schema.names if column != "_inserted_at"
+                        ]
+                        record_schema = first_record_batch.select(column_names).schema
                         schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
 
                     bigquery_table = await create_table_in_bigquery(
