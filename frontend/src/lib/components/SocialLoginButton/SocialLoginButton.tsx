@@ -109,11 +109,10 @@ export function SocialLoginButtons({
     )
 }
 
-interface SSOEnforcedLoginButtonProps extends Partial<LemonButtonWithoutSideActionProps> {
-    provider: SSOProvider
-    email: string
-    extraQueryParams?: SocialLoginLinkProps['extraQueryParams']
-}
+type SSOEnforcedLoginButtonProps = SocialLoginButtonProps &
+    Partial<LemonButtonWithoutSideActionProps> & {
+        email: string
+    }
 
 export function SSOEnforcedLoginButton({
     provider,
