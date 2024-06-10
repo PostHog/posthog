@@ -189,7 +189,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
-        let parsedDetail
+        let parsedDetail = {}
         try {
             parsedDetail = JSON.parse(experimentResultCalculationError.detail)
         } catch (error) {
