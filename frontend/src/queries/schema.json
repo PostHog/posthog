@@ -279,7 +279,7 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationFilter"
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -2638,6 +2638,10 @@
         },
         "Day": {
             "type": "integer"
+        },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -6964,12 +6968,23 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationFilter": {
+        "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "duration",
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "console_log_level",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_log_query",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "label": {
                     "type": "string"
@@ -6982,10 +6997,10 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "RefreshType": {
