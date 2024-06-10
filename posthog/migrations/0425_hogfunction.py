@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
                 ("bytecode", models.JSONField(blank=True, null=True)),
                 ("inputs_schema", models.JSONField(null=True)),
                 ("inputs", models.JSONField(null=True)),
-                ("filters", models.JSONField(blank=True, default=dict, null=True)),
+                ("filters", models.JSONField(blank=True, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(
