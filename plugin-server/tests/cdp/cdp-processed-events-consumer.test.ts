@@ -89,7 +89,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
          * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
          */
         it('can parse incoming messages correctly', async () => {
-            const hogFunction = await insertHogFunction({
+            await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
