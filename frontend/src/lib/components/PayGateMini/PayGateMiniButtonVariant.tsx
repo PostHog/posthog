@@ -8,6 +8,7 @@ interface PayGateMiniButtonVariantProps {
     featureInfo: BillingV2FeatureType
     onCtaClick: () => void
     billing: BillingV2Type | null
+    isAddonProduct?: boolean
 }
 
 export const PayGateMiniButtonVariant = ({
@@ -16,10 +17,12 @@ export const PayGateMiniButtonVariant = ({
     featureInfo,
     onCtaClick,
     billing,
+    isAddonProduct,
 }: PayGateMiniButtonVariantProps): JSX.Element => {
     return (
         <LemonButton
-            to={getCtaLink(gateVariant, productWithFeature, featureInfo)}
+            to={getCtaLink(gateVariant, productWithFeature, featureInfo, isAddonProduct)}
+            disableClientSideRouting
             type="primary"
             center
             onClick={onCtaClick}
@@ -32,9 +35,12 @@ export const PayGateMiniButtonVariant = ({
 const getCtaLink = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    featureInfo: BillingV2FeatureType
+    featureInfo: BillingV2FeatureType,
+    isAddonProduct?: boolean
 ): string | undefined => {
-    if (gateVariant === 'add-card') {
+    if (gateVariant === 'add-card' && !isAddonProduct) {
+        return `/api/billing/activate?products=all_products:&redirect_path=/`
+    } else if (gateVariant === 'add-card') {
         return `/organization/billing?products=${productWithFeature.type}`
     } else if (gateVariant === 'contact-sales') {
         return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
