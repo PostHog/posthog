@@ -342,6 +342,7 @@ class S3InsertInputs:
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     run_id: str | None = None
+    is_backfill: bool = False
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -435,34 +436,35 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
+    async with Heartbeater() as heartbeater:
+        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
+        async with get_client(team_id=inputs.team_id) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+            s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-        if inputs.batch_export_schema is None:
-            fields = s3_default_fields()
-            query_parameters = None
+            if inputs.batch_export_schema is None:
+                fields = s3_default_fields()
+                query_parameters = None
 
-        else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
+            else:
+                fields = inputs.batch_export_schema["fields"]
+                query_parameters = inputs.batch_export_schema["values"]
 
-        record_iterator = iter_records(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
-        )
+            record_iterator = iter_records(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=interval_start,
+                interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                fields=fields,
+                extra_query_parameters=query_parameters,
+                is_backfill=inputs.is_backfill,
+            )
 
-        async with Heartbeater() as heartbeater:
             async with s3_upload as s3_upload:
 
                 async def flush_to_s3(
@@ -518,7 +520,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                 await s3_upload.complete()
 
-        return writer.records_total
+            return writer.records_total
 
 
 def get_batch_export_writer(
@@ -630,6 +632,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
         run_id, records_total_count = await workflow.execute_activity(
             start_batch_export_run,
@@ -682,6 +685,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(

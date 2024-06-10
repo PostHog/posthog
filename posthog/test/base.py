@@ -349,13 +349,27 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         cache.clear()
         TEST_clear_instance_license_cache()
 
-        # Sets the cloud mode to stabilise things tests, especially num query counts
-        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        # Sets the cloud mode to stabilize things tests, especially num query counts
+        # Clear the is_rate_limit lru_Caches so that they do not flap in test snapshots
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+
+    def create_organization_with_features(self, features):
+        organization = Organization.objects.create(name="Test Organization")
+        organization.available_product_features = [{"name": feature, "key": feature} for feature in features]
+        organization.save()
+        return organization
+
+    def create_team_with_organization(self, organization):
+        return Team.objects.create(organization=organization, name="Test Team")
+
+    def create_user_with_organization(self, organization):
+        user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
+        organization.members.add(user)
+        return user
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
@@ -588,8 +602,9 @@ class QueryMatchingTest:
 
         # HogQL person id in session recording queries
         # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
         query = re.sub(
-            r"ifNull\(equals\(([^.]+\.)?person_id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull\(equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\), \d+\)",
             r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
             query,
         )

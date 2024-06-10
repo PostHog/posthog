@@ -391,7 +391,7 @@ class TestBillingAPI(APILicensedTest):
                         },
                     ],
                     "tiered": True,
-                    "current_amount_usd": 0.00,
+                    "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "usage_limit": None,
                     "percentage_usage": 0,
@@ -402,7 +402,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.00,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
@@ -512,7 +512,7 @@ class TestBillingAPI(APILicensedTest):
                     ],
                     "current_usage": 0,
                     "percentage_usage": 0,
-                    "current_amount_usd": 0.0,
+                    "current_amount_usd": "0.00",
                     "has_exceeded_limit": False,
                     "projected_amount_usd": 0.0,
                     "projected_amount": 0,
@@ -525,7 +525,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_key": "events",
                     "addons": [
                         {
-                            "current_amount_usd": 0.0,
+                            "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "description": "Test Addon",
                             "free_allocation": 10000,
@@ -758,14 +758,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.45
+        assert res_json["products"][0]["current_amount_usd"] == "45.45"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "1.36"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
@@ -801,14 +801,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["current_amount_usd"] == 0.04
+        assert res_json["products"][0]["current_amount_usd"] == "0.04"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 100
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.04"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1000100
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100
@@ -843,14 +843,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["current_amount_usd"] == 45.0
+        assert res_json["products"][0]["current_amount_usd"] == "45.00"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 100000
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.35
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "1.35"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 100000
@@ -887,14 +887,14 @@ class TestBillingAPI(APILicensedTest):
         res_json = res.json()
         # Should update product usage to reflect today's usage
         assert res_json["products"][0]["current_usage"] == 0
-        assert res_json["products"][0]["current_amount_usd"] == 0
+        assert res_json["products"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][0]["current_usage"] == 0
         assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["tiers"][1]["current_usage"] == 0
         assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
         assert res_json["products"][0]["addons"][0]["current_usage"] == 0
-        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 0.0
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 0
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 0
@@ -1057,21 +1057,33 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
 
 
-class TestActivationBillingAPI(APILicensedTest):
-    def test_activation_success(self):
-        url = "/api/billing-v2/activation"
+class TestActivateBillingAPI(APILicensedTest):
+    def test_activate_success(self):
+        url = "/api/billing-v2/activate"
         data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
 
         response = self.client.get(url, data=data)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        self.assertIn("/activation", response.url)
+        self.assertIn("/activate", response.url)
         self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
         url_pattern = r"redirect_uri=http://[^/]+/custom/path"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_with_default_redirect_path(self):
-        url = "/api/billing-v2/activation"
+    def test_deprecated_activation_success(self):
+        url = "/api/billing-v2/activate"
+        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+
+        response = self.client.get(url, data=data)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        self.assertIn("/activate", response.url)
+        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
+        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
+        self.assertRegex(response.url, url_pattern)
+
+    def test_activate_with_default_redirect_path(self):
+        url = "/api/billing-v2/activate"
         data = {
             "products": "product_1:plan_1,product_2:plan_2",
         }
@@ -1083,16 +1095,16 @@ class TestActivationBillingAPI(APILicensedTest):
         url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
         self.assertRegex(response.url, url_pattern)
 
-    def test_activation_failure(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_failure(self):
+        url = "/api/billing-v2/activate"
         data = {"none": "nothing"}
 
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_activation_with_plan_error(self):
-        url = "/api/billing-v2/activation"
+    def test_activate_with_plan_error(self):
+        url = "/api/billing-v2/activate"
         data = {"plan": "plan"}
 
         response = self.client.get(url, data)
