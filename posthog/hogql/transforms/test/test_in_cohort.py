@@ -48,7 +48,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -65,7 +65,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -81,7 +81,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -93,7 +93,7 @@ class TestInCohort(BaseTest):
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT true",
                 self.team,
-                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.subquery),
+                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.SUBQUERY),
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
@@ -102,7 +102,7 @@ class TestInCohort(BaseTest):
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
-                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.subquery),
+                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.SUBQUERY),
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
@@ -118,7 +118,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -133,7 +133,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -150,7 +150,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
@@ -164,7 +164,7 @@ class TestInCohort(BaseTest):
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT true",
                 self.team,
-                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
@@ -173,7 +173,7 @@ class TestInCohort(BaseTest):
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
-                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+                modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")

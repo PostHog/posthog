@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0424_survey_current_iteration_and_more"),
+        ("posthog", "0425_hogfunction"),
     ]
 
     operations = [

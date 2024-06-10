@@ -40,15 +40,15 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 
 def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
     version = context.modifiers.personsArgMaxVersion
-    if version == PersonsArgMaxVersion.auto:
-        version = PersonsArgMaxVersion.v1
+    if version == PersonsArgMaxVersion.AUTO:
+        version = PersonsArgMaxVersion.V1
         # If selecting properties, use the faster v2 query. Otherwise, v1 is faster.
         for field_chain in join_or_table.fields_accessed.values():
             if field_chain[0] == "properties":
-                version = PersonsArgMaxVersion.v2
+                version = PersonsArgMaxVersion.V2
                 break
 
-    if version == PersonsArgMaxVersion.v2:
+    if version == PersonsArgMaxVersion.V2:
         from posthog.hogql import ast
         from posthog.hogql.parser import parse_select
 

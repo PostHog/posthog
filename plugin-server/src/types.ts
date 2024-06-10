@@ -81,6 +81,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     person_overrides = 'person-overrides',
+    cdp_processed_events = 'cdp-processed-events',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -315,6 +316,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
+    cdpProcessedEvents?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud

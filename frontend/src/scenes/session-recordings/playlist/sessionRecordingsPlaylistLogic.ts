@@ -4,6 +4,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,11 +16,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
+    AnyPropertyFilter,
     DurationType,
+    FilterType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
@@ -85,6 +92,13 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     console_search_query: '',
 }
 
+export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
+    live_mode: false,
+    filter_test_accounts: false,
+    date_from: '-3d',
+    filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
+}
+
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     ...DEFAULT_RECORDING_FILTERS,
     date_from: '-30d',
@@ -106,6 +120,33 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
         ...partialFilters,
     })
 }
+function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+    const filters = nestedFilters.values as UniversalFilterValue[]
+
+    const properties: AnyPropertyFilter[] = []
+    const events: FilterType['events'] = []
+    const actions: FilterType['actions'] = []
+
+    filters.forEach((f) => {
+        if (isEventFilter(f)) {
+            events.push(f)
+        } else if (isActionFilter(f)) {
+            actions.push(f)
+        } else if (isAnyPropertyfilter(f)) {
+            properties.push(f)
+        }
+    })
+
+    // TODO: add console log and duration filtering (not yet supported in universal filtering)
+
+    return {
+        ...universalFilters,
+        properties,
+        events,
+        actions,
+    }
+}
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
@@ -113,6 +154,7 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     hideSimpleFilters?: boolean
+    universalFilters?: RecordingUniversalFilters
     advancedFilters?: RecordingFilters
     simpleFilters?: RecordingFilters
     onFiltersChange?: (filters: RecordingFilters) => void
@@ -148,6 +190,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
     actions({
+        setUniversalFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
@@ -355,6 +398,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
+        universalFilters: [
+            props.universalFilters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+            {
+                setUniversalFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
+                resetFilters: () => DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+            },
+        ],
         showFilters: [
             true,
             {
@@ -465,6 +520,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
+        setUniversalFilters: ({ filters }) => {
+            actions.loadSessionRecordings()
+            props.onFiltersChange?.(values.filters)
+            capturePartialFilters(filters)
+            actions.loadEventsHaveSessionId()
+        },
 
         setOrderBy: () => {
             actions.loadSessionRecordings()
@@ -512,12 +573,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],
         ],
+        useUniversalFiltering: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS],
+        ],
 
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
         filters: [
-            (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters => {
+            (s) => [s.simpleFilters, s.advancedFilters, s.universalFilters, s.featureFlags],
+            (simpleFilters, advancedFilters, universalFilters, featureFlags): RecordingFilters => {
+                if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]) {
+                    return convertUniversalFiltersToLegacyFilters(universalFilters)
+                }
+
                 return {
                     ...advancedFilters,
                     events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],

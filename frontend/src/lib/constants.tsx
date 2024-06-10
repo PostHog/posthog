@@ -205,7 +205,9 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     HOG: 'hog', // owner: @mariusandra
+    HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
+    SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
 } as const

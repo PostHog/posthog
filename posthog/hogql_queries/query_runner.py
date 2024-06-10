@@ -543,13 +543,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.query.properties:
                 try:
                     self.query.properties = PropertyGroupFilter(
-                        type=FilterLogicalOperator.AND,
+                        type=FilterLogicalOperator.AND_,
                         values=[
-                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
-                            if isinstance(self.query.properties, list)
-                            else PropertyGroupFilterValue(**self.query.properties.model_dump()),
+                            (
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=self.query.properties)
+                                if isinstance(self.query.properties, list)
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump())
+                            ),
                             PropertyGroupFilterValue(
-                                type=FilterLogicalOperator.AND, values=dashboard_filter.properties
+                                type=FilterLogicalOperator.AND_, values=dashboard_filter.properties
                             ),
                         ],
                     )
