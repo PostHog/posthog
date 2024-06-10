@@ -2,8 +2,6 @@ from posthog.warehouse.models import ExternalDataJob
 from django.db.models import F
 from posthog.warehouse.util import database_sync_to_async
 
-CHUNK_SIZE = 10_000
-
 
 async def is_job_cancelled(
     team_id: int,
