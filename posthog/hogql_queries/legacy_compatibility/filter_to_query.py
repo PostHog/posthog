@@ -49,7 +49,7 @@ actors_only_math_types = [
 
 
 def clean_display(display: str):
-    if display not in ChartDisplayType.__members__:
+    if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
         return display
