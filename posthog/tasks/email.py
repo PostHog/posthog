@@ -179,9 +179,9 @@ async def send_batch_export_run_failure(
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
-    campaign_key: (
-        str
-    ) = f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
+    campaign_key: str = (
+        f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
+    )
 
     message = await sync_to_async(EmailMessage)(
         campaign_key=campaign_key,
