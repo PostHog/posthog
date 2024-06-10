@@ -167,7 +167,7 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
     let query
     if (insight.query) {
         query = insight.query
-    } else if (insight.filters && Object.keys(insight.filters).length > 0) {
+    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
         query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
     } else {
         query = null
