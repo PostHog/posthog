@@ -90,5 +90,33 @@ describe('Hog Executor', () => {
                 ]
             `)
         })
+        it('can filters incoming messages correctly', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue({
+                [1]: fn,
+            })
+
+            const resultsShouldntMatch = await executor.executeMatchingFunctions({
+                globals: createHogExecutionGlobals(),
+            })
+            expect(resultsShouldntMatch).toHaveLength(0)
+
+            const resultsShouldMatch = await executor.executeMatchingFunctions({
+                globals: createHogExecutionGlobals({
+                    event: {
+                        name: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                        },
+                    } as any,
+                }),
+            })
+            expect(resultsShouldMatch).toHaveLength(1)
+        })
     })
 })
