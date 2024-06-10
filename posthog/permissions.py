@@ -409,7 +409,7 @@ class APIScopePermission(BasePermission):
 
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
-        user = cast(request.user, User)
+        user = cast(User, request.user)
         organization = get_organization_from_view(view)
         flag = getattr(view, "posthog_feature_flag", None)
 
@@ -427,11 +427,13 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
+
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
-                    str(user.distinct_id),
-                    groups={"organization": str(organization.id)},
-                    group_properties={"organization": {"id": str(organization.id)}},
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )

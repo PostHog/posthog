@@ -754,20 +754,14 @@ export class DB {
             personUpdateVersionMismatchCounter.inc()
         }
 
-        const kafkaMessages = []
-        const message = generateKafkaPersonUpdateMessage(updatedPerson)
-        if (tx) {
-            kafkaMessages.push(message)
-        } else {
-            await this.kafkaProducer.queueMessage({ kafkaMessage: message, waitForAck: true })
-        }
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
         status.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, kafkaMessages]
+        return [updatedPerson, [kafkaMessage]]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
