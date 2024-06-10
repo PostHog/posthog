@@ -13,6 +13,7 @@ import {
     HogFunctionInvocationResult,
     HogFunctionType,
 } from './types'
+import { convertToHogFunctionFilterGlobal } from './utils'
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
@@ -55,6 +56,8 @@ export class HogExecutor {
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
         let functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
 
+        const filtersGlobals = convertToHogFunctionFilterGlobal(invocation.globals)
+
         // Filter all functions based on the invocation
         functions = Object.fromEntries(
             Object.entries(functions).filter(([_key, value]) => {
@@ -68,7 +71,7 @@ export class HogExecutor {
                     }
 
                     const filterResult = exec(filters.bytecode, {
-                        globals: invocation.globals,
+                        globals: filtersGlobals,
                         timeout: 100,
                         maxAsyncSteps: 0,
                     })

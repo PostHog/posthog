@@ -69,6 +69,34 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionFilterGlobals = {
+    // Filter Hog is built in the same way as analytics so the global object is meant to be an event
+    event: string
+    timestamp: string
+    elements_chain: string
+    properties: Record<string, any>
+
+    person?: {
+        properties: Record<string, any>
+    }
+
+    group_0?: {
+        properties: Record<string, any>
+    }
+    group_1?: {
+        properties: Record<string, any>
+    }
+    group_2?: {
+        properties: Record<string, any>
+    }
+    group_3?: {
+        properties: Record<string, any>
+    }
+    group_4?: {
+        properties: Record<string, any>
+    }
+}
+
 export type HogFunctionInvocation = {
     globals: HogFunctionInvocationGlobals
 }

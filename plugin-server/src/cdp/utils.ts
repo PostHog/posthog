@@ -2,7 +2,7 @@
 
 import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
 import { clickHouseTimestampToISO } from '../utils/utils'
-import { HogFunctionInvocationGlobals } from './types'
+import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals } from './types'
 
 // that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
@@ -71,4 +71,23 @@ export function convertToHogFunctionInvocationGlobals(
     }
 
     return context
+}
+
+export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
+    const groups: Record<string, any> = {}
+
+    for (const [_groupType, group] of Object.entries(globals.groups || {})) {
+        groups[`group_${group.index}`] = {
+            properties: group.properties,
+        }
+    }
+
+    return {
+        event: globals.event.name,
+        elements_chain: globals.event.properties['$elements_chain'],
+        timestamp: globals.event.timestamp,
+        properties: globals.event.properties,
+        person: globals.person ? { properties: globals.person.properties } : undefined,
+        ...groups,
+    }
 }

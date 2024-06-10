@@ -11,6 +11,7 @@ import { HogQueryEditor } from 'scenes/debug/HogDebug'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { EntityTypes } from '~/types'
 
@@ -32,6 +33,7 @@ export function PipelineHogFunctionConfiguration({
     const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -153,7 +155,7 @@ export function PipelineHogFunctionConfiguration({
                                                 TaxonomicFilterGroupType.Elements,
                                                 TaxonomicFilterGroupType.PersonProperties,
                                                 TaxonomicFilterGroupType.HogQLExpression,
-                                                TaxonomicFilterGroupType.GroupsPrefix,
+                                                ...groupsTaxonomicTypes,
                                             ]}
                                             propertyFiltersPopover
                                             addFilterDefaultOptions={{
