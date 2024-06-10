@@ -5,10 +5,8 @@ from urllib.parse import urlparse
 import nh3
 from django.db.models import Min
 from django.http import JsonResponse
-from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
-from nanoid import generate
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,10 +20,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
-from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
+from django.utils.text import slugify
+from nanoid import generate
+from rest_framework import request, serializers, viewsets
+from posthog.constants import AvailableFeature
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.utils_cors import cors_response
 
@@ -60,6 +61,11 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -92,6 +98,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -276,11 +287,25 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
+        iteration_count = validated_data.get("iteration_count")
+        if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
+            raise serializers.ValidationError(
+                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
+            )
+
+        instance.iteration_count = iteration_count
+        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+
         instance = super().update(instance, validated_data)
+
         self._add_user_survey_interacted_filters(instance, end_date)
         return instance
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
+        survey_key = f"{instance.id}"
+        if instance.iteration_count is not None and instance.iteration_count > 0:
+            survey_key = f"{instance.id}/{instance.current_iteration or 1}"
+
         user_submitted_dismissed_filter = {
             "groups": [
                 {
@@ -288,13 +313,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"$survey_dismissed/{instance.id}",
+                            "key": f"$survey_dismissed/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"$survey_responded/{instance.id}",
+                            "key": f"$survey_responded/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -429,6 +454,8 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "appearance",
             "start_date",
             "end_date",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = fields
 
