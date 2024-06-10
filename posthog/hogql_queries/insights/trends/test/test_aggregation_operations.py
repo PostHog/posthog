@@ -64,26 +64,26 @@ class TestQueryAlternator:
 @pytest.mark.parametrize(
     "math,math_property",
     [
-        [BaseMathType.total, None],
-        [BaseMathType.dau, None],
-        [BaseMathType.weekly_active, None],
-        [BaseMathType.monthly_active, None],
-        [BaseMathType.unique_session, None],
-        [PropertyMathType.avg, "$browser"],
-        [PropertyMathType.sum, "$browser"],
-        [PropertyMathType.min, "$browser"],
-        [PropertyMathType.max, "$browser"],
-        [PropertyMathType.median, "$browser"],
-        [PropertyMathType.p90, "$browser"],
-        [PropertyMathType.p95, "$browser"],
-        [PropertyMathType.p99, "$browser"],
-        [CountPerActorMathType.avg_count_per_actor, None],
-        [CountPerActorMathType.min_count_per_actor, None],
-        [CountPerActorMathType.max_count_per_actor, None],
-        [CountPerActorMathType.median_count_per_actor, None],
-        [CountPerActorMathType.p90_count_per_actor, None],
-        [CountPerActorMathType.p95_count_per_actor, None],
-        [CountPerActorMathType.p99_count_per_actor, None],
+        [BaseMathType.TOTAL, None],
+        [BaseMathType.DAU, None],
+        [BaseMathType.WEEKLY_ACTIVE, None],
+        [BaseMathType.MONTHLY_ACTIVE, None],
+        [BaseMathType.UNIQUE_SESSION, None],
+        [PropertyMathType.AVG, "$browser"],
+        [PropertyMathType.SUM, "$browser"],
+        [PropertyMathType.MIN, "$browser"],
+        [PropertyMathType.MAX, "$browser"],
+        [PropertyMathType.MEDIAN, "$browser"],
+        [PropertyMathType.P90, "$browser"],
+        [PropertyMathType.P95, "$browser"],
+        [PropertyMathType.P99, "$browser"],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.MIN_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.MAX_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.MEDIAN_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.P90_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.P95_COUNT_PER_ACTOR, None],
+        [CountPerActorMathType.P99_COUNT_PER_ACTOR, None],
         ["hogql", None],
     ],
 )
@@ -102,7 +102,7 @@ def test_all_cases_return(
     series = EventsNode(event="$pageview", math=math, math_property=math_property)
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(team, series, ChartDisplayType.ActionsLineGraph, query_date_range, False)
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.select_aggregation()
     assert isinstance(res, ast.Expr)
 
@@ -110,26 +110,26 @@ def test_all_cases_return(
 @pytest.mark.parametrize(
     "math,result",
     [
-        [BaseMathType.total, False],
-        [BaseMathType.dau, False],
-        [BaseMathType.weekly_active, True],
-        [BaseMathType.monthly_active, True],
-        [BaseMathType.unique_session, False],
-        [PropertyMathType.avg, False],
-        [PropertyMathType.sum, False],
-        [PropertyMathType.min, False],
-        [PropertyMathType.max, False],
-        [PropertyMathType.median, False],
-        [PropertyMathType.p90, False],
-        [PropertyMathType.p95, False],
-        [PropertyMathType.p99, False],
-        [CountPerActorMathType.avg_count_per_actor, True],
-        [CountPerActorMathType.min_count_per_actor, True],
-        [CountPerActorMathType.max_count_per_actor, True],
-        [CountPerActorMathType.median_count_per_actor, True],
-        [CountPerActorMathType.p90_count_per_actor, True],
-        [CountPerActorMathType.p95_count_per_actor, True],
-        [CountPerActorMathType.p99_count_per_actor, True],
+        [BaseMathType.TOTAL, False],
+        [BaseMathType.DAU, False],
+        [BaseMathType.WEEKLY_ACTIVE, True],
+        [BaseMathType.MONTHLY_ACTIVE, True],
+        [BaseMathType.UNIQUE_SESSION, False],
+        [PropertyMathType.AVG, False],
+        [PropertyMathType.SUM, False],
+        [PropertyMathType.MIN, False],
+        [PropertyMathType.MAX, False],
+        [PropertyMathType.MEDIAN, False],
+        [PropertyMathType.P90, False],
+        [PropertyMathType.P95, False],
+        [PropertyMathType.P99, False],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.MIN_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.MAX_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.MEDIAN_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.P90_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.P95_COUNT_PER_ACTOR, True],
+        [CountPerActorMathType.P99_COUNT_PER_ACTOR, True],
         ["hogql", False],
     ],
 )
@@ -147,6 +147,6 @@ def test_requiring_query_orchestration(
     series = EventsNode(event="$pageview", math=math)
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(team, series, ChartDisplayType.ActionsLineGraph, query_date_range, False)
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.requires_query_orchestration()
     assert res == result
