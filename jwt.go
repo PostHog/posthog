@@ -38,13 +38,13 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 		return nil, err
 	}
 
-	tokenScope := fmt.Sprint(claims["scope"])
-	if tokenScope != ExpectedScope {
-		return nil, fmt.Errorf("invalid scope")
-	}
-
 	// Check if the token is valid and return the claims.
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		// Validate scope
+		tokenScope := fmt.Sprint(claims["scope"])
+		if tokenScope != ExpectedScope {
+			return nil, fmt.Errorf("invalid scope")
+		}
 		return claims, nil
 	} else {
 		return nil, fmt.Errorf("invalid token")
