@@ -197,7 +197,7 @@ describe('formatAggregationValue', () => {
 })
 
 describe('formatBreakdownLabel()', () => {
-    const identity = (x: any): any => x
+    const identity = (_breakdown: any, breakdown_value: any): any => breakdown_value
 
     const cohort = {
         id: 5,
@@ -212,6 +212,54 @@ describe('formatBreakdownLabel()', () => {
     it('handles cohort breakdowns with all users', () => {
         expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
         expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
+    })
+
+    it('handles histogram breakdowns', () => {
+        expect(formatBreakdownLabel([], identity, '[124.8,125.01]', '$browser_version', 'event', true)).toEqual(
+            '124.8 – 125.01'
+        )
+    })
+
+    it('handles histogram breakdowns for start and end values', () => {
+        expect(formatBreakdownLabel([], identity, '[124.8,124.8]', '$browser_version', 'event', true)).toEqual('124.8')
+    })
+
+    it('handles numeric breakdowns', () => {
+        expect(formatBreakdownLabel([], identity, 42, 'coolness_factor', 'event')).toEqual('42')
+    })
+
+    it('handles numeric breakdowns for "other" value', () => {
+        expect(formatBreakdownLabel([], identity, 9007199254740991, 'coolness_factor', 'event')).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles numeric breakdowns for "null" value', () => {
+        expect(formatBreakdownLabel([], identity, 9007199254740990, 'coolness_factor', 'event')).toEqual(
+            'None (i.e. no value)'
+        )
+    })
+
+    it('handles string breakdowns', () => {
+        expect(formatBreakdownLabel([], identity, 'millenial', 'demographic', 'event')).toEqual('millenial')
+    })
+
+    it('handles string breakdowns for "other" value', () => {
+        expect(formatBreakdownLabel([], identity, '$$_posthog_breakdown_other_$$', 'coolness_factor', 'event')).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles string breakdowns for "null" value', () => {
+        expect(formatBreakdownLabel([], identity, '$$_posthog_breakdown_null_$$', 'coolness_factor', 'event')).toEqual(
+            'None (i.e. no value)'
+        )
+    })
+
+    it('handles multi-breakdowns', () => {
+        expect(
+            formatBreakdownLabel([], identity, ['millenial', 'Chrome'], ['demographic', '$browser'], 'event')
+        ).toEqual('millenial::Chrome')
     })
 })
 
