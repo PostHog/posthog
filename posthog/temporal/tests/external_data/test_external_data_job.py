@@ -554,7 +554,6 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
-        mock.patch("posthog.temporal.data_imports.pipelines.helpers.CHUNK_SIZE", 0),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
