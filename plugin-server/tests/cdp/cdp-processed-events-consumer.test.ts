@@ -98,6 +98,7 @@ describe('CDP Processed Events Consuner', () => {
                 [
                     createMessage(
                         createIncomingEvent(team.id, {
+                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
                             event: '$pageview',
                             properties: JSON.stringify({
                                 $lib_version: '1.0.0',
