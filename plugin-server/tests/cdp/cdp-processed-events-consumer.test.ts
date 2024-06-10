@@ -35,6 +35,14 @@ jest.mock('../../src/kafka/batch-consumer', () => {
     }
 })
 
+jest.mock('../../src/utils/fetch', () => {
+    return {
+        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, text: () => Promise.resolve({}) })),
+    }
+})
+
+const mockFetch = require('../../src/utils/fetch').trackedFetch
+
 jest.setTimeout(1000)
 
 const noop = () => {}
@@ -84,13 +92,40 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const hogFunction = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
             })
             // Create a message that should be processed by this function
             // Run the function and check that it was executed
-            await processor.handleEachBatch([createMessage(createIncomingEvent(team.id, { event: '$pageview' }))], noop)
+            await processor.handleEachBatch(
+                [
+                    createMessage(
+                        createIncomingEvent(team.id, {
+                            event: '$pageview',
+                            properties: JSON.stringify({
+                                $lib_version: '1.0.0',
+                            }),
+                        })
+                    ),
+                ],
+                noop
+            )
 
-            // TODO: Add check for fetch called successfully
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch.mock.calls[0]).toEqual([
+                'https://example.com/posthog-webhook',
+                {
+                    method: 'POST',
+                    headers: { version: 'v=1.0.0' },
+                    body: JSON.stringify({
+                        event: '$pageview',
+                        groups: {},
+                        nested: { foo: '$pageview' },
+                        person: {},
+                        event_url: '$pageview-test',
+                    }),
+                    timeout: 10000,
+                },
+            ])
         })
     })
 })
