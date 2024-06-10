@@ -150,6 +150,12 @@ export class HogExecutor {
                 },
             })
 
+            console.log('🦔', `[HogExecutor] TESTING`, {
+                asyncFunctionArgs: res.asyncFunctionArgs,
+                asyncFunctionName: res.asyncFunctionName,
+                globals: globals,
+            })
+
             if (!res.finished) {
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
