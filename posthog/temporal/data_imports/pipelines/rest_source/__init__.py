@@ -18,7 +18,7 @@ from dlt.common.configuration.specs import BaseConfiguration
 from dlt.extract.incremental import Incremental
 from dlt.extract.source import DltResource, DltSource
 
-from dlt.sources.helpers.rest_client import RESTClient
+from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 from .typing import (

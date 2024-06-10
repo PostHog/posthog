@@ -163,6 +163,7 @@ posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
 posthog/models/feature_flag/flag_matching.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
+hogvm/python/execute.py:0: error: Module "hogvm.python.stl" has no attribute "STL"  [attr-defined]
 ee/models/license.py:0: error: Incompatible return value type (got "_T", expected "License | None")  [return-value]
 ee/models/license.py:0: error: Cannot use a covariant type variable as a parameter  [misc]
 ee/models/license.py:0: error: "_T" has no attribute "plan"  [attr-defined]
@@ -214,6 +215,7 @@ posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "group_by"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | Any | None" has no attribute "append"  [union-attr]
+posthog/hogql/bytecode.py:0: error: Module "hogvm.python.stl" has no attribute "STL"  [attr-defined]
 posthog/hogql/resolver.py:0: error: Argument 1 of "visit" is incompatible with supertype "Visitor"; supertype defines the argument type as "AST"  [override]
 posthog/hogql/resolver.py:0: note: This violates the Liskov substitution principle
 posthog/hogql/resolver.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
@@ -747,11 +749,6 @@ posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not define
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Argument "run_id" to "ImportDataActivityInputs" has incompatible type "UUID"; expected "str"  [arg-type]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
