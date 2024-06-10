@@ -19,9 +19,9 @@ logger = structlog.get_logger(__name__)
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["string", "boolean", "dictionary", "choice", "json"])
     key = serializers.CharField()
-    label = serializers.CharField(required=False)
+    label = serializers.CharField(required=False)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
-    required = serializers.BooleanField(default=False)
+    required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
