@@ -291,7 +291,7 @@ export function HeatmapsBrowser(): JSX.Element {
                         }}
                         dismissKey="heatmaps-might-be-disabled-warning"
                     >
-                        You aren't collecting heatmaps, so you won't see any data here. Enable heatmaps in your project.
+                        You aren't collecting heatmaps data. Enable heatmaps in your project.
                     </LemonBanner>
                 ) : null}
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
