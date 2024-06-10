@@ -34,7 +34,7 @@ export interface HogFunctionFilters {
     bytecode?: HogBytecode
 }
 
-export type HogFunctionInvocationContext = {
+export type HogFunctionInvocationGlobals = {
     project: {
         id: number
         name: string
@@ -70,7 +70,7 @@ export type HogFunctionInvocationContext = {
 }
 
 export type HogFunctionInvocation = {
-    globals: HogFunctionInvocationContext
+    globals: HogFunctionInvocationGlobals
 }
 
 export type HogFunctionInvocationResult = HogFunctionInvocation & {

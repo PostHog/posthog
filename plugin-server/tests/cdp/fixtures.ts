@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { HogFunctionInvocationContext, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'
 import { insertRow } from '../helpers/sql'
@@ -68,8 +68,8 @@ export const insertHogFunction = async (
 }
 
 export const createHogExecutionGlobals = (
-    data: Partial<HogFunctionInvocationContext> = {}
-): HogFunctionInvocationContext => {
+    data: Partial<HogFunctionInvocationGlobals> = {}
+): HogFunctionInvocationGlobals => {
     return {
         ...data,
         project: {

@@ -2,15 +2,15 @@
 
 import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
 import { clickHouseTimestampToISO } from '../utils/utils'
-import { HogFunctionInvocationContext } from './types'
+import { HogFunctionInvocationGlobals } from './types'
 
 // that we can keep to as a contract
-export function convertToHogFunctionInvocationContext(
+export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
     team: Team,
     siteUrl: string,
     groupTypes?: GroupTypeToColumnIndex
-): HogFunctionInvocationContext {
+): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     const properties = event.properties ? JSON.parse(event.properties) : {}
@@ -18,7 +18,7 @@ export function convertToHogFunctionInvocationContext(
         properties['$elements_chain'] = event.elements_chain
     }
 
-    let groups: HogFunctionInvocationContext['groups'] = undefined
+    let groups: HogFunctionInvocationGlobals['groups'] = undefined
 
     if (groupTypes) {
         groups = {}
@@ -41,7 +41,7 @@ export function convertToHogFunctionInvocationContext(
             }
         }
     }
-    const context: HogFunctionInvocationContext = {
+    const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
             name: team.name,

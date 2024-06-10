@@ -9,7 +9,7 @@ import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
-    HogFunctionInvocationContext,
+    HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
 } from './types'
@@ -63,7 +63,7 @@ export class HogExecutor {
 
                     if (!filters?.bytecode) {
                         // NOTE: If we don't have bytecode this indicates something went wrong.
-                        // The model will always safe a bytecode if it was compiled correctly
+                        // The model will always save a bytecode if it was compiled correctly
                         return false
                     }
 
@@ -99,7 +99,7 @@ export class HogExecutor {
 
         for (const hogFunction of Object.values(functions)) {
             // Add the source of the trigger to the globals
-            const modifiedGlobals: HogFunctionInvocationContext = {
+            const modifiedGlobals: HogFunctionInvocationGlobals = {
                 ...invocation.globals,
                 source: {
                     name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
@@ -243,8 +243,6 @@ export class HogExecutor {
         invocation: HogFunctionInvocation,
         execResult: ExecResult
     ): Promise<any> {
-        const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-
         // TODO: validate the args
         const args = (execResult.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
         const url: string = args[0]
@@ -263,12 +261,16 @@ export class HogExecutor {
             body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
         }
 
-        const success = await this.rustyHook.enqueueIfEnabledForTeam({
-            webhook: webhook,
-            teamId: hogFunction.team_id,
-            pluginId: SPECIAL_CONFIG_ID,
-            pluginConfigId: SPECIAL_CONFIG_ID,
-        })
+        // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
+        // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
+        // const success = await this.rustyHook.enqueueIfEnabledForTeam({
+        //     webhook: webhook,
+        //     teamId: hogFunction.team_id,
+        //     pluginId: SPECIAL_CONFIG_ID,
+        //     pluginConfigId: SPECIAL_CONFIG_ID,
+        // })
+
+        const success = false
 
         // TODO: Temporary test code
         if (!success) {

@@ -10,6 +10,14 @@ const config: PluginsServerConfig = {
     ...defaultConfig,
 }
 
+jest.mock('../../src/utils/fetch', () => {
+    return {
+        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, text: () => Promise.resolve({}) })),
+    }
+})
+
+const mockFetch = require('../../src/utils/fetch').trackedFetch
+
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutor
@@ -54,15 +62,12 @@ describe('Hog Executor', () => {
                 globals: createHogExecutionGlobals(),
             })
 
-            expect(mockRustyHook.enqueueIfEnabledForTeam).toHaveBeenCalledTimes(1)
-            expect(mockRustyHook.enqueueIfEnabledForTeam.mock.calls[0]).toMatchInlineSnapshot(`
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
                 Array [
+                  "https://example.com/posthog-webhook",
                   Object {
-                    "pluginConfigId": -3,
-                    "pluginId": -3,
-                    "teamId": 1,
-                    "webhook": Object {
-                      "body": "{
+                    "body": "{
                     \\"event\\": {
                         \\"uuid\\": \\"uuid\\",
                         \\"name\\": \\"test\\",
@@ -80,12 +85,11 @@ describe('Hog Executor', () => {
                     \\"person\\": null,
                     \\"event_url\\": \\"http://localhost:8000/events/1-test\\"
                 }",
-                      "headers": Object {
-                        "version": "v=1.2.3",
-                      },
-                      "method": "POST",
-                      "url": "https://example.com/posthog-webhook",
+                    "headers": Object {
+                      "version": "v=1.2.3",
                     },
+                    "method": "POST",
+                    "timeout": 10000,
                   },
                 ]
             `)

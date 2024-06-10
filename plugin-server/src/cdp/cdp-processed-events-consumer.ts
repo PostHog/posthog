@@ -19,7 +19,7 @@ import { RustyHook } from '../worker/rusty-hook'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from './types'
-import { convertToHogFunctionInvocationContext } from './utils'
+import { convertToHogFunctionInvocationGlobals } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -128,7 +128,7 @@ export class CdpProcessedEventsConsumer {
                                     if (!team) {
                                         return
                                     }
-                                    const globals = convertToHogFunctionInvocationContext(
+                                    const globals = convertToHogFunctionInvocationGlobals(
                                         clickHouseEvent,
                                         team,
                                         this.config.SITE_URL ?? 'http://localhost:8000',
