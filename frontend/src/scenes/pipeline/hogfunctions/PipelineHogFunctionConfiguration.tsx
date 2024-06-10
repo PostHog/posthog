@@ -33,7 +33,7 @@ export function PipelineHogFunctionConfiguration({
     const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
