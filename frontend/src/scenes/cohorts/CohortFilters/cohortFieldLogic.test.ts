@@ -44,7 +44,7 @@ describe('cohortFieldLogic', () => {
 
     describe('selects correct group options', () => {
         for (const [key, value] of Object.entries(filter_groups)) {
-            it(key, async () => {
+            it(`select using ${key}`, async () => {
                 await initLogic({
                     cohortFilterLogicKey: '0',
                     fieldKey: 'value',

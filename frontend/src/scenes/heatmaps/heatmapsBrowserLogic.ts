@@ -49,6 +49,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
         // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
+        toggleFilterPanelCollapsed: true,
     }),
 
     loaders(({ values }) => ({
@@ -106,6 +107,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        filterPanelCollapsed: [
+            false as boolean,
+            { persist: true },
+            {
+                toggleFilterPanelCollapsed: (state) => !state,
+            },
+        ],
         // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
         // the name is continued here since they're passed down into the embedded iframe
         commonFilters: [
@@ -247,10 +255,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
 
             const onIframeMessage = (e: MessageEvent): void => {
-                // TODO: Probably need to have strict checks here
                 const type: PostHogAppToolbarEvent = e?.data?.type
 
                 if (!type || !type.startsWith('ph-')) {
+                    return
+                }
+                if (!values.checkUrlIsAuthorized(e.origin)) {
+                    console.warn(
+                        'ignoring message from iframe with origin not in uathorized toolbar urls',
+                        e.origin,
+                        e.data
+                    )
                     return
                 }
 

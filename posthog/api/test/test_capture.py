@@ -1565,6 +1565,10 @@ class TestCapture(BaseTest):
                 "gcp",
                 ["x-cloud-trace-context"],
             ),
+            (
+                "highlight",
+                ["x-highlight-request"],
+            ),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:

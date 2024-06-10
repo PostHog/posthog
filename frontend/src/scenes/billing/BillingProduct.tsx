@@ -19,7 +19,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } fr
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
-import { BillingLimitInput } from './BillingLimitInput'
+import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
@@ -43,7 +43,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -55,7 +55,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         billingProductLoading,
     } = useValues(billingProductLogic({ product }))
     const {
-        setIsEditingBillingLimit,
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
@@ -66,9 +65,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const currentPlan = currentAndUpgradePlans?.currentPlan
-    const downgradePlan = currentAndUpgradePlans?.downgradePlan
+    const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
     const additionalFeaturesOnUpgradedPlan = upgradePlan
         ? upgradePlan?.features?.filter(
               (feature) =>
@@ -82,8 +79,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
-        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -130,14 +126,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
-                                                {billing?.billing_period?.interval == 'month' && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => setIsEditingBillingLimit(true)}
-                                                    >
-                                                        Set billing limit
-                                                    </LemonButton>
-                                                )}
                                                 <LemonButton
                                                     fullWidth
                                                     to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
@@ -198,7 +186,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </div>
                         ) : (
-                            !isOnboarding &&
                             !isUnlicensedDebug && (
                                 <>
                                     {product.tiered ? (
@@ -214,7 +201,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
-                                            {product.current_amount_usd ? (
+                                            {product.subscribed ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
                                                         title={`The current ${
@@ -295,7 +282,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
-                    {!isOnboarding && product.addons?.length > 0 && (
+                    {product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
@@ -316,6 +303,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
+                <BillingLimit product={product} />
                 {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
@@ -408,7 +396,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     product,
                                                     upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                                    false // don't include addons, as we're not in onboarding
                                                 )}
                                                 type="primary"
                                                 icon={<IconPlus />}
@@ -431,13 +419,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                         <PlanComparisonModal
                             product={product}
-                            includeAddons={isOnboarding}
+                            includeAddons={false}
                             modalOpen={isPlanComparisonModalOpen}
                             onClose={() => toggleIsPlanComparisonModalOpen()}
                         />
                     </div>
                 )}
-                <BillingLimitInput product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}

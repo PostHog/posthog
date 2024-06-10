@@ -1,5 +1,6 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -23,7 +24,7 @@ import { insightLogic } from './insightLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
-const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
@@ -106,6 +107,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (query) => {
                 return isInsightVizNode(query)
             },
+        ],
+        useQueryDashboardCards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
         ],
 
         query: [

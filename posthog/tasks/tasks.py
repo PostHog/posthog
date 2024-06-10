@@ -47,11 +47,11 @@ def redis_heartbeat() -> None:
 )
 def process_query_task(
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,
+    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -65,7 +65,6 @@ def process_query_task(
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
     )
 
 
@@ -712,6 +711,13 @@ def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
+
+
+@shared_task(ignrore_result=True)
+def update_survey_iteration() -> None:
+    from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+    update_survey_iteration()
 
 
 def recompute_materialized_columns_enabled() -> bool:

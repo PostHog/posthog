@@ -48,7 +48,6 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable,
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
-    join_with_person_overrides_table,
 )
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -186,35 +185,21 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
-def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    if use_distinct_id_overrides:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-    else:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    database.events.fields["override"] = LazyJoin(
+        from_field=["distinct_id"],
+        join_table=PersonDistinctIdOverridesTable(),
+        join_function=join_with_person_distinct_id_overrides_table,
+    )
+    database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+            start=None,
+        ),
+    )
 
 
 def create_hogql_database(
@@ -242,12 +227,12 @@ def create_hogql_database(
         _use_person_properties_from_events(database)
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+        _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),

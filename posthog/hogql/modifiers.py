@@ -7,6 +7,7 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    BounceRatePageViewMode,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +47,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.optimizeJoinedFilters is None:
         modifiers.optimizeJoinedFilters = False
+
+    if modifiers.bounceRatePageViewMode is None:
+        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.count_pageviews
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

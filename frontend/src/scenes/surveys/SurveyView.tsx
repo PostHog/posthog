@@ -26,6 +26,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
     MultipleChoiceQuestionBarChart,
+    NPSSurveyResultsBarChart,
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
@@ -217,6 +218,32 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
+                                            <div className="flex flex-row gap-8">
+                                                {survey.iteration_count &&
+                                                    survey.iteration_frequency_days &&
+                                                    survey.iteration_count > 0 &&
+                                                    survey.iteration_frequency_days > 0 && (
+                                                        <div className="flex flex-col">
+                                                            <span className="card-secondary mt-4">Schedule</span>
+                                                            <span>
+                                                                Repeats every {survey.iteration_frequency_days}{' '}
+                                                                {pluralize(
+                                                                    survey.iteration_frequency_days,
+                                                                    'day',
+                                                                    'days',
+                                                                    false
+                                                                )}
+                                                                , {survey.iteration_count}{' '}
+                                                                {pluralize(
+                                                                    survey.iteration_count,
+                                                                    'time',
+                                                                    'times',
+                                                                    false
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                            </div>
                                             {survey.responses_limit && (
                                                 <>
                                                     <span className="card-secondary mt-4">Completion conditions</span>
@@ -287,6 +314,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
+        surveyRecurringNPSResults,
+        surveyRecurringNPSResultsReady,
         surveySingleChoiceResults,
         surveySingleChoiceResultsReady,
         surveyMultipleChoiceResults,
@@ -307,17 +336,34 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
-                                        {/* TODO: rework this to show nps scores over time */}
+                                        <div className="font-semibold text-muted-alt mb-2">Latest NPS Score</div>
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}
+
                                 <RatingQuestionBarChart
                                     key={`survey-q-${i}`}
                                     surveyRatingResults={surveyRatingResults}
                                     surveyRatingResultsReady={surveyRatingResultsReady}
                                     questionIndex={i}
+                                    iteration={survey.current_iteration}
                                 />
+
+                                {survey.iteration_count &&
+                                    survey.iteration_count > 0 &&
+                                    survey.current_iteration &&
+                                    survey.current_iteration > 1 &&
+                                    survey.iteration_start_dates &&
+                                    survey.iteration_start_dates.length > 0 && (
+                                        <NPSSurveyResultsBarChart
+                                            key={`nps-survey-results-q-${i}`}
+                                            surveyRecurringNPSResults={surveyRecurringNPSResults}
+                                            surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
+                                            iterationStartDates={survey.iteration_start_dates}
+                                            currentIteration={survey.current_iteration}
+                                            questionIndex={i}
+                                        />
+                                    )}
                             </>
                         )
                     } else if (question.type === SurveyQuestionType.SingleChoice) {
@@ -404,7 +450,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [9, 10],
+                                        value: ['9', '10'],
                                     },
                                 ],
                             },
@@ -417,7 +463,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [7, 8],
+                                        value: ['7', '8'],
                                     },
                                 ],
                             },
@@ -430,7 +476,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
-                                        value: [0, 1, 2, 3, 4, 5, 6],
+                                        value: ['0', '1', '2', '3', '4', '5', '6'],
                                     },
                                 ],
                             },
@@ -442,9 +488,15 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$survey_iteration',
+                                operator: PropertyOperator.Exact,
+                                value: survey.current_iteration,
+                            },
                         ],
                         trendsFilter: {
-                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
+                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
                         },
                     },
                 }}

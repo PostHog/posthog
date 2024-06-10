@@ -139,9 +139,6 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
-    def _is_stale(self, cached_result_package):
-        return True
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 

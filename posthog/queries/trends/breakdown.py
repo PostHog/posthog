@@ -79,7 +79,7 @@ from posthog.queries.util import (
     get_start_of_interval_sql,
 )
 from posthog.utils import encode_get_request_params, generate_short_id
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
@@ -110,7 +110,7 @@ class TrendsBreakdown:
         self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
         if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
         else:
@@ -757,7 +757,7 @@ class TrendsBreakdown:
 
         if self.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             return (
-                PERSON_OVERRIDES_JOIN_SQL.format(
+                PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL.format(
                     person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                     event_table_alias=self.EVENT_TABLE_ALIAS,
                 ),

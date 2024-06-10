@@ -126,23 +126,36 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         # create external data job and trigger activity
         create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
-            team_id=inputs.team_id, schema_id=inputs.external_data_schema_id, source_id=inputs.external_data_source_id
+            team_id=inputs.team_id,
+            schema_id=inputs.external_data_schema_id,
+            source_id=inputs.external_data_source_id,
         )
 
-        run_id, incremental = await workflow.execute_activity(
-            create_external_data_job_model_activity,
-            create_external_data_job_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
+            run_id, incremental = await workflow.execute_activity(
+                create_external_data_job_model_activity,
+                create_external_data_job_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
+                ),
+            )
+        except Exception as e:
+            logger.error(
+                f"External data job failed on create_external_data_job_model_activity for {inputs.external_data_source_id} with error: {e}"
+            )
+            raise e
 
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None, team_id=inputs.team_id
+            id=run_id,
+            run_id=run_id,
+            status=ExternalDataJob.Status.COMPLETED,
+            latest_error=None,
+            team_id=inputs.team_id,
         )
 
         try:
