@@ -1,12 +1,12 @@
 prod: true
 tailscale:
-  controlUrl:
-  hostname: "live-events-dev"
+    controlUrl:
+    hostname: "live-events-dev"
 kafka:
-  brokers: "localhost:9092"
-  topic: ""
-  group_id: "livestream-dev"
+    brokers: "localhost:9092"
+    topic: ""
+    group_id: "livestream-dev"
 mmdb:
-  path: "mmdb.db"
+    path: "mmdb.db"
 jwt:
-  secret: "<randomly generated secret key>"
+    token: "<randomly generated secret key>"
