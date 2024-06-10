@@ -112,7 +112,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
                 select=["properties.email"],
                 limit=10,
                 properties=[
-                    PersonPropertyFilter(key="email", value="random", operator=PropertyOperator.exact),
+                    PersonPropertyFilter(key="email", value="random", operator=PropertyOperator.EXACT),
                 ],
             )
         )

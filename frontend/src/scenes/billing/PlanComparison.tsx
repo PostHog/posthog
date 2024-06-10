@@ -16,7 +16,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 
-import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
+import { convertLargeNumberToWords, getProration, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -120,7 +120,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing, redirectPath, daysRemaining, daysTotal } = useValues(billingLogic)
+    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
@@ -190,7 +190,7 @@ export const PlanComparison = ({
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
@@ -218,13 +218,12 @@ export const PlanComparison = ({
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => {
-                        const prorationAmount = plan.unit_amount_usd
-                            ? (parseInt(plan.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(2)
-                            : 0
-                        const isProrated =
-                            billing?.has_active_subscription && plan.unit_amount_usd
-                                ? prorationAmount !== parseInt(plan.unit_amount_usd || '')
-                                : false
+                        const { prorationAmount, isProrated } = getProration({
+                            timeRemainingInSeconds,
+                            timeTotalInSeconds,
+                            amountUsd: plan.unit_amount_usd,
+                            hasActiveSubscription: billing?.has_active_subscription,
+                        })
                         return (
                             <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
                                 {plan.free_allocation && !plan.tiers
@@ -238,7 +237,7 @@ export const PlanComparison = ({
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
-                                        Pay ${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
+                                        Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
                                     </p>

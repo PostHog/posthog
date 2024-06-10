@@ -164,7 +164,7 @@ export const getUpgradeProductLink = (
     redirectPath?: string,
     includeAddons: boolean = true
 ): string => {
-    let url = '/api/billing/activation?products='
+    let url = '/api/billing/activate?products='
     url += `${product.type}:${upgradeToPlanKey},`
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
@@ -221,4 +221,33 @@ export const convertLargeNumberToWords = (
     ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
         !previousNum && multipleTiers ? ` ${productType}s/mo` : ''
     }`
+}
+
+export const getProration = ({
+    timeRemainingInSeconds,
+    timeTotalInSeconds,
+    amountUsd,
+    hasActiveSubscription,
+}: {
+    timeRemainingInSeconds: number
+    timeTotalInSeconds: number
+    amountUsd?: string | null
+    hasActiveSubscription?: boolean
+}): {
+    isProrated: boolean
+    prorationAmount: string
+} => {
+    if (timeTotalInSeconds === 0) {
+        return {
+            isProrated: false,
+            prorationAmount: '0.00',
+        }
+    }
+
+    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemainingInSeconds / timeTotalInSeconds) : 0
+
+    return {
+        isProrated: hasActiveSubscription && amountUsd ? prorationAmount !== parseInt(amountUsd || '') : false,
+        prorationAmount: prorationAmount.toFixed(2),
+    }
 }

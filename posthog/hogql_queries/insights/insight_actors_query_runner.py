@@ -117,8 +117,5 @@ class InsightActorsQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-    def _is_stale(self, cached_result_package):
-        return True
-
     def _refresh_frequency(self):
         return timedelta(minutes=1)

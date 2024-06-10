@@ -113,7 +113,7 @@ class BreakdownValues:
 
             select_field.expr = ast.Call(name="toString", args=[select_field.expr])
 
-        if self.chart_display_type == ChartDisplayType.WorldMap:
+        if self.chart_display_type == ChartDisplayType.WORLD_MAP:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
             breakdown_limit = int(self.breakdown_limit)

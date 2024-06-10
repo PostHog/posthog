@@ -10,6 +10,7 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
+from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -40,18 +41,24 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
+        CeleryConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
-    retry_backoff_max=2,
+    retry_backoff_max=10,
     max_retries=3,
+    expires=60 * 10,  # Do not run queries that got stuck for more than this
 )
+@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(
+    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+)  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
-    user_id: int,
+    user_id: Optional[int],
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,
+    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -65,7 +72,6 @@ def process_query_task(
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
     )
 
 
@@ -173,7 +179,6 @@ CLICKHOUSE_TABLES = [
     "sharded_session_replay_events",
     "log_entries",
 ]
-
 
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
     "heartbeat": "ingestion",
@@ -712,6 +717,13 @@ def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
+
+
+@shared_task(ignrore_result=True)
+def update_survey_iteration() -> None:
+    from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+    update_survey_iteration()
 
 
 def recompute_materialized_columns_enabled() -> bool:
