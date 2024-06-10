@@ -68,7 +68,9 @@ describe('Hog Executor', () => {
                         \\"name\\": \\"test\\",
                         \\"distinct_id\\": \\"distinct_id\\",
                         \\"url\\": \\"http://localhost:8000/events/1\\",
-                        \\"properties\\": {},
+                        \\"properties\\": {
+                            \\"$lib_version\\": \\"1.2.3\\"
+                        },
                         \\"timestamp\\": \\"2024-06-07T12:00:00.000Z\\"
                     },
                     \\"groups\\": null,
@@ -82,7 +84,7 @@ describe('Hog Executor', () => {
                         "version": "v=1.2.3",
                       },
                       "method": "POST",
-                      "url": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                      "url": "https://example.com/posthog-webhook",
                     },
                   },
                 ]
