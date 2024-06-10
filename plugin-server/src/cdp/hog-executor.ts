@@ -1,10 +1,10 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
 import { PluginsServerConfig } from 'types'
-import { AppMetrics } from 'worker/ingestion/app-metrics'
 
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import {

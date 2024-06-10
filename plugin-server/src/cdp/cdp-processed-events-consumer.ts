@@ -1,6 +1,5 @@
-import { features, KafkaConsumer, librdkafkaVersion, Message } from 'node-rdkafka'
+import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
-import { AppMetrics } from 'worker/ingestion/app-metrics'
 
 import { KAFKA_EVENTS_JSON } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -12,6 +11,7 @@ import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, T
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
