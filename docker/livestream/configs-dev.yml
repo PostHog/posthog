@@ -9,4 +9,4 @@ kafka:
 mmdb:
     path: 'GeoLite2-City.mmdb'
 jwt:
-    secret: '<randomly generated secret key>'
+    token: '<randomly generated secret key>'
