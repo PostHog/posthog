@@ -3,18 +3,14 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { HogQueryEditor } from 'scenes/debug/HogDebug'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
-import { EntityTypes } from '~/types'
 
+import { PipelineNodeFilters } from '../configuration/PipelineNodeFilters'
 import { HogFunctionInput } from './HogFunctionInputs'
 import { HogFunctionInputsEditor } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
@@ -121,58 +117,13 @@ export function PipelineHogFunctionConfiguration({
                                 <LemonTextArea disabled={loading} />
                             </LemonField>
                         </div>
-
-                        <div className="border bg-bg-light rounded p-3 space-y-2">
-                            <LemonField name="filters" label="Filters by events and actions">
-                                {({ value, onChange }) => (
-                                    <>
-                                        <TestAccountFilterSwitch
-                                            checked={value?.filter_test_accounts ?? false}
-                                            onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-                                            fullWidth
-                                        />
-                                        <ActionFilter
-                                            bordered
-                                            filters={value ?? {}}
-                                            setFilters={(payload) => {
-                                                onChange({
-                                                    ...payload,
-                                                    filter_test_accounts: value?.filter_test_accounts,
-                                                })
-                                            }}
-                                            typeKey="plugin-filters"
-                                            mathAvailability={MathAvailability.None}
-                                            hideRename
-                                            hideDuplicate
-                                            showNestedArrow={false}
-                                            actionsTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.Events,
-                                                TaxonomicFilterGroupType.Actions,
-                                            ]}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                TaxonomicFilterGroupType.Elements,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.HogQLExpression,
-                                                ...groupsTaxonomicTypes,
-                                            ]}
-                                            propertyFiltersPopover
-                                            addFilterDefaultOptions={{
-                                                id: '$pageview',
-                                                name: '$pageview',
-                                                type: EntityTypes.EVENTS,
-                                            }}
-                                            buttonCopy="Add event filter"
-                                        />
-                                    </>
-                                )}
-                            </LemonField>
-
-                            <p className="italic text-muted-alt">
-                                This destination will be triggered if <b>any of</b> the above filters match.
-                            </p>
-                        </div>
+                        <PipelineNodeFilters
+                            description={
+                                <>
+                                    This destination will be triggered if <b>any of</b> the above filters match.
+                                </>
+                            }
+                        />
                     </div>
 
                     <div className="flex-2 min-w-100 space-y-4">

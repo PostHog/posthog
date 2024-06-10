@@ -3904,6 +3904,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     latest_runs?: BatchExportRun[]
+    filters?: PluginConfigFilters | null
 }
 
 export type BatchExportRun = {

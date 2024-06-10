@@ -1,5 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -101,13 +102,12 @@ export function BatchExportGeneralEditFields({
 
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className={clsx('space-y-4', !isPipeline && 'max-w-200')}>
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
-
                 <div className="flex gap-2 items-start flex-wrap">
                     <LemonField
                         name="interval"
@@ -155,7 +155,6 @@ export function BatchExportGeneralEditFields({
                         </LemonField>
                     )}
                 </div>
-
                 {isPipeline ? (
                     <LemonBanner type="info">
                         The export will be created in a paused state, once configured your exporter, you can trigger a
@@ -167,7 +166,6 @@ export function BatchExportGeneralEditFields({
                         date. Once you have configured your exporter, you can trigger a manual export for historic data.
                     </LemonBanner>
                 )}
-
                 {isNew && !isPipeline ? (
                     <LemonField name="paused">
                         <LemonCheckbox
@@ -194,14 +192,16 @@ export function BatchExportGeneralEditFields({
 
 export function BatchExportsEditFields({
     isNew,
+    isPipeline = false,
     batchExportConfigForm,
 }: {
     isNew: boolean
+    isPipeline?: boolean
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className={clsx('space-y-4', !isPipeline && 'max-w-200')}>
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">

@@ -4,11 +4,14 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { sanitizeFilters } from './configuration/filters'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -24,6 +27,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
+        filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
     }
 }
@@ -47,7 +51,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
     connect(() => ({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
+        values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
@@ -70,7 +74,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return null
                     }
-                    const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
+                    const { name, destination, interval, paused, filters, created_at, start_at, end_at, ...config } =
+                        formdata
                     const destinationObj = {
                         type: destination,
                         config: config,
@@ -82,6 +87,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         paused,
                         name,
                         interval,
+                        filters: sanitizeFilters(filters),
                         destination: destinationObj,
                     }
                     if (props.id) {
@@ -187,6 +193,13 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     ]
                 }
                 return generalRequiredFields
+            },
+        ],
+
+        filteringEnabled: [
+            (s) => [s.featureFlags, s.batchExportConfig],
+            (featureFlags, batchExportConfig): boolean => {
+                return !!batchExportConfig?.filters || !!featureFlags[FEATURE_FLAGS.BATCH_EXPORT_FILTERING]
             },
         ],
     })),
