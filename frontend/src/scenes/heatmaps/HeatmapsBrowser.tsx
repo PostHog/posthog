@@ -223,7 +223,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl, iframeBanner } = useValues(logic)
+    const { browserUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -235,7 +235,7 @@ function EmbeddedHeatmapBrowser({
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
             <div className="relative flex-1 w-full h-full">
-                {iframeBanner && <IframeErrorOverlay />}
+                <IframeErrorOverlay />
                 <LoadingOverlay />
                 <iframe
                     ref={iframeRef}
