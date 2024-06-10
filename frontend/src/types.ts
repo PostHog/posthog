@@ -5,6 +5,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -971,6 +972,17 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+}
+
+export interface RecordingUniversalFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
+    date_from?: string | null
+    date_to?: string | null
+    filter_test_accounts?: boolean
+    filter_group: UniversalFiltersGroup
 }
 
 export interface SessionRecordingsResponse {
