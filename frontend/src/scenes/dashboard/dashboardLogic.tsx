@@ -1064,28 +1064,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     if (refreshedInsight.query_status) {
                         await pollForResults(refreshedInsight.query_status.id, false, methodOptions)
-                            .then(async () => {
-                                const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams(
-                                    {
-                                        refresh: 'async',
-                                        from_dashboard: dashboardId, // needed to load insight in correct context
-                                        client_query_id: queryId,
-                                        session_id: currentSessionId(),
-                                    }
-                                )}`
-                                // TODO: We get the insight again here to get everything in the right format (e.g. because of result vs results)
-                                const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-                                const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
-                                dashboardsModel.actions.updateDashboardInsight(
-                                    refreshedInsight,
-                                    [],
-                                    props.id ? [props.id] : undefined
-                                )
-                                actions.setRefreshStatus(insight.short_id)
-                            })
-                            .catch(() => {
-                                actions.setRefreshError(insight.short_id)
-                            })
+                        const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
+                            refresh: 'async',
+                            from_dashboard: dashboardId, // needed to load insight in correct context
+                            client_query_id: queryId,
+                            session_id: currentSessionId(),
+                        })}`
+                        // TODO: We get the insight again here to get everything in the right format (e.g. because of result vs results)
+                        const polledInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
+                        const polledInsight: InsightModel = await getJSONOrNull(polledInsightResponse)
+                        dashboardsModel.actions.updateDashboardInsight(
+                            polledInsight,
+                            [],
+                            props.id ? [props.id] : undefined
+                        )
+                        actions.setRefreshStatus(insight.short_id)
                     } else {
                         actions.setRefreshStatus(insight.short_id)
                     }
