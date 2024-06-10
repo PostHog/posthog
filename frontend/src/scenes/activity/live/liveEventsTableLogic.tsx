@@ -153,8 +153,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             cache.eventsSource = source
         },
         pauseStream: () => {
-            if (values.eventsSource) {
-                values.eventsSource.close()
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
             }
         },
         resumeStream: () => {
