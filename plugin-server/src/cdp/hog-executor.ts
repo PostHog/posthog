@@ -20,7 +20,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
 
     if (Array.isArray(bytecode) && bytecode[0] === '_h') {
         const res = exec(bytecode, {
-            fields: globals,
+            globals,
             timeout: 100,
             maxAsyncSteps: 0,
         })
@@ -67,7 +67,7 @@ export class HogExecutor {
                     }
 
                     const filterResult = exec(filters.bytecode, {
-                        fields: invocation.globals,
+                        globals: invocation.globals,
                         timeout: 100,
                         maxAsyncSteps: 0,
                     })
