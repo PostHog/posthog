@@ -49,8 +49,8 @@ class HogFunction(UUIDModel):
 
         try:
             self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
-        except Exception as e:
-            # TODO: Capture exception and indicate an issue
+        except Exception:
+            # TODO: Better reporting of this issue
             self.filters["bytecode"] = None
 
     def save(self, *args, **kwargs):
