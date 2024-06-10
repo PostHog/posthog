@@ -4118,14 +4118,10 @@ export type HogFunctionType = {
     template?: HogFunctionTemplateType
 }
 
-export type HogFunctionTemplateType = {
-    id: string
-    name: string
-    description: string
-    hog: string
-    inputs_schema?: string
-    filters?: PluginConfigFilters | null
-}
+export type HogFunctionTemplateType = Pick<
+    HogFunctionType,
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters'
+>
 
 export interface AnomalyCondition {
     absoluteThreshold: {

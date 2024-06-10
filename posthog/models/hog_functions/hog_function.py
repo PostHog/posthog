@@ -27,10 +27,12 @@ class HogFunction(UUIDModel):
     # TODO: Rename to "variables"
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
-    filters: models.JSONField = models.JSONField(null=True, blank=True, default=dict)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
 
     @property
     def filter_action_ids(self) -> list[int]:
+        if not self.filters:
+            return []
         try:
             return [int(action["id"]) for action in self.filters.get("actions", [])]
         except KeyError:
@@ -39,6 +41,8 @@ class HogFunction(UUIDModel):
     def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
         from .utils import hog_function_filters_to_expr
         from posthog.hogql.bytecode import create_bytecode
+
+        self.filters = self.filters or {}
 
         if actions is None:
             # If not provided as an optimization we fetch all actions
