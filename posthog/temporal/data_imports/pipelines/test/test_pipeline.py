@@ -43,7 +43,7 @@ class TestDataImportPipeline(APIBaseTest):
         pipeline = DataImportPipeline(
             inputs=PipelineInputs(
                 source_id=source.pk,
-                run_id=job.pk,
+                run_id=str(job.pk),
                 schema_id=schema.pk,
                 dataset_name=job.folder_path,
                 job_type="Stripe",
