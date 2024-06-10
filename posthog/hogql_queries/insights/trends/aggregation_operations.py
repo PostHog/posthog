@@ -326,8 +326,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
         if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
-            BaseMathType.weekly_active,
-            BaseMathType.monthly_active,
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
         ):
             # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
             # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it

@@ -38,7 +38,9 @@ class Command(BaseCommand):
                 if event.get("math") in ("median", "p90", "p95", "p99"):
                     event["math"] = "sum"
             try:
-                print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
+                print(  # noqa: T201
+                    "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+                )
                 insight_type = insight.filters.get("insight")
                 print(  # noqa: T201
                     f"Checking {insight_type} Insight {insight.id} {insight.short_id} - {insight.name} "
@@ -58,7 +60,7 @@ class Command(BaseCommand):
                 continue
             try:
                 query = filter_to_query(insight.filters)
-                modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
+                modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
                 hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results or []
             except Exception as e:

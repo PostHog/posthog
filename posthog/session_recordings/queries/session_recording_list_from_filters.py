@@ -9,9 +9,10 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import PropertyGroup
 from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -108,8 +109,7 @@ class SessionRecordingListFromFilters:
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
             query=cast(ast.SelectQuery, query),
             team=self._team,
-            # TODO - should we have our own query type 🤷
-            query_type="hogql_query",
+            query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
         )
 
@@ -168,17 +168,28 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        if self._filter.property_groups:
-            # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
-            # TODO: need to check multiple property types from replay queries
-            exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
-
-        if self._filter.person_uuid:
+        # we want to avoid a join to persons since we don't ever need to select from them
+        person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if person_subquery:
             exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["person_id"]),
-                    right=ast.Constant(value=self._filter.person_uuid),
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=person_subquery,
+                )
+            )
+
+        non_person_properties = self._strip_person_properties(self._filter.property_groups)
+        if non_person_properties:
+            exprs.append(property_to_expr(non_person_properties, team=self._team, scope="replay"))
+
+        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if person_id_subquery:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=person_id_subquery,
                 )
             )
 
@@ -242,6 +253,110 @@ class SessionRecordingListFromFilters:
             )
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
+
+    def _strip_person_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
+        property_groups_to_keep = [g for g in property_group.flat if g.type != "person"]
+
+        return (
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=property_groups_to_keep,
+            )
+            if property_groups_to_keep
+            else None
+        )
+
+
+class PersonsPropertiesSubQuery:
+    _team: Team
+    _filter: SessionRecordingsFilter
+    _ttl_days: int
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+        self._team = team
+        self._filter = filter
+        self._ttl_days = ttl_days
+
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+        if self.person_properties:
+            return parse_select(
+                """
+                SELECT distinct_id
+                FROM person_distinct_ids
+                WHERE {where_predicates}
+                """,
+                {
+                    "where_predicates": self._where_predicates,
+                },
+            )
+        else:
+            return None
+
+    @cached_property
+    def person_properties(self) -> PropertyGroup | None:
+        person_property_groups = [g for g in self._filter.property_groups.flat if g.type == "person" in g.type]
+        return (
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=person_property_groups,
+            )
+            if person_property_groups
+            else None
+        )
+
+    @cached_property
+    def _where_predicates(self) -> ast.Expr:
+        return (
+            property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+            if self.person_properties
+            else ast.Constant(value=True)
+        )
+
+
+class PersonsIdSubQuery:
+    _team: Team
+    _filter: SessionRecordingsFilter
+    _ttl_days: int
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+        self._team = team
+        self._filter = filter
+        self._ttl_days = ttl_days
+
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+        if self._filter.person_uuid:
+            return parse_select(
+                """
+                SELECT distinct_id
+                FROM person_distinct_ids
+                WHERE person.id = {person_id}
+                """,
+                {
+                    "person_id": ast.Constant(value=self._filter.person_uuid),
+                },
+            )
+        else:
+            return None
+
+    @cached_property
+    def person_properties(self) -> PropertyGroup | None:
+        person_property_groups = [g for g in self._filter.property_groups.flat if g.type == "person" in g.type]
+        return (
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=person_property_groups,
+            )
+            if person_property_groups
+            else None
+        )
+
+    @cached_property
+    def _where_predicates(self) -> ast.Expr:
+        return (
+            property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+            if self.person_properties
+            else ast.Constant(value=True)
+        )
 
 
 class EventsSubQuery:

@@ -7,16 +7,16 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import { ExportOptions, ExportType } from '~/exporter/types'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { isDataTableNode } from '~/queries/utils'
+import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { Logo } from '~/toolbar/assets/Logo'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
-    insight,
+    insight: legacyInsight,
     exportOptions: { whitelabel, noHeader, legend },
     type,
 }: {
@@ -24,9 +24,16 @@ export function ExportedInsight({
     exportOptions: ExportOptions
     type: ExportType
 }): JSX.Element {
-    if (isTrendsFilter(insight.filters) && insight.filters.show_legend) {
+    const insight = getQueryBasedInsightModel(legacyInsight)
+
+    if (
+        isInsightVizNode(insight.query) &&
+        isTrendsQuery(insight.query.source) &&
+        insight.query.source.trendsFilter &&
+        insight.query.source.trendsFilter.showLegend == true
+    ) {
         // legend is always shown so don't show it alongside the insight
-        insight.filters.show_legend = false
+        insight.query.source.trendsFilter.showLegend = false
     }
 
     if (isDataTableNode(insight.query)) {
@@ -38,19 +45,21 @@ export function ExportedInsight({
 
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
-        cachedInsight: insight,
+        cachedInsight: legacyInsight, // TODO: use query based insight here
         doNotLoad: true,
     }
 
-    const { filters, query, name, derived_name, description } = insight
+    const { query, name, derived_name, description } = insight
 
+    const showWatermark = noHeader && !whitelabel
     const showLegend =
         legend &&
-        isTrendsFilter(filters) &&
-        (!filters.display ||
-            (!SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
-                filters.display !== ChartDisplayType.ActionsTable))
-    const showWatermark = noHeader && !whitelabel
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        (!query.source.trendsFilter ||
+            !query.source.trendsFilter.display ||
+            (!SINGLE_SERIES_DISPLAY_TYPES.includes(query.source.trendsFilter.display) &&
+                query.source.trendsFilter.display !== ChartDisplayType.ActionsTable))
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
@@ -85,16 +94,16 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    {query ? (
-                        <Query query={query} cachedResults={insight} readOnly />
+                    {legacyInsight.query ? (
+                        <Query query={legacyInsight.query} cachedResults={legacyInsight} readOnly />
                     ) : (
-                        <FilterBasedCardContent insight={insight as any} insightProps={insightLogicProps} />
+                        <FilterBasedCardContent insight={legacyInsight} insightProps={insightLogicProps} />
                     )}
-                    {showLegend ? (
+                    {showLegend && (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />
                         </div>
-                    ) : null}
+                    )}
                 </div>
             </div>
         </BindLogic>

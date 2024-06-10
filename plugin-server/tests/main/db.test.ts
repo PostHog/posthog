@@ -360,7 +360,11 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
+            await hub.db.kafkaProducer.queueMessages({
+                kafkaMessages,
+                waitForAck: true,
+            })
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -418,7 +422,13 @@ describe('DB', () => {
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                await db.updatePersonDeprecated(person, { properties: { foo: 'bar' } })
+                const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
+                    properties: { foo: 'bar' },
+                })
+                await hub.db.kafkaProducer.queueMessages({
+                    kafkaMessages: updatePersonKafkaMessages,
+                    waitForAck: true,
+                })
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 

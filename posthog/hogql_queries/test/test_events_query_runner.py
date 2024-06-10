@@ -97,8 +97,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_not_set,
-                value=PropertyOperator.is_not_set,
+                operator=PropertyOperator.IS_NOT_SET,
+                value=PropertyOperator.IS_NOT_SET,
             )
         )
 
@@ -111,8 +111,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_set,
-                value=PropertyOperator.is_set,
+                operator=PropertyOperator.IS_SET,
+                value=PropertyOperator.IS_SET,
             )
         )
 

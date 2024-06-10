@@ -43,6 +43,7 @@ import {
     FeatureFlagType,
     Group,
     GroupListParams,
+    HogFunctionType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
@@ -318,6 +319,14 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
+    }
+
+    public hogFunctions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+    }
+
+    public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctions(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -1631,6 +1640,24 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    hogFunctions: {
+        async listTemplates(): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().get()
+        },
+        async list(): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().get()
+        },
+        async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).get()
+        },
+        async create(data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunctions().create({ data })
+        },
+        async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).update({ data })
         },
     },
 

@@ -152,7 +152,7 @@ class FunnelCorrelation:
     def properties_to_include(self) -> list[str]:
         props_to_include = []
         if (
-            self._team.person_on_events_mode != PersonsOnEventsMode.disabled
+            self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED
             and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
         ):
             # When dealing with properties, make sure funnel response comes with properties
@@ -432,7 +432,7 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-        if self._team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self._team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
@@ -499,7 +499,7 @@ class FunnelCorrelation:
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
+            if self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED and groups_on_events_querying_enabled():
                 return "", {}
 
             person_query, person_query_params = PersonQuery(
@@ -519,7 +519,7 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
+        if self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED and groups_on_events_querying_enabled():
             group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
             aggregation_properties_alias = (
                 "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
@@ -546,7 +546,7 @@ class FunnelCorrelation:
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
+                        "groups" if self._team.person_on_events_mode == PersonsOnEventsMode.DISABLED else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
@@ -554,13 +554,15 @@ class FunnelCorrelation:
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person" if self._team.person_on_events_mode == PersonsOnEventsMode.disabled else "events",
+                        "person" if self._team.person_on_events_mode == PersonsOnEventsMode.DISABLED else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        materialised_table_column=aggregation_properties_alias
-                        if self._team.person_on_events_mode != PersonsOnEventsMode.disabled
-                        else "properties",
+                        materialised_table_column=(
+                            aggregation_properties_alias
+                            if self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED
+                            else "properties"
+                        ),
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)

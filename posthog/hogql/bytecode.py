@@ -161,7 +161,7 @@ class BytecodeBuilder(Visitor):
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
-        return [*chain, Operation.FIELD, len(node.chain)]
+        return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
@@ -289,25 +289,22 @@ class BytecodeBuilder(Visitor):
                 Operation.SET_PROPERTY,
             ]
 
-        if isinstance(node.left, ast.Field) and len(node.left.chain) == 1:
-            name = node.left.chain[0]
-            for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == name:
-                    return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
-            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
-
-        if isinstance(node.left, ast.Field) and len(node.left.chain) > 1:
+        if isinstance(node.left, ast.Field) and len(node.left.chain) >= 1:
             chain = node.left.chain
             name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
+                    # Set a local variable
+                    if len(node.left.chain) == 1:
+                        return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+
+                    # else set a property on a local object
                     ops: list = [Operation.GET_LOCAL, index]
                     for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
                         else:
                             ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
-
                     if isinstance(chain[-1], int):
                         ops.extend([Operation.INTEGER, chain[-1], *self.visit(node.right), Operation.SET_PROPERTY])
                     else:
@@ -315,7 +312,7 @@ class BytecodeBuilder(Visitor):
 
                     return ops
 
-            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
+            raise NotImplementedError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
         raise NotImplementedError(f"Can not assign to this type of expression")
 
@@ -372,7 +369,7 @@ def execute_hog(
 ) -> BytecodeResult:
     source_code = source_code.strip()
     if source_code.count("\n") == 0:
-        if not source_code.startswith("return"):
+        if not source_code.startswith("return") and ":=" not in source_code:
             source_code = f"return {source_code}"
         if not source_code.endswith(";"):
             source_code = f"{source_code};"
