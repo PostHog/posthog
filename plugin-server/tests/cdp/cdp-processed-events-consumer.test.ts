@@ -109,21 +109,37 @@ describe('CDP Processed Events Consuner', () => {
             )
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch.mock.calls[0]).toEqual([
-                'https://example.com/posthog-webhook',
-                {
-                    method: 'POST',
-                    headers: { version: 'v=1.0.0' },
-                    body: JSON.stringify({
-                        event: '$pageview',
-                        groups: {},
-                        nested: { foo: '$pageview' },
-                        person: {},
-                        event_url: '$pageview-test',
-                    }),
-                    timeout: 10000,
-                },
-            ])
+            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
+                Array [
+                  "https://example.com/posthog-webhook",
+                  Object {
+                    "body": "{
+                    \\"event\\": {
+                        \\"uuid\\": \\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",
+                        \\"name\\": \\"$pageview\\",
+                        \\"distinct_id\\": \\"distinct_id_1\\",
+                        \\"properties\\": {
+                            \\"$lib_version\\": \\"1.0.0\\",
+                            \\"$elements_chain\\": \\"[]\\"
+                        },
+                        \\"timestamp\\": null,
+                        \\"url\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"
+                    },
+                    \\"groups\\": null,
+                    \\"nested\\": {
+                        \\"foo\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"
+                    },
+                    \\"person\\": null,
+                    \\"event_url\\": \\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test\\"
+                }",
+                    "headers": Object {
+                      "version": "v=1.0.0",
+                    },
+                    "method": "POST",
+                    "timeout": 10000,
+                  },
+                ]
+            `)
         })
     })
 })
