@@ -152,16 +152,27 @@ export const getCachedResults = (
     return cachedInsight
 }
 
-export const getQueryBasedInsightModel = (insight: InsightModel): QueryBasedInsightModel => {
+// these types exist so that the return type reflects the input model
+// i.e. when given a partial model the return model is types as
+// partial as well
+type InputInsightModel = InsightModel | Partial<InsightModel>
+
+type ReturnInsightModel<T> = T extends InsightModel
+    ? QueryBasedInsightModel
+    : T extends Partial<InsightModel>
+    ? Partial<QueryBasedInsightModel>
+    : never
+
+export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
     let query
     if (insight.query) {
         query = insight.query
-    } else if (insight.filters) {
+    } else if (insight.filters && Object.keys(insight.filters).length > 0) {
         query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
     } else {
         query = null
     }
 
     const { filters, ...baseInsight } = insight
-    return { ...baseInsight, query }
+    return { ...baseInsight, query } as unknown as ReturnInsightModel<T>
 }

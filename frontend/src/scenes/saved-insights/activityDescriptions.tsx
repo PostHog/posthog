@@ -12,14 +12,15 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema } from '~/queries/schema'
+import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
@@ -44,9 +45,8 @@ type DashboardLink = TileStyleDashboardLink | BareDashboardLink
 const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
     if ('dashboard' in boxedLink) {
         return boxedLink.dashboard
-    } else {
-        return boxedLink
     }
+    return boxedLink
 }
 
 const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
@@ -232,13 +232,15 @@ const insightActionsMapping: Record<
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
+    const query = filtersToQueryNode(filtersAfter)
+
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
-                <QuerySummary filters={filtersAfter} />
-                <FiltersSummary filters={filtersAfter} />
-                {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+                <SeriesSummary query={query} />
+                <PropertiesSummary properties={query.properties} />
+                {(query as TrendsQuery)?.breakdownFilter?.breakdown_type && <BreakdownSummary query={query} />}
             </div>
         ),
     }

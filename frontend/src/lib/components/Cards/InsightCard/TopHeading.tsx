@@ -1,6 +1,7 @@
 import { dateFilterToText } from 'lib/utils'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+import { NodeKind } from '~/queries/schema'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -8,7 +9,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
 } from '~/queries/utils'
-import { InsightType, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
     const { query } = insight
@@ -23,7 +24,7 @@ export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JS
         }
     } else {
         // maintain the existing default
-        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
+        insightType = QUERY_TYPES_METADATA[NodeKind.TrendsQuery]
     }
 
     let date_from, date_to
