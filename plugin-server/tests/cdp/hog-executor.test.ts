@@ -79,7 +79,7 @@ describe('Hog Executor', () => {
                     \\"event_url\\": \\"http://localhost:8000/events/1-test\\"
                 }",
                       "headers": Object {
-                        "version": "v=",
+                        "version": "v=1.2.3",
                       },
                       "method": "POST",
                       "url": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",

@@ -1,6 +1,6 @@
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
-import { convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
+import { convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_TIMEOUT = 5 // seconds
@@ -58,8 +58,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
             if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
-                const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
-                vmState.stack.push(result)
+                const result = await options?.asyncFunctions[response.asyncFunctionName](
+                    ...response.asyncFunctionArgs.map(convertHogToJS)
+                )
+                vmState.stack.push(convertJSToHog(result))
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
                     response.asyncFunctionArgs,
@@ -333,7 +335,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         .fill(null)
                         .map(() => popStack())
                     if (options?.functions && options.functions[name] && name !== 'toString') {
-                        stack.push(options.functions[name](...args))
+                        stack.push(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions && options.asyncFunctions[name]) || name in ASYNC_STL)
