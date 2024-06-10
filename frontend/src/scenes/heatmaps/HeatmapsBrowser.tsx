@@ -263,6 +263,28 @@ function EmbeddedHeatmapBrowser({
     ) : null
 }
 
+function Warnings(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const heatmapsEnabled = currentTeam?.heatmaps_opt_in
+
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    return !heatmapsEnabled ? (
+        <LemonBanner
+            type="warning"
+            action={{
+                type: 'secondary',
+                icon: <IconGear />,
+                onClick: () => openSettingsPanel({ settingId: 'heatmaps' }),
+                children: 'Configure',
+            }}
+            dismissKey="heatmaps-might-be-disabled-warning"
+        >
+            You aren't collecting heatmaps data. Enable heatmaps in your project.
+        </LemonBanner>
+    ) : null
+}
+
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -272,28 +294,10 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const { browserUrl, isBrowserUrlAuthorized } = useValues(logic)
 
-    const { currentTeam } = useValues(teamLogic)
-    const heatmapsEnabled = currentTeam?.heatmaps_opt_in
-
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <div className="flex flex-col gap-2">
-                {!heatmapsEnabled ? (
-                    <LemonBanner
-                        type="warning"
-                        action={{
-                            type: 'secondary',
-                            icon: <IconGear />,
-                            onClick: () => openSettingsPanel({ settingId: 'heatmaps' }),
-                            children: 'Configure',
-                        }}
-                        dismissKey="heatmaps-might-be-disabled-warning"
-                    >
-                        You aren't collecting heatmaps data. Enable heatmaps in your project.
-                    </LemonBanner>
-                ) : null}
+                <Warnings />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
 
