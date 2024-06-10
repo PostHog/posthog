@@ -135,13 +135,15 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         } else if (isActionFilter(f)) {
             actions.push(f)
         } else if (isAnyPropertyfilter(f)) {
-            properties.push(f)
+            if (f.type === PropertyFilterType.Recording) {
+                // TODO: add console log filtering
+            } else {
+                properties.push(f)
+            }
         }
     })
 
     const durationFilter = universalFilters.duration[0]
-
-    // TODO: add console log\ (not yet supported in universal filtering)
 
     return {
         ...universalFilters,
