@@ -106,12 +106,10 @@ export const urlsForDatasets = (
                 const formattedBreakdownValue = dataset.status
                     ? capitalizeFirstLetter(dataset.status)
                     : formatBreakdownLabel(
-                          cohorts,
-                          formatPropertyValueForDisplay,
                           dataset.breakdown_value,
-                          breakdownFilter?.breakdown,
-                          breakdownFilter?.breakdown_type,
-                          breakdownFilter?.breakdown_histogram_bin_count != null
+                          breakdownFilter,
+                          cohorts,
+                          formatPropertyValueForDisplay
                       )
                 return {
                     value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',

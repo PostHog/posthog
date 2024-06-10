@@ -205,61 +205,113 @@ describe('formatBreakdownLabel()', () => {
     }
 
     it('handles cohort breakdowns', () => {
-        expect(formatBreakdownLabel([cohort as any], identity, cohort.id, [cohort.id], 'cohort')).toEqual(cohort.name)
-        expect(formatBreakdownLabel([], identity, 3, [3], 'cohort')).toEqual('3')
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(cohort.id, breakdownFilter1, [cohort as any], identity)).toEqual(cohort.name)
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdown: [3],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(3, breakdownFilter2, [], identity)).toEqual('3')
     })
 
     it('handles cohort breakdowns with all users', () => {
-        expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
-        expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: ['all'],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel('all', breakdownFilter1, [], identity)).toEqual('All Users')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdown: [0],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(0, breakdownFilter2, [], identity)).toEqual('All Users')
     })
 
     it('handles histogram breakdowns', () => {
-        expect(formatBreakdownLabel([], identity, '[124.8,125.01]', '$browser_version', 'event', true)).toEqual(
-            '124.8 – 125.01'
-        )
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('[124.8,125.01]', breakdownFilter, [], identity)).toEqual('124.8 – 125.01')
     })
 
     it('handles histogram breakdowns for start and end values', () => {
-        expect(formatBreakdownLabel([], identity, '[124.8,124.8]', '$browser_version', 'event', true)).toEqual('124.8')
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('[124.8,124.8]', breakdownFilter, [], identity)).toEqual('124.8')
     })
 
     it('handles numeric breakdowns', () => {
-        expect(formatBreakdownLabel([], identity, 42, 'coolness_factor', 'event')).toEqual('42')
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(42, breakdownFilter, [], identity)).toEqual('42')
     })
 
     it('handles numeric breakdowns for "other" value', () => {
-        expect(formatBreakdownLabel([], identity, 9007199254740991, 'coolness_factor', 'event')).toEqual(
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(9007199254740991, breakdownFilter, [], identity)).toEqual(
             'Other (i.e. all remaining values)'
         )
     })
 
     it('handles numeric breakdowns for "null" value', () => {
-        expect(formatBreakdownLabel([], identity, 9007199254740990, 'coolness_factor', 'event')).toEqual(
-            'None (i.e. no value)'
-        )
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(9007199254740990, breakdownFilter, [], identity)).toEqual('None (i.e. no value)')
     })
 
     it('handles string breakdowns', () => {
-        expect(formatBreakdownLabel([], identity, 'millenial', 'demographic', 'event')).toEqual('millenial')
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('millenial', breakdownFilter, [], identity)).toEqual('millenial')
     })
 
     it('handles string breakdowns for "other" value', () => {
-        expect(formatBreakdownLabel([], identity, '$$_posthog_breakdown_other_$$', 'coolness_factor', 'event')).toEqual(
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_other_$$', breakdownFilter, [], identity)).toEqual(
             'Other (i.e. all remaining values)'
         )
     })
 
     it('handles string breakdowns for "null" value', () => {
-        expect(formatBreakdownLabel([], identity, '$$_posthog_breakdown_null_$$', 'coolness_factor', 'event')).toEqual(
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_null_$$', breakdownFilter, [], identity)).toEqual(
             'None (i.e. no value)'
         )
     })
 
     it('handles multi-breakdowns', () => {
-        expect(
-            formatBreakdownLabel([], identity, ['millenial', 'Chrome'], ['demographic', '$browser'], 'event')
-        ).toEqual('millenial::Chrome')
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: ['demographic', '$browser'],
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(['millenial', 'Chrome'], breakdownFilter, [], identity)).toEqual(
+            'millenial::Chrome'
+        )
     })
 })
 

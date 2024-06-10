@@ -65,11 +65,10 @@ export function ActionsPie({
                 breakdownValues: indexedResults.map((item) => item.breakdown_value),
                 breakdownLabels: indexedResults.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        breakdownFilter?.breakdown,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: indexedResults.map((item) => item.compare_label),

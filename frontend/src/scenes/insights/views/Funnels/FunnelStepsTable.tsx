@@ -83,11 +83,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
                         const label = formatBreakdownLabel(
-                            cohorts,
-                            formatPropertyValueForDisplay,
                             value,
-                            breakdownFilter?.breakdown,
-                            breakdownFilter?.breakdown_type
+                            breakdownFilter,
+                            cohorts,
+                            formatPropertyValueForDisplay
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
