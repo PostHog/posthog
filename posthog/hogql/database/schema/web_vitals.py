@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     Table,
     FloatDatabaseField,
+    StringJSONDatabaseField,
 )
 
 
@@ -19,6 +20,7 @@ class WebVitalsTable(Table):
         "lcp": FloatDatabaseField(name="lcp"),
         "cls": FloatDatabaseField(name="cls"),
         "inp": FloatDatabaseField(name="inp"),
+        "properties": StringJSONDatabaseField(name="properties"),
     }
 
     def to_printed_clickhouse(self, context):
