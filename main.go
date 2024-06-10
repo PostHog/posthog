@@ -19,6 +19,8 @@ import (
 func main() {
 	loadConfigs()
 
+	isProd := viper.GetBool("prod")
+
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {
 		log.Fatal("mmdb.path must be set")
@@ -52,7 +54,11 @@ func main() {
 
 	go teamStats.keepStats(statsChan)
 
-	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan, statsChan)
+	kafkaSecurityProtocol := "SSL"
+	if !isProd {
+		kafkaSecurityProtocol = "PLAINTEXT"
+	}
+	consumer, err := NewKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -258,7 +264,7 @@ func main() {
 		}
 	})
 
-	if !viper.GetBool("prod") {
+	if !isProd {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
 		e.Logger.Fatal(e.StartAutoTLS(":443"))

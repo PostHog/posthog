@@ -35,13 +35,13 @@ type KafkaConsumer struct {
 	statsChan    chan PostHogEvent
 }
 
-func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*KafkaConsumer, error) {
+func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*KafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
 		"auto.offset.reset":  "latest",
 		"enable.auto.commit": false,
-		"security.protocol":  "SSL",
+		"security.protocol":  securityProtocol,
 	}
 
 	consumer, err := kafka.NewConsumer(config)
