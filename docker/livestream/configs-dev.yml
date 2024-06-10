@@ -10,3 +10,5 @@ mmdb:
     path: 'GeoLite2-City.mmdb'
 jwt:
     token: '<randomly generated secret key>'
+postgres:
+    url: 'postgres://posthog:posthog@db:5432/posthog'
