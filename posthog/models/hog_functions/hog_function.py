@@ -23,8 +23,6 @@ class HogFunction(UUIDModel):
 
     hog: models.TextField = models.TextField()
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
-
-    # TODO: Rename to "variables"
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
@@ -53,9 +51,10 @@ class HogFunction(UUIDModel):
 
         try:
             self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
-        except Exception:
+        except Exception as e:
             # TODO: Better reporting of this issue
             self.filters["bytecode"] = None
+            self.filters["bytecode_error"] = str(e)
 
     def save(self, *args, **kwargs):
         self.compile_filters_bytecode()
