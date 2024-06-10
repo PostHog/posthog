@@ -18,7 +18,7 @@ import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogFunctionInvocation } from './types'
+import { HogFunctionInvocation, HogFunctionInvocationResult } from './types'
 import { convertToHogFunctionInvocationContext } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -53,6 +53,7 @@ export class CdpProcessedEventsConsumer {
     groupTypeManager: GroupTypeManager
     hogFunctionManager: HogFunctionManager
     hogExecutor?: HogExecutor
+    appMetrics?: AppMetrics
     topic: string
     consumerGroupId: string
     isStopping = false
@@ -79,8 +80,8 @@ export class CdpProcessedEventsConsumer {
         return promise
     }
 
-    public async consume(invocation: HogFunctionInvocation): Promise<void> {
-        await this.hogExecutor!.executeMatchingFunctions(invocation)
+    public async consume(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
+        return await this.hogExecutor!.executeMatchingFunctions(invocation)
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
@@ -146,16 +147,27 @@ export class CdpProcessedEventsConsumer {
                 })
                 heartbeat()
 
+                const invocationResults: HogFunctionInvocationResult[] = []
+
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
                     func: async () => {
                         // TODO: Parallelise this
                         for (const message of invocations) {
-                            await this.consume(message)
+                            const results = await this.consume(message)
+                            invocationResults.push(...results)
                             heartbeat()
                         }
                     },
                 })
+
+                // TODO: Follow up - process metrics from the invocationResults
+                // await runInstrumentedFunction({
+                //     statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
+                //     func: async () => {
+                //         // TODO:
+                //     },
+                // })
             },
         })
     }
@@ -177,15 +189,14 @@ export class CdpProcessedEventsConsumer {
         )
 
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
-        const appMetrics =
+        this.appMetrics =
             this.hub?.appMetrics ??
             new AppMetrics(
                 this.kafkaProducer,
                 this.config.APP_METRICS_FLUSH_FREQUENCY_MS,
                 this.config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
             )
-        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook, appMetrics)
-
+        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook)
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({

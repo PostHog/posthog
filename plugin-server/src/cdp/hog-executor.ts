@@ -4,13 +4,13 @@ import { PluginsServerConfig } from 'types'
 
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationContext,
+    HogFunctionInvocationResult,
     HogFunctionType,
 } from './types'
 
@@ -46,14 +46,13 @@ export class HogExecutor {
     constructor(
         private serverConfig: PluginsServerConfig,
         private hogFunctionManager: HogFunctionManager,
-        private rustyHook: RustyHook,
-        private appMetrics: AppMetrics
+        private rustyHook: RustyHook
     ) {}
 
     /**
      * Intended to be invoked as a starting point from an event
      */
-    async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<any> {
+    async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
         let functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
 
         // Filter all functions based on the invocation
@@ -93,8 +92,10 @@ export class HogExecutor {
         )
 
         if (!Object.keys(functions).length) {
-            return
+            return []
         }
+
+        const results: HogFunctionInvocationResult[] = []
 
         for (const hogFunction of Object.values(functions)) {
             // Add the source of the trigger to the globals
@@ -106,11 +107,15 @@ export class HogExecutor {
                 },
             }
 
-            await this.execute(hogFunction, {
+            const result = await this.execute(hogFunction, {
                 ...invocation,
                 globals: modifiedGlobals,
             })
+
+            results.push(result)
         }
+
+        return results
     }
 
     /**
@@ -130,7 +135,11 @@ export class HogExecutor {
         await this.execute(hogFunction, invocation, invocation.vmState)
     }
 
-    async execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation, state?: VMState): Promise<any> {
+    async execute(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation,
+        state?: VMState
+    ): Promise<HogFunctionInvocationResult> {
         const loggingContext = {
             hogFunctionId: hogFunction.id,
             hogFunctionName: hogFunction.name,
@@ -138,6 +147,8 @@ export class HogExecutor {
         }
 
         status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
+
+        let error: any = null
 
         try {
             const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
@@ -175,17 +186,16 @@ export class HogExecutor {
                         )
                     // TODO: Log error somewhere
                 }
-
-                return
             }
-
             // await this.appMetrics.queueMetric({
             //     teamId: hogFunction.team_id,
             //     appId: hogFunction.id, // Add this as a generic string ID
             //     category: 'hogFunction', // TODO: Figure this out
             //     successes: 1,
             // })
-        } catch (error) {
+        } catch (err) {
+            error = err
+
             // await this.appMetrics.queueError(
             //     {
             //         teamId: hogFunction.team_id,
@@ -199,6 +209,13 @@ export class HogExecutor {
             //     }
             // )
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, error)
+        }
+
+        return {
+            ...invocation,
+            success: !error,
+            error,
+            logs: [], // TODO: Add logs
         }
     }
 

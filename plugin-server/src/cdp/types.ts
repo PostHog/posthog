@@ -73,6 +73,12 @@ export type HogFunctionInvocation = {
     globals: HogFunctionInvocationContext
 }
 
+export type HogFunctionInvocationResult = HogFunctionInvocation & {
+    success: boolean
+    error?: any
+    logs: string[]
+}
+
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {
     hogFunctionId: HogFunctionType['id']
     vmState: VMState
