@@ -29,7 +29,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
         }
-        return res.result
+        return convertHogToJS(res.result)
     }
 
     if (Array.isArray(bytecode)) {
