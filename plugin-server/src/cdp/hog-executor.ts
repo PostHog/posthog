@@ -1,4 +1,4 @@
-import { exec, ExecResult, VMState } from '@posthog/hogvm'
+import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
 import { PluginsServerConfig } from 'types'
 
@@ -123,7 +123,7 @@ export class HogExecutor {
             invocation.hogFunctionId
         ]
 
-        invocation.vmState.stack.push(invocation.response)
+        invocation.vmState.stack.push(convertJSToHog(invocation.response))
 
         await this.execute(hogFunction, invocation, invocation.vmState)
     }
@@ -206,9 +206,9 @@ export class HogExecutor {
         const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
 
         // TODO: validate the args
-        const args = execResult.asyncFunctionArgs ?? []
+        const args = (execResult.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
         const url: string = args[0]
-        const options = Object.fromEntries(args[1].entries())
+        const options = args[1]
 
         const method = options.method || 'POST'
         const headers = options.headers || {
