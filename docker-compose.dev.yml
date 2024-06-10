@@ -109,6 +109,15 @@ services:
             - redis
             - kafka
 
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
+
     # Temporal containers
     elasticsearch:
         extends:

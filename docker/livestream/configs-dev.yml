@@ -1,0 +1,12 @@
+prod: false
+tailscale:
+    controlUrl:
+    hostname: 'live-events-dev'
+kafka:
+    brokers: 'kafka:9092'
+    topic: 'events_plugin_ingestion'
+    group_id: 'livestream-dev'
+mmdb:
+    path: 'GeoLite2-City.mmdb'
+jwt:
+    secret: '<randomly generated secret key>'
