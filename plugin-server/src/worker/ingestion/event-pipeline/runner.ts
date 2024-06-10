@@ -175,19 +175,17 @@ export class EventPipelineRunner {
         }
 
         if (event.event === '$$client_ingestion_warning') {
-            kafkaAcks.push(
-                captureIngestionWarning(
-                    this.hub.db.kafkaProducer,
-                    event.team_id,
-                    'client_ingestion_warning',
-                    {
-                        eventUuid: event.uuid,
-                        event: event.event,
-                        distinctId: event.distinct_id,
-                        message: event.properties?.$$client_ingestion_warning_message,
-                    },
-                    { alwaysSend: true }
-                )
+            await captureIngestionWarning(
+                this.hub.db.kafkaProducer,
+                event.team_id,
+                'client_ingestion_warning',
+                {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                    message: event.properties?.$$client_ingestion_warning_message,
+                },
+                { alwaysSend: true }
             )
 
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
