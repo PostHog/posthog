@@ -189,8 +189,22 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
+        let parsedDetail
+        try {
+            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
+        } catch (error) {
+            return (
+                <div className="border rounded bg-bg-light p-4">
+                    <div className="font-semibold leading-tight text-base text-current">
+                        Experiment results could not be calculated
+                    </div>
+                    <div className="mt-2">{experimentResultCalculationError.detail}</div>
+                </div>
+            )
+        }
+
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
+        for (const [failureReason, value] of Object.entries(parsedDetail)) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
         }
 
