@@ -44,7 +44,7 @@ function useAutocompleteOptions(): languages.CompletionItem[] {
 
         groupTypes.forEach((groupType) => {
             options.push([`groups.${groupType.group_type}`, `The entire group payload as a JSON object`])
-            options.push([`groups.${groupType.group_type}.name`, `Display name of the group`])
+            options.push([`groups.${groupType.group_type}.id`, `The ID or 'key' of the group`])
             options.push([`groups.${groupType.group_type}.url`, `URL to the group in PostHog`])
             options.push([`groups.${groupType.group_type}.properties`, `Properties of the group`])
             options.push([`groups.${groupType.group_type}.properties.<key>`, `The individual property of the group`])

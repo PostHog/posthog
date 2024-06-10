@@ -29,20 +29,19 @@ export function convertToHogFunctionInvocationContext(
 
             // TODO: Check that groupProperties always exist if the event is in that group
             if (groupKey && groupProperties) {
+                const properties = JSON.parse(groupProperties)
+
                 groups[groupType] = {
+                    id: groupKey,
                     index: columnIndex,
-                    key: groupKey,
                     type: groupType,
-                    url: `${projectUrl}/groups/${groupType}/${encodeURIComponent(groupKey)}`,
-                    properties: JSON.parse(groupProperties),
+                    url: `${projectUrl}/groups/${columnIndex}/${encodeURIComponent(groupKey)}`,
+                    properties,
                 }
             }
         }
     }
     const context: HogFunctionInvocationContext = {
-        // TODO:
-        // source: {
-        // },
         project: {
             id: team.id,
             name: team.name,

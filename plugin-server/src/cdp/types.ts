@@ -60,7 +60,7 @@ export type HogFunctionInvocationContext = {
     groups?: Record<
         string,
         {
-            key: string
+            id: string // the "key" of the group
             type: string
             index: number
             url: string
