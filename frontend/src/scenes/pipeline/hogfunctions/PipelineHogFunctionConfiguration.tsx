@@ -152,6 +152,8 @@ export function PipelineHogFunctionConfiguration({
                                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                                 TaxonomicFilterGroupType.Elements,
                                                 TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.HogQLExpression,
+                                                TaxonomicFilterGroupType.GroupsPrefix,
                                             ]}
                                             propertyFiltersPopover
                                             addFilterDefaultOptions={{
