@@ -958,15 +958,6 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter {
-    key: 'console_log_level'
-    value: string[]
-}
-export interface RecordingConsoleLogQueryFilter extends RecordingPropertyFilter {
-    key: 'console_log_query'
-    value: string
-}
-
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
