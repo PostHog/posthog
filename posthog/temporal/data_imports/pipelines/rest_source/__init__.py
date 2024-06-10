@@ -5,7 +5,8 @@ from typing import (
     Optional,
     cast,
 )
-from collections.abc import Generator, Callable
+from collections.abc import AsyncGenerator, Iterator
+from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
 
 import dlt
@@ -21,6 +22,8 @@ from dlt.extract.source import DltResource, DltSource
 from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
+
+from posthog.temporal.data_imports.pipelines.helpers import is_job_cancelled
 from .typing import (
     ClientConfig,
     ResolvedParam,
@@ -42,6 +45,8 @@ from .utils import exclude_keys  # noqa: F401
 
 def rest_api_source(
     config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
     name: Optional[str] = None,
     section: Optional[str] = None,
     max_table_nesting: Optional[int] = None,
@@ -104,10 +109,10 @@ def rest_api_source(
         spec,
     )
 
-    return decorated(config)
+    return decorated(config, team_id, job_id)
 
 
-def rest_api_resources(config: RESTAPIConfig) -> list[DltResource]:
+def rest_api_resources(config: RESTAPIConfig, team_id: int, job_id: str) -> list[DltResource]:
     """Creates a list of resources from a REST API configuration.
 
     Args:
@@ -187,6 +192,8 @@ def rest_api_resources(config: RESTAPIConfig) -> list[DltResource]:
         dependency_graph,
         endpoint_resource_map,
         resolved_param_map,
+        team_id=team_id,
+        job_id=job_id,
     )
 
     return list(resources.values())
@@ -197,18 +204,20 @@ def create_resources(
     dependency_graph: graphlib.TopologicalSorter,
     endpoint_resource_map: dict[str, EndpointResource],
     resolved_param_map: dict[str, Optional[ResolvedParam]],
+    team_id: int,
+    job_id: str,
 ) -> dict[str, DltResource]:
     resources = {}
 
     for resource_name in dependency_graph.static_order():
         resource_name = cast(str, resource_name)
         endpoint_resource = endpoint_resource_map[resource_name]
-        endpoint_config = cast(Endpoint, endpoint_resource["endpoint"])
+        endpoint_config = cast(Endpoint, endpoint_resource.get("endpoint"))
         request_params = endpoint_config.get("params", {})
         request_json = endpoint_config.get("json", None)
         paginator = create_paginator(endpoint_config.get("paginator"))
 
-        resolved_param: ResolvedParam = resolved_param_map[resource_name]
+        resolved_param: ResolvedParam | None = resolved_param_map[resource_name]
 
         include_from_parent: list[str] = endpoint_resource.get("include_from_parent", [])
         if not resolved_param and include_from_parent:
@@ -222,7 +231,7 @@ def create_resources(
         ) = setup_incremental_object(request_params, endpoint_config.get("incremental"))
 
         client = RESTClient(
-            base_url=client_config["base_url"],
+            base_url=client_config.get("base_url"),
             headers=client_config.get("headers"),
             auth=create_auth(client_config.get("auth")),
             paginator=create_paginator(client_config.get("paginator")),
@@ -234,7 +243,7 @@ def create_resources(
 
         if resolved_param is None:
 
-            def paginate_resource(
+            async def paginate_resource(
                 method: HTTPMethodBasic,
                 path: str,
                 params: dict[str, Any],
@@ -244,14 +253,17 @@ def create_resources(
                 hooks: Optional[dict[str, Any]],
                 client: RESTClient = client,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: IncrementalParam = incremental_param,
-            ) -> Generator[Any, None, None]:
-                if incremental_object:
+                incremental_param: IncrementalParam | None = incremental_param,
+            ) -> AsyncGenerator[Iterator[Any], Any]:
+                if not is_job_cancelled(team_id=team_id, job_id=job_id):
+                    return
+
+                if incremental_object and incremental_param:
                     params[incremental_param.start] = incremental_object.last_value
                     if incremental_param.end:
                         params[incremental_param.end] = incremental_object.end_value
 
-                yield from client.paginate(
+                yield client.paginate(
                     method=method,
                     path=path,
                     params=params,
@@ -279,7 +291,7 @@ def create_resources(
 
             base_params = exclude_keys(request_params, {resolved_param.param_name})
 
-            def paginate_dependent_resource(
+            async def paginate_dependent_resource(
                 items: list[dict[str, Any]],
                 method: HTTPMethodBasic,
                 path: str,
@@ -291,9 +303,12 @@ def create_resources(
                 resolved_param: ResolvedParam = resolved_param,
                 include_from_parent: list[str] = include_from_parent,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: IncrementalParam = incremental_param,
-            ) -> Generator[Any, None, None]:
-                if incremental_object:
+                incremental_param: IncrementalParam | None = incremental_param,
+            ) -> AsyncGenerator[Any, Any]:
+                if not is_job_cancelled(team_id=team_id, job_id=job_id):
+                    return
+
+                if incremental_object and incremental_param:
                     params[incremental_param.start] = incremental_object.last_value
                     if incremental_param.end:
                         params[incremental_param.end] = incremental_object.end_value

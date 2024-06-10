@@ -200,8 +200,10 @@ class StripePaginator(BasePaginator):
         request.params["starting_after"] = self._starting_after
 
 
-@dlt.source
-def stripe_source(api_key: str, account_id: str, endpoint: str, is_incremental: bool = False):
+@dlt.source(max_table_nesting=0)
+def stripe_source(
+    api_key: str, account_id: str, endpoint: str, team_id: int, job_id: str, is_incremental: bool = False
+):
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://api.stripe.com/",
@@ -222,4 +224,4 @@ def stripe_source(api_key: str, account_id: str, endpoint: str, is_incremental: 
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config)
+    yield from rest_api_resources(config, team_id, job_id)
