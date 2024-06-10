@@ -82,7 +82,7 @@ export class HogExecutor {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: value.id,
                         hogFunctionName: value.name,
-                        error,
+                        error: error.message,
                     })
                 }
 

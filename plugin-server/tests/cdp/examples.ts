@@ -79,8 +79,8 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
         ],
         inputs: {
             url: {
-                value: 'http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937',
-                bytecode: ['_h', 32, 'http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937'],
+                value: 'https://example.com/posthog-webhook',
+                bytecode: ['_h', 32, 'https://example.com/posthog-webhook'],
             },
             method: { value: 'POST' },
             headers: {

@@ -25,9 +25,7 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'cdp-function-executor'
-const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'cdp-function-executor-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
-// const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/cdp-function-executor'
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const histogramKafkaBatchSize = new Histogram({
@@ -48,7 +46,6 @@ export interface TeamIDWithConfig {
 }
 
 export class CdpProcessedEventsConsumer {
-    // overflowDetection?: OverflowManager
     batchConsumer?: BatchConsumer
     teamManager: TeamManager
     organizationManager: OrganizationManager
@@ -63,25 +60,9 @@ export class CdpProcessedEventsConsumer {
 
     private promises: Set<Promise<any>> = new Set()
 
-    constructor(
-        private config: PluginsServerConfig,
-        private postgres: PostgresRouter,
-        private consumeOverflow: boolean
-    ) {
-        // TODO: Add overflow topic
-        this.topic = consumeOverflow ? KAFKA_EVENTS_JSON : KAFKA_EVENTS_JSON
-        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
-
-        // if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
-        //     this.overflowDetection = new OverflowManager(
-        //         globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
-        //         globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
-        //         globalServerConfig.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
-        //         24 * 3600, // One day,
-        //         CAPTURE_OVERFLOW_REDIS_KEY,
-        //         captureRedis
-        //     )
-        // }
+    constructor(private config: PluginsServerConfig, private postgres: PostgresRouter) {
+        this.topic = KAFKA_EVENTS_JSON
+        this.consumerGroupId = KAFKA_CONSUMER_GROUP_ID
 
         this.teamManager = new TeamManager(postgres, config)
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
