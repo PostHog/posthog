@@ -94,8 +94,8 @@ export class HogExecutor {
             return
         }
 
-        // TODO: Filter the functions based on the filters object
         for (const hogFunction of Object.values(functions)) {
+            // Add the source of the trigger to the globals
             const modifiedGlobals: HogFunctionInvocationContext = {
                 ...invocation.globals,
                 source: {
