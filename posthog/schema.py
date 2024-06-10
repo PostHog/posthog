@@ -494,8 +494,8 @@ class HogQLNotice(BaseModel):
 
 
 class BounceRatePageViewMode(str, Enum):
-    count_pageviews = "count_pageviews"
-    uniq_urls = "uniq_urls"
+    COUNT_PAGEVIEWS = "count_pageviews"
+    UNIQ_URLS = "uniq_urls"
 
 
 class InCohortVia(str, Enum):

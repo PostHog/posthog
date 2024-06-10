@@ -49,7 +49,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.optimizeJoinedFilters = False
 
     if modifiers.bounceRatePageViewMode is None:
-        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.count_pageviews
+        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
