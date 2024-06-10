@@ -83,7 +83,9 @@ export const createHogExecutionGlobals = (
             name: 'test',
             distinct_id: 'distinct_id',
             url: 'http://localhost:8000/events/1',
-            properties: {},
+            properties: {
+                $lib_version: '1.2.3',
+            },
             timestamp: new Date().toISOString(),
             ...(data.event ?? {}),
         },

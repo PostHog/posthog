@@ -99,7 +99,7 @@ export class HogExecutor {
             const modifiedGlobals: HogFunctionInvocationContext = {
                 ...invocation.globals,
                 source: {
-                    name: hogFunction.name,
+                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                     url: `${invocation.globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
                 },
             }
@@ -139,6 +139,7 @@ export class HogExecutor {
 
         try {
             const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
+
             const res = exec(state ?? hogFunction.bytecode, {
                 globals,
                 timeout: 100, // NOTE: This will likely be configurable in the future
