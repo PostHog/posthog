@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0423_alter_externaldatasource_source_type"),
+        ("posthog", "0424_survey_current_iteration_and_more"),
     ]
 
     operations = [

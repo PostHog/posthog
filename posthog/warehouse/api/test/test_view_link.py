@@ -42,6 +42,19 @@ class TestViewLinkQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_create_saved_query_join_key_function(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            {
+                "source_table_name": "events",
+                "joining_table_name": "persons",
+                "source_table_key": "upper(uuid)",
+                "joining_table_key": "id",
+                "field_name": "some_field",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_delete(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_view_links/",

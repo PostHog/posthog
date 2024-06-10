@@ -80,6 +80,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data.query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
+                user=request.user,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
