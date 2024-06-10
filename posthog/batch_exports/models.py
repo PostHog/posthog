@@ -151,7 +151,7 @@ def fetch_batch_export_run_count(
     """
 
     try:
-        return sync_execute(clickhouse_query)[0][0]  # type: ignore
+        return sync_execute(clickhouse_query)[0][0]
     except Exception:
         return 0
 
