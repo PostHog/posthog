@@ -1,4 +1,4 @@
-import { IconCollapse } from '@posthog/icons'
+import { IconCollapse, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -10,6 +10,9 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
@@ -269,9 +272,28 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const { browserUrl, isBrowserUrlAuthorized } = useValues(logic)
 
+    const { currentTeam } = useValues(teamLogic)
+    const heatmapsEnabled = currentTeam?.heatmaps_opt_in
+
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2">
+                {!heatmapsEnabled ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            type: 'secondary',
+                            icon: <IconGear />,
+                            onClick: () => openSettingsPanel({ settingId: 'heatmaps' }),
+                            children: 'Configure',
+                        }}
+                        dismissKey="heatmaps-might-be-disabled-warning"
+                    >
+                        You aren't collecting heatmaps, so you won't see any data here. Enable heatmaps in your project.
+                    </LemonBanner>
+                ) : null}
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
 
