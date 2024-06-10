@@ -1,5 +1,5 @@
 import json
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 from rest_framework import status
 
@@ -54,7 +54,25 @@ EXAMPLE_FULL = {
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    def test_create_hog_function(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_create_hog_function_forbidden_if_not_in_flag(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+            },
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+        assert mock_feature_enabled.call_count == 1
+        assert mock_feature_enabled.call_args[0][0] == ("hog-functions")
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
@@ -80,7 +98,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
         }
 
-    def test_inputs_required(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_inputs_required(self, *args):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
@@ -98,7 +117,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "inputs__url",
         }
 
-    def test_inputs_mismatch_type(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_inputs_mismatch_type(self, *args):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
@@ -127,7 +147,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
-    def test_generates_hog_bytecode(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
@@ -140,7 +161,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             '["_h", 33, 0, 33, 3, 36, 0, 15, 40, 45, 33, 1, 36, 0, 6, 37, 0, 32, "headers", 32, "x-count", 36, 0, 42, 1, 32, "body", 32, "payload", 32, "inputs", 1, 2, 32, "method", 32, "method", 32, "inputs", 1, 2, 42, 3, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 2, 35, 39, -52, 35]'
         ), response.json()
 
-    def test_generates_inputs_bytecode(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_generates_inputs_bytecode(self, *args):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["inputs"] == {
@@ -173,7 +195,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         }
 
-    def test_generates_filters_bytecode(self):
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_generates_filters_bytecode(self, *args):
         action = Action.objects.create(
             team=self.team,
             name="test action",
