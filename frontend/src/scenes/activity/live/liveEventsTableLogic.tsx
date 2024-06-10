@@ -53,12 +53,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
         ],
-        eventsSource: [
-            null as EventSource | null,
-            {
-                updateEventsSource: (_, { source }) => source,
-            },
-        ],
         streamPaused: [
             false,
             {
@@ -109,8 +103,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             actions.updateEventsConnection()
         },
         updateEventsConnection: async () => {
-            if (values.eventsSource) {
-                values.eventsSource.close()
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
             }
 
             if (values.streamPaused) {
@@ -157,7 +151,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 }
             }
 
-            actions.updateEventsSource(source)
+            cache.eventsSource = source
         },
         pauseStream: () => {
             if (values.eventsSource) {
@@ -188,7 +182,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
         },
     })),
-    events(({ actions, values, cache }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             if (!liveEventsHostOrigin()) {
                 return
@@ -200,8 +194,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }, 1500)
         },
         beforeUnmount: () => {
-            if (values.eventsSource) {
-                values.eventsSource.close()
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
             }
             clearInterval(cache.interval)
         },
