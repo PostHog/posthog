@@ -59,7 +59,7 @@ export function FunnelTooltip({
                         cohorts,
                         formatPropertyValueForDisplay,
                         series.breakdown_value,
-                        series.breakdown,
+                        breakdownFilter?.breakdown,
                         breakdownFilter?.breakdown_type
                     )}
                 </strong>

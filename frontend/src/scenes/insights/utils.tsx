@@ -237,8 +237,7 @@ export function formatBreakdownLabel(
             return formattedBucketStart
         }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
-    }
-    if (breakdown_type === 'cohort') {
+    } else if (breakdown_type === 'cohort') {
         // :TRICKY: Different endpoints represent the all users cohort breakdown differently
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'

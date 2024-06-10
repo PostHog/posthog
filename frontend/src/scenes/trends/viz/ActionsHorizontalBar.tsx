@@ -35,6 +35,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         isDataWarehouseSeries,
         isHogQLInsight,
         querySource,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -53,9 +54,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                         cohorts,
                         formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter?.breakdown,
+                        breakdownFilter?.breakdown_type
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),

@@ -86,7 +86,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             cohorts,
                             formatPropertyValueForDisplay,
                             value,
-                            breakdown.breakdown,
+                            breakdownFilter?.breakdown,
                             breakdownFilter?.breakdown_type
                         )
                         return isOnlySeries ? (

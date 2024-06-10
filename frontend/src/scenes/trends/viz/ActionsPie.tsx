@@ -45,6 +45,7 @@ export function ActionsPie({
         isDataWarehouseSeries,
         querySource,
         isHogQLInsight,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -67,9 +68,8 @@ export function ActionsPie({
                         cohorts,
                         formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter?.breakdown,
+                        breakdownFilter?.breakdown_type
                     )
                 }),
                 compareLabels: indexedResults.map((item) => item.compare_label),
