@@ -36,7 +36,7 @@ function useBoldNumberTooltip({
     isTooltipShown: boolean
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
-    const { series, insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const divRef = useRef<HTMLDivElement>(null)
@@ -61,6 +61,7 @@ function useBoldNumberTooltip({
                         count: seriesResult?.aggregated_value,
                     },
                 ]}
+                breakdownFilter={breakdownFilter}
                 showHeader={false}
                 renderSeries={(value: React.ReactNode) => <span className="font-semibold">{value}</span>}
                 hideColorCol

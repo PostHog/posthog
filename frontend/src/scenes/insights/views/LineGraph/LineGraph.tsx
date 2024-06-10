@@ -479,6 +479,7 @@ export function LineGraph_({
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
                                     seriesData={seriesData}
+                                    breakdownFilter={breakdownFilter}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
