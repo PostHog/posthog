@@ -1,4 +1,4 @@
-import { features, KafkaConsumer, librdkafkaVersion, Message } from 'node-rdkafka'
+import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../config/kafka-topics'
@@ -7,10 +7,11 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
+import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../utils/db/postgres'
 import { status } from '../utils/status'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
@@ -51,7 +52,7 @@ export class CdpProcessedEventsConsumer {
     organizationManager: OrganizationManager
     groupTypeManager: GroupTypeManager
     hogFunctionManager: HogFunctionManager
-    hogExecutor: HogExecutor
+    hogExecutor?: HogExecutor
     topic: string
     consumerGroupId: string
     isStopping = false
@@ -60,21 +61,16 @@ export class CdpProcessedEventsConsumer {
 
     private promises: Set<Promise<any>> = new Set()
 
-    constructor(private config: PluginsServerConfig, private postgres: PostgresRouter) {
+    constructor(private config: PluginsServerConfig, private hub?: Hub) {
         this.topic = KAFKA_EVENTS_JSON
         this.consumerGroupId = KAFKA_CONSUMER_GROUP_ID
+
+        const postgres = hub?.postgres ?? new PostgresRouter(config)
 
         this.teamManager = new TeamManager(postgres, config)
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
-        this.hogExecutor = new HogExecutor(config, this.hogFunctionManager, new RustyHook(config))
-    }
-
-    private get connectedBatchConsumer(): KafkaConsumer | undefined {
-        // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
-        const consumer = this.batchConsumer?.consumer
-        return consumer && consumer.isConnected() ? consumer : undefined
     }
 
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
@@ -84,7 +80,7 @@ export class CdpProcessedEventsConsumer {
     }
 
     public async consume(invocation: HogFunctionInvocation): Promise<void> {
-        await this.hogExecutor.executeMatchingFunctions(invocation)
+        await this.hogExecutor!.executeMatchingFunctions(invocation)
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
@@ -179,6 +175,16 @@ export class CdpProcessedEventsConsumer {
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
+
+        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
+        const appMetrics =
+            this.hub?.appMetrics ??
+            new AppMetrics(
+                this.kafkaProducer,
+                this.config.APP_METRICS_FLUSH_FREQUENCY_MS,
+                this.config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+            )
+        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook, appMetrics)
 
         this.kafkaProducer.producer.connect()
 

@@ -4,6 +4,7 @@ import { PluginsServerConfig } from 'types'
 
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -45,7 +46,8 @@ export class HogExecutor {
     constructor(
         private serverConfig: PluginsServerConfig,
         private hogFunctionManager: HogFunctionManager,
-        private rustyHook: RustyHook
+        private rustyHook: RustyHook,
+        private appMetrics: AppMetrics
     ) {}
 
     /**
@@ -173,8 +175,29 @@ export class HogExecutor {
                         )
                     // TODO: Log error somewhere
                 }
+
+                return
             }
+
+            // await this.appMetrics.queueMetric({
+            //     teamId: hogFunction.team_id,
+            //     appId: hogFunction.id, // Add this as a generic string ID
+            //     category: 'hogFunction', // TODO: Figure this out
+            //     successes: 1,
+            // })
         } catch (error) {
+            // await this.appMetrics.queueError(
+            //     {
+            //         teamId: hogFunction.team_id,
+            //         appId: hogFunction.id, // Add this as a generic string ID
+            //         category: 'hogFunction',
+            //         failures: 1,
+            //     },
+            //     {
+            //         error,
+            //         event,
+            //     }
+            // )
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, error)
         }
     }

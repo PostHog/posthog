@@ -493,8 +493,7 @@ export async function startPluginsServer(
 
         if (capabilities.cdpProcessedEvents) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const consumer = new CdpProcessedEventsConsumer(serverConfig, postgres)
+            const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
             await consumer.start()
 
             if (consumer.batchConsumer) {
