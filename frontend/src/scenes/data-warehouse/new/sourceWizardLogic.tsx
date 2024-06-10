@@ -44,14 +44,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'account_id',
-                label: 'Account ID',
+                label: 'Account id',
                 type: 'text',
                 required: true,
                 placeholder: 'acct_...',
             },
             {
                 name: 'client_secret',
-                label: 'Client Secret',
+                label: 'Client secret',
                 type: 'password',
                 required: true,
                 placeholder: 'sk_live_...',
@@ -198,7 +198,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'account_id',
-                label: 'Account ID',
+                label: 'Account id',
                 type: 'text',
                 required: true,
                 placeholder: '',
@@ -258,21 +258,21 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'subdomain',
-                label: 'Zendesk Subdomain',
+                label: 'Zendesk subdomain',
                 type: 'text',
                 required: true,
                 placeholder: '',
             },
             {
                 name: 'api_key',
-                label: 'API Key',
+                label: 'API key',
                 type: 'text',
                 required: true,
                 placeholder: '',
             },
             {
                 name: 'email_address',
-                label: 'Zendesk Email Address',
+                label: 'Zendesk email address',
                 type: 'email',
                 required: true,
                 placeholder: '',

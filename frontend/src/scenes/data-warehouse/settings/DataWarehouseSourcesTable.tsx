@@ -81,7 +81,7 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     },
                 },
                 {
-                    title: 'Table Prefix',
+                    title: 'Table prefix',
                     key: 'prefix',
                     render: function RenderPrefix(_, source) {
                         return source.prefix
