@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const ExpectedScope := "posthog:livestream"
+const ExpectedScope = "posthog:livestream"
 
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 	// split the token
