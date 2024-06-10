@@ -485,6 +485,11 @@ class HogQLNotice(BaseModel):
     start: Optional[int] = None
 
 
+class BounceRatePageViewMode(str, Enum):
+    count_pageviews = "count_pageviews"
+    uniq_urls = "uniq_urls"
+
+
 class InCohortVia(str, Enum):
     auto = "auto"
     leftjoin = "leftjoin"
@@ -521,6 +526,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
