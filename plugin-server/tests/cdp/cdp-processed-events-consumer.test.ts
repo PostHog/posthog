@@ -47,9 +47,8 @@ jest.setTimeout(1000)
 
 const noop = () => {}
 
-describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOverflow) => {
+describe('CDP Processed Events Consuner', () => {
     let processor: CdpProcessedEventsConsumer
-
     let hub: Hub
     let closeHub: () => Promise<void>
     let team: Team
@@ -70,7 +69,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpProcessedEventsConsumer(config, hub.postgres, consumeOverflow)
+        processor = new CdpProcessedEventsConsumer(config, hub.postgres)
         await processor.start()
     })
 

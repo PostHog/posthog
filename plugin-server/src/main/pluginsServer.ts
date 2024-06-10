@@ -493,11 +493,8 @@ export async function startPluginsServer(
 
         if (capabilities.cdpProcessedEvents) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-
-            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const consumer = new CdpProcessedEventsConsumer(serverConfig, postgres, false)
+            const consumer = new CdpProcessedEventsConsumer(serverConfig, postgres)
             await consumer.start()
 
             if (consumer.batchConsumer) {
