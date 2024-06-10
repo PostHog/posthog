@@ -6,12 +6,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import md5 from 'md5'
-import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isPathsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { InsightActorsQueryOptionsResponse } from '~/queries/schema'
+import { BreakdownFilter, InsightActorsQueryOptionsResponse } from '~/queries/schema'
 import {
     CohortType,
     FunnelsFilterType,
@@ -73,6 +73,7 @@ export const urlsForDatasets = (
     crossDataset: GraphDataset[] | undefined,
     index: number,
     cohorts: CohortType[],
+    breakdownFilter: BreakdownFilter | null | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction
 ): { value: string; label: JSX.Element }[] => {
     const showCountedByTag = !!crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
@@ -108,11 +109,9 @@ export const urlsForDatasets = (
                           cohorts,
                           formatPropertyValueForDisplay,
                           dataset.breakdown_value,
-                          dataset.filter?.breakdown,
-                          dataset.filter?.breakdown_type,
-                          dataset.filter &&
-                              isTrendsFilter(dataset.filter) &&
-                              dataset.filter?.breakdown_histogram_bin_count !== undefined
+                          breakdownFilter?.breakdown,
+                          breakdownFilter?.breakdown_type,
+                          breakdownFilter?.breakdown_histogram_bin_count
                       )
                 return {
                     value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',

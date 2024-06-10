@@ -44,6 +44,7 @@ export function ActionsLineGraph({
         showLegend,
         isHogQLInsight,
         querySource,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -157,6 +158,7 @@ export function ActionsLineGraph({
                                   crossDataset,
                                   index,
                                   cohorts,
+                                  breakdownFilter,
                                   formatPropertyValueForDisplay
                               )
                               if (datasetUrls?.length) {
