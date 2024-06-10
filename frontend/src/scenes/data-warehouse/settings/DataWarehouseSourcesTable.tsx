@@ -4,8 +4,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import cloudflareLogo from 'public/cloudflare-logo.png'
+import googleStorageLogo from 'public/google-cloud-storage-logo.png'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
+import s3Logo from 'public/s3-logo.png'
 import snowflakeLogo from 'public/snowflake-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.svg'
@@ -14,8 +17,8 @@ import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     ExternalDataSourceSchema,
-    ExternalDataSourceType,
     ExternalDataStripeSource,
+    manualLinkSources,
     PipelineInterval,
     ProductKey,
 } from '~/types'
@@ -69,7 +72,7 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                 {
                     width: 0,
                     render: function RenderAppInfo(_, source) {
-                        return <RenderDataWarehouseSourceIcon type={source.source_type as ExternalDataSourceType} />
+                        return <RenderDataWarehouseSourceIcon type={source.source_type} />
                     },
                 },
                 {
@@ -190,7 +193,11 @@ export function DataWarehouseSourcesTable(): JSX.Element {
     )
 }
 
-export function getDataWarehouseSourceUrl(service: ExternalDataSourceType): string {
+export function getDataWarehouseSourceUrl(service: string): string {
+    if (manualLinkSources.includes(service)) {
+        return 'https://posthog.com/docs/data-warehouse/setup#step-1-creating-a-bucket-in-s3'
+    }
+
     return `https://posthog.com/docs/data-warehouse/setup#${service.toLowerCase()}`
 }
 
@@ -198,7 +205,7 @@ export function RenderDataWarehouseSourceIcon({
     type,
     size = 'small',
 }: {
-    type: ExternalDataSourceType
+    type: string
     size?: 'small' | 'medium'
 }): JSX.Element {
     const sizePx = size === 'small' ? 30 : 60
@@ -209,6 +216,9 @@ export function RenderDataWarehouseSourceIcon({
         Zendesk: zendeskLogo,
         Postgres: postgresLogo,
         Snowflake: snowflakeLogo,
+        aws: s3Logo,
+        'google-cloud': googleStorageLogo,
+        'cloudflare-r2': cloudflareLogo,
     }[type]
 
     return (

@@ -12,6 +12,8 @@ import {
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
+    manualLinkSources,
+    ManualLinkSourceType,
     PipelineTab,
     SourceConfig,
     SourceFieldConfig,
@@ -281,8 +283,6 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
 }
 
-export const MANUAL_SOURCE_DETAILS = {}
-
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
 ): Record<string, any> => {
@@ -324,7 +324,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
     return formDefault
 }
 
-export type ManualLinkProvider = 'aws' | 'google-cloud' | 'cloudflare-r2'
+const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
+    aws: 'S3',
+    'google-cloud': 'Google Cloud Storage',
+    'cloudflare-r2': 'Cloudflare R2',
+}
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
@@ -347,7 +351,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
-        setManualLinkingProvider: (provider: ManualLinkProvider) => ({ provider }),
+        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
     }),
     connect({
         values: [
@@ -367,7 +371,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     reducers({
         manualLinkingProvider: [
-            null as ManualLinkProvider | null,
+            null as ManualLinkSourceType | null,
             {
                 setManualLinkingProvider: (_, { provider }) => provider,
             },
@@ -449,7 +453,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         canGoNext: [
             (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId, s.isManualLinkingSelected],
             (currentStep, allSources, sourceId, isManualLinkingSelected): boolean => {
-                if (isManualLinkingSelected && currentStep == 2) {
+                if (isManualLinkingSelected && currentStep == 1) {
                     return false
                 }
 
@@ -512,6 +516,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : null,
                 }))
             },
+        ],
+        manualConnectors: [
+            () => [],
+            () =>
+                manualLinkSources.map((source) => ({
+                    name: manualLinkSourceMap[source],
+                    type: source,
+                })),
         ],
         addToHubspotButtonUrl: [
             (s) => [s.preflight],
@@ -600,6 +612,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
+            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+                dataWarehouseTableLogic.actions.submitTable()
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
@@ -612,8 +626,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
-            } else if (values.currentStep === 3 && values.isManualLinkFormVisible) {
-                dataWarehouseTableLogic.actions.submitTable()
             }
 
             if (values.currentStep === 4) {
