@@ -138,9 +138,9 @@ export class HogExecutor {
         status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         try {
-            const fields = this.buildHogFunctionFields(hogFunction, invocation)
+            const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
             const res = exec(state ?? hogFunction.bytecode, {
-                fields: fields,
+                globals,
                 timeout: 100, // NOTE: This will likely be configurable in the future
                 maxAsyncSteps: 5, // NOTE: This will likely be configurable in the future
                 asyncFunctions: {
@@ -172,22 +172,22 @@ export class HogExecutor {
         }
     }
 
-    buildHogFunctionFields(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
-        const builtFields: Record<string, any> = {}
+    buildHogFunctionGlobals(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
+        const builtInputs: Record<string, any> = {}
 
         Object.entries(hogFunction.inputs).forEach(([key, item]) => {
             // TODO: Replace this with iterator
-            builtFields[key] = item.value
+            builtInputs[key] = item.value
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                builtFields[key] = formatInput(item.bytecode, invocation.globals)
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
             }
         })
 
         return {
             ...invocation.globals,
-            inputs: builtFields,
+            inputs: builtInputs,
         }
     }
 
