@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+const ExpectedScope := "posthog:livestream"
+
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 	// split the token
 	parts := strings.Split(authHeader, " ")
@@ -34,6 +36,11 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	tokenScope := fmt.Sprint(claims["scope"])
+	if tokenScope != ExpectedScope {
+		return nil, fmt.Errorf("invalid scope")
 	}
 
 	// Check if the token is valid and return the claims.
