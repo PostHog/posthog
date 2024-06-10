@@ -940,7 +940,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query = filter_to_query(filter_dict).model_dump()
 
         # cache insight results for trends with a -7d date from
-        response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query, "async": False})
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query})
         self.assertEqual(response.status_code, 200)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
@@ -959,7 +959,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         filter_dict["date_from"] = "-24h"
         response = self.client.post(
             f"/api/projects/{self.team.id}/query/",
-            data={"query": filter_to_query(filter_dict).model_dump(), "async": False},
+            data={"query": filter_to_query(filter_dict).model_dump()},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1289,6 +1289,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "select": ["*"],
                         },
                     },
+                    "query_status": None,
                     "result": None,
                     "saved": False,
                     "short_id": ANY,
