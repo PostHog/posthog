@@ -6,7 +6,12 @@ import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogFunctionInvocation, HogFunctionInvocationAsyncResponse, HogFunctionType } from './types'
+import {
+    HogFunctionInvocation,
+    HogFunctionInvocationAsyncResponse,
+    HogFunctionInvocationContext,
+    HogFunctionType,
+} from './types'
 
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
@@ -74,8 +79,11 @@ export class HogExecutor {
 
                     return filterResult.result
                 } catch (error) {
-                    // TODO: Do we report these to somewhere?
-                    console.error('Error filtering functions:', error)
+                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        hogFunctionId: value.id,
+                        hogFunctionName: value.name,
+                        error,
+                    })
                 }
 
                 return false
@@ -88,7 +96,18 @@ export class HogExecutor {
 
         // TODO: Filter the functions based on the filters object
         for (const hogFunction of Object.values(functions)) {
-            await this.execute(hogFunction, invocation)
+            const modifiedGlobals: HogFunctionInvocationContext = {
+                ...invocation.globals,
+                source: {
+                    name: hogFunction.name,
+                    url: `${invocation.globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                },
+            }
+
+            await this.execute(hogFunction, {
+                ...invocation,
+                globals: modifiedGlobals,
+            })
         }
     }
 
@@ -110,7 +129,13 @@ export class HogExecutor {
     }
 
     async execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation, state?: VMState): Promise<any> {
-        status.info(`Executing function  ${hogFunction.id} - ${hogFunction.name}`)
+        const loggingContext = {
+            hogFunctionId: hogFunction.id,
+            hogFunctionName: hogFunction.name,
+            hogFunctionUrl: invocation.globals.source?.url,
+        }
+
+        status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         try {
             const fields = this.buildHogFunctionFields(hogFunction, invocation)
@@ -125,21 +150,25 @@ export class HogExecutor {
             })
 
             if (!res.finished) {
-                try {
-                    switch (res.asyncFunctionName) {
-                        case 'fetch':
-                            await this.asyncFunctionFetch(hogFunction, invocation, res)
-                            break
-                        default:
-                            console.error(`Unknown async function: ${res.asyncFunctionName}`)
-                        // TODO: Log error somewhere
-                    }
-                } catch (err) {
-                    console.error(`Error executing async function: ${res.asyncFunctionName}`, err)
+                status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
+                    ...loggingContext,
+                    asyncFunctionName: res.asyncFunctionName,
+                })
+                switch (res.asyncFunctionName) {
+                    case 'fetch':
+                        await this.asyncFunctionFetch(hogFunction, invocation, res)
+                        break
+                    default:
+                        status.error(
+                            '🦔',
+                            `[HogExecutor] Unknown async function: ${res.asyncFunctionName}`,
+                            loggingContext
+                        )
+                    // TODO: Log error somewhere
                 }
             }
         } catch (error) {
-            console.error('Error executing function:', error)
+            status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, error)
         }
     }
 
@@ -196,6 +225,7 @@ export class HogExecutor {
 
         // TODO: Temporary test code
         if (!success) {
+            status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
             const fetchResponse = await trackedFetch(url, {
                 method: webhook.method,
                 body: webhook.body,
