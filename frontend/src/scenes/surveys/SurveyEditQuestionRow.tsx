@@ -10,7 +10,7 @@ import { Group } from 'kea-forms'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Survey, SurveyQuestionType } from '~/types'
+import { Survey, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
@@ -323,35 +323,38 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     return (
                         // TODO: support single-choice too
                         question.type === SurveyQuestionType.Rating && (
-                            <LemonField name="nextStep" label="After this question, go to:" className="max-w-80">
+                            <LemonField name="branching" label="After this question, go to:" className="max-w-80">
                                 <LemonSelect
+                                    // TODO: retrieve dropdown value from a selector
+                                    // SPECIFIC QUESTION NOT YET WORKING
+                                    value={question.branching?.type || SurveyQuestionBranchingType.NextQuestion}
                                     // TODO: use ellipsis for overflowing questions
                                     data-attr={`some-key-here-${index}`}
-                                    onSelect={(nextStep) => {
+                                    onSelect={(branchingType) => {
                                         // TODO: update survey.questions[index]
                                         // find the appropriate method in the logic
-                                        setBranchingForQuestion(index, nextStep)
+                                        setBranchingForQuestion(index, branchingType)
                                     }}
                                     options={[
                                         ...(index < survey.questions.length - 1
                                             ? [
                                                   {
                                                       label: 'Next question',
-                                                      value: 'next-question',
+                                                      value: SurveyQuestionBranchingType.NextQuestion,
                                                   },
                                               ]
                                             : []),
                                         {
                                             label: 'Confirmation message',
-                                            value: 'confirmation-message',
+                                            value: SurveyQuestionBranchingType.ConfirmationMessage,
                                         },
                                         {
                                             label: 'Specific question based on answer',
-                                            value: 'specific-question-based-on-answer',
+                                            value: SurveyQuestionBranchingType.ResponseBased,
                                         },
                                         ...availableNextQuestions.map((question) => ({
                                             label: `${question.questionIndex + 1}. ${question.question}`,
-                                            value: `question:${question.questionIndex}`,
+                                            value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
                                         })),
                                     ]}
                                 />

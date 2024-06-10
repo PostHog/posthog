@@ -21,6 +21,7 @@ import {
     RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
+    SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -139,7 +140,7 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        setBranchingForQuestion: (questionIndex, nextStep) => ({ questionIndex, nextStep }),
+        setBranchingForQuestion: (questionIndex, branchingType) => ({ questionIndex, branchingType }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -543,19 +544,32 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
-                setBranchingForQuestion: (state, { questionIndex, nextStep }) => {
-                    console.log(questionIndex, nextStep) // eslint-disable-line no-console
+                setBranchingForQuestion: (state, { questionIndex, branchingType }) => {
+                    console.log(questionIndex, branchingType) // eslint-disable-line no-console
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex] as RatingSurveyQuestion // TODO: support single-choice too
 
-                    newQuestions[questionIndex] = {
-                        ...question,
-                        branching: {
-                            responseValue: {
-                                default: 'confirmationMessage',
-                            },
-                        },
+                    if (branchingType === SurveyQuestionBranchingType.NextQuestion) {
+                        delete question['branching']
+                    } else if (branchingType === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                        }
+                    } else if (branchingType === SurveyQuestionBranchingType.ResponseBased) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ResponseBased,
+                            responseValue: {},
+                        }
+                    } else if (branchingType.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                        const questionIndex = branchingType.split(':')[1]
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.SpecificQuestion,
+                            questionIndex,
+                        }
                     }
+
+                    newQuestions[questionIndex] = question
+
                     return {
                         ...state,
                         questions: newQuestions,
