@@ -26,8 +26,7 @@ export type UniversalFiltersLogicProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
-    taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
-    taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
@@ -83,11 +82,20 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
     selectors({
         rootKey: [(_, p) => [p.rootKey], (rootKey) => rootKey],
-        taxonomicEntityFilterGroupTypes: [(_, p) => [p.taxonomicEntityFilterGroupTypes], (types) => types],
-        taxonomicPropertyFilterGroupTypes: [(_, p) => [p.taxonomicPropertyFilterGroupTypes], (types) => types],
-        taxonomicGroupTypes: [
-            (_, p) => [p.taxonomicEntityFilterGroupTypes, p.taxonomicPropertyFilterGroupTypes],
-            (entityTypes, propertyTypes) => [...entityTypes, ...propertyTypes],
+        taxonomicGroupTypes: [(_, p) => [p.taxonomicGroupTypes], (types) => types],
+        taxonomicPropertyFilterGroupTypes: [
+            (_, p) => [p.taxonomicGroupTypes],
+            (types) =>
+                types.filter((t) =>
+                    [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ].includes(t)
+                ),
         ],
     }),
 
