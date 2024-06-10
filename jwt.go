@@ -40,10 +40,10 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 
 	// Check if the token is valid and return the claims.
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		// Validate scope
-		tokenScope := fmt.Sprint(claims["scope"])
+		// Validate audience
+		tokenScope := fmt.Sprint(claims["aud"])
 		if tokenScope != ExpectedScope {
-			return nil, fmt.Errorf("invalid scope")
+			return nil, fmt.Errorf("invalid audience")
 		}
 		return claims, nil
 	} else {
