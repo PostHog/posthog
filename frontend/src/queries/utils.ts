@@ -237,7 +237,9 @@ export function isTimeToSeeDataSessionsNode(node?: Record<string, any> | null): 
 }
 
 export function dateRangeFor(node?: Node): DateRange | undefined {
-    if (isInsightQueryNode(node)) {
+    if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    } else if (isInsightQueryNode(node)) {
         return node.dateRange
     } else if (isTimeToSeeDataQuery(node)) {
         return {
@@ -254,8 +256,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined
     } else if (isDataTableNode(node)) {
         return undefined
-    } else if (isInsightVizNode(node)) {
-        return node.source.dateRange
     }
 
     return undefined

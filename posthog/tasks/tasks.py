@@ -713,6 +713,13 @@ def stop_surveys_reached_target() -> None:
     stop_surveys_reached_target()
 
 
+@shared_task(ignrore_result=True)
+def update_survey_iteration() -> None:
+    from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+    update_survey_iteration()
+
+
 def recompute_materialized_columns_enabled() -> bool:
     from posthog.models.instance_setting import get_instance_setting
 

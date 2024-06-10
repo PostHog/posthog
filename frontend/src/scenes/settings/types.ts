@@ -81,6 +81,7 @@ export type SettingId =
     | 'heatmaps'
     | 'hedgehog-mode'
     | 'persons-join-mode'
+    | 'bounce-rate-page-view-mode'
 
 export type Setting = {
     id: SettingId

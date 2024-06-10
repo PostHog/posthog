@@ -1,5 +1,5 @@
 import { IconCollapse } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -193,6 +193,29 @@ function FilterPanel(): JSX.Element {
     )
 }
 
+function IframeErrorOverlay(): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+    const { iframeBanner } = useValues(logic)
+    return iframeBanner ? (
+        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
+            <LemonBanner className="w-full" type={iframeBanner.level}>
+                {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
+                toolbar" above to visit your site and view the heatmap there.
+            </LemonBanner>
+        </div>
+    ) : null
+}
+
+function LoadingOverlay(): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+    const { loading } = useValues(logic)
+    return loading ? (
+        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
+            <Spinner className="text-5xl" textColored={true} />
+        </div>
+    ) : null
+}
+
 function EmbeddedHeatmapBrowser({
     iframeRef,
 }: {
@@ -200,7 +223,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl, loading } = useValues(logic)
+    const { browserUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -211,26 +234,28 @@ function EmbeddedHeatmapBrowser({
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
-            <iframe
-                ref={iframeRef}
-                className="flex-1"
-                src={appEditorUrl(browserUrl, {
-                    userIntent: 'heatmaps',
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: '#FFF',
-                }}
-                onLoad={onIframeLoad}
-                // these two sandbox values are necessary so that the site and toolbar can run
-                // this is a very loose sandbox,
-                // but we specify it so that at least other capabilities are denied
-                sandbox="allow-scripts allow-same-origin"
-                // we don't allow things such as camera access though
-                allow=""
-            />
-
-            {loading && <SpinnerOverlay />}
+            <div className="relative flex-1 w-full h-full">
+                <IframeErrorOverlay />
+                <LoadingOverlay />
+                <iframe
+                    ref={iframeRef}
+                    className="w-full h-full"
+                    src={appEditorUrl(browserUrl, {
+                        userIntent: 'heatmaps',
+                    })}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        background: '#FFF',
+                    }}
+                    onLoad={onIframeLoad}
+                    // these two sandbox values are necessary so that the site and toolbar can run
+                    // this is a very loose sandbox,
+                    // but we specify it so that at least other capabilities are denied
+                    sandbox="allow-scripts allow-same-origin"
+                    // we don't allow things such as camera access though
+                    allow=""
+                />
+            </div>
         </div>
     ) : null
 }

@@ -901,6 +901,7 @@ class LegacyPluginConfigViewSet(PluginConfigViewSet):
 
 class PipelineTransformationsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
 
 
@@ -913,6 +914,7 @@ class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineDestinationsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.filter(
             Q(capabilities__has_key="methods")
             & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
@@ -932,6 +934,7 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineFrontendAppsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         return queryset.exclude(Q(capabilities__has_key="methods") | Q(capabilities__has_key="scheduled_tasks"))
 
 
@@ -944,6 +947,7 @@ class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
 
 class PipelineImportAppsViewSet(PluginViewSet):
     def safely_get_queryset(self, queryset):
+        queryset = super().safely_get_queryset(queryset)
         # All the plugins, that are not on the other pages
         return queryset.filter(
             Q(Q(capabilities__has_key="scheduled_tasks") & ~Q(capabilities__scheduled_tasks=[]))
