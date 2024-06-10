@@ -4113,7 +4113,6 @@ export type HogFunctionType = {
             bytecode?: any
         }
     >
-    // TODO: Rewrite these
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
 }
