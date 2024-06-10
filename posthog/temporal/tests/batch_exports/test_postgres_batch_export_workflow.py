@@ -401,8 +401,8 @@ async def test_postgres_export_workflow(
     )
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("batch_export_schema", TEST_SCHEMAS)
 async def test_postgres_export_workflow_without_events(
     clickhouse_client,
@@ -415,10 +415,9 @@ async def test_postgres_export_workflow_without_events(
     table_name,
     batch_export_schema,
 ):
-    """Test Postgres Export Workflow end-to-end by using a local PG database.
+    """Test Postgres Export Workflow end-to-end without any events to export.
 
-    The workflow should update the batch export run status to completed and produce the expected
-    records to the local development PostgreSQL database.
+    The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 

@@ -544,14 +544,9 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     s3_key_prefix,
     batch_export_schema,
 ):
-    """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
+    """Test S3BatchExport Workflow end-to-end without any events to export.
 
-    The workflow should update the batch export run status to completed and produce the expected
-    records to the MinIO bucket.
-
-    We use a BatchExport model to provide accurate inputs to the Workflow and because the Workflow
-    will require its prescense in the database when running. This model is indirectly parametrized
-    by several fixtures. Refer to them for more information.
+    The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
