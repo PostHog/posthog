@@ -23,6 +23,7 @@ from posthog.queries.app_metrics.serializers import (
     AppMetricsRequestSerializer,
 )
 from posthog.utils import relative_date_parse
+from posthog.batch_exports.models import fetch_batch_export_run_count
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -84,8 +85,6 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         Raises:
             ValueError: If provided 'batch_export_id' is not a valid UUID.
         """
-        from posthog.batch_exports.models import fetch_batch_export_run_count
-
         batch_export_uuid = uuid.UUID(batch_export_id)
 
         after = self.request.GET.get("date_from", "-30d")
@@ -113,7 +112,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         dates = []
         successes = []
         failures = []
-        current_day = None
+        current_day: dt.datetime | None = None
         for run in runs:
             if current_day is None:
                 current_day = run.day
