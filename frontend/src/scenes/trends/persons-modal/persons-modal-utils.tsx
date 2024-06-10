@@ -111,7 +111,7 @@ export const urlsForDatasets = (
                           dataset.breakdown_value,
                           breakdownFilter?.breakdown,
                           breakdownFilter?.breakdown_type,
-                          breakdownFilter?.breakdown_histogram_bin_count
+                          breakdownFilter?.breakdown_histogram_bin_count != null
                       )
                 return {
                     value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',

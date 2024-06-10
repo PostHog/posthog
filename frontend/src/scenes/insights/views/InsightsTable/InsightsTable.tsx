@@ -136,7 +136,7 @@ export function InsightsTable({
                 item.breakdown_value,
                 breakdownFilter?.breakdown,
                 breakdownFilter?.breakdown_type,
-                breakdownFilter?.breakdown_histogram_bin_count
+                breakdownFilter?.breakdown_histogram_bin_count != null
             )
 
         columns.push({
