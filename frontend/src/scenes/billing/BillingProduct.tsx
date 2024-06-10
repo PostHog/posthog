@@ -399,12 +399,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         !upgradePlan.unit_amount_usd && (
                                             <BillingUpgradeCTA
                                                 data-attr={`${product.type}-upgrade-cta`}
-                                                to={getUpgradeProductLink(
+                                                to={getUpgradeProductLink({
                                                     product,
-                                                    upgradeToPlanKey || '',
+                                                    upgradeToPlanKey: upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    isOnboarding // if in onboarding, we want to include addons, otherwise don't
-                                                )}
+                                                    includeAddons: isOnboarding,
+                                                    subscriptionLevel: billing?.subscription_level,
+                                                    featureFlags,
+                                                })}
                                                 type="primary"
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting

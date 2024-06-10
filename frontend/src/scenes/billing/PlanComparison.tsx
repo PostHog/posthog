@@ -134,7 +134,14 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                            : getUpgradeProductLink({
+                                  product,
+                                  upgradeToPlanKey: plan.plan_key || '',
+                                  redirectPath,
+                                  includeAddons,
+                                  subscriptionLevel: billing?.subscription_level,
+                                  featureFlags,
+                              })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={

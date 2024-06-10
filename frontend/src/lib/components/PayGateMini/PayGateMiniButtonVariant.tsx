@@ -22,7 +22,7 @@ export const PayGateMiniButtonVariant = ({
     return (
         <LemonButton
             to={getCtaLink(gateVariant, productWithFeature, featureInfo, isAddonProduct)}
-            disableClientSideRouting
+            disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
             type="primary"
             center
             onClick={onCtaClick}

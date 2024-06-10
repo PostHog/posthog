@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
@@ -24,6 +25,7 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
@@ -42,7 +44,14 @@ export const OnboardingBillingStep = ({
                 product?.subscribed ? undefined : (
                     <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
+                        to={getUpgradeProductLink({
+                            product,
+                            upgradeToPlanKey: plan.plan_key || '',
+                            redirectPath,
+                            includeAddons: true,
+                            subscriptionLevel: billing?.subscription_level,
+                            featureFlags,
+                        })}
                         type="primary"
                         status="alt"
                         center
