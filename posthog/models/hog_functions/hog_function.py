@@ -27,7 +27,7 @@ class HogFunction(UUIDModel):
     # TODO: Rename to "variables"
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
-    filters: models.JSONField = models.JSONField(null=True, blank=True, default=lambda: {})
+    filters: models.JSONField = models.JSONField(null=True, blank=True, default=dict)
 
     @property
     def filter_action_ids(self) -> list[int]:
