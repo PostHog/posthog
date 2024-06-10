@@ -23,7 +23,6 @@ export async function processPersonsStep(
         timestamp,
         processPerson,
         runner.hub.db,
-        runner.hub.lazyPersonCreationTeams(event.team_id),
         overridesWriter
     ).update()
 

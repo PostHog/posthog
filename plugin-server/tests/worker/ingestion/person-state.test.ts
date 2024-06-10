@@ -111,7 +111,6 @@ describe('PersonState.update()', () => {
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
-        lazyPersonCreation = false,
         timestampParam = timestamp
     ) {
         const fullEvent = {
@@ -127,7 +126,6 @@ describe('PersonState.update()', () => {
             timestampParam,
             processPerson,
             customHub ? customHub.db : hub.db,
-            lazyPersonCreation,
             overridesMode?.getWriter(customHub ?? hub)
         )
     }
@@ -187,12 +185,11 @@ describe('PersonState.update()', () => {
             expect(personPrimaryTeam.uuid).not.toEqual(personOtherTeam.uuid)
         })
 
-        it('returns an ephemeral user object when lazy creation is enabled and $process_person_profile=false', async () => {
+        it('returns an ephemeral user object when $process_person_profile=false', async () => {
             const event_uuid = new UUIDT().toString()
 
             const hubParam = undefined
             const processPerson = false
-            const lazyPersonCreation = true
             const [fakePerson, kafkaAcks] = await personState(
                 {
                     event: '$pageview',
@@ -201,8 +198,7 @@ describe('PersonState.update()', () => {
                     properties: { $set: { should_be_dropped: 100 } },
                 },
                 hubParam,
-                processPerson,
-                lazyPersonCreation
+                processPerson
             ).update()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
@@ -226,12 +222,11 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it('merging with lazy person creation creates an override and force_upgrade works', async () => {
+        it('merging creates an override and force_upgrade works', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
             const hubParam = undefined
             let processPerson = true
-            const lazyPersonCreation = true
             const [_person, kafkaAcks] = await personState(
                 {
                     event: '$identify',
@@ -241,8 +236,7 @@ describe('PersonState.update()', () => {
                     },
                 },
                 hubParam,
-                processPerson,
-                lazyPersonCreation
+                processPerson
             ).update()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
@@ -276,7 +270,6 @@ describe('PersonState.update()', () => {
                 },
                 hubParam,
                 processPerson,
-                lazyPersonCreation,
                 timestampParam
             ).update()
             await hub.db.kafkaProducer.flush()
@@ -323,50 +316,6 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
-
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
-        })
-
-        it('creates person if they are new and $process_person_profile=false', async () => {
-            // Note that eventually $process_person_profile=false will be optimized so that the person is
-            // *not* created here.
-            const event_uuid = new UUIDT().toString()
-            const processPerson = false
-            const [person, kafkaAcks] = await personState(
-                {
-                    event: '$pageview',
-                    distinct_id: newUserDistinctId,
-                    uuid: event_uuid,
-                    properties: { $process_person_profile: false, $set: { a: 1 }, $set_once: { b: 2 } },
-                },
-                hub,
-                processPerson
-            ).update()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-
-            expect(person).toEqual(
-                expect.objectContaining({
-                    id: expect.any(Number),
-                    uuid: newUserUuid,
-                    properties: {},
-                    created_at: timestamp,
-                    version: 0,
-                    is_identified: false,
-                })
-            )
-
-            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
-
-            // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
-            expect(persons.length).toEqual(1)
-            // For parity with existing functionality, the Person created in the DB actually gets
-            // the $creator_event_uuid property. When we stop creating person rows this won't matter.
-            expect(persons[0]).toEqual({ ...person, properties: { $creator_event_uuid: event_uuid } })
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
@@ -802,7 +751,7 @@ describe('PersonState.update()', () => {
                         uuid: newUserUuid,
                         properties: { foo: 'bar' },
                         created_at: timestamp,
-                        version: 0,
+                        version: 1,
                         is_identified: true,
                     })
                 )
