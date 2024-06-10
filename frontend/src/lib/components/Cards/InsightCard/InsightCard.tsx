@@ -16,7 +16,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import { insightDataLogic, queryFromFilters } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
@@ -31,7 +31,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { getCachedResults, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -236,7 +236,7 @@ export function FilterBasedCardContent({
 
 function InsightCardInternal(
     {
-        insight,
+        insight: legacyInsight,
         dashboardId,
         ribbonColor,
         loadingQueued,
@@ -266,11 +266,12 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const insight = getQueryBasedInsightModel(legacyInsight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
-        cachedInsight: insight,
+        cachedInsight: legacyInsight, // TODO: use query based insight here
         loadPriority,
         doNotLoad,
     }
@@ -280,16 +281,6 @@ function InsightCardInternal(
     const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
-    let tooFewFunnelSteps = false
-    let empty = false
-    if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!isFunnelWithEnoughSteps) {
-            tooFewFunnelSteps = true
-        }
-        if (!hasFunnelResults && !apiErrored) {
-            empty = true
-        }
-    }
     if (insightLoading || insightDataLoading) {
         loading = true
     }
@@ -324,11 +315,11 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {insight.query || useQueryDashboardCards ? (
+                {legacyInsight.query || useQueryDashboardCards ? (
                     <div className="InsightCard__viz">
                         <Query
-                            query={insight.query || queryFromFilters(insight.filters)}
-                            cachedResults={insight}
+                            query={insight.query}
+                            cachedResults={legacyInsight}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
@@ -339,15 +330,19 @@ function InsightCardInternal(
                     </div>
                 ) : (
                     <FilterBasedCardContent
-                        insight={insight}
+                        insight={legacyInsight}
                         insightProps={insightLogicProps}
                         loading={loading}
                         stale={stale}
                         setAreDetailsShown={setAreDetailsShown}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
-                        empty={empty}
-                        tooFewFunnelSteps={tooFewFunnelSteps}
+                        empty={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored
+                        }
+                        tooFewFunnelSteps={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
+                        }
                         validationError={validationError}
                     />
                 )}
