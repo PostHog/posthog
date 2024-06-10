@@ -180,12 +180,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            if (!liveEventsHostOrigin()) {
-                return
-            }
-
             actions.updateEventsConnection()
-            cache.pollingInterval = setInterval(() => {
+            cache.statsInterval = setInterval(() => {
                 actions.pollStats()
             }, 1500)
         },
@@ -193,7 +189,9 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             if (cache.eventsSource) {
                 cache.eventsSource.close()
             }
-            clearInterval(cache.interval)
+            if (cache.statsInterval) {
+                clearInterval(cache.statsInterval)
+            }
         },
     })),
 ])
