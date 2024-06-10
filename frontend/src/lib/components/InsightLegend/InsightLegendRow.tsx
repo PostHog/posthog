@@ -1,45 +1,36 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType } from '~/types'
 
+import { shouldHighlightThisRow } from './utils'
+
 type InsightLegendRowProps = {
-    hiddenLegendKeys: Record<string, boolean | undefined>
     rowIndex: number
     item: IndexedTrendResult
-    hasMultipleSeries: boolean
-    toggleVisibility: (index: number) => void
-    compare?: boolean | null
-    display?: ChartDisplayType | null
-    trendsFilter?: TrendsFilter | null
-    highlighted: boolean
 }
 
-export function InsightLegendRow({
-    hiddenLegendKeys,
-    rowIndex,
-    item,
-    hasMultipleSeries,
-    toggleVisibility,
-    compare,
-    display,
-    trendsFilter,
-    highlighted,
-}: InsightLegendRowProps): JSX.Element {
+export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const { insightProps, hiddenLegendKeys, highlightedSeries } = useValues(insightLogic)
+    const { toggleVisibility } = useActions(insightLogic)
+    const { compare, display, trendsFilter, isSingleSeries } = useValues(trendsDataLogic(insightProps))
+
+    const highlighted = shouldHighlightThisRow(hiddenLegendKeys, rowIndex, highlightedSeries)
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesColor(item.seriesIndex, false, true) },
@@ -77,7 +68,7 @@ export function InsightLegendRow({
                             seriesColor={getSeriesColor(item.seriesIndex, compare)}
                             action={item.action}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                            hasMultipleSeries={hasMultipleSeries}
+                            hasMultipleSeries={!isSingleSeries}
                             breakdownValue={formattedBreakdownValue}
                             compareValue={compare ? formatCompareLabel(item) : undefined}
                             pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
