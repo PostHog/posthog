@@ -135,7 +135,6 @@ impl FeatureFlagMatcher {
         hasher.update(hash_key.as_bytes());
         let result = hasher.finalize();
         // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-        // not sure if this is correct, padding each byte as 2 characters
         let hex_str: String = result.iter().fold(String::new(), |mut acc, byte| {
             let _ = write!(acc, "{:02x}", byte);
             acc

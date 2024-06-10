@@ -16,7 +16,7 @@ pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 #[derive(Debug, Deserialize)]
 pub enum GroupTypeIndex {}
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
     Exact,
@@ -39,6 +39,9 @@ pub enum OperatorType {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PropertyFilter {
     pub key: String,
+    // TODO: Probably need a default for value?
+    // incase operators like is_set, is_not_set are used
+    // not guaranteed to have a value, if say created via api
     pub value: serde_json::Value,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
