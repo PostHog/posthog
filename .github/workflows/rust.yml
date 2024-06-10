@@ -36,8 +36,8 @@ jobs:
             - uses: actions/cache@v3
               with:
                   path: |
-                      ~/rust/.cargo/registry
-                      ~/rust/.cargo/git
+                      ~/.cargo/registry
+                      ~/.cargo/git
                       rust/target
                   key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
@@ -79,8 +79,8 @@ jobs:
             - uses: actions/cache@v3
               with:
                   path: |
-                      ~/rust/.cargo/registry
-                      ~/rust/.cargo/git
+                      ~/.cargo/registry
+                      ~/.cargo/git
                       rust/target
                   key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
@@ -111,8 +111,8 @@ jobs:
             - uses: actions/cache@v3
               with:
                   path: |
-                      ~/rust/.cargo/registry
-                      ~/rust/.cargo/git
+                      ~/.cargo/registry
+                      ~/.cargo/git
                       rust/target
                   key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 

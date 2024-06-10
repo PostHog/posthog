@@ -6,8 +6,8 @@ RUN cargo install sqlx-cli@0.7.3 --no-default-features --features native-tls,pos
 FROM debian:bullseye-20230320-slim AS runtime
 WORKDIR /sqlx
 
-ADD bin /sqlx/bin/
-ADD migrations /sqlx/migrations/
+COPY bin /sqlx/bin/
+COPY migrations /sqlx/migrations/
 
 COPY --from=builder /app/target/release/bin/sqlx /usr/local/bin
 
