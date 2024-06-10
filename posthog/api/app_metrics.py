@@ -116,13 +116,13 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         for run in runs:
             if current_day is None:
                 current_day = run.day
-                dates.append(current_day.strftime("%Y-%m-%d"))
+                dates.append(run.day.strftime("%Y-%m-%d"))
                 successes.append(0)
                 failures.append(0)
 
             elif current_day < run.day:
                 current_day = run.day
-                dates.append(current_day.strftime("%Y-%m-%d"))
+                dates.append(run.day.strftime("%Y-%m-%d"))
                 successes.append(0)
                 failures.append(0)
 
