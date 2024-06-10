@@ -235,7 +235,7 @@ export class HedgehogActor {
             this.xVelocity = 0
         }
 
-        if (window.JS_POSTHOG_SELF_CAPTURE || (window as any).debugHedgehog) {
+        if ((window as any)._posthogDebugHedgehog) {
             const duration = this.animationIterations
                 ? this.animationIterations * this.animation.frames * (1000 / FPS)
                 : '∞'
@@ -498,6 +498,7 @@ export class HedgehogActor {
                 this.isDragging = false
                 // get the velocity as an average of the last moves
 
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const relevantPositions = lastPositions.filter(([_x, _y, t]) => {
                     // We only consider the last 500ms but not the last 100ms (to avoid delays in letting go)
                     return t > Date.now() - 500 && t < Date.now() - 20
@@ -675,11 +676,11 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
             actor.hedgehogConfig = hedgehogConfig
             actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
+    }, [hedgehogConfig])
 
-        if (tooltip) {
-            actor.tooltip = tooltip
-        }
-    }, [hedgehogConfig, tooltip])
+    useEffect(() => {
+        actor.tooltip = tooltip
+    }, [tooltip])
 
     useEffect(() => {
         let timer: any = null
