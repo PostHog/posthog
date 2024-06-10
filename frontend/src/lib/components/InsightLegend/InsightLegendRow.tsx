@@ -5,7 +5,6 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -28,7 +27,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
 
     const { insightProps, hiddenLegendKeys, highlightedSeries } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
-    const { compare, display, trendsFilter, isSingleSeries } = useValues(trendsDataLogic(insightProps))
+    const { compare, display, trendsFilter, breakdownFilter, isSingleSeries } = useValues(trendsDataLogic(insightProps))
 
     const highlighted = shouldHighlightThisRow(hiddenLegendKeys, rowIndex, highlightedSeries)
     const highlightStyle: Record<string, any> = highlighted
@@ -48,9 +47,9 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
         cohorts,
         formatPropertyValueForDisplay,
         item.breakdown_value,
-        item.filter?.breakdown,
-        item.filter?.breakdown_type,
-        item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
+        breakdownFilter?.breakdown,
+        breakdownFilter?.breakdown_type,
+        breakdownFilter?.breakdown_histogram_bin_count !== undefined
     )
 
     return (
@@ -71,7 +70,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                             hasMultipleSeries={!isSingleSeries}
                             breakdownValue={formattedBreakdownValue}
                             compareValue={compare ? formatCompareLabel(item) : undefined}
-                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                            pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
                             hideIcon
                         />
                     }
