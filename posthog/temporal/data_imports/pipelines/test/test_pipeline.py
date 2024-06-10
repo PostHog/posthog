@@ -6,7 +6,7 @@ import pytest
 import structlog
 from asgiref.sync import sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
-from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
+from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -49,16 +49,7 @@ class TestDataImportPipeline(APIBaseTest):
                 job_type="Stripe",
                 team_id=self.team.pk,
             ),
-            source=stripe_source(
-                api_key="",
-                account_id="",
-                endpoints=(schema_name,),
-                team_id=self.team.pk,
-                job_id=job.pk,
-                schema_id=schema.pk,
-                start_date=None,
-                end_date=None,
-            ),
+            source=stripe_source(api_key="", account_id="", endpoint=schema_name, is_incremental=False),
             logger=structlog.get_logger(),
             incremental=incremental,
         )
