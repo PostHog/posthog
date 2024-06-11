@@ -121,6 +121,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'embedErrorEvent',
                 'createEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
@@ -149,6 +150,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'embedErrorEvent',
                 'createEventStep',
             ])
         })
@@ -171,7 +173,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
