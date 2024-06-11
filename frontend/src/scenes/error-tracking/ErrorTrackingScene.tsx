@@ -1,6 +1,6 @@
 import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingGroup } from '~/types'
@@ -37,7 +37,7 @@ export function ErrorTrackingScene(): JSX.Element {
             dataSource={errorGroups}
             expandable={{
                 expandedRowRender: function renderExpand(group: ErrorTrackingGroup) {
-                    return <EventDetails event={group.sampleEvent} />
+                    return <ErrorDisplay eventProperties={group.sampleEventProperties} />
                 },
                 noIndent: true,
             }}

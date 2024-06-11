@@ -30,8 +30,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     return res.results.map((r) => {
                         const eventProperties = JSON.parse(r[0])
                         return {
-                            sampleEvent: { event: '$exception', properties: eventProperties },
                             title: eventProperties['$exception_message'] || 'No message',
+                            sampleEventProperties: eventProperties,
                             occurrences: r[2],
                             uniqueSessions: r[3],
                         }

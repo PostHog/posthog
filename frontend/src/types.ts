@@ -1002,9 +1002,8 @@ export type ErrorCluster = {
 export type ErrorClusterResponse = ErrorCluster[] | null
 
 export type ErrorTrackingGroup = {
-    id: string
-    name: string
-    sampleEvent: EventType
+    title: string
+    sampleEventProperties: EventType['properties']
     occurrences: number
     uniqueSessions: number
 }
