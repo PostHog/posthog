@@ -19,6 +19,10 @@ export function HedgehogButton(): JSX.Element {
         }
     }, [heatmapEnabled])
 
+    useEffect(() => {
+        return hedgehogActor?.setupKeyboardListeners()
+    }, [hedgehogActor])
+
     return (
         <>
             {hedgehogMode && (

@@ -97,7 +97,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link
-                                    to="https://posthog.com/changelog/2024#person-profiles-addon"
+                                    to="https://posthog.com/changelog/2024#person-profiles-launched-posthog-now-up-to-80percent-cheaper"
                                     className="italic"
                                     target="_blank"
                                     targetBlankIcon

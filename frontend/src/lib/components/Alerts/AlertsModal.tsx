@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { InsightModel, InsightShortId } from '~/types'
+import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
@@ -50,7 +50,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
 }
 
 export interface AlertsButtonProps {
-    insight: Partial<InsightModel>
+    insight: Partial<QueryBasedInsightModel>
 }
 
 export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
@@ -61,7 +61,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    if (!areAlertsSupportedForInsight(insight.filters)) {
+    if (!areAlertsSupportedForInsight(insight.query)) {
         return (
             <LemonButton
                 data-attr="disabled-alerts-button"

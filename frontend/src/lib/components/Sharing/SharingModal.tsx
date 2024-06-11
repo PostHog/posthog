@@ -16,7 +16,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
@@ -26,7 +27,7 @@ export const SHARING_MODAL_WIDTH = 600
 export interface SharingModalBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
-    insight?: Partial<InsightModel>
+    insight?: Partial<QueryBasedInsightModel>
     recordingId?: string
 
     title?: string
@@ -68,7 +69,7 @@ export function SharingModalContent({
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
-    const showLegendCheckbox = insight?.filters?.insight === InsightType.TRENDS
+    const showLegendCheckbox = isInsightVizNode(insight?.query) && isTrendsQuery(insight?.query.source)
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
 
     useEffect(() => {

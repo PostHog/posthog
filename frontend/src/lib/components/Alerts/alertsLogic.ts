@@ -1,10 +1,10 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isBoldNumberDisplay } from 'scenes/insights/sharedUtils'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { AlertType, FilterType, InsightShortId } from '~/types'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { AlertType, ChartDisplayType, InsightShortId } from '~/types'
 
 import type { alertsLogicType } from './alertsLogicType'
 
@@ -12,7 +12,15 @@ export interface AlertsLogicProps {
     insightShortId: InsightShortId
 }
 
-export const areAlertsSupportedForInsight = (filters?: Partial<FilterType>): boolean => isBoldNumberDisplay(filters)
+export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
+    return (
+        !!query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        query.source.trendsFilter != null &&
+        query.source.trendsFilter.display == ChartDisplayType.BoldNumber
+    )
+}
 
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),

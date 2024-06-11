@@ -116,7 +116,7 @@ class PathEventQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonsOnEventsMode.disabled
+            if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
             else ""
         )
 
@@ -141,14 +141,14 @@ class PathEventQuery(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             self._should_join_persons = False
 
     def _get_grouping_fields(self) -> tuple[list[str], dict[str, Any]]:

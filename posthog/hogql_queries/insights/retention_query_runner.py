@@ -86,7 +86,7 @@ class RetentionQueryRunner(QueryRunner):
         )
 
     def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
-        if entity.type == EntityType.actions and entity.id:
+        if entity.type == EntityType.ACTIONS and entity.id:
             action = Action.objects.get(pk=int(entity.id))
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
@@ -131,7 +131,7 @@ class RetentionQueryRunner(QueryRunner):
 
         event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retentionType == RetentionType.retention_first_time
+            if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
             else RetentionQueryType.TARGET
         )
 
@@ -290,13 +290,15 @@ class RetentionQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
-            having=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["breakdown_values"]),
-                right=ast.Constant(value=breakdown_values_filter),
-            )
-            if breakdown_values_filter is not None
-            else None,
+            having=(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["breakdown_values"]),
+                    right=ast.Constant(value=breakdown_values_filter),
+                )
+                if breakdown_values_filter is not None
+                else None
+            ),
         )
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
             inner_query.select_from.sample = ast.SampleExpr(
