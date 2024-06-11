@@ -16,6 +16,7 @@ import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     FeatureFlagFilters,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -156,7 +157,7 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        setBranchingForQuestion: (questionIndex, branchingType) => ({ questionIndex, branchingType }),
+        setQuestionBranching: (questionIndex, value) => ({ questionIndex, value }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -660,23 +661,23 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
-                setBranchingForQuestion: (state, { questionIndex, branchingType }) => {
+                setQuestionBranching: (state, { questionIndex, value }) => {
                     const newQuestions = [...state.questions]
-                    const question = newQuestions[questionIndex] as RatingSurveyQuestion // TODO: support single-choice too
+                    const question = newQuestions[questionIndex] as RatingSurveyQuestion | MultipleSurveyQuestion
 
-                    if (branchingType === SurveyQuestionBranchingType.NextQuestion) {
-                        delete question['branching']
-                    } else if (branchingType === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    if (value === SurveyQuestionBranchingType.NextQuestion) {
+                        delete question.branching
+                    } else if (value === SurveyQuestionBranchingType.ConfirmationMessage) {
                         question.branching = {
                             type: SurveyQuestionBranchingType.ConfirmationMessage,
                         }
-                    } else if (branchingType === SurveyQuestionBranchingType.ResponseBased) {
+                    } else if (value === SurveyQuestionBranchingType.ResponseBased) {
                         question.branching = {
                             type: SurveyQuestionBranchingType.ResponseBased,
                             responseValue: {},
                         }
-                    } else if (branchingType.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                        const nextQuestionIndex = parseInt(branchingType.split(':')[1])
+                    } else if (value.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                        const nextQuestionIndex = parseInt(value.split(':')[1])
                         question.branching = {
                             type: SurveyQuestionBranchingType.SpecificQuestion,
                             index: nextQuestionIndex,
@@ -684,7 +685,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
 
                     newQuestions[questionIndex] = question
-
                     return {
                         ...state,
                         questions: newQuestions,

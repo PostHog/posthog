@@ -2669,6 +2669,7 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    branching?: any
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion

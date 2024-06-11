@@ -12,9 +12,10 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
-import { Survey, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
+import { Survey, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
 
@@ -85,9 +86,12 @@ export function SurveyEditQuestionHeader({
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
-    const { survey, descriptionContentType, getBranchingDropdownValue } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, setBranchingForQuestion } = useActions(surveyLogic)
+    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const hasBranching =
+        featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC] &&
+        (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -335,65 +339,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
-                {/* BRANCHING LOGIC */}
-                {/* ADD A FEATURE FLAG HERE */}
-                {featureFlags[FEATURE_FLAGS.SURVEYS_WIDGETS] &&
-                    (() => {
-                        const availableNextQuestions = survey.questions
-                            .map((question, questionIndex) => ({
-                                ...question,
-                                questionIndex,
-                            }))
-                            .filter((_, questionIndex) => index !== questionIndex)
-
-                        const branchingDropdownValue = getBranchingDropdownValue(question, index)
-
-                        return (
-                            // TODO: support single-choice too
-                            (question.type === SurveyQuestionType.Rating ||
-                                question.type === SurveyQuestionType.SingleChoice) && (
-                                <>
-                                    <LemonField
-                                        name="branching"
-                                        label="After this question, go to:"
-                                        className="max-w-80"
-                                    >
-                                        <LemonSelect
-                                            value={getBranchingDropdownValue(question, index)}
-                                            // TODO: use ellipsis for overflowing questions
-                                            data-attr={`some-key-here-${index}`}
-                                            onSelect={(branchingType) => setBranchingForQuestion(index, branchingType)}
-                                            options={[
-                                                ...(index < survey.questions.length - 1
-                                                    ? [
-                                                          {
-                                                              label: 'Next question',
-                                                              value: SurveyQuestionBranchingType.NextQuestion,
-                                                          },
-                                                      ]
-                                                    : []),
-                                                {
-                                                    label: 'Confirmation message',
-                                                    value: SurveyQuestionBranchingType.ConfirmationMessage,
-                                                },
-                                                {
-                                                    label: 'Specific question based on answer',
-                                                    value: SurveyQuestionBranchingType.ResponseBased,
-                                                },
-                                                ...availableNextQuestions.map((question) => ({
-                                                    label: `${question.questionIndex + 1}. ${question.question}`,
-                                                    value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
-                                                })),
-                                            ]}
-                                        />
-                                    </LemonField>
-                                    {branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && (
-                                        <div>hiya</div>
-                                    )}
-                                </>
-                            )
-                        )
-                    })()}
+                {hasBranching && <QuestionBranchingInput index={index} question={question} />}
             </div>
         </Group>
     )
