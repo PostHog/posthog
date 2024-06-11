@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
 import type { alertDeletionWarningLogicType } from './alertDeletionWarningLogicType'
 import { alertsLogic, areAlertsSupportedForInsight } from './alertsLogic'
