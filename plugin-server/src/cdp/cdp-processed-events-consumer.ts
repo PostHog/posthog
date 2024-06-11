@@ -106,6 +106,11 @@ export class CdpProcessedEventsConsumer {
                                 try {
                                     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
 
+                                    if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                                        // No need to continue if the team doesn't have any functions
+                                        return
+                                    }
+
                                     let groupTypes: GroupTypeToColumnIndex | undefined = undefined
 
                                     if (
@@ -119,9 +124,6 @@ export class CdpProcessedEventsConsumer {
                                             clickHouseEvent.team_id
                                         )
                                     }
-
-                                    // TODO: Clean up all of this and parallelise
-                                    // TODO: We can fetch alot of teams and things in parallel
 
                                     const team = await this.teamManager.fetchTeam(clickHouseEvent.team_id)
                                     if (!team) {
@@ -147,6 +149,10 @@ export class CdpProcessedEventsConsumer {
                 heartbeat()
 
                 const invocationResults: HogFunctionInvocationResult[] = []
+
+                if (!invocations.length) {
+                    return
+                }
 
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,

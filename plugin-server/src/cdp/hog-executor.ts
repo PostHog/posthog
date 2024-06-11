@@ -54,13 +54,13 @@ export class HogExecutor {
      * Intended to be invoked as a starting point from an event
      */
     async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
-        let functions = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
 
         const filtersGlobals = convertToHogFunctionFilterGlobal(invocation.globals)
 
         // Filter all functions based on the invocation
-        functions = Object.fromEntries(
-            Object.entries(functions).filter(([_key, value]) => {
+        const functions = Object.fromEntries(
+            Object.entries(allFunctionsForTeam).filter(([_key, value]) => {
                 try {
                     const filters = value.filters
 
@@ -92,6 +92,13 @@ export class HogExecutor {
 
                 return false
             })
+        )
+
+        status.info(
+            '🦔',
+            `[HogExecutor] Found ${Object.keys(functions).length} matching functions out of ${
+                Object.keys(allFunctionsForTeam).length
+            } for team`
         )
 
         if (!Object.keys(functions).length) {
@@ -164,12 +171,6 @@ export class HogExecutor {
                     // We need to pass these in but they don't actually do anything as it is a sync exec
                     fetch: async () => Promise.resolve(),
                 },
-            })
-
-            console.log('🦔', `[HogExecutor] TESTING`, {
-                asyncFunctionArgs: res.asyncFunctionArgs,
-                asyncFunctionName: res.asyncFunctionName,
-                globals: globals,
             })
 
             if (!res.finished) {
