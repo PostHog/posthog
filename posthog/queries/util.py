@@ -41,16 +41,10 @@ class PersonPropertiesMode(Enum):
 
 
 def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
-    # Person distinct ID overrides aren't implemented in legacy insights, so we alias to a non-overrides mode
     if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
-        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is functionally equivalent to DISABLED
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
         return PersonsOnEventsMode.DISABLED
-    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS has the same person properties semantics as
-        # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, although the latter (which we have to alias to) is less accurate.
-        # Specifically, with neither overrides not a join with persons, unique user counts are inflated,
-        # while conversions undercounted
-        return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
     return persons_on_events_mode
 
 
