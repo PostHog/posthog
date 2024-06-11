@@ -6,7 +6,7 @@ import {
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, FilterLogicalOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { UniversalFiltersGroup, UniversalFiltersGroupValue } from './UniversalFilters'
@@ -49,7 +49,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         }),
         removeGroupValue: (index: number) => ({ index }),
 
-        addGroupFilter: (taxonomicGroup: TaxonomicFilterGroup, propertyKey: TaxonomicFilterValue, item: any) => ({
+        addGroupFilter: (
+            taxonomicGroup: TaxonomicFilterGroup,
+            propertyKey: TaxonomicFilterValue,
+            item: { propertyFilterType?: PropertyFilterType; name?: string }
+        ) => ({
             taxonomicGroup,
             propertyKey,
             item,
@@ -120,7 +124,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
                 newValues.push(newPropertyFilter)
             } else {
-                const entityType = item.PropertyFilterType ?? taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+                const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
                 if (entityType) {
                     const newEntityFilter: ActionFilter = {
                         id: propertyKey,
