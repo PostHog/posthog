@@ -24,7 +24,6 @@ export class HogFunctionManager {
         this.pubSub = new PubSub(this.serverConfig, {
             'reload-hog-functions': async (message) => {
                 const { hogFunctionIds, teamId } = JSON.parse(message)
-
                 await this.reloadHogFunctions(teamId, hogFunctionIds)
             },
         })
