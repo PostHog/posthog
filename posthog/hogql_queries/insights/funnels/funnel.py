@@ -33,9 +33,9 @@ class Funnel(FunnelBase):
         max_steps = self.context.max_steps
 
         if self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.person,
-            BreakdownType.event,
-            BreakdownType.group,
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
         ]:
             return self._breakdown_other_subquery()
 

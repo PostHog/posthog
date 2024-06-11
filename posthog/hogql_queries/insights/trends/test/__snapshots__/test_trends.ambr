@@ -87,7 +87,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -159,12 +159,13 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 2)))), 0)))
@@ -172,7 +173,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -238,7 +239,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -363,7 +364,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -413,7 +414,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -463,7 +464,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -529,7 +530,7 @@
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
   GROUP BY breakdown_value
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -595,7 +596,7 @@
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
   GROUP BY breakdown_value
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -723,7 +724,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -789,7 +790,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -801,15 +802,10 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('test_breakdown_d1',
-                        'test_breakdown_d2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'test_breakdown_d1', -1, 0)
+    AND distinct_id = 'test_breakdown_d2'
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
@@ -848,16 +844,17 @@
             day_start AS day_start,
             breakdown_value AS breakdown_value
      FROM
-       (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['uh', 'oh'], ['uh', 'oh'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
                   groups.group_type_index AS index,
@@ -875,7 +872,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -932,7 +929,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -989,7 +986,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1073,7 +1070,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1139,7 +1136,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1181,7 +1178,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1282,7 +1279,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1386,7 +1383,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1398,14 +1395,15 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')) AS value,
-         count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS count
+         count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS count
   FROM events AS e
   LEFT OUTER JOIN
-    (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-            person_overrides.old_person_id AS old_person_id
-     FROM person_overrides
-     WHERE equals(person_overrides.team_id, 2)
-     GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0)))
   GROUP BY value
   ORDER BY count DESC, value DESC
@@ -1441,15 +1439,16 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id) AS actor_id,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                      transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['some_val2', 'some_val'], ['some_val2', 'some_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
-                (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                        person_overrides.old_person_id AS old_person_id
-                 FROM person_overrides
-                 WHERE equals(person_overrides.team_id, 2)
-                 GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
@@ -1464,7 +1463,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1490,7 +1489,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1580,7 +1579,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1615,12 +1614,13 @@
          count(e.uuid) AS count
   FROM events AS e
   LEFT OUTER JOIN
-    (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-            person_overrides.old_person_id AS old_person_id
-     FROM person_overrides
-     WHERE equals(person_overrides.team_id, 2)
-     GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0))))
@@ -1651,12 +1651,13 @@
                transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0)), true)
@@ -1668,7 +1669,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1712,7 +1713,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1756,7 +1757,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1782,7 +1783,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1826,7 +1827,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1852,7 +1853,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1896,7 +1897,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1908,15 +1909,10 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+    AND distinct_id = 'distinctid2'
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.1
@@ -1936,7 +1932,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1954,21 +1950,22 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1980,15 +1977,10 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+    AND distinct_id = 'distinctid2'
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
@@ -2000,21 +1992,22 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2026,15 +2019,10 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid3')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+    AND distinct_id = 'distinctid3'
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
@@ -2046,21 +2034,22 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2072,15 +2061,10 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+    AND distinct_id = 'distinctid2'
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
@@ -2092,21 +2076,22 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2132,7 +2117,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2165,7 +2150,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2211,7 +2196,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2237,7 +2222,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2294,7 +2279,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2320,7 +2305,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2353,7 +2338,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2399,7 +2384,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2425,7 +2410,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2482,7 +2467,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2508,7 +2493,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2541,7 +2526,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2587,7 +2572,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2613,7 +2598,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2670,7 +2655,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2703,7 +2688,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2729,7 +2714,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2762,7 +2747,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2788,7 +2773,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2821,7 +2806,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2847,7 +2832,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2873,7 +2858,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2899,7 +2884,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2925,7 +2910,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2951,7 +2936,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2977,7 +2962,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3003,7 +2988,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3093,7 +3078,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3183,7 +3168,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3209,7 +3194,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3253,7 +3238,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3339,7 +3324,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3378,7 +3363,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3417,7 +3402,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3467,7 +3452,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3493,7 +3478,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3519,7 +3504,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3582,7 +3567,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3624,18 +3609,19 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                   transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], ['$$_posthog_breakdown_null_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+           GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
@@ -3644,7 +3630,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3716,20 +3702,21 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                   transform(ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
                                                                  FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                                                                                            FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$'), ['http://hogflix/first', 'http://hogflix/second'], ['http://hogflix/first', 'http://hogflix/second'], '$$_posthog_breakdown_other_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+           GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
@@ -3738,73 +3725,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trends_breakdown_normalize_url_poe_v2
-  '''
-  SELECT toString(if(empty(trim(TRAILING '/?#'
-                                FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                                                          FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))) AS value,
-         count(e.uuid) AS count
-  FROM events AS e
-  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
-  '''
-# ---
-# name: TestTrends.test_trends_breakdown_normalize_url_poe_v2.1
-  '''
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
-         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
-  FROM
-    (SELECT day_start AS day_start,
-            sum(count) OVER (PARTITION BY breakdown_value
-                             ORDER BY day_start ASC) AS count,
-                            breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               breakdown_value AS breakdown_value
-        FROM
-          (SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
-                  min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                  transform(ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
-                                                                 FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                                                                                           FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$'), ['http://hogflix/first', 'http://hogflix/second'], ['http://hogflix/first', 'http://hogflix/second'], '$$_posthog_breakdown_other_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
-           LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
-           GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
-                    breakdown_value)
-        GROUP BY day_start,
-                 breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
-     ORDER BY day_start ASC)
-  GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
-           arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3856,7 +3777,7 @@
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3908,7 +3829,7 @@
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3934,7 +3855,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3960,7 +3881,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3986,7 +3907,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4012,7 +3933,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
         GROUP BY e__pdi.person_id))
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4030,14 +3951,15 @@
        (SELECT count(e.uuid) AS total
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
-          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                  person_overrides.old_person_id AS old_person_id
-           FROM person_overrides
-           WHERE equals(person_overrides.team_id, 2)
-           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-        GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))
-  LIMIT 10000 SETTINGS readonly=2,
+        GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4085,7 +4007,7 @@
         GROUP BY e__pdi.person_id,
                  breakdown_value)
      GROUP BY breakdown_value)
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4126,7 +4048,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4154,19 +4076,20 @@
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
-                (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                        person_overrides.old_person_id AS old_person_id
-                 FROM person_overrides
-                 WHERE equals(person_overrides.team_id, 2)
-                 GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-              GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+              GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        day_start)
            GROUP BY day_start))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4192,7 +4115,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4223,7 +4146,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4254,7 +4177,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4292,7 +4215,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4380,7 +4303,7 @@
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4406,7 +4329,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4430,7 +4353,7 @@
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`)
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4454,7 +4377,7 @@
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`)
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4493,7 +4416,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4532,7 +4455,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4604,7 +4527,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4676,7 +4599,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            arraySum(total) DESC, breakdown_value ASC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4712,7 +4635,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4748,7 +4671,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4784,7 +4707,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4830,7 +4753,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4876,7 +4799,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4922,7 +4845,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4979,7 +4902,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5036,7 +4959,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5082,7 +5005,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5128,7 +5051,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5174,7 +5097,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5220,7 +5143,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 10000 SETTINGS readonly=2,
+  LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,

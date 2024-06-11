@@ -26,11 +26,12 @@ describe('the person header', () => {
             },
         ]
 
-        personLinksTestCases.forEach((testCase) => {
-            it(testCase.name, () => {
+        it.each(personLinksTestCases.map((testCase) => [testCase.name, testCase]))(
+            'returns a link %s',
+            (_, testCase) => {
                 expect(asLink({ distinct_ids: testCase.distinctIds })).toEqual(testCase.expectedLink)
-            })
-        })
+            }
+        )
     })
 
     const displayTestCases = [
@@ -139,16 +140,12 @@ describe('the person header', () => {
         },
     ]
 
-    displayTestCases.forEach((testCase) => {
-        describe(testCase.describe, () => {
-            const person: Pick<PersonType, 'distinct_ids' | 'properties'> = {
-                distinct_ids: testCase.distinctIds || [uuid()],
-                properties: testCase.props,
-            }
+    it.each(displayTestCases.map((testCase) => [testCase.describe, testCase]))('displays person %s', (_, testCase) => {
+        const person: Pick<PersonType, 'distinct_ids' | 'properties'> = {
+            distinct_ids: testCase.distinctIds || [uuid()],
+            properties: testCase.props,
+        }
 
-            it(testCase.testName, () => {
-                expect(asDisplay(person)).toEqual(testCase.personDisplay)
-            })
-        })
+        expect(asDisplay(person)).toEqual(testCase.personDisplay)
     })
 })

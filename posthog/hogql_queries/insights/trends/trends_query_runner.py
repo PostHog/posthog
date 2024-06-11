@@ -22,7 +22,12 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -152,7 +157,7 @@ class TrendsQueryRunner(QueryRunner):
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.cohort:
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
                 if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
                     self.query.breakdownFilter = None
                 elif isinstance(self.query.breakdownFilter.breakdown, list):
@@ -438,7 +443,7 @@ class TrendsQueryRunner(QueryRunner):
                     },
                 }
             else:
-                if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+                if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
                     count = get_value("total", val)[-1]
                 else:
                     count = float(sum(get_value("total", val)))
@@ -582,14 +587,14 @@ class TrendsQueryRunner(QueryRunner):
 
     def update_hogql_modifiers(self) -> None:
         if (
-            self.modifiers.inCohortVia == InCohortVia.auto
+            self.modifiers.inCohortVia == InCohortVia.AUTO
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and len(self.query.breakdownFilter.breakdown) > 1
             and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
         ):
-            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
 
         datawarehouse_modifiers = []
         for series in self.query.series:
@@ -618,7 +623,7 @@ class TrendsQueryRunner(QueryRunner):
         ]
 
         if (
-            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
@@ -691,7 +696,7 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and "all" in self.query.breakdownFilter.breakdown
-            and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and not in_breakdown_clause
             and self.query.trendsFilter
             and self.query.trendsFilter.formula
@@ -883,7 +888,7 @@ class TrendsQueryRunner(QueryRunner):
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
-            display = ChartDisplayType.ActionsLineGraph
+            display = ChartDisplayType.ACTIONS_LINE_GRAPH
         else:
             display = self.query.trendsFilter.display
 

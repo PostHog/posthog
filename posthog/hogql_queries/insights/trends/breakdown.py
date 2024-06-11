@@ -18,7 +18,6 @@ BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
-
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="toString", args=[expr])
 
@@ -58,10 +57,7 @@ class Breakdown:
 
     @cached_property
     def enabled(self) -> bool:
-        return (
-            self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown is not None
-        )
+        return self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None
 
     @cached_property
     def is_session_type(self) -> bool:
@@ -76,36 +72,37 @@ class Breakdown:
         assert isinstance(histogram_bin_count, int)
 
         if histogram_bin_count <= 1:
-            quantile_expression = ast.Call(name="quantiles", args=[ast.Field(chain=self._properties_chain)], params=[ast.Constant(value=quantile) for quantile in [1, 2]])
-        else:
-            quantiles = []
-            bin_size = 1.0 / histogram_bin_count
-            for i in range(histogram_bin_count + 1):
-                quantiles.append(i * bin_size)
+            return ast.Alias(
+                alias="quantile_values",
+                expr=ast.WindowFunction(
+                    name="quantiles",
+                    args=[ast.Field(chain=self._properties_chain)],
+                    exprs=[ast.Constant(value=quantile) for quantile in [1, 2]],
+                    over_expr=None,
+                    distinct=True,
+                ),
+            )
+        quantiles = []
+        bin_size = 1.0 / histogram_bin_count
+        for i in range(histogram_bin_count + 1):
+            quantiles.append(i * bin_size)
 
-            # quantile_expression = parse_expr("quantiles({quantiles})({breakdown_expression})",
-            #     {
-            #         "quantiles": ast.Array(exprs=),
-            #         "breakdown_expression": self._get_breakdown_expression
-            #     }
-            # )
-            quantile_expression = ast.Call(name="quantiles", args=[ast.Field(chain=self._properties_chain)], params=[ast.Constant(value=quantile) for quantile in quantiles])
-
-        return parse_expr("{quantile_expression} OVER ()", {"quantile_expression": quantile_expression})
-        # return ast.Alias(alias='quantile_values', expr=quantile_expression)
-        # return parse_expr(
-        #     "arrayCompact(arrayMap(x -> floor(x, 2), {quantile_expression}))",
-        #     {
-        #         'quantile_expression': quantile_expression,
-        #         'breakdown_expression': self._get_breakdown_expression
-        #     })
-
+        return ast.Alias(
+            alias="quantile_values",
+            expr=ast.WindowFunction(
+                name="quantiles",
+                args=[ast.Field(chain=self._properties_chain)],
+                exprs=[ast.Constant(value=quantile) for quantile in quantiles],
+                over_expr=None,
+                distinct=True,
+            ),
+        )
 
     def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
         if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
                     alias="breakdown_value",
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
@@ -161,7 +158,6 @@ class Breakdown:
             )
 
         return ast.Constant(value=True)
-
 
     @cached_property
     def _get_breakdown_expression(self) -> ast.Call:

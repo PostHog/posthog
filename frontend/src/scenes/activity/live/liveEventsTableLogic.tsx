@@ -1,9 +1,9 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
+import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LiveEvent } from '~/types'
+import type { LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
@@ -18,7 +18,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         addEvents: (events) => ({ events }),
         clearEvents: true,
         setFilters: (filters) => ({ filters }),
-        updateEventsSource: (source) => ({ source }),
         updateEventsConnection: true,
         pauseStream: true,
         resumeStream: true,
@@ -52,12 +51,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             {},
             {
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
-            },
-        ],
-        eventsSource: [
-            null as EventSource | null,
-            {
-                updateEventsSource: (_, { source }) => source,
             },
         ],
         streamPaused: [
@@ -110,8 +103,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             actions.updateEventsConnection()
         },
         updateEventsConnection: async () => {
-            if (values.eventsSource) {
-                values.eventsSource.close()
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
             }
 
             if (values.streamPaused) {
@@ -124,14 +117,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             const { eventType } = values.filters
             const url = new URL(`${liveEventsHostOrigin()}/events`)
-            url.searchParams.append('teamId', values.currentTeam.id.toString())
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
 
             const source = new window.EventSourcePolyfill(url.toString(), {
                 headers: {
-                    Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                    Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
             })
 
@@ -158,11 +150,11 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 }
             }
 
-            actions.updateEventsSource(source)
+            cache.eventsSource = source
         },
         pauseStream: () => {
-            if (values.eventsSource) {
-                values.eventsSource.close()
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
             }
         },
         resumeStream: () => {
@@ -174,14 +166,11 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                     return
                 }
 
-                const response = await fetch(
-                    `${liveEventsHostOrigin()}/stats?teamId=${values.currentTeam.id.toString()}`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
-                        },
-                    }
-                )
+                const response = await fetch(`${liveEventsHostOrigin()}/stats`, {
+                    headers: {
+                        Authorization: `Bearer ${values.currentTeam.live_events_token}`,
+                    },
+                })
                 const data = await response.json()
                 actions.setStats(data)
             } catch (error) {
@@ -189,21 +178,19 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
         },
     })),
-    events(({ actions, values }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
-            if (!liveEventsHostOrigin()) {
-                return
-            }
-
             actions.updateEventsConnection()
-            const interval = setInterval(() => {
+            cache.statsInterval = setInterval(() => {
                 actions.pollStats()
             }, 1500)
-            return () => {
-                if (values.eventsSource) {
-                    values.eventsSource.close()
-                }
-                clearInterval(interval)
+        },
+        beforeUnmount: () => {
+            if (cache.eventsSource) {
+                cache.eventsSource.close()
+            }
+            if (cache.statsInterval) {
+                clearInterval(cache.statsInterval)
             }
         },
     })),

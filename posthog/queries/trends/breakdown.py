@@ -78,7 +78,7 @@ from posthog.queries.util import (
     get_start_of_interval_sql,
 )
 from posthog.utils import encode_get_request_params, generate_short_id
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
@@ -101,7 +101,7 @@ class TrendsBreakdown:
         filter: Filter,
         team: Team,
         column_optimizer: Optional[ColumnOptimizer] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         add_person_urls: bool = False,
     ):
         self.entity = entity
@@ -112,9 +112,9 @@ class TrendsBreakdown:
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
-        if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
         else:
             self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -132,7 +132,7 @@ class TrendsBreakdown:
         )
 
         target_properties: Optional[PropertyGroup] = props_to_filter
-        if self.person_on_events_mode == PersonsOnEventsMode.disabled:
+        if self.person_on_events_mode == PersonsOnEventsMode.DISABLED:
             target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
         return parse_prop_grouped_clauses(
@@ -163,9 +163,11 @@ class TrendsBreakdown:
             self.team,
             filter=self.filter,
             event_table_alias=self.EVENT_TABLE_ALIAS,
-            person_id_alias=f"person_id"
-            if self.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events
-            else self._person_id_alias,
+            person_id_alias=(
+                f"person_id"
+                if self.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                else self._person_id_alias
+            ),
         )
 
         action_query = ""
@@ -196,13 +198,15 @@ class TrendsBreakdown:
             "parsed_date_from": parsed_date_from,
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
-            "event_filter": "AND event = %(event)s"
-            if self.entity.type == TREND_FILTER_TYPE_EVENTS and self.entity.id is not None
-            else "",
+            "event_filter": (
+                "AND event = %(event)s"
+                if self.entity.type == TREND_FILTER_TYPE_EVENTS and self.entity.id is not None
+                else ""
+            ),
             "filters": prop_filters,
-            "null_person_filter": f"AND notEmpty(e.person_id)"
-            if self.person_on_events_mode != PersonsOnEventsMode.disabled
-            else "",
+            "null_person_filter": (
+                f"AND notEmpty(e.person_id)" if self.person_on_events_mode != PersonsOnEventsMode.DISABLED else ""
+            ),
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -494,9 +498,11 @@ class TrendsBreakdown:
 
         return (
             {
-                "values": [*values_arr, breakdown_other_value]
-                if has_more_values and not self.filter.breakdown_hide_other_aggregation
-                else values_arr,
+                "values": (
+                    [*values_arr, breakdown_other_value]
+                    if has_more_values and not self.filter.breakdown_hide_other_aggregation
+                    else values_arr
+                ),
                 "breakdown_other_value": breakdown_other_value,
                 "breakdown_null_value": breakdown_null_value,
             },
@@ -523,7 +529,7 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.person_on_events_mode != PersonsOnEventsMode.disabled
+            self.person_on_events_mode != PersonsOnEventsMode.DISABLED
             and self.filter.breakdown_type == "group"
             and groups_on_events_querying_enabled()
         ):
@@ -535,7 +541,7 @@ class TrendsBreakdown:
                 properties_field,
                 materialised_table_column=properties_field,
             )
-        elif self.person_on_events_mode != PersonsOnEventsMode.disabled and self.filter.breakdown_type != "group":
+        elif self.person_on_events_mode != PersonsOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
                     "events",
@@ -629,11 +635,11 @@ class TrendsBreakdown:
                 }
                 parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": float(
-                        correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity.math)
-                    )
-                    if aggregated_value is not None
-                    else None,
+                    "aggregated_value": (
+                        float(correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity.math))
+                        if aggregated_value is not None
+                        else None
+                    ),
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
@@ -749,12 +755,12 @@ class TrendsBreakdown:
             return str(value) or BREAKDOWN_NULL_DISPLAY
 
     def _person_join_condition(self) -> tuple[str, dict]:
-        if self.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return "", {}
 
-        if self.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if self.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             return (
-                PERSON_OVERRIDES_JOIN_SQL.format(
+                PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL.format(
                     person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                     event_table_alias=self.EVENT_TABLE_ALIAS,
                 ),

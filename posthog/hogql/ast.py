@@ -500,6 +500,9 @@ class UnresolvedFieldType(Type):
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return False
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class PropertyType(Type):
@@ -714,8 +717,10 @@ class WindowExpr(Expr):
 class WindowFunction(Expr):
     name: str
     args: Optional[list[Expr]] = None
+    exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
+    distinct: Optional[bool] = None
 
 
 @dataclass(kw_only=True)

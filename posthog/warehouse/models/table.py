@@ -35,14 +35,14 @@ from posthog.warehouse.util import database_sync_to_async
 from .external_table_definitions import external_tables
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
-    DatabaseSerializedFieldType.integer: "Int64",
-    DatabaseSerializedFieldType.float: "Float64",
-    DatabaseSerializedFieldType.string: "String",
-    DatabaseSerializedFieldType.datetime: "DateTime64",
-    DatabaseSerializedFieldType.date: "Date",
-    DatabaseSerializedFieldType.boolean: "Bool",
-    DatabaseSerializedFieldType.array: "Array",
-    DatabaseSerializedFieldType.json: "Map",
+    DatabaseSerializedFieldType.INTEGER: "Int64",
+    DatabaseSerializedFieldType.FLOAT: "Float64",
+    DatabaseSerializedFieldType.STRING: "String",
+    DatabaseSerializedFieldType.DATETIME: "DateTime64",
+    DatabaseSerializedFieldType.DATE: "Date",
+    DatabaseSerializedFieldType.BOOLEAN: "Bool",
+    DatabaseSerializedFieldType.ARRAY: "Array",
+    DatabaseSerializedFieldType.JSON: "Map",
 }
 
 CLICKHOUSE_HOGQL_MAPPING = {

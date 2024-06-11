@@ -1,0 +1,4 @@
+print('-- empty, notEmpty, length, lower, upper, reverse --');
+if (empty('') and notEmpty('234')) print(length('123'));
+if (lower('Tdd4gh') == 'tdd4gh') print(upper('test'));
+print(reverse('spinner'));

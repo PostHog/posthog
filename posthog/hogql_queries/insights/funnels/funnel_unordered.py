@@ -44,9 +44,9 @@ class FunnelUnordered(FunnelBase):
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         if self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.person,
-            BreakdownType.event,
-            BreakdownType.group,
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
         ]:
             return self._breakdown_other_subquery()
 

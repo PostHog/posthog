@@ -1,38 +1,34 @@
 from contextlib import contextmanager
+from typing import Any
+from urllib.parse import urlparse
 
+import nh3
 from django.db.models import Min
 from django.http import JsonResponse
-
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_token
-from posthog.client import sync_execute
-from posthog.exceptions import generate_exception_response
-from posthog.models.feedback.survey import Survey
-from rest_framework.response import Response
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import serializers, viewsets, request
-from rest_framework.request import Request
-from rest_framework import status
-
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
+from posthog.client import sync_execute
+from posthog.exceptions import generate_exception_response
+from posthog.models.feedback.survey import Survey
+from django.utils.text import slugify
+from nanoid import generate
+from rest_framework import request, serializers, viewsets
+from posthog.constants import AvailableFeature
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from django.utils.text import slugify
-from django.views.decorators.csrf import csrf_exempt
-from nanoid import generate
-
-from typing import Any
-
 from posthog.utils_cors import cors_response
-
-import nh3
-
-from urllib.parse import urlparse
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
@@ -65,6 +61,11 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -97,6 +98,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -114,6 +120,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         thank_you_description = value.get("thankYouMessageDescription")
         if thank_you_description and nh3.is_html(thank_you_description):
             value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
+
+        thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
+        if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
+
+        use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
+            AvailableFeature.SURVEYS_TEXT_HTML
+        )
+
+        if thank_you_description_content_type == "html" and not use_survey_html_descriptions:
+            raise serializers.ValidationError(
+                "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
+            )
 
         return value
 
@@ -142,6 +161,19 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
+
+            description_content_type = raw_question.get("descriptionContentType")
+            if description_content_type and description_content_type not in ["text", "html"]:
+                raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
+
+            use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
+                AvailableFeature.SURVEYS_TEXT_HTML
+            )
+
+            if description_content_type == "html" and not use_survey_html_descriptions:
+                raise serializers.ValidationError(
+                    "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
+                )
 
             choices = raw_question.get("choices")
             if choices and not isinstance(choices, list):
@@ -255,11 +287,25 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
+        iteration_count = validated_data.get("iteration_count")
+        if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
+            raise serializers.ValidationError(
+                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
+            )
+
+        instance.iteration_count = iteration_count
+        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+
         instance = super().update(instance, validated_data)
+
         self._add_user_survey_interacted_filters(instance, end_date)
         return instance
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
+        survey_key = f"{instance.id}"
+        if instance.iteration_count is not None and instance.iteration_count > 0:
+            survey_key = f"{instance.id}/{instance.current_iteration or 1}"
+
         user_submitted_dismissed_filter = {
             "groups": [
                 {
@@ -267,13 +313,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"$survey_dismissed/{instance.id}",
+                            "key": f"$survey_dismissed/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"$survey_responded/{instance.id}",
+                            "key": f"$survey_responded/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -408,6 +454,8 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "appearance",
             "start_date",
             "end_date",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = fields
 

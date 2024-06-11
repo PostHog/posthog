@@ -408,7 +408,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
-        hideProjectNotice: true,
     },
 }
 
@@ -495,6 +494,8 @@ export const routes: Record<string, Scene> = {
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.alert(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.alerts(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
@@ -527,7 +528,7 @@ export const routes: Record<string, Scene> = {
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
-    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,

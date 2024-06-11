@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 from collections.abc import Callable
 
@@ -15,10 +16,13 @@ class TestBytecodeExecute:
         }
         return execute_bytecode(create_bytecode(parse_expr(expr)), globals).result
 
-    def _run_program(self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None) -> Any:
-        globals = {
-            "properties": {"foo": "bar", "nullValue": None},
-        }
+    def _run_program(
+        self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None, globals: Optional[dict] = None
+    ) -> Any:
+        if not globals:
+            globals = {
+                "properties": {"foo": "bar", "nullValue": None},
+            }
         program = parse_program(code)
         bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
         response = execute_bytecode(bytecode, globals, functions)
@@ -602,3 +606,42 @@ class TestBytecodeExecute:
                 return event;
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
+
+    def test_bytecode_parse_stringify_json(self):
+        assert self._run_program("return jsonStringify({'$browser': 'Chrome', '$os': 'Windows' });") == json.dumps(
+            {"$browser": "Chrome", "$os": "Windows"}
+        )
+
+        assert self._run_program(
+            "return jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3);"  # pretty
+        ) == json.dumps({"$browser": "Chrome", "$os": "Windows"}, indent=3)
+
+        assert self._run_program("return jsonParse('[1,2,3]');") == [1, 2, 3]
+
+        assert self._run_program(
+            """
+                let event := {
+                    'event': '$pageview',
+                    'properties': {
+                        '$browser': 'Chrome',
+                        '$os': 'Windows'
+                    }
+                };
+                let json := jsonStringify(event);
+                return jsonParse(json);
+                """
+        ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
+
+    def test_bytecode_modify_globals_after_copying(self):
+        globals = {"globalEvent": {"event": "$pageview", "properties": {"$browser": "Chrome"}}}
+        assert self._run_program(
+            """
+            let event := globalEvent;
+            event.event := '$autocapture';
+            event.properties.$browser := 'Firefox';
+            return event;
+        """,
+            globals=globals,
+        ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
+        assert globals["globalEvent"]["event"] == "$pageview"
+        assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"

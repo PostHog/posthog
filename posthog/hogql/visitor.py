@@ -246,8 +246,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.frame_end)
 
     def visit_window_function(self, node: ast.WindowFunction):
-        for expr in node.args or []:
+        for expr in node.exprs or []:
             self.visit(expr)
+        for arg in node.args or []:
+            self.visit(arg)
         self.visit(node.over_expr)
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
@@ -553,9 +555,11 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
-            args=[self.visit(expr) for expr in node.args] if node.args else None,
+            exprs=[self.visit(expr) for expr in node.exprs] if node.exprs else None,
+            args=[self.visit(arg) for arg in node.args] if node.args else None,
             over_expr=self.visit(node.over_expr) if node.over_expr else None,
             over_identifier=node.over_identifier,
+            distinct=node.distinct,
         )
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):

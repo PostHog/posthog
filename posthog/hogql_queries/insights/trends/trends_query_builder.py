@@ -136,7 +136,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
                 self.query.trendsFilter
-                and self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative
+                and self.query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
                 and (self.series.math == "unique_group" or self.series.math == "dau")
             ):
                 day_start.expr = ast.Call(name="min", args=[day_start.expr])
@@ -201,7 +201,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             return wrapper
-            
+
         # Just breakdowns
         elif breakdown.enabled:
             breakdown_expr = breakdown.column_expr()
@@ -242,7 +242,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return default_query
 
     def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        total_array = parse_expr("""
+        total_array = parse_expr(
+            """
             arrayMap(
                 _match_date ->
                     arraySum(
@@ -254,9 +255,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ),
                 date
             )
-        """)
+        """
+        )
 
-        if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+        if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
             # fill zeros in with the previous value
             total_array = parse_expr(
                 """
@@ -313,32 +315,29 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if breakdown.enabled:
-            query.select.append(
-                ast.Alias(
-                    alias="breakdown_value",
-                    expr=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
-                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                        ],
-                    ),
-                )
-            ),
-            query.select.append(
-                ast.Alias(
-                    alias='row_number',
-                    expr=parse_expr('rowNumberInAllBlocks()')
-                )
+            (
+                query.select.append(
+                    ast.Alias(
+                        alias="breakdown_value",
+                        expr=ast.Call(
+                            name="ifNull",
+                            args=[
+                                ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
+                                ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            ],
+                        ),
+                    )
+                ),
             )
+            query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
-            
+
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
-
             # TODO: What happens with cohorts and this limit?
-            if not breakdown.is_histogram_breakdown: 
-                return parse_select("""
+            if not breakdown.is_histogram_breakdown:
+                return parse_select(
+                    """
                     SELECT
                         groupArray(1)(date)[1] as date,
                         arrayMap(
@@ -356,18 +355,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0,
                         arraySum(total) DESC,
                         breakdown_value ASC
-                """, {
-                    "outer_query": query,
-                    "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
-                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                })
+                """,
+                    {
+                        "outer_query": query,
+                        "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
+                        "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                        "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    },
+                )
         return query
 
     def _get_breakdown_limit(self) -> int:
-        return self.query.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
-            self.limit_context
-        )
+        return self.query.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
@@ -394,25 +393,26 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         if breakdown.enabled:
             if breakdown.is_histogram_breakdown:
-                query.select.append(parse_expr("""
+                query.select.append(
+                    parse_expr("""
                     arrayFilter(
                         x ->
-                            x.1 <= breakdown_value and breakdown_value < x.2,
+                            x[1] <= breakdown_value and breakdown_value < x[2],
                         arrayMap(
-                            (bucket_end, i) -> (
+                            (bucket_end, i) -> [
                                 quantile_values[i],
                                 bucket_end + if(i +1 = length(quantile_values), 0.01, 0) -- Add 0.01 to the last bucket so it's inclusive
-                            ),
+                            ],
                             arraySlice(quantile_values, 2) as _buckets, -- If there are 4 buckets, there's 5 values
                             arrayEnumerate(_buckets)
                         )
                     )[1] as breakdown_value
-                """))
+                """)
+                )
             else:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
-
 
         if self._trends_display.should_wrap_inner_query():
             query = self._trends_display.wrap_inner_query(query, breakdown.enabled)
