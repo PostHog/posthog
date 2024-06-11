@@ -188,7 +188,8 @@ export class HogExecutor {
                     fetch: async () => Promise.resolve(),
                 },
                 functions: {
-                    print: (message: string) => {
+                    print: (message: string, ...args) => {
+                        status.info('🦔', '[HogExecutor] print', message, ...args)
                         log('info', message)
                     },
                 },
