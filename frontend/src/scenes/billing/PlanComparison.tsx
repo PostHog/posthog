@@ -4,12 +4,11 @@ import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSwitch, LemonTag, Link, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
@@ -110,12 +109,14 @@ export const BillingUpgradePopover = ({
     product,
     plan,
     includeAddons,
+    needsUpgrade,
 }: {
     product: BillingProductV2Type
     plan: BillingV2PlanType
     includeAddons: boolean
+    needsUpgrade?: boolean
 }): JSX.Element | null => {
-    const { redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const [addonsEnabled, setAddonsEnabled] = useState<boolean[]>([])
     const [inputValue, setInputValue] = useState(500)
@@ -207,11 +208,9 @@ export const BillingUpgradePopover = ({
                               addonsDict,
                               inputValue
                           )
-                        : // : plan.included_if == 'has_subscription' &&
-                          //   i >= currentPlanIndex &&
-                          //   !billing?.has_active_subscription
-                          // ? urls.organizationBilling()
-                          undefined
+                        : plan.included_if == 'has_subscription' && needsUpgrade && !billing?.has_active_subscription
+                        ? urls.organizationBilling()
+                        : undefined
                 }
                 disableClientSideRouting={!plan.contact_support}
                 onClick={() => {
@@ -241,6 +240,7 @@ export const PlanComparison = ({
         return null
     }
 
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { billing, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
@@ -260,7 +260,14 @@ export const PlanComparison = ({
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
                 {!plan.free_allocation ? (
                     <Popover
-                        overlay={<BillingUpgradePopover product={product} plan={plan} includeAddons={includeAddons} />}
+                        overlay={
+                            <BillingUpgradePopover
+                                product={product}
+                                plan={plan}
+                                includeAddons={includeAddons}
+                                needsUpgrade={i >= currentPlanIndex}
+                            />
+                        }
                         visible={upgradeOverlayOpen}
                         onClickOutside={() => closeUpgradeOverlay()}
                         placement="bottom-end"
@@ -277,7 +284,15 @@ export const PlanComparison = ({
                                     : 'alt'
                             }
                             onClick={() => !plan.current_plan && toggleUpgradeOverlay()}
-                            disabledReason={plan.current_plan && "You're already subscribed to this plan"}
+                            disabledReason={
+                                plan.included_if == 'has_subscription' && i >= currentPlanIndex
+                                    ? billing?.has_active_subscription
+                                        ? 'Unsubscribe from all products to remove'
+                                        : null
+                                    : plan.current_plan
+                                    ? "You're already subscribe to this plan"
+                                    : undefined
+                            }
                         >
                             {plan.current_plan
                                 ? 'Current plan'
@@ -305,7 +320,17 @@ export const PlanComparison = ({
                                 ? 'default'
                                 : 'alt'
                         }
-                        onClick={() => toggleUpgradeOverlay()}
+                        onClick={() => {
+                            closeUpgradeOverlay()
+                            if (!plan.current_plan) {
+                                // TODO: add current plan key and new plan key
+                                reportBillingUpgradeClicked(product.type)
+                            }
+                            if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
+                                setSurveyResponse(product.type, '$survey_response_1')
+                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                            }
+                        }}
                     >
                         {plan.current_plan
                             ? 'Current plan'
@@ -322,29 +347,6 @@ export const PlanComparison = ({
                             : 'Subscribe'}
                     </LemonButton>
                 )}
-                {/* <BillingUpgradeCTA
-                        disabledReason={
-                            plan.included_if == 'has_subscription' && i >= currentPlanIndex
-                                ? billing?.has_active_subscription
-                                    ? 'Unsubscribe from all products to remove'
-                                    : null
-                                : plan.current_plan
-                                ? 'Current plan'
-                                : undefined
-                        }
-                        onClick={() => {
-                            setUpgradeOverlayOpen(true)
-                            // if (!plan.current_plan) {
-                            //     // TODO: add current plan key and new plan key
-                            //     reportBillingUpgradeClicked(product.type)
-                            // }
-                            // if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
-                            //     setSurveyResponse(product.type, '$survey_response_1')
-                            //     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
-                            // }
-                        }}
-                        data-attr={`upgrade-${plan.name}`}
-                    ></BillingUpgradeCTA> */}
             </td>
         )
     })
