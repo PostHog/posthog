@@ -1,10 +1,10 @@
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_EVENTS_JSON } from '../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../kafka/config'
-import { createKafkaProducer } from '../kafka/producer'
+import { createKafkaProducer, produce } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import { GroupTypeToColumnIndex, Hub, PluginsServerConfig, RawClickHouseEvent, TeamId } from '../types'
@@ -18,7 +18,7 @@ import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogFunctionInvocationGlobals, HogFunctionInvocationResult } from './types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -164,15 +164,32 @@ export class CdpProcessedEventsConsumer {
 
                 heartbeat()
 
-                console.log(invocationResults)
-
                 // TODO: Follow up - process metrics from the invocationResults
-                // await runInstrumentedFunction({
-                //     statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
-                //     func: async () => {
-                //         // TODO:
-                //     },
-                // })
+                await runInstrumentedFunction({
+                    statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
+                    func: async () => {
+                        const allLogs = invocationResults.reduce((acc, result) => {
+                            return [...acc, ...result.logs]
+                        }, [] as HogFunctionLogEntry[])
+
+                        await Promise.all(
+                            allLogs.map((x) =>
+                                this.kafkaProducer!.produce({
+                                    topic: KAFKA_LOG_ENTRIES,
+                                    value: Buffer.from(JSON.stringify(x)),
+                                    key: x.instance_id,
+                                    waitForAck: true,
+                                })
+                            )
+                        )
+
+                        if (allLogs.length) {
+                            status.info('🔁', `cdp-function-executor - produced logs`, {
+                                size: allLogs.length,
+                            })
+                        }
+                    },
+                })
             },
         })
     }

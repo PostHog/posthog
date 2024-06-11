@@ -28,7 +28,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect((props: PipelineNodeLogicProps) => ({
-        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['nodeBackend']],
+        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['node']],
     })),
     actions({
         setSelectedLogLevels: (levels: PipelineLogLevel[]) => ({
@@ -44,15 +44,26 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             {
                 loadLogs: async () => {
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
-                            id as string,
+                            values.node.id,
                             values.searchTerm,
                             values.selectedLogLevels
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            type_filter: values.selectedLogLevels,
+                            // before: trailingEntry?.timestamp,
+                            // after: leadingEntry?.timestamp,
+                        })
+
+                        return res.results
                     } else {
                         results = await api.pluginLogs.search(
-                            id as number,
+                            values.node.id,
                             values.searchTerm,
                             logLevelsToTypeFilters(values.selectedLogLevels)
                         )
@@ -66,7 +77,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 },
                 loadMoreLogs: async () => {
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
                             values.searchTerm,
@@ -105,7 +116,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     }
 
                     let results: LogEntry[]
-                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                    if (values.node.backend === PipelineBackend.BatchExport) {
                         results = await api.batchExportLogs.search(
                             id as string,
                             values.searchTerm,
@@ -181,8 +192,8 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         columns: [
-            (s) => [s.nodeBackend],
-            (nodeBackend): LemonTableColumns<LogEntry> => {
+            (s) => [s.node],
+            (node): LemonTableColumns<LogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
@@ -192,15 +203,45 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
                     },
                     {
-                        title: nodeBackend === PipelineBackend.BatchExport ? 'Run Id' : 'Source',
-                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
-                        key: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
+                        title:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'Invocation'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'Run Id'
+                                : 'Source',
+                        dataIndex:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'instance_id'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'run_id'
+                                : 'source',
+                        key:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'instance_id'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'run_id'
+                                : 'source',
                     },
                     {
                         title: 'Level',
-                        key: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
-                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
-                        render: nodeBackend === PipelineBackend.BatchExport ? LogLevelDisplay : LogTypeDisplay,
+                        key:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'level'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'level'
+                                : 'type',
+                        dataIndex:
+                            node.backend == PipelineBackend.HogFunction
+                                ? 'level'
+                                : node.backend == PipelineBackend.BatchExport
+                                ? 'level'
+                                : 'type',
+                        render:
+                            node.backend == PipelineBackend.HogFunction
+                                ? LogLevelDisplay
+                                : node.backend == PipelineBackend.BatchExport
+                                ? LogLevelDisplay
+                                : LogTypeDisplay,
                     },
                     {
                         title: 'Message',

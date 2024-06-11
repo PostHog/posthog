@@ -1,10 +1,10 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
-import { PluginsServerConfig } from 'types'
 
+import { PluginsServerConfig, TimestampFormat } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
-import { UUIDT } from '../utils/utils'
+import { castTimestampOrNow, UUIDT } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -170,7 +170,7 @@ export class HogExecutor {
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
                 instance_id: invocation.id,
-                timestamp: new Date().toISOString(),
+                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
                 level,
                 message,
             })
