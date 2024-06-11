@@ -2207,7 +2207,10 @@ describe('PersonState.update()', () => {
                         // then pros can be dropped, see https://docs.google.com/presentation/d/1Osz7r8bKkDD5yFzw0cCtsGVf1LTEifXS-dzuwaS8JGY
                         // properties: { first: true, second: true, third: true },
                         created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                        // This is 2 because they all start with version 0, and then: x
+                        //  third -> second = max(third(0), second(0)) + 1 == version 1
+                        //  second -> first = max(second(1), first(0)) + 1 == version 2
+                        version: 2,
                         is_identified: true,
                     })
                 )
@@ -2296,7 +2299,10 @@ describe('PersonState.update()', () => {
                         uuid: firstUserUuid, // guaranteed to be merged into this based on timestamps
                         properties: { first: true, second: true, third: true },
                         created_at: timestamp,
-                        version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
+                        // This is 2 because they all start with version 0, and then:
+                        //  third -> second = max(third(0), second(0)) + 1 == version 1
+                        //  second -> first = max(second(1), first(0)) + 1 == version 2
+                        version: 2,
                         is_identified: true,
                     })
                 )
