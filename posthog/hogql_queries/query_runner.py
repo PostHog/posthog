@@ -436,6 +436,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
+                assert isinstance(cached_response, CachedResponse)
                 if datetime.now(timezone.utc) - cached_response.last_refresh > extended_cache_age:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     cached_response.query_status = query_status_response.query_status
