@@ -145,11 +145,12 @@ export class HogExecutor {
             invocation.hogFunctionId
         ]
 
-        if (!invocation.vmState) {
+        if (!invocation.vmState || invocation.error) {
+            // TODO: Maybe add a log as well?
             return {
                 ...invocation,
                 success: false,
-                error: new Error('No VM state provided for async response'),
+                error: invocation.error ?? new Error('No VM state provided for async response'),
                 logs: [],
             }
         }
