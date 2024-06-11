@@ -114,7 +114,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         pathEndKey: path_end_key,
                         pathDropoffKey: path_dropoff_key,
                     },
-                },
+                } as PathsQuery,
             }
             const modalProps: OpenPersonsModalProps = {
                 title: pathsTitle({
