@@ -1,6 +1,7 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { uuid } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -18,11 +19,11 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 loadErrorGroups: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT first_value(properties), count(), count(distinct properties.$session_id)
+                        query: hogql`SELECT first_value(properties), count(), count(distinct e.$session_id), count(distinct e.distinct_id)
                                 FROM events e
                                 WHERE event = '$exception'
                                 -- grouping by message for now, will eventually be predefined $exception_group_id
-                                GROUP BY properties.$exception_message`,
+                                GROUP BY e.properties.$exception_type`,
                     }
 
                     const res = await api.query(query)
@@ -30,10 +31,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     return res.results.map((r) => {
                         const eventProperties = JSON.parse(r[0])
                         return {
-                            title: eventProperties['$exception_message'] || 'No message',
-                            sampleEventProperties: eventProperties,
-                            occurrences: r[2],
-                            uniqueSessions: r[3],
+                            id: uuid(),
+                            title: eventProperties['$exception_type'] || 'Error',
+                            description: eventProperties['$exception_message'],
+                            occurrences: r[1],
+                            uniqueSessions: r[2],
+                            uniqueUsers: r[3],
                         }
                     })
                 },
