@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
@@ -36,6 +36,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setInstanceId: (instanceId: string) => ({ instanceId }),
         clearBackgroundLogs: true,
         markLogsEnd: true,
     }),
@@ -56,6 +57,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             search: values.searchTerm,
                             levels: values.selectedLogLevels,
                             limit: LOGS_PORTION_LIMIT,
+                            instance_id: values.instanceId,
                         })
 
                         return res.results
@@ -169,6 +171,12 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        instanceId: [
+            '',
+            {
+                setInstanceId: (_, { instanceId }) => instanceId,
+            },
+        ],
         isThereMoreToLoad: [
             true,
             {
@@ -177,7 +185,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
@@ -235,9 +243,25 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                                 ? 'run_id'
                                 : 'source',
 
-                        render: (source: string) => <code className="whitespace-nowrap">{source}</code>,
+                        render: (instanceId: string) => (
+                            <code className="whitespace-nowrap">
+                                {node.backend === PipelineBackend.HogFunction ? (
+                                    <Link
+                                        subtle
+                                        onClick={() => {
+                                            actions.setInstanceId(instanceId)
+                                        }}
+                                    >
+                                        {instanceId}
+                                    </Link>
+                                ) : (
+                                    instanceId
+                                )}
+                            </code>
+                        ),
                     },
                     {
+                        width: 100,
                         title: 'Level',
                         key:
                             node.backend == PipelineBackend.HogFunction
@@ -267,7 +291,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 ] as LemonTableColumns<LogEntry>
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         setSelectedLogLevels: () => {
             actions.loadLogs()
@@ -276,6 +300,9 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             if (searchTerm) {
                 await breakpoint(1000)
             }
+            actions.loadLogs()
+        },
+        setInstanceId: async ({ instanceId }) => {
             actions.loadLogs()
         },
     })),
