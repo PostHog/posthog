@@ -73,6 +73,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import (
+    alias_poe_mode_for_legacy,
     get_interval_func_ch,
     get_person_properties_mode,
     get_start_of_interval_sql,
@@ -111,7 +112,7 @@ class TrendsBreakdown:
         self.params: dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
-        self.person_on_events_mode = person_on_events_mode
+        self.person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
         if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:

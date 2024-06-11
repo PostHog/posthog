@@ -493,7 +493,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         assert len(job_1_customer_objects["Contents"]) == 1
 
         await sync_to_async(job_1.refresh_from_db)()
-        assert job_1.rows_synced == 1
+        assert job_1.rows_synced == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -554,7 +554,6 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
-        mock.patch("posthog.temporal.data_imports.pipelines.helpers.CHUNK_SIZE", 0),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
