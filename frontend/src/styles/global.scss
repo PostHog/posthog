@@ -428,14 +428,6 @@ body {
     }
 
     &[theme='dark'] {
-        .ant-empty-img-simple-path {
-            fill: var(--border-3000);
-        }
-
-        .ant-empty-img-simple-ellipse {
-            fill: var(--border-3000);
-        }
-
         @include dark-mode-3000-variables;
     }
 
