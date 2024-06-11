@@ -12,8 +12,8 @@ const errorEmbeddingModel = defaultConfig.ERROR_EVENT_EMBEDDING_MODEL
 
 let featureExtractionPipeline: FeatureExtractionPipeline | null
 
-// this downloads the model the first time it is run, so eventually we'll do this on server start-up
-// for now we only want to spend the cost of loading the model if we are actually using it
+// this downloads the model the first time it is run, so we do this on server start-up
+// we only want to spend the cost of loading the model if we are actually using it
 export async function initEmbeddingModel(
     anyTeamsAreEmbeddingEvents: boolean
 ): Promise<FeatureExtractionPipeline | null> {
