@@ -3,32 +3,30 @@ from typing import Optional
 from celery import shared_task
 
 from posthog.models.action.action import Action
-from posthog.models.team.team import Team
 from posthog.tasks.utils import CeleryQueue
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_affected_hog_functions(team: Optional[Team] = None, action: Optional[Action] = None) -> int:
+def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
     from posthog.models.hog_functions.hog_function import HogFunction
 
-    team_id: int
-
-    if action:
+    if action_id:
+        action = Action.objects.get(id=action_id)
         team_id = action.team_id
         affected_hog_functions = (
             HogFunction.objects.select_related("team")
             .filter(team_id=action.team_id)
-            .filter(filters__contains={"actions": [{"id": str(action.id)}]})
+            .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
-    elif team:
-        team_id = team.id
+    elif team_id:
         affected_hog_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team_id=team.id)
+            .filter(team_id=team_id)
             .filter(filters__contains={"filter_test_accounts": True})
         )
-    else:
-        raise Exception("Either team or action must be provided")
+
+    if not team_id:
+        raise Exception("Either team_id or action_id must be provided")
 
     all_related_actions = (
         Action.objects.select_related("team")
