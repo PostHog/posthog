@@ -87,6 +87,7 @@ export class AsyncFunctionExecutor {
                     json: maybeJson,
                 }
             } catch (err) {
+                status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
                 response.error = 'Something went wrong with the fetch request.'
             }
 
