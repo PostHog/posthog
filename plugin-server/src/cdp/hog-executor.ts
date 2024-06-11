@@ -230,13 +230,15 @@ export class HogExecutor {
                     asyncFunctionName: res.asyncFunctionName,
                 })
 
+                const args = (res.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
+
                 if (res.asyncFunctionName) {
                     await this.asyncFunctionExecutor.execute({
                         ...invocation,
                         teamId: hogFunction.team_id,
                         hogFunctionId: hogFunction.id,
                         asyncFunctionName: res.asyncFunctionName,
-                        asyncFunctionArgs: res.asyncFunctionArgs,
+                        asyncFunctionArgs: args,
                         vmState: res.state,
                     })
                 } else {

@@ -1,4 +1,3 @@
-import { convertHogToJS } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
 
 import { KAFKA_CDP_FUNCTION_CALLBACKS } from '../config/kafka-topics'
@@ -37,7 +36,7 @@ export class AsyncFunctionExecutor {
 
     private async asyncFunctionFetch(request: HogFunctionInvocationAsyncRequest): Promise<any> {
         // TODO: validate the args
-        const args = (request.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
+        const args = request.asyncFunctionArgs ?? []
         const url: string = args[0]
         const options = args[1]
 

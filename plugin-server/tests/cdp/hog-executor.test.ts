@@ -1,22 +1,14 @@
+import { AsyncFunctionExecutor } from '../../src/cdp/async-function-executor'
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
-import { RustyHook } from '../../src/worker/rusty-hook'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,
 }
-
-jest.mock('../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, text: () => Promise.resolve({}) })),
-    }
-})
-
-const mockFetch = require('../../src/utils/fetch').trackedFetch
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
@@ -27,8 +19,8 @@ describe('Hog Executor', () => {
         getTeamHogFunctions: jest.fn(),
     }
 
-    const mockRustyHook = {
-        enqueueIfEnabledForTeam: jest.fn(() => true),
+    const mockAsyncFuntionExecutor = {
+        execute: jest.fn(),
     }
 
     beforeEach(() => {
@@ -37,7 +29,7 @@ describe('Hog Executor', () => {
         executor = new HogExecutor(
             config,
             mockFunctionManager as any as HogFunctionManager,
-            mockRustyHook as any as RustyHook
+            mockAsyncFuntionExecutor as any as AsyncFunctionExecutor
         )
     })
 
@@ -47,6 +39,7 @@ describe('Hog Executor', () => {
          */
         it('can parse incoming messages correctly', async () => {
             const fn = createHogFunction({
+                name: 'Test hog function',
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -60,34 +53,63 @@ describe('Hog Executor', () => {
             // Run the function and check that it was executed
             await executor.executeMatchingFunctions(createHogExecutionGlobals())
 
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
+            expect(mockAsyncFuntionExecutor.execute).toHaveBeenCalledTimes(1)
+            expect(mockAsyncFuntionExecutor.execute.mock.calls[0][0]).toMatchObject({
+                id: expect.any(String),
+                globals: {
+                    event: {
+                        uuid: 'uuid',
+                    },
+                },
+                teamId: 1,
+                hogFunctionId: expect.any(String),
+                asyncFunctionName: 'fetch',
+                vmState: expect.any(Object),
+            })
+            expect(mockAsyncFuntionExecutor.execute.mock.calls[0][0].asyncFunctionArgs).toMatchInlineSnapshot(`
                 Array [
                   "https://example.com/posthog-webhook",
                   Object {
-                    "body": "{
-                    \\"event\\": {
-                        \\"uuid\\": \\"uuid\\",
-                        \\"name\\": \\"test\\",
-                        \\"distinct_id\\": \\"distinct_id\\",
-                        \\"url\\": \\"http://localhost:8000/events/1\\",
-                        \\"properties\\": {
-                            \\"$lib_version\\": \\"1.2.3\\"
+                    "body": Object {
+                      "event": Object {
+                        "distinct_id": "distinct_id",
+                        "name": "test",
+                        "properties": Object {
+                          "$lib_version": "1.2.3",
                         },
-                        \\"timestamp\\": \\"2024-06-07T12:00:00.000Z\\"
+                        "timestamp": "2024-06-07T12:00:00.000Z",
+                        "url": "http://localhost:8000/events/1",
+                        "uuid": "uuid",
+                      },
+                      "event_url": "http://localhost:8000/events/1-test",
+                      "groups": null,
+                      "nested": Object {
+                        "foo": "http://localhost:8000/events/1",
+                      },
+                      "person": null,
                     },
-                    \\"groups\\": null,
-                    \\"nested\\": {
-                        \\"foo\\": \\"http://localhost:8000/events/1\\"
-                    },
-                    \\"person\\": null,
-                    \\"event_url\\": \\"http://localhost:8000/events/1-test\\"
-                }",
                     "headers": Object {
                       "version": "v=1.2.3",
                     },
                     "method": "POST",
-                    "timeout": 10000,
+                    "payload": Object {
+                      "event": Object {
+                        "distinct_id": "distinct_id",
+                        "name": "test",
+                        "properties": Object {
+                          "$lib_version": "1.2.3",
+                        },
+                        "timestamp": "2024-06-07T12:00:00.000Z",
+                        "url": "http://localhost:8000/events/1",
+                        "uuid": "uuid",
+                      },
+                      "event_url": "http://localhost:8000/events/1-test",
+                      "groups": null,
+                      "nested": Object {
+                        "foo": "http://localhost:8000/events/1",
+                      },
+                      "person": null,
+                    },
                   },
                 ]
             `)
