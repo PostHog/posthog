@@ -8,6 +8,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
+    HogFunctionTemplateType,
+    HogFunctionType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -16,6 +18,7 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { HOG_FUNCTION_TEMPLATES } from './hogfunctions/templates/hog-templates'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
@@ -116,28 +119,68 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
+
+        hogFunctionTemplates: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplates: async () => {
+                    return HOG_FUNCTION_TEMPLATES.reduce((acc, template) => {
+                        acc[template.id] = template
+                        return acc
+                    }, {} as Record<string, HogFunctionTemplateType>)
+                },
+            },
+        ],
+        hogFunctions: [
+            [] as HogFunctionType[],
+            {
+                loadHogFunctions: async () => {
+                    // TODO: Support pagination?
+                    return (await api.hogFunctions.list()).results
+                },
+            },
+        ],
     })),
     selectors({
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
+            (s) => [
+                s.pluginsLoading,
+                s.pluginConfigsLoading,
+                s.batchExportConfigsLoading,
+                s.hogFunctionTemplatesLoading,
+                s.hogFunctionsLoading,
+            ],
+            (
+                pluginsLoading,
+                pluginConfigsLoading,
+                batchExportConfigsLoading,
+                hogFunctionTemplatesLoading,
+                hogFunctionsLoading
+            ) =>
+                pluginsLoading ||
+                pluginConfigsLoading ||
+                batchExportConfigsLoading ||
+                hogFunctionTemplatesLoading ||
+                hogFunctionsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.user],
-            (pluginConfigs, plugins, batchExportConfigs, user): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
+            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user): Destination[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const rawBatchExports = Object.values(batchExportConfigs).filter(
                     (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
                 )
-                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
-                    pluginConfigs
-                )
-                    .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration>((pluginConfig) => ({
-                        ...pluginConfig,
-                        plugin_info: plugins[pluginConfig.plugin] || null,
-                    }))
-                    .concat(rawBatchExports)
+
+                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
+                    Object.values(pluginConfigs)
+                        .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType>(
+                            (pluginConfig) => ({
+                                ...pluginConfig,
+                                plugin_info: plugins[pluginConfig.plugin] || null,
+                            })
+                        )
+                        .concat(rawBatchExports)
+                        .concat(hogFunctions)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
@@ -183,5 +226,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         actions.loadPlugins()
         actions.loadPluginConfigs()
         actions.loadBatchExports()
+        actions.loadHogFunctionTemplates()
+        actions.loadHogFunctions()
     }),
 ])

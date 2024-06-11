@@ -4,7 +4,8 @@ import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     FeatureFlagBasicType,
@@ -42,6 +43,8 @@ const MOCK_BASIC_SURVEY: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -80,6 +83,8 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -151,6 +156,8 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     end_date: null,
     archived: false,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MOCK_SURVEY_SHOWN = {
@@ -308,6 +315,75 @@ export const NewSurveyAppearanceSection: StoryFn = () => {
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     }, [])
     return <App />
+}
+
+export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            // TODO: setting available featues should be a decorator to make this easy
+            '/api/users/@me': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test Hedgehog',
+                    organization: {
+                        ...organizationCurrent,
+                        available_product_features: [
+                            {
+                                key: 'surveys_text_html',
+                                name: 'surveys_text_html',
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'html',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithHTMLQuestionDescription.parameters = {
+    testOptions: {
+        waitForSelector:
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description > strong',
+    },
+}
+
+export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'text',
+            },
+        ])
+    }, [])
+    return <App />
+}
+
+NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
+    testOptions: {
+        waitForSelector:
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description',
+    },
 }
 
 export const SurveyView: StoryFn = () => {

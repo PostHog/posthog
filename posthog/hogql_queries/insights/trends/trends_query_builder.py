@@ -136,7 +136,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
                 self.query.trendsFilter
-                and self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative
+                and self.query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
                 and (self.series.math == "unique_group" or self.series.math == "dau")
             ):
                 day_start.expr = ast.Call(name="min", args=[day_start.expr])
@@ -237,7 +237,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return default_query
 
     def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        total_array = parse_expr("""
+        total_array = parse_expr(
+            """
             arrayMap(
                 _match_date ->
                     arraySum(
@@ -249,9 +250,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ),
                 date
             )
-        """)
+        """
+        )
 
-        if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+        if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
             # fill zeros in with the previous value
             total_array = parse_expr(
                 """

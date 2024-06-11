@@ -1,54 +1,18 @@
 import re
 import time
-from typing import Any, Optional
+from copy import deepcopy
+from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
+from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
-from posthog.models import Team
 from dataclasses import dataclass
 
+from hogvm.python.utils import HogVMException, get_nested_value, like, set_nested_value
 
-class HogVMException(Exception):
-    pass
-
-
-def like(string, pattern, flags=0):
-    pattern = re.escape(pattern).replace("%", ".*")
-    re_pattern = re.compile(pattern, flags)
-    return re_pattern.search(string) is not None
-
-
-def get_nested_value(obj, chain) -> Any:
-    if obj is None:
-        return None
-    for key in chain:
-        if isinstance(key, int):
-            obj = obj[key]
-        else:
-            obj = obj.get(key, None)
-    return obj
-
-
-def set_nested_value(obj, chain, value) -> Any:
-    if obj is None:
-        return None
-    for key in chain[:-1]:
-        if isinstance(key, int):
-            obj = obj[key]
-        else:
-            obj = obj.get(key, None)
-
-    if isinstance(obj, dict):
-        obj[chain[-1]] = value
-    elif isinstance(obj, list):
-        if not isinstance(chain[-1], int):
-            raise HogVMException(f"Invalid index: {chain[-1]}")
-        obj[chain[-1]] = value
-    else:
-        raise HogVMException(f'Can not set property "{chain[-1]}" on object of type "{type(obj).__name__}"')
-
-    return obj
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 @dataclass
@@ -62,8 +26,9 @@ def execute_bytecode(
     bytecode: list[Any],
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=10,
-    team: Team | None = None,
+    timeout=5,
+    team: Optional["Team"] = None,
+    debug=False,
 ) -> BytecodeResult:
     result = None
     start_time = time.time()
@@ -74,6 +39,7 @@ def execute_bytecode(
     ip = -1
     ops = 0
     stdout: list[str] = []
+    colored_bytecode = color_bytecode(bytecode) if debug else []
 
     def next_token():
         nonlocal ip
@@ -91,14 +57,16 @@ def execute_bytecode(
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
     def check_timeout():
-        if time.time() - start_time > timeout:
-            raise HogVMException(f"Execution timed out after {timeout} seconds")
+        if time.time() - start_time > timeout and not debug:
+            raise HogVMException(f"Execution timed out after {timeout} seconds. Performed {ops} ops.")
 
     while True:
         ops += 1
+        symbol = next_token()
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
-        symbol = next_token()
+        elif debug:
+            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
         match symbol:
             case None:
                 break
@@ -166,9 +134,9 @@ def execute_bytecode(
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
                 stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
-            case Operation.FIELD:
+            case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                stack.append(get_nested_value(globals, chain))
+                stack.append(deepcopy(get_nested_value(globals, chain)))
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
@@ -244,7 +212,8 @@ def execute_bytecode(
                     stack.append(STL[name](name, args, team, stdout, timeout))
         if ip == last_op:
             break
-
+    if debug:
+        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
     if len(stack) > 1:
         raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:

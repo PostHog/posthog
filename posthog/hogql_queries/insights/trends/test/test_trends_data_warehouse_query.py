@@ -241,7 +241,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -279,7 +279,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                 )
             ],
             properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -317,11 +317,11 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
 
     def test_column_names_with_display_type(self):
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsAreaGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBar)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBarValue)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsPie)
-        self.assert_column_names_with_display_type(ChartDisplayType.BoldNumber)
-        self.assert_column_names_with_display_type(ChartDisplayType.WorldMap)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraphCumulative)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_AREA_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR_VALUE)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_PIE)
+        self.assert_column_names_with_display_type(ChartDisplayType.BOLD_NUMBER)
+        self.assert_column_names_with_display_type(ChartDisplayType.WORLD_MAP)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)

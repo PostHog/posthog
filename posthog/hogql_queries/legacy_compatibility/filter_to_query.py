@@ -40,16 +40,16 @@ class MathAvailability(str, Enum):
 
 
 actors_only_math_types = [
-    BaseMathType.dau,
-    BaseMathType.weekly_active,
-    BaseMathType.monthly_active,
+    BaseMathType.DAU,
+    BaseMathType.WEEKLY_ACTIVE,
+    BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
 ]
 
 
 def clean_display(display: str):
-    if display not in ChartDisplayType.__members__:
+    if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
         return display
@@ -81,7 +81,7 @@ def legacy_entity_to_node(
             and math_availability == MathAvailability.ActorsOnly
             and entity.math not in actors_only_math_types
         ):
-            shared = {**shared, "math": BaseMathType.dau}
+            shared = {**shared, "math": BaseMathType.DAU}
         else:
             shared = {
                 **shared,
@@ -321,7 +321,7 @@ def _insight_filter(filter: dict):
         # Backwards compatibility
         # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
         if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
-            funnel_viz_type = FunnelVizType.trends
+            funnel_viz_type = FunnelVizType.TRENDS
 
         insight_filter = {
             "funnelsFilter": FunnelsFilter(

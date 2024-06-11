@@ -21,6 +21,7 @@ django-stubs==4.2.7
 Faker==17.5.0
 fakeredis[lua]==2.11.0
 freezegun==1.2.2
+inline-snapshot==0.10.2
 packaging==23.1
 black~=23.9.1
 boto3-stubs[s3]
