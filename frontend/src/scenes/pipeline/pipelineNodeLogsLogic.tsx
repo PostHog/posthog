@@ -60,7 +60,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             instance_id: values.instanceId,
                         })
 
-                        return res.results
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
                             values.node.id,
@@ -90,13 +90,10 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             levels: values.selectedLogLevels,
                             limit: LOGS_PORTION_LIMIT,
                             before: values.trailingEntry?.timestamp,
+                            instance_id: values.instanceId,
                         })
 
-                        if (res.results.length < LOGS_PORTION_LIMIT) {
-                            actions.markLogsEnd()
-                        }
-
-                        return [...values.logs, ...res.results]
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
                             id as number,
@@ -137,6 +134,16 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             null,
                             values.leadingEntry as BatchExportLogEntry | null
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            after: values.leadingEntry?.timestamp,
+                            instance_id: values.instanceId,
+                        })
+
+                        results = res.results
                     } else {
                         results = await api.pluginLogs.search(
                             id as number,
