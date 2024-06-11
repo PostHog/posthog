@@ -62,7 +62,7 @@ export function LiveEventsTable(): JSX.Element {
                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
                             </span>
                             <span className="text-sm cursor-default">
-                                Active users: <b>{stats?.users_on_product ?? '—'}</b>
+                                Users active right now: <b>{stats?.users_on_product ?? '—'}</b>
                             </span>
                         </div>
                     </Tooltip>
