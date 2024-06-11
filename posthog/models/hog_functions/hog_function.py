@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -27,37 +26,10 @@ class HogFunction(UUIDModel):
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
 
-    @property
-    def filter_action_ids(self) -> list[int]:
-        if not self.filters:
-            return []
-        try:
-            return [int(action["id"]) for action in self.filters.get("actions", [])]
-        except KeyError:
-            return []
-
-    def compile_filters_bytecode(self, actions: Optional[dict[int, Action]] = None):
-        from .utils import hog_function_filters_to_expr
-        from posthog.hogql.bytecode import create_bytecode
-
-        self.filters = self.filters or {}
-
-        if actions is None:
-            # If not provided as an optimization we fetch all actions
-            actions_list = (
-                Action.objects.select_related("team").filter(team_id=self.team_id).filter(id__in=self.filter_action_ids)
-            )
-            actions = {action.id: action for action in actions_list}
-
-        try:
-            self.filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(self.filters, self.team, actions))
-        except Exception as e:
-            # TODO: Better reporting of this issue
-            self.filters["bytecode"] = None
-            self.filters["bytecode_error"] = str(e)
-
     def save(self, *args, **kwargs):
-        self.compile_filters_bytecode()
+        from posthog.models.cdp.filters import compile_filters_bytecode
+
+        self.filters = compile_filters_bytecode(self.team, self.filters)
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -98,12 +70,17 @@ def team_saved(sender, instance: Team, created, **kwargs):
 
 
 def refresh_hog_functions(team_id: int, affected_hog_functions: list[HogFunction]) -> int:
+    from posthog.models.cdp.filters import compile_filters_bytecode, get_action_ids_in_filters
+
+    # Optimisation: Fetch all actions for all hog functions at once
     all_related_actions = (
         Action.objects.select_related("team")
         .filter(team_id=team_id)
         .filter(
             id__in=[
-                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
+                action_id
+                for hog_function in affected_hog_functions
+                for action_id in get_action_ids_in_filters(hog_function.filters)
             ]
         )
     )
@@ -111,8 +88,10 @@ def refresh_hog_functions(team_id: int, affected_hog_functions: list[HogFunction
     actions_by_id = {action.id: action for action in all_related_actions}
 
     for hog_function in affected_hog_functions:
-        hog_function.compile_filters_bytecode(actions=actions_by_id)
+        hog_function.filters = compile_filters_bytecode(hog_function.team, hog_function.filters, actions_by_id)
 
     updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+
+    # TODO Publish update to cdp-processor
 
     return updates

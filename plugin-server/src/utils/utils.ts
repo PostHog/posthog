@@ -331,6 +331,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
+
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
     const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
         ? {
