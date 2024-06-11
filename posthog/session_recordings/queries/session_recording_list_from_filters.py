@@ -158,8 +158,8 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        if self._filter.entities:
-            events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if events_sub_query:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -179,9 +179,9 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        non_person_properties = self._strip_person_properties(self._filter.property_groups)
-        if non_person_properties:
-            exprs.append(property_to_expr(non_person_properties, team=self._team, scope="replay"))
+        remaining_properties = self._strip_properties(self._filter.property_groups, ["person", "event"])
+        if remaining_properties:
+            exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_id_subquery:
@@ -254,8 +254,13 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
 
-    def _strip_person_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
-        property_groups_to_keep = [g for g in property_group.flat if g.type != "person"]
+    def _strip_properties(
+        self, property_group: PropertyGroup, types_to_strip: list[str] | None = None
+    ) -> PropertyGroup | None:
+        if types_to_strip is None:
+            return property_group
+
+        property_groups_to_keep = [g for g in property_group.flat if g.type not in types_to_strip]
 
         return (
             PropertyGroup(
@@ -392,14 +397,17 @@ class EventsSubQuery:
 
         return event_exprs, list(event_names)
 
-    def get_query(self):
-        return ast.SelectQuery(
-            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._where_predicates(),
-            having=self._having_predicates(),
-            group_by=[ast.Field(chain=["$session_id"])],
-        )
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+        if self._filter.entities or self.event_properties:
+            return ast.SelectQuery(
+                select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=self._where_predicates(),
+                having=self._having_predicates(),
+                group_by=[ast.Field(chain=["$session_id"])],
+            )
+        else:
+            return None
 
     def _where_predicates(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
@@ -445,6 +453,9 @@ class EventsSubQuery:
         if event_where_exprs:
             exprs.append(ast.Or(exprs=event_where_exprs))
 
+        if self.event_properties:
+            exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
+
         if self._filter.session_ids:
             exprs.append(
                 ast.CompareOperation(
@@ -470,3 +481,7 @@ class EventsSubQuery:
             )
 
         return ast.Constant(value=True)
+
+    @cached_property
+    def event_properties(self):
+        return [g for g in self._filter.property_groups.flat if g.type == "event"]
