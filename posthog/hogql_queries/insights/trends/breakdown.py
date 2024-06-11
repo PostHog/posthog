@@ -63,7 +63,9 @@ class Breakdown:
         return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
 
     def get_bucket_values(self) -> ast.Expr:
-        histogram_bin_count = self.query.breakdownFilter.breakdown_histogram_bin_count
+        histogram_bin_count = (
+            self.query.breakdownFilter.breakdown_histogram_bin_count if self.query.breakdownFilter else None
+        )
         assert isinstance(histogram_bin_count, int)
 
         if histogram_bin_count <= 1:

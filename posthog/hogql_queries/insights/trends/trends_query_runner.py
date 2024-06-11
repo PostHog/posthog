@@ -232,22 +232,23 @@ class TrendsQueryRunner(QueryRunner):
                 limit_context=self.limit_context,
             )
 
+            query = query_builder.build_query()
+
             breakdown = query_builder._breakdown(is_actors_query=False)
             if not breakdown.enabled:
                 break
 
-            is_boolean_breakdown = self._is_breakdown_field_boolean()
-            is_histogram_breakdown = breakdown.is_histogram_breakdown
-            breakdown_values: list[str | int]
-            res_breakdown = []
+            results = execute_hogql_query(
+                query_type="TrendsQuery",
+                query=query,
+                team=self.team,
+                # timings=timings,
+                # modifiers=modifiers,
+            )
+            breakdown_values = [row[results.columns.index("breakdown_value")] for row in results.results]
 
-            if is_histogram_breakdown:
-                buckets = breakdown._get_breakdown_histogram_buckets()
-                breakdown_values = [f"[{t[0]},{t[1]}]" for t in buckets]
-                # TODO: append this only if needed
-                breakdown_values.append('["",""]')
-            else:
-                breakdown_values = breakdown._breakdown_values
+            is_boolean_breakdown = self._is_breakdown_field_boolean()
+            res_breakdown = []
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
