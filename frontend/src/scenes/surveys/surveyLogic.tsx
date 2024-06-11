@@ -545,7 +545,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     return newTemplateSurvey
                 },
                 setBranchingForQuestion: (state, { questionIndex, branchingType }) => {
-                    console.log(questionIndex, branchingType) // eslint-disable-line no-console
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex] as RatingSurveyQuestion // TODO: support single-choice too
 
@@ -561,10 +560,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             responseValue: {},
                         }
                     } else if (branchingType.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                        const questionIndex = branchingType.split(':')[1]
+                        const nextQuestionIndex = parseInt(branchingType.split(':')[1])
                         question.branching = {
                             type: SurveyQuestionBranchingType.SpecificQuestion,
-                            questionIndex,
+                            index: nextQuestionIndex,
                         }
                     }
 
@@ -774,6 +773,28 @@ export const surveyLogic = kea<surveyLogicType>([
                         return npsScore.toFixed(1)
                     }
                 }
+            },
+        ],
+        getBranchingDropdownValue: [
+            (s) => [s.survey],
+            (survey) => (question: any, index: number) => {
+                if (question.branching?.type) {
+                    const { type } = question.branching
+
+                    if (type === 'specific_question') {
+                        const { index } = question.branching
+                        return `specific_question:${index}`
+                    }
+
+                    return question.branching.type
+                }
+
+                // No branching specified, default to Next question / Confirmation message
+                if (index < survey.questions.length - 1) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
     }),

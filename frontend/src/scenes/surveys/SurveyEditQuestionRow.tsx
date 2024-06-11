@@ -7,8 +7,10 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { Survey, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
 
@@ -83,9 +85,10 @@ export function SurveyEditQuestionHeader({
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
-    const { survey, writingHTMLDescription } = useValues(surveyLogic)
+    const { survey, writingHTMLDescription, getBranchingDropdownValue } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue, setBranchingForQuestion } =
         useActions(surveyLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -312,56 +315,63 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 </LemonField>
                 {/* BRANCHING LOGIC */}
                 {/* ADD A FEATURE FLAG HERE */}
-                {(() => {
-                    const availableNextQuestions = survey.questions
-                        .map((question, questionIndex) => ({
-                            ...question,
-                            questionIndex,
-                        }))
-                        .filter((_, questionIndex) => index !== questionIndex)
+                {featureFlags[FEATURE_FLAGS.SURVEYS_WIDGETS] &&
+                    (() => {
+                        const availableNextQuestions = survey.questions
+                            .map((question, questionIndex) => ({
+                                ...question,
+                                questionIndex,
+                            }))
+                            .filter((_, questionIndex) => index !== questionIndex)
 
-                    return (
-                        // TODO: support single-choice too
-                        question.type === SurveyQuestionType.Rating && (
-                            <LemonField name="branching" label="After this question, go to:" className="max-w-80">
-                                <LemonSelect
-                                    // TODO: retrieve dropdown value from a selector
-                                    // SPECIFIC QUESTION NOT YET WORKING
-                                    value={question.branching?.type || SurveyQuestionBranchingType.NextQuestion}
-                                    // TODO: use ellipsis for overflowing questions
-                                    data-attr={`some-key-here-${index}`}
-                                    onSelect={(branchingType) => {
-                                        // TODO: update survey.questions[index]
-                                        // find the appropriate method in the logic
-                                        setBranchingForQuestion(index, branchingType)
-                                    }}
-                                    options={[
-                                        ...(index < survey.questions.length - 1
-                                            ? [
-                                                  {
-                                                      label: 'Next question',
-                                                      value: SurveyQuestionBranchingType.NextQuestion,
-                                                  },
-                                              ]
-                                            : []),
-                                        {
-                                            label: 'Confirmation message',
-                                            value: SurveyQuestionBranchingType.ConfirmationMessage,
-                                        },
-                                        {
-                                            label: 'Specific question based on answer',
-                                            value: SurveyQuestionBranchingType.ResponseBased,
-                                        },
-                                        ...availableNextQuestions.map((question) => ({
-                                            label: `${question.questionIndex + 1}. ${question.question}`,
-                                            value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
-                                        })),
-                                    ]}
-                                />
-                            </LemonField>
+                        const branchingDropdownValue = getBranchingDropdownValue(question, index)
+
+                        return (
+                            // TODO: support single-choice too
+                            (question.type === SurveyQuestionType.Rating ||
+                                question.type === SurveyQuestionType.SingleChoice) && (
+                                <>
+                                    <LemonField
+                                        name="branching"
+                                        label="After this question, go to:"
+                                        className="max-w-80"
+                                    >
+                                        <LemonSelect
+                                            value={getBranchingDropdownValue(question, index)}
+                                            // TODO: use ellipsis for overflowing questions
+                                            data-attr={`some-key-here-${index}`}
+                                            onSelect={(branchingType) => setBranchingForQuestion(index, branchingType)}
+                                            options={[
+                                                ...(index < survey.questions.length - 1
+                                                    ? [
+                                                          {
+                                                              label: 'Next question',
+                                                              value: SurveyQuestionBranchingType.NextQuestion,
+                                                          },
+                                                      ]
+                                                    : []),
+                                                {
+                                                    label: 'Confirmation message',
+                                                    value: SurveyQuestionBranchingType.ConfirmationMessage,
+                                                },
+                                                {
+                                                    label: 'Specific question based on answer',
+                                                    value: SurveyQuestionBranchingType.ResponseBased,
+                                                },
+                                                ...availableNextQuestions.map((question) => ({
+                                                    label: `${question.questionIndex + 1}. ${question.question}`,
+                                                    value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
+                                                })),
+                                            ]}
+                                        />
+                                    </LemonField>
+                                    {branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && (
+                                        <div>hiya</div>
+                                    )}
+                                </>
+                            )
                         )
-                    )
-                })()}
+                    })()}
             </div>
         </Group>
     )
