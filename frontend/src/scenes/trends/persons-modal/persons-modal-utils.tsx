@@ -1,26 +1,14 @@
 import * as Sentry from '@sentry/react'
-import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
-import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import { pluralize, toParams } from 'lib/utils'
 import md5 from 'md5'
-import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { isFunnelsFilter, isPathsFilter } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
-import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { InsightActorsQueryOptionsResponse } from '~/queries/schema'
-import {
-    CohortType,
-    FunnelsFilterType,
-    FunnelVizType,
-    GraphDataset,
-    LifecycleToggle,
-    PathsFilterType,
-    StepOrderValue,
-} from '~/types'
+import { FunnelsFilterType, FunnelVizType, PathsFilterType, StepOrderValue } from '~/types'
 
 export const funnelTitle = (props: {
     converted: boolean
@@ -66,73 +54,6 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
             {modeMap[props.mode]} step{' '}
             <PropertyKeyInfo value={props.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
         </>
-    )
-}
-
-export const urlsForDatasets = (
-    crossDataset: GraphDataset[] | undefined,
-    index: number,
-    cohorts: CohortType[],
-    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction
-): { value: string; label: JSX.Element }[] => {
-    const showCountedByTag = !!crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
-    const hasMultipleSeries = !!crossDataset?.find(({ action }) => action?.order)
-
-    if (crossDataset?.length === 1 && crossDataset[0].actions) {
-        const dataset = crossDataset[0]
-        return (
-            dataset.actions?.map((action, i) => ({
-                value: dataset?.personsValues?.[i]?.url || '',
-                label: (
-                    <InsightLabel
-                        seriesColor={dataset?.backgroundColor?.[i] || getSeriesColor(action.order)}
-                        action={action}
-                        breakdownValue={
-                            dataset.breakdownValues?.[i] === '' ? 'None' : dataset.breakdownValues?.[i]?.toString()
-                        }
-                        showCountedByTag={showCountedByTag}
-                        hasMultipleSeries={hasMultipleSeries}
-                        showEventName
-                    />
-                ),
-            })) || []
-        )
-    }
-
-    return (
-        crossDataset
-            ?.map((dataset) => {
-                const formattedBreakdownValue = dataset.status
-                    ? capitalizeFirstLetter(dataset.status)
-                    : formatBreakdownLabel(
-                          cohorts,
-                          formatPropertyValueForDisplay,
-                          dataset.breakdown_value,
-                          dataset.filter?.breakdown,
-                          dataset.filter?.breakdown_type,
-                          dataset.filter &&
-                              isTrendsFilter(dataset.filter) &&
-                              dataset.filter?.breakdown_histogram_bin_count !== undefined
-                      )
-                return {
-                    value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
-                    label: (
-                        <InsightLabel
-                            seriesColor={
-                                dataset.status
-                                    ? getBarColorFromStatus(dataset.status as LifecycleToggle)
-                                    : getSeriesColor(dataset.id)
-                            }
-                            action={dataset.action}
-                            breakdownValue={formattedBreakdownValue}
-                            showCountedByTag={showCountedByTag}
-                            hasMultipleSeries={hasMultipleSeries}
-                            showEventName
-                        />
-                    ),
-                }
-            })
-            .filter((x) => x.value) || []
     )
 }
 
