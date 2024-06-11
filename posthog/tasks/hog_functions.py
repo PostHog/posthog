@@ -11,13 +11,17 @@ from posthog.tasks.utils import CeleryQueue
 def refresh_affected_hog_functions(team: Optional[Team] = None, action: Optional[Action] = None) -> int:
     from posthog.models.hog_functions.hog_function import HogFunction
 
+    team_id: int
+
     if action:
+        team_id = action.team_id
         affected_hog_functions = (
             HogFunction.objects.select_related("team")
             .filter(team_id=action.team_id)
             .filter(filters__contains={"actions": [{"id": str(action.id)}]})
         )
     elif team:
+        team_id = team.id
         affected_hog_functions = (
             HogFunction.objects.select_related("team")
             .filter(team_id=team.id)
@@ -25,8 +29,6 @@ def refresh_affected_hog_functions(team: Optional[Team] = None, action: Optional
         )
     else:
         raise Exception("Either team or action must be provided")
-
-    team_id: int = team.id if team else action.team_id
 
     all_related_actions = (
         Action.objects.select_related("team")
