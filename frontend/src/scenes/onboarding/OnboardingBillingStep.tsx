@@ -23,10 +23,9 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
@@ -35,26 +34,8 @@ export const OnboardingBillingStep = ({
     return (
         <OnboardingStep
             title="Plans"
-            showSkip={!product.subscribed}
             stepKey={stepKey}
-            continueOverride={
-                product?.subscribed ? undefined : (
-                    <BillingUpgradeCTA
-                        // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
-                        type="primary"
-                        status="alt"
-                        center
-                        disableClientSideRouting
-                        onClick={() => {
-                            reportBillingUpgradeClicked(product.type)
-                        }}
-                        data-attr="onboarding-subscribe-button"
-                    >
-                        Subscribe to paid plan
-                    </BillingUpgradeCTA>
-                )
-            }
+            continueText={`Continue with the ${currentPlan.name.toLowerCase()} plan`}
         >
             {billing?.products && productKey && product ? (
                 <div className="mt-6">

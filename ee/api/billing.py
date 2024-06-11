@@ -92,6 +92,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         products = serializers.CharField(
             required=False
         )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
+        custom_limits_usd = serializers.CharField(required=False)
         redirect_path = serializers.CharField(required=False)
 
         def validate(self, data):
@@ -136,6 +137,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         products = serializer.validated_data.get("products")
         url = f"{url}&products={products}"
+
+        custom_limits_usd = serializer.validated_data.get("custom_limits_usd")
+        if custom_limits_usd:
+            url = f"{url}&custom_limits_usd={custom_limits_usd}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)

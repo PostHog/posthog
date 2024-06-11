@@ -162,11 +162,13 @@ export const getUpgradeProductLink = (
     product: BillingProductV2Type,
     upgradeToPlanKey: string,
     redirectPath?: string,
-    includeAddons: boolean = true
+    includeAllAddons: boolean = true,
+    addonDict?: Record<string, string>,
+    billingLimit?: number
 ): string => {
     let url = '/api/billing/activate?products='
     url += `${product.type}:${upgradeToPlanKey},`
-    if (includeAddons && product.addons?.length) {
+    if (includeAllAddons && product.addons?.length) {
         for (const addon of product.addons) {
             if (
                 // TODO: this breaks if we support multiple plans per addon due to just grabbing the first plan
@@ -177,11 +179,21 @@ export const getUpgradeProductLink = (
             }
         }
     }
+    if (addonDict) {
+        for (const [key, value] of Object.entries(addonDict)) {
+            url += `${key}:${value},`
+        }
+    }
+
     // remove the trailing comma that will be at the end of the url
     url = url.slice(0, -1)
+    if (billingLimit) {
+        url += `&custom_limits_usd=${product.type}:${billingLimit}`
+    }
     if (redirectPath) {
         url += `&redirect_path=${redirectPath}`
     }
+
     return url
 }
 
