@@ -1,7 +1,6 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { uuid } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -31,7 +30,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     return res.results.map((r) => {
                         const eventProperties = JSON.parse(r[0])
                         return {
-                            id: uuid(),
+                            id: eventProperties['$exception_type'],
                             title: eventProperties['$exception_type'] || 'Error',
                             description: eventProperties['$exception_message'],
                             occurrences: r[1],
