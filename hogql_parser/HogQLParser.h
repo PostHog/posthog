@@ -220,7 +220,6 @@ public:
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *LET();
     IdentifierContext *identifier();
-    antlr4::tree::TerminalNode *SEMICOLON();
     antlr4::tree::TerminalNode *COLON();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     ExpressionContext *expression();
@@ -240,7 +239,6 @@ public:
     ExpressionContext* expression(size_t i);
     antlr4::tree::TerminalNode *COLON();
     antlr4::tree::TerminalNode *EQ_SINGLE();
-    antlr4::tree::TerminalNode *SEMICOLON();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -327,6 +325,7 @@ public:
     ExpressionContext *expression();
     antlr4::tree::TerminalNode *RPAREN();
     StatementContext *statement();
+    antlr4::tree::TerminalNode *SEMICOLON();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1206,6 +1205,7 @@ public:
     virtual size_t getRuleIndex() const override;
     std::vector<ColumnExprContext *> columnExpr();
     ColumnExprContext* columnExpr(size_t i);
+    AliasContext *alias();
     std::vector<antlr4::tree::TerminalNode *> COMMA();
     antlr4::tree::TerminalNode* COMMA(size_t i);
 
@@ -1246,7 +1246,6 @@ public:
     ColumnExprAliasContext(ColumnExprContext *ctx);
 
     ColumnExprContext *columnExpr();
-    AliasContext *alias();
     antlr4::tree::TerminalNode *AS();
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *STRING_LITERAL();

@@ -12,8 +12,8 @@ declaration
 
 expression: columnExpr;
 
-varDecl: LET identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
-varAssignment: expression COLON EQ_SINGLE expression SEMICOLON ;
+varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
+varAssignment: expression COLON EQ_SINGLE expression ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
@@ -26,11 +26,10 @@ statement      : returnStmt
                | returnStmt
                | block ;
 
-exprStmt       : expression SEMICOLON ;
-ifStmt         : IF LPAREN expression RPAREN statement
-                 ( ELSE statement )? ;
-whileStmt      : WHILE LPAREN expression RPAREN statement;
-returnStmt     : RETURN expression SEMICOLON ;
+exprStmt       : expression SEMICOLON?;
+ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
+returnStmt     : RETURN expression SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
@@ -130,7 +129,7 @@ columnTypeExpr
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnExpr (COMMA columnExpr)*;
+columnExprList: columnExpr alias? (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -185,7 +184,8 @@ columnExpr
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     // Note: difference with ClickHouse: we also support "AS string" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+//    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
