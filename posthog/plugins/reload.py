@@ -37,7 +37,7 @@ def reload_hog_functions_on_workers(team_id: int, hog_function_ids: list[str]):
 
 
 def reset_available_product_features_cache_on_workers(organization_id: str):
-    logger.info(f"Resetting available product features cache for organization {organization_id}")
+    logger.info(f"Resetting available product features cache for organization {organization_id} on workers")
     publish_message(
         "reset-available-product-features-cache",
         {"organization_id": organization_id},
@@ -45,4 +45,5 @@ def reset_available_product_features_cache_on_workers(organization_id: str):
 
 
 def populate_plugin_capabilities_on_workers(plugin_id: str):
+    logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
