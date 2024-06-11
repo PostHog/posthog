@@ -17,13 +17,13 @@ varAssignment: expression COLON EQ_SINGLE expression ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
-               | emptyStmt
                | ifStmt
                | whileStmt
                | funcStmt
                | varAssignment
                | returnStmt
                | exprStmt
+               | emptyStmt
                | block ;
 
 exprStmt       : expression SEMICOLON?;

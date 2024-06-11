@@ -185,7 +185,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
-        return ast.Program(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            statement = self.visit(declaration)
+            if isinstance(statement, ast.ExprStatement) and statement.expr is None:
+                continue
+            declarations.append(cast(ast.Declaration, statement))
+        return ast.Program(declarations=declarations)
 
     def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
         return self.visitChildren(ctx)
@@ -250,7 +256,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprStatement(expr=None)
 
     def visitBlock(self, ctx: HogQLParser.BlockContext):
-        return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            statement = self.visit(declaration)
+            if isinstance(statement, ast.ExprStatement) and statement.expr is None:
+                continue
+            declarations.append(cast(ast.Declaration, statement))
+        return ast.Block(declarations=declarations)
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())

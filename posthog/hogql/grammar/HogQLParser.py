@@ -151,9 +151,9 @@ def serializedATN():
         5,111,0,0,189,190,5,118,0,0,190,191,3,4,2,0,191,9,1,0,0,0,192,197,
         3,150,75,0,193,194,5,112,0,0,194,196,3,150,75,0,195,193,1,0,0,0,
         196,199,1,0,0,0,197,195,1,0,0,0,197,198,1,0,0,0,198,11,1,0,0,0,199,
-        197,1,0,0,0,200,210,3,20,10,0,201,210,3,24,12,0,202,210,3,16,8,0,
-        203,210,3,18,9,0,204,210,3,22,11,0,205,210,3,8,4,0,206,210,3,20,
-        10,0,207,210,3,14,7,0,208,210,3,26,13,0,209,200,1,0,0,0,209,201,
+        197,1,0,0,0,200,210,3,20,10,0,201,210,3,16,8,0,202,210,3,18,9,0,
+        203,210,3,22,11,0,204,210,3,8,4,0,205,210,3,20,10,0,206,210,3,14,
+        7,0,207,210,3,24,12,0,208,210,3,26,13,0,209,200,1,0,0,0,209,201,
         1,0,0,0,209,202,1,0,0,0,209,203,1,0,0,0,209,204,1,0,0,0,209,205,
         1,0,0,0,209,206,1,0,0,0,209,207,1,0,0,0,209,208,1,0,0,0,210,13,1,
         0,0,0,211,213,3,4,2,0,212,214,5,145,0,0,213,212,1,0,0,0,213,214,
@@ -1178,10 +1178,6 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.ReturnStmtContext,0)
 
 
-        def emptyStmt(self):
-            return self.getTypedRuleContext(HogQLParser.EmptyStmtContext,0)
-
-
         def ifStmt(self):
             return self.getTypedRuleContext(HogQLParser.IfStmtContext,0)
 
@@ -1200,6 +1196,10 @@ class HogQLParser ( Parser ):
 
         def exprStmt(self):
             return self.getTypedRuleContext(HogQLParser.ExprStmtContext,0)
+
+
+        def emptyStmt(self):
+            return self.getTypedRuleContext(HogQLParser.EmptyStmtContext,0)
 
 
         def block(self):
@@ -1235,43 +1235,43 @@ class HogQLParser ( Parser ):
             elif la_ == 2:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 201
-                self.emptyStmt()
+                self.ifStmt()
                 pass
 
             elif la_ == 3:
                 self.enterOuterAlt(localctx, 3)
                 self.state = 202
-                self.ifStmt()
+                self.whileStmt()
                 pass
 
             elif la_ == 4:
                 self.enterOuterAlt(localctx, 4)
                 self.state = 203
-                self.whileStmt()
+                self.funcStmt()
                 pass
 
             elif la_ == 5:
                 self.enterOuterAlt(localctx, 5)
                 self.state = 204
-                self.funcStmt()
+                self.varAssignment()
                 pass
 
             elif la_ == 6:
                 self.enterOuterAlt(localctx, 6)
                 self.state = 205
-                self.varAssignment()
+                self.returnStmt()
                 pass
 
             elif la_ == 7:
                 self.enterOuterAlt(localctx, 7)
                 self.state = 206
-                self.returnStmt()
+                self.exprStmt()
                 pass
 
             elif la_ == 8:
                 self.enterOuterAlt(localctx, 8)
                 self.state = 207
-                self.exprStmt()
+                self.emptyStmt()
                 pass
 
             elif la_ == 9:
