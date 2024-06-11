@@ -224,6 +224,7 @@ export class HogExecutor {
             })
 
             if (!res.finished) {
+                log('debug', `Suspending function due to async function call '${res.asyncFunctionName}'`)
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
                     asyncFunctionName: res.asyncFunctionName,
