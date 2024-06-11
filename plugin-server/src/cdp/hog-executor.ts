@@ -177,9 +177,9 @@ export class HogExecutor {
         }
 
         if (!state) {
-            log('info', `Executing function  (${hogFunction.id}) (${hogFunction.name})`)
+            log('debug', `Executing function  (${hogFunction.id}) (${hogFunction.name})`)
         } else {
-            log('info', `Resuming function  (${hogFunction.id}) (${hogFunction.name})`)
+            log('debug', `Resuming function  (${hogFunction.id}) (${hogFunction.name})`)
         }
 
         try {
@@ -202,7 +202,7 @@ export class HogExecutor {
             })
 
             if (!res.finished) {
-                log('info', `Suspending function (${hogFunction.id}) (${hogFunction.name})`)
+                log('debug', `Suspending function (${hogFunction.id}) (${hogFunction.name})`)
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
                     asyncFunctionName: res.asyncFunctionName,
@@ -220,7 +220,7 @@ export class HogExecutor {
                     // TODO: Log error somewhere
                 }
             } else {
-                log('info', `Function completed (${hogFunction.id}) (${hogFunction.name})!`)
+                log('debug', `Function completed (${hogFunction.id}) (${hogFunction.name})!`)
             }
         } catch (err) {
             error = err
