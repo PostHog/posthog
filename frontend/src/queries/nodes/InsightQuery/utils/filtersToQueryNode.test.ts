@@ -79,7 +79,7 @@ describe('actionsAndEventsToSeries', () => {
 
         const result = actionsAndEventsToSeries({ events }, false, MathAvailability.None)
 
-        expect(result[0].kind === NodeKind.EventsNode)
+        expect(result[0].kind).toEqual(NodeKind.EventsNode)
     })
 })
 

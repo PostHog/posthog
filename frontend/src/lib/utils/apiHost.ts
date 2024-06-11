@@ -15,6 +15,5 @@ export function liveEventsHostOrigin(): string | null {
     } else if (appOrigin === 'https://eu.posthog.com') {
         return 'https://live.eu.posthog.com'
     }
-    // TODO(@zach): add dev and local env support
-    return null
+    return 'http://localhost:8666'
 }
