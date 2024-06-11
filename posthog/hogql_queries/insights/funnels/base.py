@@ -686,7 +686,7 @@ class FunnelBase(ABC):
             for i in range(0, max_steps):
                 event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
-                event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+                event_clause = f"({event_fields_with_step}) AS step_{i}_matching_event"
                 events.append(parse_expr(event_clause))
 
             return [*events, *self._get_final_matching_event(max_steps)]
@@ -700,8 +700,8 @@ class FunnelBase(ABC):
             and self.context.actorsQuery.includeRecordings
         ):
             for i in range(0, max_steps):
-                exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"))
-            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) as final_matching_events"))
+                exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) AS step_{i}_matching_events"))
+            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) AS final_matching_events"))
         return exprs
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> list[ast.Expr]:
@@ -709,9 +709,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner")
+                parse_expr(f"avg(step_{i}_conversion_time) AS step_{i}_average_conversion_time_inner")
                 if inner_query
-                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time")
+                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) AS step_{i}_average_conversion_time")
             )
 
         return exprs
@@ -721,9 +721,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner")
+                parse_expr(f"median(step_{i}_conversion_time) AS step_{i}_median_conversion_time_inner")
                 if inner_query
-                else parse_expr(f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time")
+                else parse_expr(f"median(step_{i}_median_conversion_time_inner) AS step_{i}_median_conversion_time")
             )
 
         return exprs
@@ -732,7 +732,7 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
-            exprs.append(parse_expr(f"groupArray(step_{i}_conversion_time) step_{i}_conversion_time_array"))
+            exprs.append(parse_expr(f"groupArray(step_{i}_conversion_time) AS step_{i}_conversion_time_array"))
 
         return exprs
 
@@ -742,7 +742,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNaN(avgArray(step_{i}_conversion_time_array) as inter_{i}_conversion), NULL, inter_{i}_conversion) step_{i}_average_conversion_time"
+                    f"if(isNaN(avgArray(step_{i}_conversion_time_array) AS inter_{i}_conversion), NULL, inter_{i}_conversion) AS step_{i}_average_conversion_time"
                 )
             )
 
@@ -754,7 +754,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNaN(medianArray(step_{i}_conversion_time_array) as inter_{i}_median), NULL, inter_{i}_median) step_{i}_median_conversion_time"
+                    f"if(isNaN(medianArray(step_{i}_conversion_time_array) AS inter_{i}_median), NULL, inter_{i}_median) AS step_{i}_median_conversion_time"
                 )
             )
 
@@ -796,8 +796,8 @@ class FunnelBase(ABC):
             return (
                 [ast.Field(chain=[f"latest_{target_step}"]), ast.Field(chain=[f"latest_{target_step - 1}"])],
                 [
-                    parse_expr(f"argMax(latest_{target_step}, steps) as max_timestamp"),
-                    parse_expr(f"argMax(latest_{target_step - 1}, steps) as min_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step}, steps) AS max_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step - 1}, steps) AS min_timestamp"),
                 ],
             )
         elif self.context.includeTimestamp:
@@ -808,9 +808,9 @@ class FunnelBase(ABC):
                     ast.Field(chain=[f"latest_{first_step}"]),
                 ],
                 [
-                    parse_expr(f"argMax(latest_{target_step}, steps) as timestamp"),
-                    parse_expr(f"argMax(latest_{final_step}, steps) as final_timestamp"),
-                    parse_expr(f"argMax(latest_{first_step}, steps) as first_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step}, steps) AS timestamp"),
+                    parse_expr(f"argMax(latest_{final_step}, steps) AS final_timestamp"),
+                    parse_expr(f"argMax(latest_{first_step}, steps) AS first_timestamp"),
                 ],
             )
         else:
