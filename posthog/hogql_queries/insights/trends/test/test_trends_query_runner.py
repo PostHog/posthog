@@ -9,8 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
 
@@ -851,11 +850,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 4
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]"]
+        assert breakdown_labels == ["[10,17.5]", "[17.5,25]", "[25,32.5]", "[32.5,40.01]"]
 
-        assert response.results[0]["label"] == "[10.0,17.5]"
-        assert response.results[1]["label"] == "[17.5,25.0]"
-        assert response.results[2]["label"] == "[25.0,32.5]"
+        assert response.results[0]["label"] == "[10,17.5]"
+        assert response.results[1]["label"] == "[17.5,25]"
+        assert response.results[2]["label"] == "[25,32.5]"
         assert response.results[3]["label"] == "[32.5,40.01]"
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]

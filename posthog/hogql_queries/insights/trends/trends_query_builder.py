@@ -8,13 +8,13 @@ from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseIns
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.models.team.team import Team
 from posthog.queries.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.schema import (
@@ -197,13 +197,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
             wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-            wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
+            if not breakdown.is_histogram_breakdown:
+                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             return wrapper
+
         # Just breakdowns
         elif breakdown.enabled:
             breakdown_expr = breakdown.column_expr()
+
             default_query.select.append(breakdown_expr)
+            if breakdown.is_histogram_breakdown:
+                default_query.select.append(breakdown.get_bucket_values())
             default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
@@ -310,35 +315,58 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if breakdown.enabled:
-            query.select.append(
-                ast.Alias(
-                    alias="breakdown_value",
-                    expr=ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
-                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                        ],
-                    ),
-                )
-            )
-            query.group_by = [ast.Field(chain=["breakdown_value"])]
-            query.order_by.insert(
-                0,
-                cast(
-                    ast.OrderExpr,
-                    parse_expr(
-                        "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
-                        placeholders={
-                            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-                            "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                        },
-                    ),
+            (
+                query.select.append(
+                    ast.Alias(
+                        alias="breakdown_value",
+                        expr=ast.Call(
+                            name="ifNull",
+                            args=[
+                                ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
+                                ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            ],
+                        ),
+                    )
                 ),
             )
+            query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
+            query.group_by = [ast.Field(chain=["breakdown_value"])]
+
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
+            # TODO: What happens with cohorts and this limit?
+            if not breakdown.is_histogram_breakdown:
+                return parse_select(
+                    """
+                    SELECT
+                        groupArray(1)(date)[1] as date,
+                        arrayMap(
+                            i ->
+                                arraySum(arrayMap(
+                                    x -> arrayElement(x, i),
+                                    groupArray(total)
+                                )),
+                            arrayEnumerate(date)
+                        ) as total,
+                        if(row_number >= {breakdown_limit}, {other}, breakdown_value) as breakdown_value
+                    FROM {outer_query}
+                    GROUP BY breakdown_value
+                    ORDER BY
+                        breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0,
+                        arraySum(total) DESC,
+                        breakdown_value ASC
+                """,
+                    {
+                        "outer_query": query,
+                        "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
+                        "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                        "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    },
+                )
         return query
+
+    def _get_breakdown_limit(self) -> int:
+        return self.query.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
@@ -364,7 +392,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
         if breakdown.enabled:
-            query.select.append(ast.Field(chain=["breakdown_value"]))
+            if breakdown.is_histogram_breakdown:
+                query.select.append(
+                    parse_expr("""
+                    arrayFilter(
+                        x ->
+                            x[1] <= breakdown_value and breakdown_value < x[2],
+                        arrayMap(
+                            (bucket_end, i) -> [
+                                quantile_values[i],
+                                bucket_end + if(i +1 = length(quantile_values), 0.01, 0) -- Add 0.01 to the last bucket so it's inclusive
+                            ],
+                            arraySlice(quantile_values, 2) as _buckets, -- If there are 4 buckets, there's 5 values
+                            arrayEnumerate(_buckets)
+                        )
+                    )[1] as breakdown_value
+                """)
+                )
+            else:
+                query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
