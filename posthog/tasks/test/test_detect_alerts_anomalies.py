@@ -74,6 +74,22 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert self.get_recepients(mocked_email_messages) == [["a@b.c", "d@e.f"]]
         assert "The trend value (1) is above the upper threshold (0)" in mocked_email_messages[0].html_body
 
+    def test_alert_is_not_triggered_for_events_beyond_interval(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.set_thresholds(upper=0)
+
+        with freeze_time("2024-05-02T07:55:00.000Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="1",
+            )
+            flush_persons_and_events()
+
+        check_all_alerts()
+
+        assert len(mocked_email_messages) == 0
+
     def test_alert_is_triggered_for_value_below_lower_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.set_thresholds(lower=1)
