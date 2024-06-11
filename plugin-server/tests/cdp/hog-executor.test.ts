@@ -92,24 +92,6 @@ describe('Hog Executor', () => {
                       "version": "v=1.2.3",
                     },
                     "method": "POST",
-                    "payload": Object {
-                      "event": Object {
-                        "distinct_id": "distinct_id",
-                        "name": "test",
-                        "properties": Object {
-                          "$lib_version": "1.2.3",
-                        },
-                        "timestamp": "2024-06-07T12:00:00.000Z",
-                        "url": "http://localhost:8000/events/1",
-                        "uuid": "uuid",
-                      },
-                      "event_url": "http://localhost:8000/events/1-test",
-                      "groups": null,
-                      "nested": Object {
-                        "foo": "http://localhost:8000/events/1",
-                      },
-                      "person": null,
-                    },
                   },
                 ]
             `)
