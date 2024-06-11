@@ -451,16 +451,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId, s.isManualLinkingSelected],
-            (currentStep, allSources, sourceId, isManualLinkingSelected): boolean => {
+            (s) => [s.currentStep, s.isManualLinkingSelected],
+            (currentStep, isManualLinkingSelected): boolean => {
                 if (isManualLinkingSelected && currentStep == 1) {
                     return false
-                }
-
-                const source = allSources?.results.find((n) => n.id === sourceId)
-
-                if (currentStep === 4) {
-                    return source !== undefined && source.status === 'Completed'
                 }
 
                 return true
@@ -484,7 +478,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return 'Finish'
+                    return 'Return to settings'
                 }
 
                 return 'Next'
@@ -582,7 +576,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, we'll show you a few examples to help you make the most of using the data within PostHog."
+                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
                 }
 
                 return ''
@@ -633,16 +627,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         createTableSuccess: () => {
-            actions.onClear()
-            actions.clearSource()
-            actions.loadSources(null)
-            actions.resetSourceConnectionDetails()
+            actions.cancelWizard()
         },
         closeWizard: () => {
-            actions.onClear()
-            actions.clearSource()
-            actions.loadSources(null)
-            actions.resetSourceConnectionDetails()
+            actions.cancelWizard()
 
             if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
                 router.actions.push(urls.dataWarehouseSettings())
@@ -652,8 +640,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         cancelWizard: () => {
             actions.onClear()
-            actions.setStep(1)
+            actions.clearSource()
             actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
         },
         createSource: async () => {
             if (values.selectedConnector === null) {

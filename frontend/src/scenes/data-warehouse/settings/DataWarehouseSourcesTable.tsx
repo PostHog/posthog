@@ -105,6 +105,7 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     render: function RenderFrequency(_, source) {
                         return (
                             <LemonSelect
+                                className="my-1"
                                 value={source.sync_frequency || 'day'}
                                 onChange={(value) =>
                                     updateSource({ ...source, sync_frequency: value as DataWarehouseSyncInterval })

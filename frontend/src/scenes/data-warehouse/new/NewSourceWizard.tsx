@@ -42,11 +42,6 @@ export function NewSourceWizard(): JSX.Element {
                 >
                     Back
                 </LemonButton>
-                {showSkipButton && (
-                    <LemonButton type="primary" center onClick={() => closeWizard()} data-attr="source-link">
-                        Skip
-                    </LemonButton>
-                )}
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
