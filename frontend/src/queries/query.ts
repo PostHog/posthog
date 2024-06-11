@@ -44,19 +44,12 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export function queryExportContext<N extends DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
-    maintainLegacy: boolean = true
+    refresh?: boolean
 ): OnlineExportContext | QueryExportContext {
     if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh, maintainLegacy)
+        return queryExportContext(query.source, methodOptions, refresh)
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
-    } else if (isInsightQueryNode(query) && maintainLegacy) {
-        return legacyInsightQueryExportContext({
-            filters: queryNodeToFilter(query),
-            currentTeamId: getCurrentTeamId(),
-            refresh,
-        })
     } else if (isTimeToSeeDataSessionsQuery(query)) {
         return {
             path: '/api/time_to_see_data/sessions',
@@ -428,39 +421,6 @@ export function legacyInsightQueryData({
         return [`${baseUrl}/funnel/`, { ...filters, refresh }]
     } else if (isPathsFilter(filters)) {
         return [`${baseUrl}/path/`, { ...filters, refresh }]
-    }
-    throw new Error(`Unsupported insight type: ${filters.insight}`)
-}
-
-export function legacyInsightQueryExportContext({
-    filters,
-    currentTeamId,
-    refresh,
-}: LegacyInsightQueryParams): OnlineExportContext {
-    const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
-
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'GET',
-        }
-    } else if (isRetentionFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'GET',
-        }
-    } else if (isFunnelsFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'POST',
-            body: filters,
-        }
-    } else if (isPathsFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'POST',
-            body: filters,
-        }
     }
     throw new Error(`Unsupported insight type: ${filters.insight}`)
 }

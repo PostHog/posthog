@@ -137,8 +137,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight, s.isHogQLInsight],
-            (query, insight, isHogQLInsight) => {
+            (s) => [s.query, s.insight],
+            (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -151,7 +151,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined, !isHogQLInsight),
+                    ...queryExportContext(sourceQuery, undefined, undefined),
                     filename,
                 } as ExportContext
             },
