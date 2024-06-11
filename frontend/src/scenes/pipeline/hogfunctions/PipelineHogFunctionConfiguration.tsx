@@ -7,7 +7,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { HogQueryEditor } from 'scenes/debug/HogDebug'
 
-import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 
 import { PipelineNodeFilters } from '../configuration/PipelineNodeFilters'
@@ -29,7 +28,6 @@ export function PipelineHogFunctionConfiguration({
     const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
