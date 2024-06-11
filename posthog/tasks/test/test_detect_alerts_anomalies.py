@@ -27,7 +27,7 @@ class TestDetectAlertsAnomaliesTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     event="$pageview",
                 ),
             ],
-            trendsFilter=TrendsFilter(display=ChartDisplayType.BoldNumber),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         ).model_dump()
         self.insight = self.dashboard_api.create_insight(
             data={
