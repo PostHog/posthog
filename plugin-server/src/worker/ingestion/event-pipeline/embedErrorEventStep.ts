@@ -21,6 +21,7 @@ export async function initEmbeddingModel(
         if (!featureExtractionPipeline && anyTeamsAreEmbeddingEvents) {
             // a little magic here to both delay the slow import until the first time it is needed
             // and to make it work due to some ESM/commonjs faff
+            status.info('🤖', 'initialising the error embedding model')
             await runInstrumentedFunction({
                 func: async () => {
                     const TransformersApi = Function('return import("@xenova/transformers")')()
