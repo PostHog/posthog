@@ -133,7 +133,7 @@ async function executeQuery<N extends DataNode>(
 }
 
 // Return data for a given query
-export async function query<N extends DataNode>(
+export async function performQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -141,7 +141,7 @@ export async function query<N extends DataNode>(
     setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
-        return query(queryNode.source)
+        return performQuery(queryNode.source)
     }
 
     let response: NonNullable<N['response']>
@@ -191,7 +191,7 @@ export function getPersonsEndpoint(query: PersonsNode): string {
 }
 
 export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
-    return await query<HogQLQuery>({
+    return await performQuery<HogQLQuery>({
         kind: NodeKind.HogQLQuery,
         query: queryString,
         values,

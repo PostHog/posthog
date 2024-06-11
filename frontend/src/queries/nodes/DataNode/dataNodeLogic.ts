@@ -28,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
@@ -205,7 +205,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 try {
                                     breakpoint()
                                     const data =
-                                        (await query<DataNode>(
+                                        (await performQuery<DataNode>(
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
@@ -247,7 +247,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (isEventsQuery(props.query) && values.newQuery) {
                         const now = performance.now()
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh
@@ -276,7 +276,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh
@@ -290,7 +290,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     } else if (isPersonsNode(props.query)) {
                         const newResponse =
-                            (await query(
+                            (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
                                 props.alwaysRefresh

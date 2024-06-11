@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { query as performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
