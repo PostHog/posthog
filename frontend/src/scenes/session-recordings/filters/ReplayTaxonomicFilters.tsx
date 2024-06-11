@@ -4,6 +4,8 @@ import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { useState } from 'react'
 
 import { PropertyFilterType } from '~/types'
@@ -15,17 +17,41 @@ export interface ReplayTaxonomicFiltersProps {
 }
 
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
-    // onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
+    const { filterGroup } = useValues(universalFiltersLogic)
+
+    const filters = filterGroup.values as UniversalFilterValue[]
+    // const filters = rootFilters.values as UniversalFilterValue[]
+
+    const hasConsoleLogLevelFilter = filters.find(
+        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_level'
+    )
+    const hasConsoleLogQueryFilter = filters.find(
+        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_query'
+    )
 
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mx-2 my-1">Session properties</h5>
                 <ul className="space-y-px">
-                    <LemonButton size="small" fullWidth onClick={() => onChange('console_log_level', {})}>
+                    <LemonButton
+                        size="small"
+                        fullWidth
+                        onClick={() => onChange('console_log_level', {})}
+                        disabledReason={
+                            hasConsoleLogLevelFilter ? 'Only one console log level filter allowed' : undefined
+                        }
+                    >
                         Console log level
                     </LemonButton>
-                    <LemonButton size="small" fullWidth onClick={() => onChange('console_log_query', {})}>
+                    <LemonButton
+                        size="small"
+                        fullWidth
+                        onClick={() => onChange('console_log_query', {})}
+                        disabledReason={
+                            hasConsoleLogQueryFilter ? 'Only one console log query filter allowed' : undefined
+                        }
+                    >
                         Console log text
                     </LemonButton>
                 </ul>
