@@ -42,7 +42,7 @@ class InsightActorsQueryRunner(QueryRunner):
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare_value=query.compare,
-                include_recordings=query.includeRecordings,
+                include_recordings=query.include_recordings,
             )
         elif isinstance(self.source_runner, FunnelsQueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)

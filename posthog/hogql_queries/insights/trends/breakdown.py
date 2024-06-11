@@ -58,18 +58,18 @@ class Breakdown:
     @cached_property
     def enabled(self) -> bool:
         return (
-            self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown is not None
+            self.query.breakdown_filter is not None
+            and self.query.breakdown_filter.breakdown is not None
             and self.has_breakdown_values
         )
 
     @cached_property
     def is_session_type(self) -> bool:
-        return self.enabled and self.query.breakdownFilter.breakdown_type == "session"
+        return self.enabled and self.query.breakdown_filter.breakdown_type == "session"
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
-        return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
+        return self.enabled and self.query.breakdown_filter.breakdown_histogram_bin_count is not None
 
     def placeholders(self) -> dict[str, ast.Expr]:
         values = self._breakdown_buckets_ast if self.is_histogram_breakdown else self._breakdown_values_ast
@@ -80,15 +80,15 @@ class Breakdown:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
-        if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
+        if self.query.breakdown_filter.breakdown_type == "cohort":
+            if self.modifiers.in_cohort_via == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
                     alias="breakdown_value",
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
                 )
 
             cohort_breakdown = (
-                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)  # type: ignore
+                0 if self.query.breakdown_filter.breakdown == "all" else int(self.query.breakdown_filter.breakdown)  # type: ignore
             )
             return ast.Alias(
                 alias="breakdown_value",
@@ -99,14 +99,14 @@ class Breakdown:
 
     def events_where_filter(self) -> ast.Expr | None:
         if (
-            self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown is not None
-            and self.query.breakdownFilter.breakdown_type == "cohort"
+            self.query.breakdown_filter is not None
+            and self.query.breakdown_filter.breakdown is not None
+            and self.query.breakdown_filter.breakdown_type == "cohort"
         ):
             breakdown = (
                 self.breakdown_values_override
                 if self.breakdown_values_override
-                else self.query.breakdownFilter.breakdown
+                else self.query.breakdown_filter.breakdown
             )
 
             if breakdown == "all":
@@ -139,19 +139,19 @@ class Breakdown:
         # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
         # Except when explicitly filtering
         if (
-            self.query.breakdownFilter is not None
-            and not self.query.breakdownFilter.breakdown_hide_other_aggregation
+            self.query.breakdown_filter is not None
+            and not self.query.breakdown_filter.breakdown_hide_other_aggregation
             and len(self.breakdown_values_override or []) == 0
         ):
             return ast.Constant(value=True)
 
         if (
-            self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown is not None
-            and self.query.breakdownFilter.breakdown_type == "hogql"
-            and isinstance(self.query.breakdownFilter.breakdown, str)
+            self.query.breakdown_filter is not None
+            and self.query.breakdown_filter.breakdown is not None
+            and self.query.breakdown_filter.breakdown_type == "hogql"
+            and isinstance(self.query.breakdown_filter.breakdown, str)
         ):
-            left = parse_expr(self.query.breakdownFilter.breakdown)
+            left = parse_expr(self.query.breakdown_filter.breakdown)
         else:
             left = ast.Field(chain=self._properties_chain)
 
@@ -190,12 +190,12 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_transform_func(self) -> ast.Call:
-        if self.query.breakdownFilter.breakdown_type == "hogql":
-            return self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown))
+        if self.query.breakdown_filter.breakdown_type == "hogql":
+            return self._get_breakdown_values_transform(parse_expr(self.query.breakdown_filter.breakdown))
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
-        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
+        if self.query.breakdown_filter and self.query.breakdown_filter.breakdown_normalize_url:
             node = parse_expr(
                 "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}
             )
@@ -237,7 +237,7 @@ class Breakdown:
         if self.breakdown_values_override is not None:
             return cast(list[str | int | None], self.breakdown_values_override)
 
-        if self.query.breakdownFilter is None:
+        if self.query.breakdown_filter is None:
             return []
 
         with self.timings.measure("breakdown_values_query"):
@@ -246,7 +246,7 @@ class Breakdown:
                 series=self.series,
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
-                breakdown_filter=self.query.breakdownFilter,
+                breakdown_filter=self.query.breakdown_filter,
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -314,15 +314,15 @@ class Breakdown:
     @cached_property
     def _properties_chain(self):
         return get_properties_chain(
-            breakdown_type=self.query.breakdownFilter.breakdown_type,
-            breakdown_field=self.query.breakdownFilter.breakdown,
-            group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
+            breakdown_type=self.query.breakdown_filter.breakdown_type,
+            breakdown_field=self.query.breakdown_filter.breakdown,
+            group_type_index=self.query.breakdown_filter.breakdown_group_type_index,
         )
 
     def _trends_display(self) -> TrendsDisplay:
         display = (
-            self.query.trendsFilter.display
-            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            self.query.trends_filter.display
+            if self.query.trends_filter is not None and self.query.trends_filter.display is not None
             else None
         )
         return TrendsDisplay(display)

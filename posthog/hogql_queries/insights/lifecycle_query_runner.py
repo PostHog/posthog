@@ -35,13 +35,13 @@ class LifecycleQueryRunner(QueryRunner):
     cached_response: CachedLifecycleQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if self.query.samplingFactor == 0:
+        if self.query.sampling_factor == 0:
             counts_with_sampling = ast.Constant(value=0)
-        elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
+        elif self.query.sampling_factor is not None and self.query.sampling_factor != 1:
             counts_with_sampling = parse_expr(
                 "round(counts * (1 / {sampling_factor}))",
                 {
-                    "sampling_factor": ast.Constant(value=self.query.samplingFactor),
+                    "sampling_factor": ast.Constant(value=self.query.sampling_factor),
                 },
             )
         else:
@@ -219,7 +219,7 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
@@ -266,7 +266,7 @@ class LifecycleQueryRunner(QueryRunner):
                     event_filters.append(property_to_expr(serie.properties, self.team))
         with self.timings.measure("test_account_filters"):
             if (
-                self.query.filterTestAccounts
+                self.query.filter_test_accounts
                 and isinstance(self.team.test_account_filters, list)
                 and len(self.team.test_account_filters) > 0
             ):
@@ -346,7 +346,7 @@ class LifecycleQueryRunner(QueryRunner):
                 },
                 timings=self.timings,
             )
-            sampling_factor = self.query.samplingFactor
+            sampling_factor = self.query.sampling_factor
             if sampling_factor is not None and isinstance(sampling_factor, float):
                 sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
                 events_query.select_from.sample = sample_expr

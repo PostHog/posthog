@@ -161,8 +161,8 @@ class Funnel(FunnelBase):
                     exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
-                    if exclusion.funnelFromStep + 1 == i:
-                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
+                    if exclusion.funnel_from_step + 1 == i:
+                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"]))
 
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
@@ -181,11 +181,11 @@ class Funnel(FunnelBase):
                     )
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
-                    if exclusion.funnelFromStep + 1 == i:
-                        exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+                    if exclusion.funnel_from_step + 1 == i:
+                        exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         exprs.append(
                             parse_expr(
-                                f"if({exclusion_identifier} < latest_{exclusion.funnelFromStep}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
+                                f"if({exclusion_identifier} < latest_{exclusion.funnel_from_step}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
                             )
                         )
 

@@ -198,7 +198,7 @@ def select_from_sessions_table(
         args=[aggregate_fields["$urls"]],
     )
 
-    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_URLS:
+    if context.modifiers.bounce_rate_page_view_mode == BounceRatePageViewMode.UNIQ_URLS:
         bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
     else:
         bounce_pageview_count = aggregate_fields["$pageview_count"]

@@ -66,7 +66,7 @@ LIMIT 10
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=None,
             now=datetime.now(),

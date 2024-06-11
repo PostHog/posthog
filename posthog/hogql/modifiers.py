@@ -33,27 +33,27 @@ def create_default_modifiers_for_team(
 
 
 def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
-    if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.DISABLED
+    if modifiers.persons_on_events_mode is None:
+        modifiers.persons_on_events_mode = team.person_on_events_mode or PersonsOnEventsMode.DISABLED
 
-    if modifiers.personsArgMaxVersion is None:
-        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
+    if modifiers.persons_arg_max_version is None:
+        modifiers.persons_arg_max_version = PersonsArgMaxVersion.AUTO
 
-    if modifiers.inCohortVia is None:
-        modifiers.inCohortVia = InCohortVia.AUTO
+    if modifiers.in_cohort_via is None:
+        modifiers.in_cohort_via = InCohortVia.AUTO
 
-    if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.AUTO:
-        modifiers.materializationMode = MaterializationMode.LEGACY_NULL_AS_NULL
+    if modifiers.materialization_mode is None or modifiers.materialization_mode == MaterializationMode.AUTO:
+        modifiers.materialization_mode = MaterializationMode.LEGACY_NULL_AS_NULL
 
-    if modifiers.optimizeJoinedFilters is None:
-        modifiers.optimizeJoinedFilters = False
+    if modifiers.optimize_joined_filters is None:
+        modifiers.optimize_joined_filters = False
 
-    if modifiers.bounceRatePageViewMode is None:
-        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
+    if modifiers.bounce_rate_page_view_mode is None:
+        modifiers.bounce_rate_page_view_mode = BounceRatePageViewMode.COUNT_PAGEVIEWS
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
-    if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:
-        modifiers.inCohortVia = InCohortVia.SUBQUERY
+    if modifiers.in_cohort_via is None or modifiers.in_cohort_via == InCohortVia.AUTO:
+        modifiers.in_cohort_via = InCohortVia.SUBQUERY
 
     return modifiers

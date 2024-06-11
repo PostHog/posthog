@@ -81,10 +81,10 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.properties:
                     with self.timings.measure("properties"):
                         where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
-                if self.query.fixedProperties:
+                if self.query.fixed_properties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(
-                            property_to_expr(property, self.team) for property in self.query.fixedProperties
+                            property_to_expr(property, self.team) for property in self.query.fixed_properties
                         )
                 if self.query.event:
                     with self.timings.measure("event"):
@@ -95,19 +95,19 @@ class EventsQueryRunner(QueryRunner):
                                 timings=self.timings,
                             )
                         )
-                if self.query.actionId:
+                if self.query.action_id:
                     with self.timings.measure("action_id"):
                         try:
-                            action = Action.objects.get(pk=self.query.actionId, team_id=self.team.pk)
+                            action = Action.objects.get(pk=self.query.action_id, team_id=self.team.pk)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
-                if self.query.personId:
+                if self.query.person_id:
                     with self.timings.measure("person_id"):
                         person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.filter(team=self.team), self.query.personId
+                            Person.objects.filter(team=self.team), self.query.person_id
                         ).first()
                         where_exprs.append(
                             parse_expr(
@@ -116,7 +116,7 @@ class EventsQueryRunner(QueryRunner):
                                 timings=self.timings,
                             )
                         )
-                if self.query.filterTestAccounts:
+                if self.query.filter_test_accounts:
                     with self.timings.measure("test_account_filters"):
                         for prop in self.team.test_account_filters or []:
                             where_exprs.append(property_to_expr(prop, self.team))
@@ -160,8 +160,8 @@ class EventsQueryRunner(QueryRunner):
 
             # order by
             with self.timings.measure("order"):
-                if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                if self.query.order_by is not None:
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.order_by]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:

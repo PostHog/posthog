@@ -71,9 +71,9 @@ class LegacyWebStatsTableQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # special case for channel, as some hogql features to use the general code are still being worked on
-        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+        if self.query.breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             query = self.to_channel_query()
-        elif self.query.includeScrollDepth:
+        elif self.query.include_scroll_depth:
             query = parse_select(
                 """
 SELECT
@@ -108,7 +108,7 @@ ORDER BY
                     "sample_rate": self._sample_ratio,
                 },
             )
-        elif self.query.includeBounceRate:
+        elif self.query.include_bounce_rate:
             with self.timings.measure("stats_table_query"):
                 query = parse_select(
                     """
@@ -192,7 +192,7 @@ ORDER BY
         )
 
     def counts_breakdown(self):
-        match self.query.breakdownBy:
+        match self.query.breakdown_by:
             case WebStatsBreakdown.PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]))
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
@@ -229,7 +229,7 @@ ORDER BY
                 raise NotImplementedError("Breakdown not implemented")
 
     def bounce_breakdown(self):
-        match self.query.breakdownBy:
+        match self.query.breakdown_by:
             case WebStatsBreakdown.PAGE:
                 # use initial pathname for bounce rate
                 return self._apply_path_cleaning(
@@ -245,7 +245,7 @@ ORDER BY
                 return ast.Call(name="any", args=[self.counts_breakdown()])
 
     def where_breakdown(self):
-        match self.query.breakdownBy:
+        match self.query.breakdown_by:
             case WebStatsBreakdown.REGION:
                 return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
             case WebStatsBreakdown.CITY:
@@ -326,7 +326,7 @@ ORDER BY
         return top_sources_query
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
+        if not self.query.do_path_cleaning or not self.team.path_cleaning_filters:
             return path_expr
 
         for replacement in self.team.path_cleaning_filter_models():

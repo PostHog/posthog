@@ -47,7 +47,7 @@ class FunnelBase(ABC):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
@@ -55,22 +55,22 @@ class FunnelBase(ABC):
         # validate exclusions
         if self.context.funnelsFilter.exclusions is not None:
             for exclusion in self.context.funnelsFilter.exclusions:
-                if exclusion.funnelFromStep >= exclusion.funnelToStep:
+                if exclusion.funnel_from_step >= exclusion.funnel_to_step:
                     raise ValidationError(
                         "Exclusion event range is invalid. End of range should be greater than start."
                     )
 
-                if exclusion.funnelFromStep >= len(self.context.query.series) - 1:
+                if exclusion.funnel_from_step >= len(self.context.query.series) - 1:
                     raise ValidationError(
                         "Exclusion event range is invalid. Start of range is greater than number of steps."
                     )
 
-                if exclusion.funnelToStep > len(self.context.query.series) - 1:
+                if exclusion.funnel_to_step > len(self.context.query.series) - 1:
                     raise ValidationError(
                         "Exclusion event range is invalid. End of range is greater than number of steps."
                     )
 
-                for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
+                for entity in self.context.query.series[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
                     if is_equal(entity, exclusion) or is_superset(entity, exclusion):
                         raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
@@ -128,7 +128,7 @@ class FunnelBase(ABC):
                     parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
                 )
 
-            final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
+            final_select = parse_expr(f"prop_{funnelsFilter.breakdown_attribution_value} as prop")
             prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
             return [prop_basic, *select_columns, final_select, prop_window]
@@ -222,7 +222,7 @@ class FunnelBase(ABC):
                 total_people += results[step_index]
 
             serialized_result = self._serialize_step(
-                step, total_people, step_index, [], self.context.query.samplingFactor
+                step, total_people, step_index, [], self.context.query.sampling_factor
             )  # persons not needed on initial return
 
             if step_index > 0:
@@ -355,7 +355,7 @@ class FunnelBase(ABC):
 
         for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
             step_cols = self._get_step_col(
-                excluded_entity, excluded_entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_"
+                excluded_entity, excluded_entity.funnel_from_step, entity_name, f"exclusion_{exclusion_id}_"
             )
             # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
@@ -517,7 +517,7 @@ class FunnelBase(ABC):
             step_conditions.append(parse_expr(f"step_{index} = 1"))
 
         for exclusion_id, entity in enumerate(self.context.funnelsFilter.exclusions or []):
-            step_conditions.append(parse_expr(f"exclusion_{exclusion_id}_step_{entity.funnelFromStep} = 1"))
+            step_conditions.append(parse_expr(f"exclusion_{exclusion_id}_step_{entity.funnel_from_step} = 1"))
 
         return ast.Or(exprs=step_conditions)
 
@@ -589,32 +589,32 @@ class FunnelBase(ABC):
         )
         assert actorsQuery is not None
 
-        funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
-        funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+        funnel_step = actorsQuery.funnel_step
+        funnel_custom_steps = actorsQuery.funnel_custom_steps
+        funnel_step_breakdown = actorsQuery.funnel_step_breakdown
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                step_nums = list(range(funnelStep, max_steps + 1))
+        if funnel_custom_steps:
+            conditions.append(parse_expr(f"steps IN {funnel_custom_steps}"))
+        elif funnel_step is not None:
+            if funnel_step >= 0:
+                step_nums = list(range(funnel_step, max_steps + 1))
                 conditions.append(parse_expr(f"steps IN {step_nums}"))
             else:
-                step_num = abs(funnelStep) - 1
+                step_num = abs(funnel_step) - 1
                 conditions.append(parse_expr(f"steps = {step_num}"))
         else:
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
-        if funnelStepBreakdown is not None:
-            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
-                funnelStepBreakdown = str(funnelStepBreakdown)
+        if funnel_step_breakdown is not None:
+            if isinstance(funnel_step_breakdown, int) and breakdownType != "cohort":
+                funnel_step_breakdown = str(funnel_step_breakdown)
 
             conditions.append(
                 parse_expr(
-                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
-                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnel_step_breakdown}))",
+                    {"funnel_step_breakdown": ast.Constant(value=funnel_step_breakdown)},
                 )
             )
 
@@ -624,9 +624,9 @@ class FunnelBase(ABC):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
-            step_num = self.context.actorsQuery.funnelStep
+            step_num = self.context.actorsQuery.funnel_step
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
                 return [parse_expr("final_matching_events as matching_events")]
@@ -680,7 +680,7 @@ class FunnelBase(ABC):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             events = []
             for i in range(0, max_steps):
@@ -697,7 +697,7 @@ class FunnelBase(ABC):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             for i in range(0, max_steps):
                 exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"))
@@ -772,7 +772,7 @@ class FunnelBase(ABC):
         if not actorsQuery:
             return [], []
 
-        target_step = actorsQuery.funnelStep
+        target_step = actorsQuery.funnel_step
         final_step = max_steps - 1
         first_step = 0
 
@@ -848,8 +848,8 @@ class FunnelBase(ABC):
                     exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
-                    if cast(int, exclusion.funnelFromStep) + 1 == i:
-                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
+                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"]))
 
             else:
                 duplicate_event = 0
@@ -872,10 +872,10 @@ class FunnelBase(ABC):
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    if cast(int, exclusion.funnelFromStep) + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         exprs.append(
                             parse_expr(
-                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                             )
                         )
 
@@ -910,9 +910,9 @@ class FunnelBase(ABC):
         conditions: list[ast.Expr] = []
 
         for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
-            from_time = f"latest_{exclusion.funnelFromStep}"
-            to_time = f"latest_{exclusion.funnelToStep}"
-            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"latest_{exclusion.funnel_to_step}"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = parse_expr(
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )

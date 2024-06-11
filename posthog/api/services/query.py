@@ -128,9 +128,9 @@ def process_query_model(
             serializer = SessionEventsQuerySerializer(
                 data={
                     "team_id": team.pk,
-                    "session_start": query.sessionStart,
-                    "session_end": query.sessionEnd,
-                    "session_id": query.sessionId,
+                    "session_start": query.session_start,
+                    "session_end": query.session_end,
+                    "session_id": query.session_id,
                 }
             )
             serializer.is_valid(raise_exception=True)

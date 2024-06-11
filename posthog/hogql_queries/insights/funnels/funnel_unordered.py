@@ -40,7 +40,7 @@ class FunnelUnordered(FunnelBase):
         max_steps = self.context.max_steps
 
         for exclusion in self.context.funnelsFilter.exclusions or []:
-            if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
+            if exclusion.funnel_from_step != 0 or exclusion.funnel_to_step != max_steps - 1:
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         if self.context.breakdown and self.context.breakdownType in [
@@ -174,9 +174,9 @@ class FunnelUnordered(FunnelBase):
         conditions: list[ast.Expr] = []
 
         for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
-            from_time = f"latest_{exclusion.funnelFromStep}"
-            to_time = f"event_times[{exclusion.funnelToStep + 1}]"
-            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"event_times[{exclusion.funnel_to_step + 1}]"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = parse_expr(
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )

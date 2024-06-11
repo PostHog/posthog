@@ -921,7 +921,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.model_dump(exclude_defaults=True),
-            {"breakdownFilter": {}, "dateRange": {}, "series": [], "trendsFilter": {}},
+            {"breakdown_filter": {}, "date_range": {}, "series": [], "trendsFilter": {}},
         )
 
     def test_base_funnel(self):
@@ -964,19 +964,19 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
-        self.assertEqual(query.dateRange.date_from, "-14d")
-        self.assertEqual(query.dateRange.date_to, "-7d")
+        assert isinstance(query.date_range, InsightDateRange)
+        self.assertEqual(query.date_range.date_from, "-14d")
+        self.assertEqual(query.date_range.date_to, "-7d")
 
     def test_date_range_with_explict_date_setting(self):
         filter = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
-        self.assertEqual(query.dateRange.date_from, "-14d")
-        self.assertEqual(query.dateRange.date_to, "-7d")
-        self.assertEqual(query.dateRange.explicitDate, True)
+        assert isinstance(query.date_range, InsightDateRange)
+        self.assertEqual(query.date_range.date_from, "-14d")
+        self.assertEqual(query.date_range.date_to, "-7d")
+        self.assertEqual(query.date_range.explicit_date, True)
 
     def test_interval(self):
         filter = {"interval": "hour"}
@@ -1314,7 +1314,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.breakdownFilter,
+            query.breakdown_filter,
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
         )
 
@@ -1325,7 +1325,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.breakdownFilter,
+            query.breakdown_filter,
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
         )
 
@@ -1336,7 +1336,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.breakdownFilter,
+            query.breakdown_filter,
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="some_prop"),
         )
 
@@ -1359,7 +1359,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.trendsFilter,
+            query.trends_filter,
             TrendsFilter(
                 smoothingIntervals=2,
                 compare=True,
@@ -1425,7 +1425,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, FunnelsQuery)
         self.assertEqual(
-            query.funnelsFilter,
+            query.funnels_filter,
             FunnelsFilter(
                 funnelVizType=FunnelVizType.STEPS,
                 funnelFromStep=1,
@@ -1475,7 +1475,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, RetentionQuery)
         self.assertEqual(
-            query.retentionFilter,
+            query.retention_filter,
             RetentionFilter(
                 retentionType=RetentionType.RETENTION_FIRST_TIME,
                 totalIntervals=12,
@@ -1537,7 +1537,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, PathsQuery)
         self.assertEqual(
-            query.pathsFilter,
+            query.paths_filter,
             PathsFilter(
                 includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.HOGQL],
                 pathsHogQLExpression="event",
@@ -1556,7 +1556,7 @@ class TestFilterToQuery(BaseTest):
             ),
         )
         self.assertEqual(
-            query.funnelPathsFilter,
+            query.funnel_paths_filter,
             FunnelPathsFilter(
                 funnelPathType=FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS,
                 funnelSource=FunnelsQuery(
@@ -1586,7 +1586,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, StickinessQuery)
         self.assertEqual(
-            query.stickinessFilter,
+            query.stickiness_filter,
             StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
         )
 
@@ -1602,7 +1602,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, LifecycleQuery)
         self.assertEqual(
-            query.lifecycleFilter,
+            query.lifecycle_filter,
             LifecycleFilter(
                 showValuesOnSeries=True,
                 toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],

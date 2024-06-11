@@ -38,13 +38,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy == WebStatsBreakdown.PAGE:
-            if self.query.includeScrollDepth and self.query.includeBounceRate:
+        if self.query.breakdown_by == WebStatsBreakdown.PAGE:
+            if self.query.include_scroll_depth and self.query.include_bounce_rate:
                 return self.to_path_scroll_bounce_query()
-            elif self.query.includeBounceRate:
+            elif self.query.include_bounce_rate:
                 return self.to_path_bounce_query()
-        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
-            if self.query.includeBounceRate:
+        if self.query.breakdown_by == WebStatsBreakdown.INITIAL_PAGE:
+            if self.query.include_bounce_rate:
                 return self.to_entry_bounce_query()
         if self._has_session_properties():
             return self._to_main_query_with_session_properties()
@@ -178,7 +178,7 @@ ORDER BY "context.columns.visitors" DESC,
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy != WebStatsBreakdown.PAGE:
+        if self.query.breakdown_by != WebStatsBreakdown.PAGE:
             raise NotImplementedError("Scroll depth is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_bounce_query"):
@@ -290,7 +290,7 @@ ORDER BY "context.columns.visitors" DESC,
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
+        if self.query.breakdown_by not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_scroll_query"):
@@ -393,7 +393,7 @@ ORDER BY "context.columns.visitors" DESC,
     def _has_session_properties(self) -> bool:
         return any(
             get_property_type(p) == "session" for p in self.query.properties + self._test_account_filters
-        ) or self.query.breakdownBy in {
+        ) or self.query.breakdown_by in {
             WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
             WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
             WebStatsBreakdown.INITIAL_UTM_SOURCE,
@@ -452,7 +452,7 @@ ORDER BY "context.columns.visitors" DESC,
         )
 
     def _counts_breakdown_value(self):
-        match self.query.breakdownBy:
+        match self.query.breakdown_by:
             case WebStatsBreakdown.PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case WebStatsBreakdown.INITIAL_PAGE:
@@ -491,7 +491,7 @@ ORDER BY "context.columns.visitors" DESC,
                 raise NotImplementedError("Breakdown not implemented")
 
     def where_breakdown(self):
-        match self.query.breakdownBy:
+        match self.query.breakdown_by:
             case WebStatsBreakdown.REGION:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.CITY:
@@ -518,7 +518,7 @@ ORDER BY "context.columns.visitors" DESC,
         return self._apply_path_cleaning(ast.Field(chain=["sessions", "$entry_pathname"]))
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
+        if not self.query.do_path_cleaning or not self.team.path_cleaning_filters:
             return path_expr
 
         for replacement in self.team.path_cleaning_filter_models():

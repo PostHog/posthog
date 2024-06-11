@@ -44,7 +44,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select  from events"
         results = self._query_response(query=query, start=7, end=7)
         assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
-        assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
+        assert "toDateTime()" in [suggestion.insert_text for suggestion in results.suggestions]
 
     def test_autocomplete_persons_suggestions(self):
         query = "select  from persons"
@@ -255,4 +255,4 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         suggestion = suggestions[0]
         assert suggestion is not None
         assert suggestion.label == "event-name"
-        assert suggestion.insertText == "`event-name`"
+        assert suggestion.insert_text == "`event-name`"

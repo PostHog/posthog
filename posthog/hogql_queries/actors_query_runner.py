@@ -213,12 +213,12 @@ class ActorsQueryRunner(QueryRunner):
 
         order_by: list[ast.OrderExpr]
         with self.timings.measure("order"):
-            if self.query.orderBy is not None:
+            if self.query.order_by is not None:
                 strategy_order_by = self.strategy.order_by()
                 if strategy_order_by is not None:
                     order_by = strategy_order_by
                 else:
-                    order_by = [parse_order_expr(col, timings=self.timings) for col in self.query.orderBy]
+                    order_by = [parse_order_expr(col, timings=self.timings) for col in self.query.order_by]
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
             elif len(aggregations) > 0:

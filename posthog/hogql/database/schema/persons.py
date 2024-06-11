@@ -39,7 +39,7 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 
 
 def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
-    version = context.modifiers.personsArgMaxVersion
+    version = context.modifiers.persons_arg_max_version
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
         # If selecting properties, use the faster v2 query. Otherwise, v1 is faster.
@@ -89,7 +89,7 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
-    if context.modifiers.optimizeJoinedFilters:
+    if context.modifiers.optimize_joined_filters:
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)

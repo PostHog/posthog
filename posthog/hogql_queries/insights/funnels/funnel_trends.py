@@ -68,8 +68,8 @@ class FunnelTrends(FunnelBase):
         for period_row in results:
             serialized_result = {
                 "timestamp": period_row[0],
-                "reached_from_step_count": correct_result_for_sampling(period_row[1], query.samplingFactor),
-                "reached_to_step_count": correct_result_for_sampling(period_row[2], query.samplingFactor),
+                "reached_from_step_count": correct_result_for_sampling(period_row[1], query.sampling_factor),
+                "reached_to_step_count": correct_result_for_sampling(period_row[2], query.sampling_factor),
                 "conversion_rate": period_row[3],
             }
 
@@ -122,7 +122,7 @@ class FunnelTrends(FunnelBase):
         team, interval, query, now = self.context.team, self.context.interval, self.context.query, self.context.now
 
         date_range = QueryDateRange(
-            date_range=query.dateRange,
+            date_range=query.date_range,
             team=team,
             interval=query.interval,
             now=now,
@@ -285,7 +285,7 @@ class FunnelTrends(FunnelBase):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             event_select_clause = self._get_matching_event_arrays(max_steps)
 
@@ -321,9 +321,9 @@ class FunnelTrends(FunnelBase):
         funnelsFilter, max_steps = self.context.funnelsFilter, self.context.max_steps
 
         # How many steps must have been done to count for the denominator of a funnel trends data point
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = funnelsFilter.funnel_from_step or 0
         # How many steps must have been done to count for the numerator of a funnel trends data point
-        to_step = funnelsFilter.funnelToStep or max_steps - 1
+        to_step = funnelsFilter.funnel_to_step or max_steps - 1
 
         # Those who converted OR dropped off
         reached_from_step_count_condition = f"steps_completed >= {from_step+1}"

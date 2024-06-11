@@ -21,31 +21,33 @@ class FunnelTrendsActors(FunnelTrends):
         if actorsQuery is None:
             raise ValidationError("No actors query present.")
 
-        if actorsQuery.funnelTrendsDropOff is None:
-            raise ValidationError(f"Actors parameter `funnelTrendsDropOff` must be provided for funnel trends persons!")
-
-        if actorsQuery.funnelTrendsEntrancePeriodStart is None:
+        if actorsQuery.funnel_trends_drop_off is None:
             raise ValidationError(
-                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be provided funnel trends persons!"
+                f"Actors parameter `funnel_trends_drop_off` must be provided for funnel trends persons!"
             )
 
-        entrancePeriodStart = relative_date_parse(actorsQuery.funnelTrendsEntrancePeriodStart, team.timezone_info)
+        if actorsQuery.funnel_trends_entrance_period_start is None:
+            raise ValidationError(
+                f"Actors parameter `funnel_trends_entrance_period_start` must be provided funnel trends persons!"
+            )
+
+        entrancePeriodStart = relative_date_parse(actorsQuery.funnel_trends_entrance_period_start, team.timezone_info)
         if entrancePeriodStart is None:
             raise ValidationError(
-                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be a valid relative date string!"
+                f"Actors parameter `funnel_trends_entrance_period_start` must be a valid relative date string!"
             )
 
-        self.dropOff = actorsQuery.funnelTrendsDropOff
+        self.dropOff = actorsQuery.funnel_trends_drop_off
         self.entrancePeriodStart = entrancePeriodStart
 
     def _get_funnel_person_step_events(self) -> list[ast.Expr]:
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             # Get the event that should be used to match the recording
-            funnel_to_step = self.context.funnelsFilter.funnelToStep
+            funnel_to_step = self.context.funnelsFilter.funnel_to_step
             is_drop_off = self.dropOff
 
             if funnel_to_step is None or is_drop_off:

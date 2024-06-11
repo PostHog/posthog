@@ -171,7 +171,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
         runner = self._create_runner(
             ActorsQuery(
@@ -183,7 +183,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_source_hogql_query_poe_on(self):

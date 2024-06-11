@@ -133,7 +133,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_sessions_for_person(self):
@@ -237,7 +237,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_and_informal_sessions_global(self):
@@ -410,7 +410,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_session_with_recording(self):
@@ -488,7 +488,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=540,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     @patch("posthog.hogql_queries.sessions_timeline_query_runner.SessionsTimelineQueryRunner.EVENT_LIMIT", 2)
@@ -553,7 +553,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is True
+        assert response.has_more is True
 
     @snapshot_clickhouse_queries
     def test_before_and_after(self):

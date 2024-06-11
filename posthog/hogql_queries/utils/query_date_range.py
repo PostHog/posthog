@@ -56,7 +56,7 @@ class QueryDateRange:
                 now=self.now_with_timezone,
             )
 
-        if not self._date_range or not self._date_range.explicitDate:
+        if not self._date_range or not self._date_range.explicit_date:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
             if self.interval_name not in ("hour", "minute"):
@@ -129,10 +129,10 @@ class QueryDateRange:
 
     @cached_property
     def explicit(self) -> bool:
-        if self._date_range is None or self._date_range.explicitDate is None:
+        if self._date_range is None or self._date_range.explicit_date is None:
             return False
 
-        return self._date_range.explicitDate
+        return self._date_range.explicit_date
 
     def align_with_interval(self, start: datetime) -> datetime:
         if self.interval_name == "minute":

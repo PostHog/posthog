@@ -249,7 +249,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 column_invalid = False
 
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if not column_invalid or (modifiers is not None and modifiers.s3_table_use_invalid_columns):
                 structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns

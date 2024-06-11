@@ -135,8 +135,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if not self._trends_display.is_total_value():  # TODO: remove: and not is_actors_query
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
-                self.query.trendsFilter
-                and self.query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                self.query.trends_filter
+                and self.query.trends_filter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
                 and (self.series.math == "unique_group" or self.series.math == "dau")
             ):
                 day_start.expr = ast.Call(name="min", args=[day_start.expr])
@@ -267,9 +267,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothingIntervals is not None
-            and self.query.trendsFilter.smoothingIntervals > 1
+            self.query.trends_filter is not None
+            and self.query.trends_filter.smoothing_intervals is not None
+            and self.query.trends_filter.smoothing_intervals > 1
         ):
             rolling_average = ast.Alias(
                 alias="total",
@@ -287,7 +287,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     )
                 """,
                     {
-                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
+                        "smoothing_interval": ast.Constant(value=int(self.query.trends_filter.smoothing_intervals)),
                         "total_array": total_array,
                     },
                 ),
@@ -409,7 +409,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Filter Test Accounts
         if (
-            self.query.filterTestAccounts
+            self.query.filter_test_accounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -456,10 +456,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _sample_value(self) -> ast.RatioExpr:
-        if self.query.samplingFactor is None:
+        if self.query.sampling_factor is None:
             return ast.RatioExpr(left=ast.Constant(value=1))
 
-        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+        return ast.RatioExpr(left=ast.Constant(value=self.query.sampling_factor))
 
     def session_duration_math_property_wrapper(self, default_query: ast.SelectQuery) -> ast.SelectQuery:
         query = cast(
@@ -510,8 +510,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         display = (
-            self.query.trendsFilter.display
-            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            self.query.trends_filter.display
+            if self.query.trends_filter is not None and self.query.trends_filter.display is not None
             else None
         )
         return TrendsDisplay(display)

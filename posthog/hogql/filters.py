@@ -55,7 +55,7 @@ class ReplaceFilters(CloningVisitor):
             if self.filters.properties is not None:
                 exprs.append(property_to_expr(self.filters.properties, self.team))
 
-            dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
+            dateTo = self.filters.date_range.date_to if self.filters.date_range else None
             if dateTo is not None:
                 try:
                     parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
@@ -70,7 +70,7 @@ class ReplaceFilters(CloningVisitor):
                 )
 
             # limit to the last 30d by default
-            dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
+            dateFrom = self.filters.date_range.date_from if self.filters.date_range else None
             if dateFrom is not None and dateFrom != "all":
                 try:
                     parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
@@ -84,7 +84,7 @@ class ReplaceFilters(CloningVisitor):
                     )
                 )
 
-            if self.filters.filterTestAccounts:
+            if self.filters.filter_test_accounts:
                 for prop in self.team.test_account_filters or []:
                     exprs.append(property_to_expr(prop, self.team))
 

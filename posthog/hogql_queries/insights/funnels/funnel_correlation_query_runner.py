@@ -109,8 +109,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.funnels_query = self.actors_query.source
 
         # Funnel Step by default set to 1, to give us all people who entered the funnel
-        if self.actors_query.funnelStep is None:
-            self.actors_query.funnelStep = 1
+        if self.actors_query.funnel_step is None:
+            self.actors_query.funnel_step = 1
 
         self.context = FunnelQueryContext(
             query=self.funnels_query,
@@ -128,7 +128,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             include_properties=self.properties_to_include,
             # NOTE: we always use the final matching event for the recording because this
             # is the the right event for both drop off and successful funnels
-            include_final_matching_events=self.actors_query.includeRecordings,
+            include_final_matching_events=self.actors_query.include_recordings,
         )
         self.context.actorsQuery = self.actors_query
 
@@ -222,7 +222,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hogql=hogql,
             columns=response.columns,
             types=response.types,
-            hasMore=response.hasMore,
+            hasMore=response.has_more,
             limit=response.limit,
             offset=response.offset,
             modifiers=self.modifiers,
@@ -261,8 +261,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             for result in results
         ]
 
-        success_total = int(correct_result_for_sampling(success_total, self.funnels_query.samplingFactor))
-        failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
+        success_total = int(correct_result_for_sampling(success_total, self.funnels_query.sampling_factor))
+        failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.sampling_factor))
 
         if not success_total or not failure_total:
             return [], True, hogql, response
@@ -334,10 +334,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
+        if self.query.funnel_correlation_type == FunnelCorrelationResultsType.PROPERTIES:
             return self.get_properties_query()
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES:
+        if self.query.funnel_correlation_type == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES:
             return self.get_event_property_query()
 
         return self.get_event_query()
@@ -345,15 +345,15 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         assert self.correlation_actors_query is not None
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
+        if self.query.funnel_correlation_type == FunnelCorrelationResultsType.PROPERTIES:
             # Filtering on persons / groups properties can be pushed down to funnel events query
             if (
-                self.correlation_actors_query.funnelCorrelationPropertyValues
-                and len(self.correlation_actors_query.funnelCorrelationPropertyValues) > 0
+                self.correlation_actors_query.funnel_correlation_property_values
+                and len(self.correlation_actors_query.funnel_correlation_property_values) > 0
             ):
                 self.context.query.properties = [
                     *(self.context.query.properties or []),
-                    *self.correlation_actors_query.funnelCorrelationPropertyValues,
+                    *self.correlation_actors_query.funnel_correlation_property_values,
                 ]
             return self.properties_actor_query()
         else:
@@ -362,34 +362,34 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def events_actor_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         assert self.correlation_actors_query is not None
 
-        if not self.correlation_actors_query.funnelCorrelationPersonEntity:
+        if not self.correlation_actors_query.funnel_correlation_person_entity:
             raise ValidationError("No entity for persons specified")
 
-        assert isinstance(self.correlation_actors_query.funnelCorrelationPersonEntity, EventsNode)
+        assert isinstance(self.correlation_actors_query.funnel_correlation_person_entity, EventsNode)
 
         target_step = self.context.max_steps
-        target_event = self.correlation_actors_query.funnelCorrelationPersonEntity.event
+        target_event = self.correlation_actors_query.funnel_correlation_person_entity.event
         funnel_step_names = self._get_funnel_step_names()
         funnel_persons_query = self.get_funnel_actors_cte()
         funnel_event_query = FunnelEventQuery(context=self.context)
         date_from = funnel_event_query._date_range().date_from_as_hogql()
         date_to = funnel_event_query._date_range().date_to_as_hogql()
 
-        properties = self.correlation_actors_query.funnelCorrelationPersonEntity.properties
+        properties = self.correlation_actors_query.funnel_correlation_person_entity.properties
         prop_query = None
         if properties is not None and properties != []:
             prop_query = property_to_expr(properties, self.team)
 
         conversion_filter = (
-            f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
-            if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
+            f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnel_correlation_person_converted else "<>"} target_step'
+            if self.correlation_actors_query.funnel_correlation_person_converted is not None
             else ""
         )
 
         event_join_query = self._get_events_join_query()
 
         recording_event_select_statement = (
-            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.includeRecordings else ""
+            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.include_recordings else ""
         )
 
         query = parse_select(
@@ -431,20 +431,20 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         assert self.correlation_actors_query is not None
 
-        if not self.correlation_actors_query.funnelCorrelationPropertyValues:
+        if not self.correlation_actors_query.funnel_correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
         target_step = self.context.max_steps
         funnel_persons_query = self.get_funnel_actors_cte()
 
         conversion_filter = (
-            f'funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
-            if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
+            f'funnel_actors.steps {"=" if self.correlation_actors_query.funnel_correlation_person_converted else "<>"} target_step'
+            if self.correlation_actors_query.funnel_correlation_person_converted is not None
             else ""
         )
 
         recording_event_select_statement = (
-            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.includeRecordings else ""
+            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.include_recordings else ""
         )
 
         query = parse_select(
@@ -505,7 +505,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
             FROM events AS event
                 {event_join_query}
-                AND event.event NOT IN {self.query.funnelCorrelationExcludeEventNames or []}
+                AND event.event NOT IN {self.query.funnel_correlation_exclude_event_names or []}
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
@@ -546,7 +546,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return event_correlation_query
 
     def get_event_property_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if not self.query.funnelCorrelationEventNames:
+        if not self.query.funnel_correlation_event_names:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
         funnel_persons_query = self.get_funnel_actors_cte()
@@ -556,8 +556,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         funnel_event_query = FunnelEventQuery(context=self.context)
         date_from = funnel_event_query._date_range().date_from_as_hogql()
         date_to = funnel_event_query._date_range().date_to_as_hogql()
-        event_names = self.query.funnelCorrelationEventNames
-        exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
+        event_names = self.query.funnel_correlation_event_names
+        exclude_property_names = self.query.funnel_correlation_event_exclude_property_names or []
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
@@ -644,12 +644,12 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return query
 
     def get_properties_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if not self.query.funnelCorrelationNames:
+        if not self.query.funnel_correlation_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
         funnel_persons_query = self.get_funnel_actors_cte()
         target_step = self.context.max_steps
-        exclude_property_names = self.query.funnelCorrelationExcludeNames or []
+        exclude_property_names = self.query.funnel_correlation_exclude_names or []
 
         person_prop_query = self._get_properties_prop_clause()
         aggregation_join_query = self._get_aggregation_join_query()
@@ -807,21 +807,21 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             """
 
     def _get_properties_prop_clause(self):
-        assert self.query.funnelCorrelationNames is not None
+        assert self.query.funnel_correlation_names is not None
 
         if self.funnels_query.aggregation_group_type_index is None:
             properties_prefix = "person_props"
         else:
             properties_prefix = f"groups_{self.funnels_query.aggregation_group_type_index}.properties"
-        if "$all" in self.query.funnelCorrelationNames:
+        if "$all" in self.query.funnel_correlation_names:
             return f"arrayJoin(JSONExtractKeysAndValues({properties_prefix}, 'String')) as prop"
         else:
             props = [
                 f"JSONExtractString({properties_prefix}, '{property_name}')"
-                for property_name in self.query.funnelCorrelationNames
+                for property_name in self.query.funnel_correlation_names
             ]
             props_str = ", ".join(props)
-            return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
+            return f"arrayJoin(arrayZip({self.query.funnel_correlation_names}, [{props_str}])) as prop"
 
     def _get_funnel_step_names(self) -> list[str]:
         events: set[str] = set()
@@ -841,13 +841,13 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def properties_to_include(self) -> list[str]:
         props_to_include: list[str] = []
         # TODO: implement or remove
-        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
-        #     assert self.query.funnelCorrelationNames is not None
+        # if self.query.funnel_correlation_type == FunnelCorrelationResultsType.PROPERTIES:
+        #     assert self.query.funnel_correlation_names is not None
 
         #     # When dealing with properties, make sure funnel response comes with properties
         #     # so we don't have to join on persons/groups to get these properties again
 
-        #     for property_name in self.query.funnelCorrelationNames:
+        #     for property_name in self.query.funnel_correlation_names:
         #         if self.funnels_query.aggregation_group_type_index is not None:
         #             if "$all" == property_name:
         #                 return []
@@ -859,8 +859,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def support_autocapture_elements(self) -> bool:
         if (
-            self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES
-            and AUTOCAPTURE_EVENT in (self.query.funnelCorrelationEventNames or [])
+            self.query.funnel_correlation_type == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES
+            and AUTOCAPTURE_EVENT in (self.query.funnel_correlation_event_names or [])
         ):
             return True
         return False

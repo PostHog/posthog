@@ -153,7 +153,7 @@ FROM (
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=None,
             now=datetime.now(),
@@ -195,7 +195,9 @@ def to_data(
         "isIncreaseBad": is_increase_bad,
         "value": value,
         "previous": previous,
-        "changeFromPreviousPct": round(100 * (value - previous) / previous)
-        if value is not None and previous is not None and previous != 0
-        else None,
+        "changeFromPreviousPct": (
+            round(100 * (value - previous) / previous)
+            if value is not None and previous is not None and previous != 0
+            else None
+        ),
     }

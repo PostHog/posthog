@@ -32,7 +32,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": False,
+                "is_valid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
                 "errors": [
@@ -51,7 +51,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "inputExpr": None,
                 "inputSelect": "select 1",
                 "errors": [],
@@ -63,7 +63,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "inputExpr": "timestamp",
                 "inputSelect": None,
                 "errors": [],
@@ -75,7 +75,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": False,
+                "is_valid": False,
                 "inputExpr": None,
                 "inputSelect": "timestamp",
                 "errors": [
@@ -95,7 +95,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": False,
+                "is_valid": False,
                 "inputExpr": "1 as true",
                 "inputSelect": None,
                 "errors": [
@@ -115,7 +115,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": False,
+                "is_valid": False,
                 "inputExpr": "1 + no_field",
                 "inputSelect": None,
                 "errors": [
@@ -131,16 +131,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_table(self):
         metadata = self._expr("timestamp", "events")
-        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(metadata.is_valid, True)
 
         metadata = self._expr("timestamp", "persons")
-        self.assertEqual(metadata.isValid, False)
+        self.assertEqual(metadata.is_valid, False)
 
         metadata = self._expr("is_identified", "events")
-        self.assertEqual(metadata.isValid, False)
+        self.assertEqual(metadata.is_valid, False)
 
         metadata = self._expr("is_identified", "persons")
-        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(metadata.is_valid, True)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
@@ -153,7 +153,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.model_dump(),
             metadata.model_dump()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "inputExpr": None,
                 "inputSelect": query,
                 "notices": [
@@ -207,7 +207,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "inputExpr": "properties.string || properties.number",
                 "inputSelect": None,
                 "notices": [
@@ -243,7 +243,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "inputExpr": "properties.string || properties.number",
                 "inputSelect": None,
                 "notices": [
@@ -269,7 +269,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "isValidView": True,
                 "inputExpr": None,
                 "inputSelect": "select event AS event FROM events",
@@ -296,7 +296,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "isValidView": True,
                 "inputExpr": None,
                 "inputSelect": "select event AS event FROM event_view",
@@ -310,7 +310,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "isValid": True,
+                "is_valid": True,
                 "errors": [],
             },
         )

@@ -40,7 +40,7 @@ class TestTrendsQueryBuilder(BaseTest):
 
     def get_response(self, trends_query: TrendsQuery) -> HogQLQueryResponse:
         query_date_range = QueryDateRange(
-            date_range=trends_query.dateRange,
+            date_range=trends_query.date_range,
             team=self.team,
             interval=trends_query.interval,
             now=datetime.now(),

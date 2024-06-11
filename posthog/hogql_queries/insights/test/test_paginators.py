@@ -66,7 +66,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
         runner = self._create_runner(
             ActorsQuery(
@@ -78,7 +78,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
     def test_zero_limit(self):
         """Test behavior with limit set to zero."""
@@ -87,7 +87,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(runner.paginator.limit, 100)
         self.assertEqual(response.limit, 100)
         self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_negative_limit(self):
         """Test behavior with negative limit value."""
@@ -96,14 +96,14 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(runner.paginator.limit, 100)
         self.assertEqual(response.limit, 100)
         self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_exact_limit_match(self):
         """Test when available items equal the limit."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=10))
         response = runner.calculate()
         self.assertEqual(len(response.results), 10)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_empty_result_set(self):
         """Test behavior when query returns no results."""
@@ -118,7 +118,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         )
         response = runner.calculate()
         self.assertEqual(len(response.results), 0)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_large_offset(self):
         """Test behavior with offset larger than the total number of items."""
@@ -126,7 +126,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=5, offset=100))
         response = runner.calculate()
         self.assertEqual(len(response.results), 0)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_offset_plus_limit_exceeding_total(self):
         """Test when sum of offset and limit exceeds total items."""
@@ -134,7 +134,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(runner.paginator.offset, 5)
         self.assertEqual(len(response.results), 5)
-        self.assertFalse(response.hasMore)
+        self.assertFalse(response.has_more)
 
     def test_response_params_consistency(self):
         """Test consistency of response_params method."""
@@ -147,7 +147,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         params = paginator.response_params()
         self.assertEqual(params["limit"], 5)
         self.assertEqual(params["offset"], 10)
-        self.assertEqual(params["hasMore"], paginator.has_more())
+        self.assertEqual(params["has_more"], paginator.has_more())
 
     def test_handle_none_response(self):
         """Test handling of None response."""

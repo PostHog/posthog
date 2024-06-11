@@ -723,7 +723,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if self.context.modifiers.inCohortVia == "subquery":
+        if self.context.modifiers.in_cohort_via == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
                     ast.CompareOperation(

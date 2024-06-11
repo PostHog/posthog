@@ -57,15 +57,15 @@ class PathsQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
-        if not self.query.pathsFilter:
-            self.query.pathsFilter = PathsFilter()
+        if not self.query.paths_filter:
+            self.query.paths_filter = PathsFilter()
 
-        self.event_in_session_limit = self.query.pathsFilter.stepLimit or EVENT_IN_SESSION_LIMIT_DEFAULT
+        self.event_in_session_limit = self.query.paths_filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT
 
         self.regex_groupings: list[str] = []
-        if self.query.pathsFilter.pathGroupings:
+        if self.query.paths_filter.path_groupings:
             self.regex_groupings = [
-                escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.pathGroupings
+                escape(grouping).replace("\\*", ".*") for grouping in self.query.paths_filter.path_groupings
             ]
 
         self.extra_event_fields: list[str] = []
@@ -79,27 +79,27 @@ class PathsQueryRunner(QueryRunner):
         conditions: list[ast.Expr] = []
         or_conditions: list[ast.Expr] = []
 
-        if not self.query.pathsFilter.includeEventTypes:
+        if not self.query.paths_filter.include_event_types:
             return []
 
-        if PathType.FIELD_PAGEVIEW in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_PAGEVIEW in self.query.paths_filter.include_event_types:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=PAGEVIEW_EVENT)}))
 
-        if PathType.FIELD_SCREEN in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_SCREEN in self.query.paths_filter.include_event_types:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=SCREEN_EVENT)}))
 
-        if PathType.CUSTOM_EVENT in self.query.pathsFilter.includeEventTypes:
+        if PathType.CUSTOM_EVENT in self.query.paths_filter.include_event_types:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
             conditions.append(ast.Or(exprs=or_conditions))
 
-        if self.query.pathsFilter.excludeEvents:
+        if self.query.paths_filter.exclude_events:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["path_item"]),
-                    right=ast.Constant(value=self.query.pathsFilter.excludeEvents),
+                    right=ast.Constant(value=self.query.paths_filter.exclude_events),
                 )
             )
 
@@ -109,16 +109,16 @@ class PathsQueryRunner(QueryRunner):
         return []
 
     def _should_query_event(self, event: str) -> bool:
-        if not self.query.pathsFilter.includeEventTypes:
-            return event not in (self.query.pathsFilter.excludeEvents or [])
+        if not self.query.paths_filter.include_event_types:
+            return event not in (self.query.paths_filter.exclude_events or [])
 
-        return event in (self.query.pathsFilter.includeEventTypes or [])
+        return event in (self.query.paths_filter.include_event_types or [])
 
     def construct_event_hogql(self) -> ast.Expr:
         event_hogql: ast.Expr = parse_expr("event")
 
-        if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
-            event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
+        if self._should_query_event(HOGQL) and self.query.paths_filter.paths_hog_ql_expression:
+            event_hogql = parse_expr(self.query.paths_filter.paths_hog_ql_expression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
             event_hogql = parse_expr(
@@ -135,35 +135,35 @@ class PathsQueryRunner(QueryRunner):
         return event_hogql
 
     def handle_funnel(self) -> tuple[list, Optional[ast.Expr]]:
-        if not self.query.funnelPathsFilter:
+        if not self.query.funnel_paths_filter:
             return [], None
 
-        funnelPathType, funnelSource, funnelStep = (
-            self.query.funnelPathsFilter.funnelPathType,
-            self.query.funnelPathsFilter.funnelSource,
-            self.query.funnelPathsFilter.funnelStep,
+        funnel_path_type, funnel_source, funnel_step = (
+            self.query.funnel_paths_filter.funnel_path_type,
+            self.query.funnel_paths_filter.funnel_source,
+            self.query.funnel_paths_filter.funnel_step,
         )
-        funnelSourceFilter = funnelSource.funnelsFilter or FunnelsFilter()
+        funnelSourceFilter = funnel_source.funnels_filter or FunnelsFilter()
 
-        if funnelPathType in (
+        if funnel_path_type in (
             FunnelPathType.FUNNEL_PATH_AFTER_STEP,
             FunnelPathType.FUNNEL_PATH_BEFORE_STEP,
         ):
             funnel_fields = [
                 ast.Alias(alias="target_timestamp", expr=ast.Field(chain=["funnel_actors", "timestamp"])),
             ]
-            interval = funnelSourceFilter.funnelWindowInterval or 14
-            unit = funnelSourceFilter.funnelWindowIntervalUnit
+            interval = funnelSourceFilter.funnel_window_interval or 14
+            unit = funnelSourceFilter.funnel_window_interval_unit
             interval_unit = funnel_window_interval_unit_to_sql(unit)
-            operator = ">=" if funnelPathType == FunnelPathType.FUNNEL_PATH_AFTER_STEP else "<="
+            operator = ">=" if funnel_path_type == FunnelPathType.FUNNEL_PATH_AFTER_STEP else "<="
             default_case = f"events.timestamp {operator} toTimeZone({{target_timestamp}}, 'UTC')"
-            if funnelPathType == FunnelPathType.FUNNEL_PATH_AFTER_STEP and funnelStep and funnelStep < 0:
+            if funnel_path_type == FunnelPathType.FUNNEL_PATH_AFTER_STEP and funnel_step and funnel_step < 0:
                 default_case += f" + INTERVAL {interval} {interval_unit}"
             event_filter = parse_expr(
                 default_case, {"target_timestamp": ast.Field(chain=["funnel_actors", "timestamp"])}
             )
             return funnel_fields, event_filter
-        elif funnelPathType == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS:
+        elif funnel_path_type == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS:
             funnel_fields = [
                 ast.Alias(alias="min_timestamp", expr=ast.Field(chain=["funnel_actors", "min_timestamp"])),
                 ast.Alias(alias="max_timestamp", expr=ast.Field(chain=["funnel_actors", "max_timestamp"])),
@@ -184,21 +184,21 @@ class PathsQueryRunner(QueryRunner):
             )
             return funnel_fields, event_filter
         else:
-            raise ValueError("Unexpected `funnelPathType` for funnel path filter.")
+            raise ValueError("Unexpected `funnel_path_type` for funnel path filter.")
 
     def funnel_join(self) -> ast.JoinExpr:
-        if not self.query.funnelPathsFilter:
+        if not self.query.funnel_paths_filter:
             raise ValueError("Funnel paths filter is required for funnel paths.")
 
         from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 
-        funnelPathType, funnelSource, funnelStep = (
-            self.query.funnelPathsFilter.funnelPathType,
-            self.query.funnelPathsFilter.funnelSource,
-            self.query.funnelPathsFilter.funnelStep,
+        funnel_path_type, funnel_source, funnel_step = (
+            self.query.funnel_paths_filter.funnel_path_type,
+            self.query.funnel_paths_filter.funnel_source,
+            self.query.funnel_paths_filter.funnel_step,
         )
 
-        actor_query = FunnelsActorsQuery(source=funnelSource, funnelStep=funnelStep)
+        actor_query = FunnelsActorsQuery(source=funnel_source, funnelStep=funnel_step)
         actors_query_runner = InsightActorsQueryRunner(
             query=actor_query,
             team=self.team,
@@ -209,12 +209,12 @@ class PathsQueryRunner(QueryRunner):
 
         assert isinstance(actors_query_runner.source_runner, FunnelsQueryRunner)
         assert actors_query_runner.source_runner.context is not None
-        actors_query_runner.source_runner.context.includeTimestamp = funnelPathType in (
+        actors_query_runner.source_runner.context.includeTimestamp = funnel_path_type in (
             FunnelPathType.FUNNEL_PATH_AFTER_STEP,
             FunnelPathType.FUNNEL_PATH_BEFORE_STEP,
         )
         actors_query_runner.source_runner.context.includePrecedingTimestamp = (
-            funnelPathType == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS
+            funnel_path_type == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS
         )
         actors_query = actors_query_runner.to_query()
 
@@ -237,7 +237,7 @@ class PathsQueryRunner(QueryRunner):
 
     def paths_events_query(self) -> ast.SelectQuery:
         event_filters = []
-        pathReplacements: list[PathCleaningFilter] = []
+        path_replacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
         event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
@@ -267,22 +267,25 @@ class PathsQueryRunner(QueryRunner):
         final_path_item_column = "path_item_ungrouped"
 
         if (
-            self.query.pathsFilter.pathReplacements
+            self.query.paths_filter.path_replacements
             and self.team.path_cleaning_filters
             and len(self.team.path_cleaning_filters) > 0
         ):
-            pathReplacements.extend(self.team.path_cleaning_filter_models())
+            path_replacements.extend(self.team.path_cleaning_filter_models())
 
-        if self.query.pathsFilter.localPathCleaningFilters and len(self.query.pathsFilter.localPathCleaningFilters) > 0:
-            pathReplacements.extend(self.query.pathsFilter.localPathCleaningFilters)
+        if (
+            self.query.paths_filter.local_path_cleaning_filters
+            and len(self.query.paths_filter.local_path_cleaning_filters) > 0
+        ):
+            path_replacements.extend(self.query.paths_filter.local_path_cleaning_filters)
 
-        if len(pathReplacements) > 0:
+        if len(path_replacements) > 0:
             final_path_item_column = "path_item_cleaned"
 
-            for idx, replacement in enumerate(pathReplacements):
+            for idx, replacement in enumerate(path_replacements):
                 source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx - 1}"
                 result_path_item_column = (
-                    "path_item_cleaned" if idx == len(pathReplacements) - 1 else f"path_item_{idx}"
+                    "path_item_cleaned" if idx == len(path_replacements) - 1 else f"path_item_{idx}"
                 )
 
                 fields.append(
@@ -302,7 +305,7 @@ class PathsQueryRunner(QueryRunner):
         fields += [
             ast.Alias(
                 alias="groupings",
-                expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or None),
+                expr=ast.Constant(value=self.query.paths_filter.path_groupings or None),
             ),
             ast.Alias(
                 alias="group_index",
@@ -324,7 +327,7 @@ class PathsQueryRunner(QueryRunner):
             event_filters.append(property_to_expr(self.query.properties, self.team))
 
         if (
-            self.query.filterTestAccounts
+            self.query.filter_test_accounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -347,9 +350,13 @@ class PathsQueryRunner(QueryRunner):
         if funnel_fields:
             query.select_from = self.funnel_join()
 
-        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float) and query.select_from:
+        if (
+            self.query.sampling_factor is not None
+            and isinstance(self.query.sampling_factor, float)
+            and query.select_from
+        ):
             query.select_from.sample = ast.SampleExpr(
-                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.sampling_factor))
             )
 
         return query
@@ -372,7 +379,7 @@ class PathsQueryRunner(QueryRunner):
         )
 
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
-        if self.query.pathsFilter.endPoint:
+        if self.query.paths_filter.end_point:
             return "arrayResize"
 
         return "arraySlice"
@@ -411,7 +418,7 @@ class PathsQueryRunner(QueryRunner):
                             ast.Field(chain=[f"filtered_{field}"]),
                             *(
                                 [ast.Constant(value=-1 * self.event_in_session_limit)]
-                                if self.query.pathsFilter.endPoint
+                                if self.query.paths_filter.end_point
                                 else [
                                     ast.Constant(value=1),
                                     ast.Constant(value=self.event_in_session_limit),
@@ -492,7 +499,7 @@ class PathsQueryRunner(QueryRunner):
         return list(itertools.chain.from_iterable(expressions))
 
     def get_target_clause(self) -> list[ast.Expr]:
-        if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
+        if self.query.paths_filter.start_point and self.query.paths_filter.end_point:
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -500,7 +507,7 @@ class PathsQueryRunner(QueryRunner):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["compact_path"]),
-                            ast.Constant(value=self.query.pathsFilter.startPoint),
+                            ast.Constant(value=self.query.paths_filter.start_point),
                         ],
                     ),
                 ),
@@ -515,7 +522,7 @@ class PathsQueryRunner(QueryRunner):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["start_filtered_path"]),
-                            ast.Constant(value=self.query.pathsFilter.endPoint),
+                            ast.Constant(value=self.query.paths_filter.end_point),
                         ],
                     ),
                 ),
@@ -526,15 +533,15 @@ class PathsQueryRunner(QueryRunner):
             return self.get_filtered_path_ordering()
 
     def get_session_threshold_clause(self) -> ast.Expr:
-        if self.query.funnelPathsFilter:
-            funnelSourceFilter = self.query.funnelPathsFilter.funnelSource.funnelsFilter or FunnelsFilter()
+        if self.query.funnel_paths_filter:
+            funnelSourceFilter = self.query.funnel_paths_filter.funnel_source.funnels_filter or FunnelsFilter()
 
             interval = 14
             interval_unit = FunnelConversionWindowTimeUnit.DAY
 
-            if funnelSourceFilter.funnelWindowInterval:
-                interval = funnelSourceFilter.funnelWindowInterval
-                unit = funnelSourceFilter.funnelWindowIntervalUnit
+            if funnelSourceFilter.funnel_window_interval:
+                interval = funnelSourceFilter.funnel_window_interval
+                unit = funnelSourceFilter.funnel_window_interval_unit
                 interval_unit = funnel_window_interval_unit_to_sql(unit)  # type: ignore
 
             return parse_expr(
@@ -547,7 +554,7 @@ class PathsQueryRunner(QueryRunner):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
+        target_point = self.query.paths_filter.end_point or self.query.paths_filter.start_point
         target_point = (
             target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
         )
@@ -723,29 +730,29 @@ class PathsQueryRunner(QueryRunner):
             )
         )
 
-        if self.query.pathsFilter.endPoint and self.query.pathsFilter.startPoint:
+        if self.query.paths_filter.end_point and self.query.paths_filter.start_point:
             table.where = parse_expr("start_target_index > 0 AND end_target_index > 0")
-        elif self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint:
+        elif self.query.paths_filter.end_point or self.query.paths_filter.start_point:
             table.where = parse_expr("target_index > 0")
 
         return select
 
     def get_edge_weight_exprs(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
-        if self.query.pathsFilter.minEdgeWeight:
+        if self.query.paths_filter.min_edge_weight:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["event_count"]),
-                    right=ast.Constant(value=self.query.pathsFilter.minEdgeWeight),
+                    right=ast.Constant(value=self.query.paths_filter.min_edge_weight),
                 )
             )
-        if self.query.pathsFilter.maxEdgeWeight:
+        if self.query.paths_filter.max_edge_weight:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["event_count"]),
-                    right=ast.Constant(value=self.query.pathsFilter.maxEdgeWeight),
+                    right=ast.Constant(value=self.query.paths_filter.max_edge_weight),
                 )
             )
         return conditions
@@ -781,14 +788,14 @@ class PathsQueryRunner(QueryRunner):
             if conditions:
                 paths_query.having = ast.And(exprs=conditions)
 
-            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edgeLimit or EDGE_LIMIT_DEFAULT)
+            paths_query.limit = ast.Constant(value=self.query.paths_filter.edge_limit or EDGE_LIMIT_DEFAULT)
 
         return paths_query
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=None,
             now=datetime.now(),
@@ -866,7 +873,7 @@ class PathsQueryRunner(QueryRunner):
             {
                 "source": source,
                 "target": target,
-                "value": correct_result_for_sampling(value, self.query.samplingFactor),
+                "value": correct_result_for_sampling(value, self.query.sampling_factor),
                 "average_conversion_time": avg_conversion_time * 1000.0,
             }
             for source, target, value, avg_conversion_time in response.results
@@ -887,26 +894,26 @@ class PathsQueryRunner(QueryRunner):
         path_per_person_query = self.paths_per_person_query()
 
         conditions = []
-        if self.query.pathsFilter.pathDropoffKey:
+        if self.query.paths_filter.path_dropoff_key:
             conditions.append(
                 parse_expr(
                     "path_dropoff_key = {key} AND path_dropoff_key = path_key",
-                    {"key": ast.Constant(value=self.query.pathsFilter.pathDropoffKey)},
+                    {"key": ast.Constant(value=self.query.paths_filter.path_dropoff_key)},
                 )
             )
         else:
-            if self.query.pathsFilter.pathStartKey:
+            if self.query.paths_filter.path_start_key:
                 conditions.append(
                     parse_expr(
                         "last_path_key = {key}",
-                        {"key": ast.Constant(value=self.query.pathsFilter.pathStartKey)},
+                        {"key": ast.Constant(value=self.query.paths_filter.path_start_key)},
                     )
                 )
-            if self.query.pathsFilter.pathEndKey:
+            if self.query.paths_filter.path_end_key:
                 conditions.append(
                     parse_expr(
                         "path_key = {key}",
-                        {"key": ast.Constant(value=self.query.pathsFilter.pathEndKey)},
+                        {"key": ast.Constant(value=self.query.paths_filter.path_end_key)},
                     )
                 )
             else:

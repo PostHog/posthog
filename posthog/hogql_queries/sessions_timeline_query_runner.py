@@ -58,11 +58,11 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     right=ast.Constant(value=before),
                 ),
             ]
-            if self.query.personId:
+            if self.query.person_id:
                 event_conditions.append(
                     ast.CompareOperation(
                         left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=self.query.personId),
+                        right=ast.Constant(value=self.query.person_id),
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
