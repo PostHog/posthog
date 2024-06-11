@@ -21,6 +21,7 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
+from posthog.plugins.reload import reset_available_product_features_cache_on_workers
 from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
@@ -247,10 +248,8 @@ def ensure_available_product_features_sync(sender, instance: Organization, **kwa
             "Notifying plugin-server to reset available product features cache.",
             {"organization_id": instance.id},
         )
-        get_client().publish(
-            "reset-available-product-features-cache",
-            json.dumps({"organization_id": str(instance.id)}),
-        )
+
+        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
 
 
 class OrganizationMembership(UUIDModel):

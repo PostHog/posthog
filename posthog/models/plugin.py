@@ -21,7 +21,7 @@ from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
-from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.reload import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -131,10 +131,8 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        get_client().publish(
-            "populate-plugin-capabilities",
-            json.dumps({"plugin_id": str(plugin.id)}),
-        )
+
+        populate_plugin_capabilities_on_workers(plugin.id)
         return plugin
 
 
