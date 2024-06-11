@@ -1,5 +1,5 @@
 import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'
 
@@ -13,12 +13,12 @@ export const alertDeletionWarningLogic = kea<alertDeletionWarningLogicType>([
         setShouldShow: (show: boolean) => ({ show }),
     }),
     connect((props: InsightLogicProps) => ({
-        values: [alertsLogic({ insightShortId: props.dashboardItemId! }), ['alerts']],
-        actions: [insightLogic, ['setFilters']],
+        values: [alertsLogic({ insightShortId: props.dashboardItemId! as InsightShortId }), ['alerts']],
+        actions: [insightVizDataLogic, ['setQuery']],
     })),
     listeners(({ actions, values }) => ({
-        setFilters: ({ filters }) => {
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(filters)) {
+        setQuery: ({ query }) => {
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShow(false)
             } else {
                 actions.setShouldShow(true)
