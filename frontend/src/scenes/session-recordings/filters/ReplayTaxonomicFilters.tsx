@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { useState } from 'react'
 
@@ -17,10 +16,9 @@ export interface ReplayTaxonomicFiltersProps {
 }
 
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
-    const { filterGroup } = useValues(universalFiltersLogic)
-
-    const filters = filterGroup.values as UniversalFilterValue[]
-    // const filters = rootFilters.values as UniversalFilterValue[]
+    const {
+        filterGroup: { values: filters },
+    } = useValues(universalFiltersLogic)
 
     const hasConsoleLogLevelFilter = filters.find(
         (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_level'
@@ -38,9 +36,7 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
                         size="small"
                         fullWidth
                         onClick={() => onChange('console_log_level', {})}
-                        disabledReason={
-                            hasConsoleLogLevelFilter ? 'Only one console log level filter allowed' : undefined
-                        }
+                        disabledReason={hasConsoleLogLevelFilter ? 'Log level filter already added' : undefined}
                     >
                         Console log level
                     </LemonButton>
@@ -48,9 +44,7 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
                         size="small"
                         fullWidth
                         onClick={() => onChange('console_log_query', {})}
-                        disabledReason={
-                            hasConsoleLogQueryFilter ? 'Only one console log query filter allowed' : undefined
-                        }
+                        disabledReason={hasConsoleLogQueryFilter ? 'Log text filter already added' : undefined}
                     >
                         Console log text
                     </LemonButton>
