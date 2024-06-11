@@ -188,7 +188,7 @@ input::-ms-clear {
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--default);
+    color: var(--text-3000);
 
     b,
     strong {
@@ -263,7 +263,7 @@ input::-ms-clear {
     font-size: 12px;
     font-weight: bold;
     pointer-events: none;
-    border: 2px solid var(--default);
+    border: 2px solid var(--text-3000);
     border-radius: 50%;
 
     // variants
@@ -404,7 +404,6 @@ input::-ms-clear {
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
     // Until we have 3000 rolled out we fallback to standard colors
-    --text-3000: var(--default);
     --muted-3000: var(--muted);
     --primary-3000: var(--primary);
     --primary-3000-highlight: var(--primary-highlight);
@@ -419,7 +418,6 @@ body {
     --bg-light: #fff;
     --bg-table: var(--bg-light);
     --link: var(--primary-3000);
-    --tooltip-bg: var(--bg-charcoal);
     --data-color-1-hover: #1d4affe5;
     --shadow-elevation: var(--shadow-elevation-3000);
     --primary: var(--primary-3000);
@@ -489,7 +487,7 @@ body {
     h2,
     h3,
     h4 {
-        color: var(--default);
+        color: var(--text-3000);
     }
 
     h5 {
@@ -538,7 +536,7 @@ body {
     }
 
     .ant-dropdown {
-        color: var(--default);
+        color: var(--text-3000);
         border-radius: var(--radius);
     }
 

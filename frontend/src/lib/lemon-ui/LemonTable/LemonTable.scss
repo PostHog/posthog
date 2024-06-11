@@ -96,7 +96,7 @@
     }
 
     a.Link {
-        color: var(--default);
+        color: var(--text-3000);
 
         &:not(:disabled):hover {
             color: var(--primary-3000-hover);
@@ -156,7 +156,7 @@
 
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
-                color: var(--default);
+                color: var(--text-3000);
 
                 > td:not(.LemonTable__cell--sticky) {
                     background: var(--primary-bg-hover);
@@ -262,14 +262,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--default);
+                    color: var(--text-3000);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--default);
+                color: var(--text-3000);
             }
         }
     }

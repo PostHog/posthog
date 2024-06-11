@@ -51,7 +51,6 @@ $colors: (
     'brand-yellow': #f9bd2b,
     'brand-key': #000,
 
-    // This becomes white in dark mode
     // PostHog 3000
     'text-3000-light': #111,
     'text-secondary-3000-light': rgba(#111, 0.7),
@@ -152,11 +151,8 @@ $colors: (
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$_primary: map.get($colors, 'primary');
-$_success: map.get($colors, 'success');
-$_primary_bg_active: rgba($_primary, 0.2);
-$_lifecycle_new: $_primary;
-$_lifecycle_returning: $_success;
+$_lifecycle_new: map.get($colors, 'primary');
+$_lifecycle_returning: map.get($colors, 'success');
 $_lifecycle_resurrecting: #a56eff; // --data-lilac
 $_lifecycle_dormant: map.get($colors, 'danger');
 
@@ -165,8 +161,6 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 @mixin root-variables {
     // TODO: Remove the primary-bg...
     --primary-bg-hover: var(--primary-highlight);
-    --primary-bg-active: #{$_primary_bg_active};
-    --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
 
     // Non-color vars
@@ -187,7 +181,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--default);
+    --black: var(--text-3000);
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -291,7 +285,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --modal-transition-time: 200ms;
 
     // Tooltips
-    --tooltip-bg-light: var(--bg-charcoal);
+    --tooltip-bg-light: #2d2d2d;
     --tooltip-bg-dark: #656d81;
 
     // Notebooks
@@ -390,7 +384,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --default: var(--text-3000);
+    --primary: var(--primary-3000);
     --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);
     --muted-alt: var(--muted-3000);
