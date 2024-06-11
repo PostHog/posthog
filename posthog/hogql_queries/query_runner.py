@@ -92,6 +92,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     refresh_map = {
         "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "lazy": ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
         "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
@@ -99,7 +100,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     }
     if refresh_requested in refresh_map:
         return refresh_map[refresh_requested]
-    return ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
+    return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
 RunnableQueryNode = Union[
