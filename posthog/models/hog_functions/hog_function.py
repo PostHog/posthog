@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 from django.db import models
@@ -8,7 +7,7 @@ from django.dispatch.dispatcher import receiver
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.redis import get_client
+from posthog.plugins.reload import reload_hog_functions_on_workers
 
 
 class HogFunction(UUIDModel):
@@ -66,10 +65,7 @@ class HogFunction(UUIDModel):
 
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
-    get_client().publish(
-        "reload-hog-functions",
-        json.dumps({"teamId": instance.team_id, "hogFunctionIds": [str(instance.id)]}),
-    )
+    reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[instance.id])
 
 
 @receiver(post_save, sender=Action)
