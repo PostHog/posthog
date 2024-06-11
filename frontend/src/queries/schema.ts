@@ -927,7 +927,14 @@ export type LifecycleFilter = {
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
-export type RefreshType = boolean | 'async' | 'blocking' | 'force_async' | 'force_blocking' | 'force_cache'
+export type RefreshType =
+    | boolean
+    | 'async'
+    | 'blocking'
+    | 'force_async'
+    | 'force_blocking'
+    | 'force_cache'
+    | 'lazy_async'
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */

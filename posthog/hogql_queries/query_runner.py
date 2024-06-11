@@ -71,7 +71,7 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
 
-extended_cache_age = timedelta(days=1)
+EXTENDED_CACHE_AGE = timedelta(days=1)
 
 
 class ExecutionMode(IntEnum):  # Keep integer values the same for Celery's sake
@@ -93,7 +93,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     refresh_map = {
         "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-        "lazy": ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "lazy_async": ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
         "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
@@ -438,7 +438,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if datetime.now(timezone.utc) - cached_response.last_refresh > extended_cache_age:
+                if datetime.now(timezone.utc) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
                     query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                     cached_response.query_status = query_status_response.query_status
                 return cached_response

@@ -545,7 +545,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return representation
 
-    def shared_dashboard_async(self, team: Team) -> bool:
+    def is_async_shared_dashboard(self, team: Team) -> bool:
         flag_enabled = posthoganalytics.feature_enabled(
             "hogql-dashboard-async",
             str(team.uuid),
@@ -578,7 +578,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 execution_mode = execution_mode_from_refresh(refresh_requested)
 
                 if (
-                    self.shared_dashboard_async(insight.team)
+                    self.is_async_shared_dashboard(insight.team)
                     and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
                 ):
                     execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE

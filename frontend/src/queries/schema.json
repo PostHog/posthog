@@ -7069,6 +7069,10 @@
                 {
                     "const": "force_cache",
                     "type": "string"
+                },
+                {
+                    "const": "lazy_async",
+                    "type": "string"
                 }
             ]
         },
