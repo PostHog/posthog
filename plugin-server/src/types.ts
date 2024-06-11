@@ -251,6 +251,8 @@ export interface PluginsServerConfig {
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
+
+    ENABLE_ERROR_EMBEDDING_TEAM_IDS: string
 }
 
 export interface Hub extends PluginsServerConfig {
