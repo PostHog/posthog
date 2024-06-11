@@ -645,7 +645,7 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for i in range(max_steps):
-            exprs.append(parse_expr(f"countIf(steps = {i + 1}) step_{i + 1}"))
+            exprs.append(parse_expr(f"countIf(steps = {i + 1}) as step_{i + 1}"))
 
         return exprs
 
@@ -709,9 +709,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner")
+                parse_expr(f"avg(step_{i}_conversion_time) as step_{i}_average_conversion_time_inner")
                 if inner_query
-                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time")
+                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) as step_{i}_average_conversion_time")
             )
 
         return exprs
@@ -721,9 +721,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner")
+                parse_expr(f"median(step_{i}_conversion_time) as step_{i}_median_conversion_time_inner")
                 if inner_query
-                else parse_expr(f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time")
+                else parse_expr(f"median(step_{i}_median_conversion_time_inner) as step_{i}_median_conversion_time")
             )
 
         return exprs
@@ -732,7 +732,7 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
-            exprs.append(parse_expr(f"groupArray(step_{i}_conversion_time) step_{i}_conversion_time_array"))
+            exprs.append(parse_expr(f"groupArray(step_{i}_conversion_time) as step_{i}_conversion_time_array"))
 
         return exprs
 
@@ -742,7 +742,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNaN(avgArray(step_{i}_conversion_time_array) as inter_{i}_conversion), NULL, inter_{i}_conversion) step_{i}_average_conversion_time"
+                    f"if(isNaN(avgArray(step_{i}_conversion_time_array) as inter_{i}_conversion), NULL, inter_{i}_conversion) as step_{i}_average_conversion_time"
                 )
             )
 
@@ -754,7 +754,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNaN(medianArray(step_{i}_conversion_time_array) as inter_{i}_median), NULL, inter_{i}_median) step_{i}_median_conversion_time"
+                    f"if(isNaN(medianArray(step_{i}_conversion_time_array) as inter_{i}_median), NULL, inter_{i}_median) as step_{i}_median_conversion_time"
                 )
             )
 
@@ -825,7 +825,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 
@@ -859,14 +859,14 @@ class FunnelBase(ABC):
 
                 exprs.append(
                     parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) as latest_{i}"
                     )
                 )
 
                 for field in self.extra_event_fields_and_properties:
                     exprs.append(
                         parse_expr(
-                            f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
+                            f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) as "{field}_{i}"'
                         )
                     )
 
@@ -875,7 +875,7 @@ class FunnelBase(ABC):
                     if cast(int, exclusion.funnelFromStep) + 1 == i:
                         exprs.append(
                             parse_expr(
-                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) as exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
                             )
                         )
 
