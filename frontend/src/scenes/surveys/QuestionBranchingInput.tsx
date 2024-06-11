@@ -55,7 +55,7 @@ export function QuestionBranchingInput({ index, question }: { index: number; que
             </LemonField>
             {branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && (
                 <div>
-                    <em>TODO: dropdowns for the response based branching</em>
+                    <em>TODO: dropdowns for the response-based branching</em>
                 </div>
             )}
         </>

@@ -921,9 +921,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (question.branching?.type) {
                     const { type } = question.branching
 
-                    if (type === 'specific_question') {
+                    if (type === SurveyQuestionBranchingType.SpecificQuestion) {
                         const { index } = question.branching
-                        return `specific_question:${index}`
+                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${index}`
                     }
 
                     return question.branching.type
