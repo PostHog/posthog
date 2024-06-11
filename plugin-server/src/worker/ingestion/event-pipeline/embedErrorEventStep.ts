@@ -86,7 +86,7 @@ export async function embedErrorEvent(
             event.properties['$embedding'] = roundedEmbedding
         }
     } catch (e) {
-        status.error('💣', 'Error embedding error event', e)
+        status.error('💣', 'Error embedding exception event', e)
     }
     return Promise.resolve(event)
 }
