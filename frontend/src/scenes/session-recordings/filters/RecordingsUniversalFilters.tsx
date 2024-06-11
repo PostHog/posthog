@@ -106,7 +106,6 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                     }}
                 >
                     <RecordingsUniversalFilterGroup />
-                    <UniversalFilters.AddFilterButton />
                 </UniversalFilters>
             </div>
         </div>
@@ -123,6 +122,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
+                        <UniversalFilters.AddFilterButton />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
