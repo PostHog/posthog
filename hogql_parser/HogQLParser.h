@@ -1205,7 +1205,6 @@ public:
     virtual size_t getRuleIndex() const override;
     std::vector<ColumnExprContext *> columnExpr();
     ColumnExprContext* columnExpr(size_t i);
-    AliasContext *alias();
     std::vector<antlr4::tree::TerminalNode *> COMMA();
     antlr4::tree::TerminalNode* COMMA(size_t i);
 

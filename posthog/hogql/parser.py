@@ -575,8 +575,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         alias: str
-        # if ctx.alias():
-        #     alias = self.visit(ctx.alias())
         if ctx.identifier():
             alias = self.visit(ctx.identifier())
         elif ctx.STRING_LITERAL():
