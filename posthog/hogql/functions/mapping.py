@@ -292,7 +292,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
-    "corr": HogQLFunctionMeta("corr", 2, 2),
     # arrays and strings common
     "empty": HogQLFunctionMeta("empty", 1, 1),
     "notEmpty": HogQLFunctionMeta("notEmpty", 1, 1),
@@ -855,6 +854,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "covarPopIf": HogQLFunctionMeta("covarPopIf", 3, 3, aggregate=True),
     "covarSamp": HogQLFunctionMeta("covarSamp", 2, 2, aggregate=True),
     "covarSampIf": HogQLFunctionMeta("covarSampIf", 3, 3, aggregate=True),
+    "corr": HogQLFunctionMeta("corr", 2, 2, aggregate=True),
     # ClickHouse-specific aggregate functions
     "anyHeavy": HogQLFunctionMeta("anyHeavy", 1, 1, aggregate=True),
     "anyHeavyIf": HogQLFunctionMeta("anyHeavyIf", 2, 2, aggregate=True),
