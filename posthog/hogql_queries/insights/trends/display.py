@@ -81,7 +81,7 @@ class TrendsDisplay:
                     alias="count",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["count"])],
+                        exprs=[ast.Field(chain=["count"])],
                         over_expr=window_expr,
                     ),
                 ),

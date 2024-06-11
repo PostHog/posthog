@@ -156,13 +156,11 @@ $colors: (
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
 $_primary: map.get($colors, 'primary');
 $_success: map.get($colors, 'success');
-$_danger: map.get($colors, 'danger');
-$_primary_bg_hover: rgba($_primary, 0.1);
 $_primary_bg_active: rgba($_primary, 0.2);
 $_lifecycle_new: $_primary;
 $_lifecycle_returning: $_success;
 $_lifecycle_resurrecting: #a56eff; // --data-lilac
-$_lifecycle_dormant: $_danger;
+$_lifecycle_dormant: map.get($colors, 'danger');
 
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
@@ -192,9 +190,6 @@ $_lifecycle_dormant: $_danger;
     --purple: #c278cf;
     --green: var(--success);
     --black: var(--default);
-
-    // Tag colors
-    --purple-light: #dcb1e3;
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -227,22 +222,6 @@ $_lifecycle_dormant: $_danger;
     // TODO: unify with lib/colors.ts, getGraphColors()
     --funnel-axis: var(--border);
     --funnel-grid: #ddd;
-    --antd-table-background-dark: #fafafa;
-
-    // Session Recording
-    --recording-spacing: calc(2rem / 3);
-    --recording-player-container-bg: #797973;
-    --recording-buffer-bg: #faaf8c;
-    --recording-seekbar-red: var(--brand-red);
-    --recording-hover-event: var(--primary-bg-hover);
-    --recording-hover-event-mid: var(--primary-bg-active);
-    --recording-hover-event-dark: var(--primary-3000);
-    --recording-current-event: #eef2ff;
-    --recording-current-event-dark: var(--primary-alt);
-    --recording-failure-event: #fee9e2;
-    --recording-failure-event-dark: #cd3000;
-    --recording-highlight-event: var(--mark);
-    --recording-highlight-event-dark: #946508;
 
     // Z-indexes
     --z-bottom-notice: 5100;

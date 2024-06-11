@@ -97,6 +97,7 @@ export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
+    duration: [defaultRecordingDurationFilter],
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -134,17 +135,23 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         } else if (isActionFilter(f)) {
             actions.push(f)
         } else if (isAnyPropertyfilter(f)) {
-            properties.push(f)
+            if (f.type === PropertyFilterType.Recording) {
+                // TODO: add console log filtering
+            } else {
+                properties.push(f)
+            }
         }
     })
 
-    // TODO: add console log and duration filtering (not yet supported in universal filtering)
+    const durationFilter = universalFilters.duration[0]
 
     return {
         ...universalFilters,
         properties,
         events,
         actions,
+        session_recording_duration: { ...durationFilter, key: 'duration' },
+        duration_type_filter: durationFilter.key,
     }
 }
 

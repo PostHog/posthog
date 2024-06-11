@@ -1439,9 +1439,13 @@ public:
     std::vector<IdentifierContext *> identifier();
     IdentifierContext* identifier(size_t i);
     antlr4::tree::TerminalNode *OVER();
-    antlr4::tree::TerminalNode *LPAREN();
-    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<antlr4::tree::TerminalNode *> LPAREN();
+    antlr4::tree::TerminalNode* LPAREN(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> RPAREN();
+    antlr4::tree::TerminalNode* RPAREN(size_t i);
     ColumnExprListContext *columnExprList();
+    antlr4::tree::TerminalNode *DISTINCT();
+    ColumnArgListContext *columnArgList();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1635,6 +1639,8 @@ public:
     std::vector<antlr4::tree::TerminalNode *> RPAREN();
     antlr4::tree::TerminalNode* RPAREN(size_t i);
     ColumnExprListContext *columnExprList();
+    antlr4::tree::TerminalNode *DISTINCT();
+    ColumnArgListContext *columnArgList();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
