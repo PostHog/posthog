@@ -26,7 +26,6 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'cdp-function-executor'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const histogramKafkaBatchSize = new Histogram({
@@ -152,14 +151,12 @@ export class CdpProcessedEventsConsumer {
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        // TODO: Parallelise this
-                        for (const message of invocations) {
-                            const results = await this.consume(message)
-                            invocationResults.push(...results)
-                            heartbeat()
-                        }
+                        const results = await Promise.all(invocations.map((invocation) => this.consume(invocation)))
+                        invocationResults.push(...results.flat())
                     },
                 })
+
+                heartbeat()
 
                 // TODO: Follow up - process metrics from the invocationResults
                 // await runInstrumentedFunction({
@@ -204,7 +201,7 @@ export class CdpProcessedEventsConsumer {
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit: true,
-            sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
+            sessionTimeout: this.config.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB

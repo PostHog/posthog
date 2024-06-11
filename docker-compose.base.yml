@@ -115,6 +115,13 @@ services:
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
 
+    livestream:
+        image: 'ghcr.io/posthog/livestream:main'
+        restart: on-failure
+        depends_on:
+            kafka:
+                condition: service_started
+
     migrate:
         <<: *worker
         command: sh -c "
