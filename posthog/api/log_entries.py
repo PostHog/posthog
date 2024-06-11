@@ -26,7 +26,7 @@ class LogEntrySerializer(DataclassSerializer):
 
 
 class LogEntryRequestSerializer(serializers.Serializer):
-    limit = serializers.IntegerField(required=False)
+    limit = serializers.IntegerField(required=False, default=50, max_value=500, min_value=1)
     after = serializers.DateTimeField(required=False)
     before = serializers.DateTimeField(required=False)
     level = serializers.ListField(child=serializers.CharField(), required=False)
@@ -38,11 +38,11 @@ def fetch_log_entries(
     team_id: int,
     log_source: str,
     log_source_id: str,
+    limit: int,
     instance_id: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
     search: Optional[str] = None,
-    limit: Optional[int] = None,
     level: Optional[list[str]] = None,
 ) -> list[Any]:
     """Fetch a list of batch export log entries from ClickHouse."""
@@ -76,7 +76,7 @@ def fetch_log_entries(
 
     clickhouse_query = f"""
         SELECT log_source_id, instance_id, timestamp, upper(level) as level, message FROM log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}'}
     """
 
     return [LogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
@@ -103,12 +103,12 @@ class LogEntryMixin(viewsets.GenericViewSet):
             team_id=self.team_id,  # type: ignore
             log_source=self.log_source,
             log_source_id=str(obj.id),
+            limit=params["limit"],
             # From request params
             instance_id=params.get("instance_id"),
             after=params.get("after"),
             before=params.get("before"),
             search=params.get("search"),
-            limit=params.get("limit"),
             level=params.get("level"),
         )
 
