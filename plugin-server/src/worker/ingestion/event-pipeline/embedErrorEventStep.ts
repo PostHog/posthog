@@ -6,21 +6,18 @@ import { PreIngestionEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
 
+const options: FeatureExtractionPipelineOptions = { pooling: 'mean', normalize: false }
+
 const errorEmbeddingModel = defaultConfig.ERROR_EVENT_EMBEDDING_MODEL
-const errorEmbeddingEnabledTeams = (defaultConfig.ENABLE_ERROR_EMBEDDING_TEAM_IDS || '')
-    .split(',')
-    .map((id) => parseInt(id, 10))
 
 let featureExtractionPipeline: FeatureExtractionPipeline | null
 
 // this downloads the model the first time it is run, so eventually we'll do this on server start-up
 // for now we only want to spend the cost of loading the model if we are actually using it
-export async function initEmbeddingModel(): Promise<FeatureExtractionPipeline | null> {
+export async function initEmbeddingModel(
+    anyTeamsAreEmbeddingEvents: boolean
+): Promise<FeatureExtractionPipeline | null> {
     try {
-        // if no teams are embedding events, we don't need to load the model
-        // this lets us release this and opt in to timing it in production
-        const anyTeamsAreEmbeddingEvents = errorEmbeddingEnabledTeams.length > 0
-
         if (!featureExtractionPipeline && anyTeamsAreEmbeddingEvents) {
             // a little magic here to both delay the slow import until the first time it is needed
             // and to make it work due to some ESM/commonjs faff
@@ -48,22 +45,13 @@ export async function embedErrorEvent(
         return Promise.resolve(event)
     }
 
-    if (errorEmbeddingEnabledTeams.length === 0 || !errorEmbeddingEnabledTeams.includes(event.teamId)) {
+    if (event.teamId >= defaultConfig.ERROR_EMBEDDING_MAX_TEAM_ID) {
         return Promise.resolve(event)
     }
 
     try {
-        // TODO (can we|do we need to) cache the `currentPipeline`
-        const options: FeatureExtractionPipelineOptions = { pooling: 'mean', normalize: false }
-        let currentPipeline: FeatureExtractionPipeline | null = null
-        await runInstrumentedFunction({
-            func: async () => {
-                currentPipeline = await initEmbeddingModel()
-            },
-            statsKey: 'createErrorEmbedPipeline',
-        })
-
-        if (currentPipeline === null) {
+        if (featureExtractionPipeline === null) {
+            status.warn('📭', 'skipping embedding - there was no initialized pipeline')
             return Promise.resolve(event)
         }
 
@@ -71,7 +59,7 @@ export async function embedErrorEvent(
         let roundedEmbedding: number[] | null = null
         await runInstrumentedFunction({
             func: async () => {
-                const output = await currentPipeline?.(
+                const output = await featureExtractionPipeline?.(
                     `${event.properties['$exception_type']}-${event.properties['$exception_message']}`,
                     options
                 )

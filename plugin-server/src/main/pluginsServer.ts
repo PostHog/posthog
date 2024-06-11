@@ -23,6 +23,7 @@ import { createRedisClient, delay } from '../utils/utils'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
+import { initEmbeddingModel } from '../worker/ingestion/event-pipeline/embedErrorEventStep'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
@@ -310,6 +311,8 @@ export async function startPluginsServer(
         if (capabilities.ingestion) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
+
+            await initEmbeddingModel(serverConfig.ERROR_EMBEDDING_MAX_TEAM_ID > 0)
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(

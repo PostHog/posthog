@@ -252,7 +252,7 @@ export interface PluginsServerConfig {
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 
-    ENABLE_ERROR_EMBEDDING_TEAM_IDS: string
+    ERROR_EMBEDDING_MAX_TEAM_ID: number
     ERROR_EVENT_EMBEDDING_MODEL: string
 }
 
