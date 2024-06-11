@@ -256,11 +256,13 @@ export function formPipelineEvent(message: Message): PipelineEvent {
             '$set_once' in combinedEvent.properties ||
             '$unset' in combinedEvent.properties)
     ) {
-        status.info('👀', 'Found $set usage in non-person event', {
-            event: combinedEvent.event,
-            team_id: combinedEvent.team_id,
-        })
         setUsageInNonPersonEventsCounter.inc()
+        if (Math.random() < 0.001) {
+            status.info('👀', 'Found $set usage in non-person event', {
+                event: combinedEvent.event,
+                team_id: combinedEvent.team_id,
+            })
+        }
     }
 
     const event: PipelineEvent = normalizeEvent({
