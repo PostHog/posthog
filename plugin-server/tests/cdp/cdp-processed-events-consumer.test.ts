@@ -68,7 +68,7 @@ describe('CDP Processed Events Consuner', () => {
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpProcessedEventsConsumer(config, hub.postgres)
+        processor = new CdpProcessedEventsConsumer(config, hub)
         await processor.start()
     })
 

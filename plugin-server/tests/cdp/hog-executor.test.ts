@@ -58,9 +58,7 @@ describe('Hog Executor', () => {
 
             // Create a message that should be processed by this function
             // Run the function and check that it was executed
-            await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals(),
-            })
+            await executor.executeMatchingFunctions(createHogExecutionGlobals())
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
@@ -106,21 +104,19 @@ describe('Hog Executor', () => {
                 [1]: fn,
             })
 
-            const resultsShouldntMatch = await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals(),
-            })
+            const resultsShouldntMatch = await executor.executeMatchingFunctions(createHogExecutionGlobals())
             expect(resultsShouldntMatch).toHaveLength(0)
 
-            const resultsShouldMatch = await executor.executeMatchingFunctions({
-                globals: createHogExecutionGlobals({
+            const resultsShouldMatch = await executor.executeMatchingFunctions(
+                createHogExecutionGlobals({
                     event: {
                         name: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },
                     } as any,
-                }),
-            })
+                })
+            )
             expect(resultsShouldMatch).toHaveLength(1)
         })
     })

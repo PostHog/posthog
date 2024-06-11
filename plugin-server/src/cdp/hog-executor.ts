@@ -176,8 +176,6 @@ export class HogExecutor {
             }
             lastTimestamp = now
 
-            console.log(castTimestampOrNow(now, TimestampFormat.ClickHouse))
-
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
