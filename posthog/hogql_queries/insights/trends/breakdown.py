@@ -29,7 +29,6 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[list[str | int]]
     limit_context: LimitContext
 
     def __init__(
@@ -41,7 +40,6 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[list[str | int]] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
@@ -51,7 +49,6 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.events_filter = events_filter
-        self.breakdown_values_override = breakdown_values_override
         self.limit_context = limit_context
 
     @cached_property
@@ -115,17 +112,13 @@ class Breakdown:
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_expression)
 
-    def events_where_filter(self) -> ast.Expr | None:
+    def events_where_filter(self, breakdown_values_override: Optional[str | int] = None) -> ast.Expr | None:
         if (
             self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
-            breakdown = (
-                self.breakdown_values_override
-                if self.breakdown_values_override
-                else self.query.breakdownFilter.breakdown
-            )
+            breakdown = breakdown_values_override if breakdown_values_override else self.query.breakdownFilter.breakdown
 
             if breakdown == "all":
                 return None
@@ -154,6 +147,32 @@ class Breakdown:
                 right=ast.Constant(value=breakdown),
             )
 
+        if breakdown_values_override:
+            if (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdown is not None
+                and self.query.breakdownFilter.breakdown_type == "hogql"
+                and isinstance(self.query.breakdownFilter.breakdown, str)
+            ):
+                left = parse_expr(self.query.breakdownFilter.breakdown)
+            else:
+                left = ast.Field(chain=self._properties_chain)
+            value: Optional[str] = str(breakdown_values_override)  # non-cohorts are always strings
+            # If the value is one of the "other" values, then use the `transform()` func
+            if value == BREAKDOWN_OTHER_STRING_LABEL:
+                transform_func = self._get_breakdown_transform_func
+                return ast.CompareOperation(
+                    left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value)
+                )
+            elif value == BREAKDOWN_NULL_STRING_LABEL:
+                return ast.Or(
+                    exprs=[
+                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None)),
+                        ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
+                    ]
+                )
+            else:
+                return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
         return ast.Constant(value=True)
 
     @cached_property
@@ -177,24 +196,6 @@ class Breakdown:
                 },
             ),
         )
-
-    def _get_breakdown_histogram_buckets(self) -> list[tuple[float, float]]:
-        buckets = []
-        values = self._breakdown_values
-
-        if len(values) == 1:
-            values = [values[0], values[0]]
-
-        for i in range(len(values) - 1):
-            last_value = i == len(values) - 2
-
-            # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
-            # to ensure it's always slightly greater than the maximum value
-            lower_bound = float(values[i])
-            upper_bound = float(values[i + 1]) + 0.01 if last_value else float(values[i + 1])
-            buckets.append((lower_bound, upper_bound))
-
-        return buckets
 
     @cached_property
     def _properties_chain(self):

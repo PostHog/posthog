@@ -98,14 +98,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         no_modifications: Optional[bool],
         is_actors_query: bool,
         breakdown: Breakdown,
-        breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
             is_actors_query=is_actors_query,
-            breakdown_values_override=breakdown_values_override,
             actors_query_time_frame=actors_query_time_frame,
         )
 
@@ -426,7 +424,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
@@ -525,7 +522,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query.group_by = []
         return query
 
-    def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str] = None):
+    def _breakdown(self, is_actors_query: bool):
         return Breakdown(
             team=self.team,
             query=self.query,
@@ -537,9 +534,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown=None,  # Passing in None because we know we dont actually need it
                 ignore_breakdowns=True,
                 is_actors_query=is_actors_query,
-                breakdown_values_override=breakdown_values_override,
             ),
-            breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
             limit_context=self.limit_context,
         )
 
