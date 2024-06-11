@@ -4,6 +4,7 @@ import { PluginsServerConfig } from 'types'
 
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
+import { UUIDT } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -11,6 +12,8 @@ import {
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
+    HogFunctionLogEntry,
+    HogFunctionLogEntryLevel,
     HogFunctionType,
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
@@ -53,10 +56,10 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a starting point from an event
      */
-    async executeMatchingFunctions(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(invocation.globals.project.id)
+    async executeMatchingFunctions(event: HogFunctionInvocationGlobals): Promise<HogFunctionInvocationResult[]> {
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
 
-        const filtersGlobals = convertToHogFunctionFilterGlobal(invocation.globals)
+        const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         // Filter all functions based on the invocation
         const functions = Object.fromEntries(
@@ -110,15 +113,15 @@ export class HogExecutor {
         for (const hogFunction of Object.values(functions)) {
             // Add the source of the trigger to the globals
             const modifiedGlobals: HogFunctionInvocationGlobals = {
-                ...invocation.globals,
+                ...event,
                 source: {
                     name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                    url: `${invocation.globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                    url: `${event.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
                 },
             }
 
             const result = await this.execute(hogFunction, {
-                ...invocation,
+                id: new UUIDT().toString(),
                 globals: modifiedGlobals,
             })
 
@@ -159,6 +162,19 @@ export class HogExecutor {
         status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         let error: any = null
+        const logs: HogFunctionLogEntry[] = []
+
+        const log = (level: HogFunctionLogEntryLevel, message: string) => {
+            logs.push({
+                team_id: hogFunction.team_id,
+                log_source: 'hog_function',
+                log_source_id: hogFunction.id,
+                instance_id: invocation.id,
+                timestamp: new Date().toISOString(),
+                level,
+                message,
+            })
+        }
 
         try {
             const globals = this.buildHogFunctionGlobals(hogFunction, invocation)
@@ -170,6 +186,11 @@ export class HogExecutor {
                 asyncFunctions: {
                     // We need to pass these in but they don't actually do anything as it is a sync exec
                     fetch: async () => Promise.resolve(),
+                },
+                functions: {
+                    print: (message: string) => {
+                        log('info', message)
+                    },
                 },
             })
 
@@ -191,27 +212,8 @@ export class HogExecutor {
                     // TODO: Log error somewhere
                 }
             }
-            // await this.appMetrics.queueMetric({
-            //     teamId: hogFunction.team_id,
-            //     appId: hogFunction.id, // Add this as a generic string ID
-            //     category: 'hogFunction', // TODO: Figure this out
-            //     successes: 1,
-            // })
         } catch (err) {
             error = err
-
-            // await this.appMetrics.queueError(
-            //     {
-            //         teamId: hogFunction.team_id,
-            //         appId: hogFunction.id, // Add this as a generic string ID
-            //         category: 'hogFunction',
-            //         failures: 1,
-            //     },
-            //     {
-            //         error,
-            //         event,
-            //     }
-            // )
             status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, error)
         }
 
@@ -219,7 +221,7 @@ export class HogExecutor {
             ...invocation,
             success: !error,
             error,
-            logs: [], // TODO: Add logs
+            logs,
         }
     }
 
