@@ -4,11 +4,17 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { SurveyQuestionBranchingType } from '~/types'
+import { MultipleSurveyQuestion, RatingSurveyQuestion, SurveyQuestionBranchingType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
-export function QuestionBranchingInput({ index, question }: { index: number; question: any }): JSX.Element {
+export function QuestionBranchingInput({
+    index,
+    question,
+}: {
+    index: number
+    question: RatingSurveyQuestion | MultipleSurveyQuestion
+}): JSX.Element {
     const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
     const { setQuestionBranching } = useActions(surveyLogic)
 
@@ -18,8 +24,7 @@ export function QuestionBranchingInput({ index, question }: { index: number; que
             questionIndex,
         }))
         .filter((_, questionIndex) => index !== questionIndex)
-
-    const branchingDropdownValue = getBranchingDropdownValue(question, index)
+    const branchingDropdownValue = getBranchingDropdownValue(index, question)
 
     return (
         <>

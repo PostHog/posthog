@@ -917,20 +917,20 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         getBranchingDropdownValue: [
             (s) => [s.survey],
-            (survey) => (question: any, index: number) => {
+            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
                 if (question.branching?.type) {
                     const { type } = question.branching
 
                     if (type === SurveyQuestionBranchingType.SpecificQuestion) {
-                        const { index } = question.branching
-                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${index}`
+                        const nextQuestionIndex = question.branching.index
+                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
                     }
 
-                    return question.branching.type
+                    return type
                 }
 
                 // No branching specified, default to Next question / Confirmation message
-                if (index < survey.questions.length - 1) {
+                if (questionIndex < survey.questions.length - 1) {
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
