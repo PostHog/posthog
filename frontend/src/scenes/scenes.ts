@@ -56,7 +56,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.ErrorTracking]: {
         projectBased: true,
         name: 'Error tracking',
-        activityScope: ActivityScope.DASHBOARD,
     },
     [Scene.Insight]: {
         projectBased: true,
