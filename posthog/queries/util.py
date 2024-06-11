@@ -40,6 +40,20 @@ class PersonPropertiesMode(Enum):
     """
 
 
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
+    # Person distinct ID overrides aren't implemented in legacy insights, so we alias to a non-overrides mode
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is functionally equivalent to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS has the same person properties semantics as
+        # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, although the latter (which we have to alias to) is less accurate.
+        # Specifically, with neither overrides not a join with persons, unique user counts are inflated,
+        # while conversions undercounted
+        return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+    return persons_on_events_mode
+
+
 EARLIEST_TIMESTAMP = "2015-01-01"
 
 GET_EARLIEST_TIMESTAMP_SQL = """
@@ -178,10 +192,13 @@ def correct_result_for_sampling(
 
 
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if team.person_on_events_mode == PersonsOnEventsMode.DISABLED:
+    if alias_poe_mode_for_legacy(team.person_on_events_mode) == PersonsOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
-    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+    if (
+        alias_poe_mode_for_legacy(team.person_on_events_mode)
+        == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    ):
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS
