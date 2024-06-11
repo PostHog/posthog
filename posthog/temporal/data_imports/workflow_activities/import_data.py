@@ -1,5 +1,4 @@
 import dataclasses
-import datetime as dt
 from typing import Any
 import uuid
 
@@ -11,7 +10,6 @@ from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
-from posthog.utils import get_instance_region
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -19,7 +17,6 @@ from posthog.warehouse.models import (
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 import asyncio
-from django.utils import timezone
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -56,7 +53,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
 
     source = None
     if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-        from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
+        from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
@@ -65,24 +62,9 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-        # Hacky just for specific user
-        region = get_instance_region()
-        if region == "EU" and inputs.team_id == 11870:
-            start_date = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + dt.timedelta(weeks=5)
-        else:
-            start_date = None
-            end_date = None
-
+        # TODO: add in check_limit to rest_source
         source = stripe_source(
-            api_key=stripe_secret_key,
-            account_id=account_id,
-            endpoints=tuple(endpoints),
-            team_id=inputs.team_id,
-            job_id=inputs.run_id,
-            schema_id=str(inputs.schema_id),
-            start_date=start_date,
-            end_date=end_date,
+            api_key=stripe_secret_key, account_id=account_id, endpoint=schema.name, is_incremental=schema.is_incremental
         )
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)

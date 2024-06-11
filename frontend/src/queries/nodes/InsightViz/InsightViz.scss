@@ -29,7 +29,8 @@
     flex-direction: column;
 
     .NotebookNode &,
-    .InsightCard & {
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         flex: 1;
         height: 100%;
 
@@ -102,7 +103,8 @@
     }
 
     .NotebookNode &,
-    .InsightCard & {
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         .LineGraph {
             position: relative;
             min-height: 100px;
@@ -119,7 +121,8 @@
     margin: 0.5rem;
 
     .NotebookNode &,
-    .InsightCard & {
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         min-height: auto;
     }
 
@@ -149,7 +152,8 @@
         min-height: var(--insight-viz-min-height);
 
         .NotebookNode &,
-        .InsightCard & {
+        .InsightCard &,
+        .WebAnalyticsDashboard & {
             min-height: auto;
         }
     }

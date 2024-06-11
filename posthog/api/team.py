@@ -199,9 +199,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
-            {"team_id": 2},
+            {"team_id": team.id},
             timedelta(days=7),
-            PosthogJwtAudience.LIVE_EVENTS,
+            PosthogJwtAudience.LIVESTREAM,
         )
 
     def validate_session_recording_linked_flag(self, value) -> dict | None:

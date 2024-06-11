@@ -71,7 +71,7 @@ class LegacyWebStatsTableQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # special case for channel, as some hogql features to use the general code are still being worked on
-        if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
+        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             query = self.to_channel_query()
         elif self.query.includeScrollDepth:
             query = parse_select(
@@ -193,51 +193,51 @@ ORDER BY
 
     def counts_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.Page:
+            case WebStatsBreakdown.PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]))
-            case WebStatsBreakdown.InitialChannelType:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 raise NotImplementedError("Breakdown InitialChannelType not implemented")
-            case WebStatsBreakdown.InitialPage:
+            case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["person", "properties", "$initial_pathname"]))
-            case WebStatsBreakdown.InitialReferringDomain:
+            case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["person", "properties", "$initial_referring_domain"])
-            case WebStatsBreakdown.InitialUTMSource:
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["person", "properties", "$initial_utm_source"])
-            case WebStatsBreakdown.InitialUTMCampaign:
+            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
                 return ast.Field(chain=["person", "properties", "$initial_utm_campaign"])
-            case WebStatsBreakdown.InitialUTMMedium:
+            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
                 return ast.Field(chain=["person", "properties", "$initial_utm_medium"])
-            case WebStatsBreakdown.InitialUTMTerm:
+            case WebStatsBreakdown.INITIAL_UTM_TERM:
                 return ast.Field(chain=["person", "properties", "$initial_utm_term"])
-            case WebStatsBreakdown.InitialUTMContent:
+            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["person", "properties", "$initial_utm_content"])
-            case WebStatsBreakdown.Browser:
+            case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
-            case WebStatsBreakdown.DeviceType:
+            case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
-            case WebStatsBreakdown.Country:
+            case WebStatsBreakdown.COUNTRY:
                 return ast.Field(chain=["properties", "$geoip_country_code"])
-            case WebStatsBreakdown.Region:
+            case WebStatsBreakdown.REGION:
                 return parse_expr(
                     "tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name)"
                 )
-            case WebStatsBreakdown.City:
+            case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def bounce_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.Page:
+            case WebStatsBreakdown.PAGE:
                 # use initial pathname for bounce rate
                 return self._apply_path_cleaning(
                     ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
                 )
-            case WebStatsBreakdown.InitialChannelType:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 raise NotImplementedError("Breakdown InitialChannelType not implemented")
-            case WebStatsBreakdown.InitialPage:
+            case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(
                     ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
                 )
@@ -246,21 +246,21 @@ ORDER BY
 
     def where_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.Region:
+            case WebStatsBreakdown.REGION:
                 return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
-            case WebStatsBreakdown.City:
+            case WebStatsBreakdown.CITY:
                 return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
-            case WebStatsBreakdown.InitialChannelType:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMSource:
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMCampaign:
+            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMMedium:
+            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMTerm:
+            case WebStatsBreakdown.INITIAL_UTM_TERM:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMContent:
+            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return parse_expr("TRUE")  # actually show null values
             case _:
                 return parse_expr('"context.columns.breakdown_value" IS NOT NULL')

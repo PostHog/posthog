@@ -413,7 +413,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
-        hideProjectNotice: true,
     },
 }
 
@@ -534,7 +533,7 @@ export const routes: Record<string, Scene> = {
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
-    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
