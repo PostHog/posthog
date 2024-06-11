@@ -313,15 +313,15 @@ export class HogExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            // await this.executeAsyncResponse({
-            //     ...invocation,
-            //     hogFunctionId: hogFunction.id,
-            //     vmState: execResult.state!,
-            //     response: {
-            //         status: fetchResponse.status,
-            //         body: await fetchResponse.text(),
-            //     },
-            // })
+            await this.executeAsyncResponse({
+                ...invocation,
+                hogFunctionId: hogFunction.id,
+                vmState: execResult.state!,
+                response: {
+                    status: fetchResponse.status,
+                    body: await fetchResponse.text(),
+                },
+            })
         }
     }
 }
