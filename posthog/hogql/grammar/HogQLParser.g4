@@ -6,14 +6,12 @@ options {
 
 
 program: declaration* EOF;
-declaration
-    : varDecl
-    | statement ;
+
+declaration: varDecl | statement ;
 
 expression: columnExpr;
 
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
-varAssignment: expression COLON EQ_SINGLE expression ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
@@ -21,16 +19,16 @@ statement      : returnStmt
                | whileStmt
                | funcStmt
                | varAssignment
-               | returnStmt
                | exprStmt
                | emptyStmt
                | block ;
 
-exprStmt       : expression SEMICOLON?;
+returnStmt     : RETURN expression? SEMICOLON?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
-returnStmt     : RETURN expression? SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+varAssignment  : expression COLON EQ_SINGLE expression ;
+exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
