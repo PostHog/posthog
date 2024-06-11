@@ -5,8 +5,12 @@ import typing
 from datetime import timedelta
 
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 from posthog.client import sync_execute
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 
 
@@ -320,3 +324,56 @@ class BatchExportBackfill(UUIDModel):
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         end_at = self.end_at and self.end_at.isoformat()
         return f"{self.batch_export.id}-Backfill-{self.start_at.isoformat()}-{end_at}"
+
+
+@receiver(post_save, sender=Action)
+def action_saved(sender, instance: Action, created, **kwargs):
+    # Whenever an action is saved we want to load all batch exports using it
+    # and trigger a refresh of the filters bytecode
+
+    affected_batch_exports = (
+        BatchExport.objects.select_related("team")
+        .filter(team_id=instance.team_id)
+        .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
+    )
+
+    refresh_batch_exports(team_id=instance.team_id, affected_batch_exports=list(affected_batch_exports))
+
+
+@receiver(post_save, sender=Team)
+def team_saved(sender, instance: Team, created, **kwargs):
+    affected_batch_exports = (
+        BatchExport.objects.select_related("team")
+        .filter(team_id=instance.id)
+        .filter(filters__contains={"filter_test_accounts": True})
+    )
+
+    refresh_batch_exports(team_id=instance.id, affected_batch_exports=list(affected_batch_exports))
+
+
+def refresh_batch_exports(team_id: int, affected_batch_exports: list[BatchExport]) -> int:
+    from posthog.models.cdp.filters import compile_filters_bytecode, get_action_ids_in_filters
+
+    # Optimisation: Fetch all actions for all batch exports at once
+    all_related_actions = (
+        Action.objects.select_related("team")
+        .filter(team_id=team_id)
+        .filter(
+            id__in=[
+                action_id
+                for batch_export in affected_batch_exports
+                for action_id in get_action_ids_in_filters(batch_export.filters)
+            ]
+        )
+    )
+
+    actions_by_id = {action.id: action for action in all_related_actions}
+
+    for batch_export in affected_batch_exports:
+        batch_export.filters = compile_filters_bytecode(batch_export.team, batch_export.filters, actions_by_id)
+
+    updates = BatchExport.objects.bulk_update(affected_batch_exports, ["filters"])
+
+    # TODO Publish update to batch export processor
+
+    return updates
