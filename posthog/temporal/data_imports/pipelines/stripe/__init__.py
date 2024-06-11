@@ -10,9 +10,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "BalanceTransaction": {
             "name": "BalanceTransaction",
-            "table_name": "balance_transaction",
+            "table_name": "balancetransaction",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/balance_transactions",
@@ -35,6 +36,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "charge",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_charge"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/charges",
@@ -77,6 +79,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "invoice",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_invoice"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/invoices",
@@ -106,6 +109,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "price",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_price"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/prices",
@@ -130,6 +134,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "product",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_product"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/products",
