@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
+from posthog.temporal.data_imports.pipelines.zendesk2 import zendesk_source
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -185,12 +186,21 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             email=model.pipeline.job_inputs.get("zendesk_email_address"),
         )
 
-        data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
+        # data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
+        blah = zendesk_source(
+            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+            api_key=model.pipeline.job_inputs.get("zendesk_api_key"),
+            email_address=model.pipeline.job_inputs.get("zendesk_email_address"),
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=False,
+        )
         # Uncomment to support zendesk chat and talk
         # data_chat = zendesk_chat()
         # data_talk = zendesk_talk()
 
-        source = data_support
+        source = blah
 
         return await _run(job_inputs=job_inputs, source=source, logger=logger, inputs=inputs, schema=schema)
     else:

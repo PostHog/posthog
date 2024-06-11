@@ -255,7 +255,7 @@ def create_resources(
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: IncrementalParam | None = incremental_param,
             ) -> AsyncGenerator[Iterator[Any], Any]:
-                if not is_job_cancelled(team_id=team_id, job_id=job_id):
+                if await is_job_cancelled(team_id=team_id, job_id=job_id):
                     return
 
                 if incremental_object and incremental_param:
@@ -305,7 +305,7 @@ def create_resources(
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: IncrementalParam | None = incremental_param,
             ) -> AsyncGenerator[Any, Any]:
-                if not is_job_cancelled(team_id=team_id, job_id=job_id):
+                if await is_job_cancelled(team_id=team_id, job_id=job_id):
                     return
 
                 if incremental_object and incremental_param:
