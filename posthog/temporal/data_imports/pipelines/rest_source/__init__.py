@@ -255,6 +255,8 @@ def create_resources(
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: IncrementalParam | None = incremental_param,
             ) -> AsyncGenerator[Iterator[Any], Any]:
+                yield dlt.mark.materialize_table_schema()  # type: ignore
+
                 if await is_job_cancelled(team_id=team_id, job_id=job_id):
                     return
 
@@ -305,6 +307,8 @@ def create_resources(
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: IncrementalParam | None = incremental_param,
             ) -> AsyncGenerator[Any, Any]:
+                yield dlt.mark.materialize_table_schema()  # type: ignore
+
                 if await is_job_cancelled(team_id=team_id, job_id=job_id):
                     return
 

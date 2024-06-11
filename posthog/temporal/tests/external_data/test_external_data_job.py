@@ -493,7 +493,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         assert len(job_1_customer_objects["Contents"]) == 1
 
         await sync_to_async(job_1.refresh_from_db)()
-        assert job_1.rows_synced == 1
+        assert job_1.rows_synced == 0
 
 
 @pytest.mark.django_db(transaction=True)
