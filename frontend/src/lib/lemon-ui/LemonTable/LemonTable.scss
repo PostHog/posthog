@@ -166,7 +166,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-secondary);
+                color: var(--text-secondary-3000);
 
                 // Make spacing of buttons tighter in tables by adding negative vertical margin
                 .LemonButton {
@@ -253,7 +253,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-secondary);
+        color: var(--text-secondary-3000);
     }
 
     &.LemonTable__header--actionable {

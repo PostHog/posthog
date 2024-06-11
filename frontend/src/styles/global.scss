@@ -405,13 +405,9 @@ input::-ms-clear {
 body {
     // Until we have 3000 rolled out we fallback to standard colors
     --text-3000: var(--default);
-    --text-secondary-3000: var(--text-secondary);
     --muted-3000: var(--muted);
-    --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary);
     --primary-3000-highlight: var(--primary-highlight);
-    --primary-3000-hover: var(--primary-light);
-    --primary-3000-active: var(--primary-dark);
     --secondary-3000: var(--secondary);
     --secondary-3000-hover: var(--secondary-light);
     --accent-3000: var(--side);
@@ -617,19 +613,6 @@ body {
         &:last-child {
             margin-bottom: 0;
         }
-    }
-
-    // Tooltip styles
-    .ant-tooltip-inner {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip-arrow-content {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip {
-        max-width: 350px;
     }
 
     @include common-variables;

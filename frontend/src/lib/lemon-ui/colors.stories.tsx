@@ -18,7 +18,7 @@ const meta: Meta = {
 export default meta
 
 const colorGroups = {
-    primary: ['primary-highlight', 'primary-light', 'primary', 'primary-dark'],
+    primary: ['primary-highlight', 'primary'],
     danger: ['danger-highlight', 'danger-light', 'danger', 'danger-dark'],
     warning: ['warning-highlight', 'warning-light', 'warning', 'warning-dark'],
     success: ['success-highlight', 'success-light', 'success', 'success-dark'],
@@ -32,9 +32,7 @@ const colorGroups = {
 
 const preThousand = [
     'primary-highlight',
-    'primary-light',
     'primary',
-    'primary-dark',
     'danger-highlight',
     'danger-lighter',
     'danger-light',
