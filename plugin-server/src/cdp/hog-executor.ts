@@ -1,5 +1,6 @@
 import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { Webhook } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { PluginsServerConfig, TimestampFormat } from '../types'
 import { trackedFetch } from '../utils/fetch'
@@ -163,14 +164,26 @@ export class HogExecutor {
 
         let error: any = null
         const logs: HogFunctionLogEntry[] = []
+        let lastTimestamp = DateTime.now()
 
         const log = (level: HogFunctionLogEntryLevel, message: string) => {
+            // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
+            // It is unclear how this affects parallel execution environments
+            let now = DateTime.now()
+            if (now <= lastTimestamp) {
+                // Ensure that the timestamps are unique
+                now = lastTimestamp.plus(1)
+            }
+            lastTimestamp = now
+
+            console.log(castTimestampOrNow(now, TimestampFormat.ClickHouse))
+
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
                 instance_id: invocation.id,
-                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                timestamp: castTimestampOrNow(now, TimestampFormat.ClickHouse),
                 level,
                 message,
             })
