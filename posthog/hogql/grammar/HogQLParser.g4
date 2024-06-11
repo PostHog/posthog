@@ -139,9 +139,9 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral

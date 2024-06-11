@@ -925,6 +925,14 @@ class TestPrinter(BaseTest):
             f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_window_functions_with_arg(self):
+        self.assertEqual(
+            self._select(
+                "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
+            ),
+            f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
     def test_nullish_concat(self):
         self.assertEqual(
             self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
