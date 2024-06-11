@@ -269,11 +269,11 @@ public:
     virtual size_t getRuleIndex() const override;
     ReturnStmtContext *returnStmt();
     EmptyStmtContext *emptyStmt();
-    ExprStmtContext *exprStmt();
     IfStmtContext *ifStmt();
     WhileStmtContext *whileStmt();
     FuncStmtContext *funcStmt();
     VarAssignmentContext *varAssignment();
+    ExprStmtContext *exprStmt();
     BlockContext *block();
 
 

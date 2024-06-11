@@ -212,6 +212,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprStatement(expr=self.visit(ctx.expression()))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
+        if not ctx.expression():
+            return ast.ReturnStatement(expr=None)
         return ast.ReturnStatement(expr=self.visit(ctx.expression()))
 
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
@@ -245,7 +247,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [ident.getText() for ident in ctx.identifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
-        return ast.ExprStatement(expr=ast.Constant(value=True))
+        return ast.ExprStatement(expr=None)
 
     def visitBlock(self, ctx: HogQLParser.BlockContext):
         return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])

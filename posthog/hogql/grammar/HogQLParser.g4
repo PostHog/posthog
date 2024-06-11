@@ -18,18 +18,18 @@ identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
                | emptyStmt
-               | exprStmt
                | ifStmt
                | whileStmt
                | funcStmt
                | varAssignment
                | returnStmt
+               | exprStmt
                | block ;
 
 exprStmt       : expression SEMICOLON?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
-returnStmt     : RETURN expression SEMICOLON?;
+returnStmt     : RETURN expression? SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
