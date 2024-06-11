@@ -663,7 +663,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 setQuestionBranching: (state, { questionIndex, value }) => {
                     const newQuestions = [...state.questions]
-                    const question = newQuestions[questionIndex] as RatingSurveyQuestion | MultipleSurveyQuestion
+                    const question = newQuestions[questionIndex]
+
+                    if (
+                        question.type !== SurveyQuestionType.Rating &&
+                        question.type !== SurveyQuestionType.SingleChoice
+                    ) {
+                        throw new Error(
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                        )
+                    }
 
                     if (value === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
