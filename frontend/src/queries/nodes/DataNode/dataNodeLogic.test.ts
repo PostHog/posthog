@@ -9,7 +9,7 @@ jest.mock('~/queries/query', () => {
     return {
         __esModules: true,
         ...jest.requireActual('~/queries/query'),
-        query: jest.fn(),
+        performQuery: jest.fn(),
     }
 })
 const mockedQuery = performQuery as jest.MockedFunction<typeof performQuery>
