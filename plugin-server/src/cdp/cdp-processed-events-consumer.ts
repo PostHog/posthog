@@ -172,6 +172,7 @@ export class CdpProcessedEventsConsumer {
                             return [...acc, ...result.logs]
                         }, [] as HogFunctionLogEntry[])
 
+                        console.log('PRODUCING LOGS')
                         await Promise.all(
                             allLogs.map((x) =>
                                 this.kafkaProducer!.produce({
@@ -182,6 +183,8 @@ export class CdpProcessedEventsConsumer {
                                 })
                             )
                         )
+
+                        console.log('PRODUCING LOGSDONE')
 
                         if (allLogs.length) {
                             status.info('🔁', `cdp-function-executor - produced logs`, {
