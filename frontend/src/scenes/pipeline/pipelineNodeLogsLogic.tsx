@@ -56,9 +56,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             search: values.searchTerm,
                             levels: values.selectedLogLevels,
                             limit: LOGS_PORTION_LIMIT,
-                            type_filter: values.selectedLogLevels,
-                            // before: trailingEntry?.timestamp,
-                            // after: leadingEntry?.timestamp,
                         })
 
                         return res.results
@@ -85,6 +82,19 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             values.selectedLogLevels,
                             values.trailingEntry as BatchExportLogEntry | null
                         )
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.searchLogs(values.node.id, {
+                            search: values.searchTerm,
+                            levels: values.selectedLogLevels,
+                            limit: LOGS_PORTION_LIMIT,
+                            before: values.trailingEntry?.timestamp,
+                        })
+
+                        if (res.results.length < LOGS_PORTION_LIMIT) {
+                            actions.markLogsEnd()
+                        }
+
+                        return [...values.logs, ...res.results]
                     } else {
                         results = await api.pluginLogs.search(
                             id as number,
