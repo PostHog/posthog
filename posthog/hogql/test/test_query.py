@@ -894,7 +894,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                                 group by col_a
                           ),
                           PIVOT_FUNCTION_2 AS (
-                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) as r from
                               PIVOT_FUNCTION_1
                               group by col_a
                           )
@@ -933,7 +933,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                                 group by col_a
                           ),
                           PIVOT_FUNCTION_2 AS (
-                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) as r from
                               PIVOT_FUNCTION_1
                               group by col_a
                           ),
