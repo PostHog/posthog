@@ -1006,6 +1006,13 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
+export type ErrorTrackingGroup = {
+    title: string
+    sampleEventProperties: EventType['properties']
+    occurrences: number
+    uniqueSessions: number
+}
+
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
@@ -2666,6 +2673,11 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
@@ -2673,6 +2685,11 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -2683,6 +2700,31 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+}
+
+export enum SurveyQuestionBranchingType {
+    NextQuestion = 'next_question',
+    ConfirmationMessage = 'confirmation_message',
+    ResponseBased = 'response_based',
+    SpecificQuestion = 'specific_question',
+}
+
+interface NextQuestionBranching {
+    type: SurveyQuestionBranchingType.NextQuestion
+}
+
+interface ConfirmationMessageBranching {
+    type: SurveyQuestionBranchingType.ConfirmationMessage
+}
+
+interface ResponseBasedBranching {
+    type: SurveyQuestionBranchingType.ResponseBased
+    responseValue: Record<string, any>
+}
+
+interface SpecificQuestionBranching {
+    type: SurveyQuestionBranchingType.SpecificQuestion
+    index: number
 }
 
 export interface FeatureFlagGroupType {
