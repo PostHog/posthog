@@ -27,7 +27,7 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -38,7 +38,7 @@ class GroupsJoinQuery:
     def get_join_query(self) -> tuple[str, dict]:
         join_queries, params = [], {}
 
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED and groups_on_events_querying_enabled():
             return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:

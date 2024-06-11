@@ -5,6 +5,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -777,7 +778,7 @@ export type AnyPropertyFilter =
     | ElementPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
-    | RecordingDurationFilter
+    | RecordingPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -946,11 +947,15 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-export interface RecordingDurationFilter extends BasePropertyFilter {
+export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: 'duration'
-    value: number
+    key: DurationType | 'console_log_level' | 'console_log_query'
     operator: PropertyOperator
+}
+
+export interface RecordingDurationFilter extends RecordingPropertyFilter {
+    key: DurationType
+    value: number
 }
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
@@ -973,6 +978,18 @@ export interface RecordingFilters {
     filter_test_accounts?: boolean
 }
 
+export interface RecordingUniversalFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
+    date_from?: string | null
+    date_to?: string | null
+    duration: RecordingDurationFilter[]
+    filter_test_accounts?: boolean
+    filter_group: UniversalFiltersGroup
+}
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -988,6 +1005,13 @@ export type ErrorCluster = {
     viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
+
+export type ErrorTrackingGroup = {
+    title: string
+    sampleEventProperties: EventType['properties']
+    occurrences: number
+    uniqueSessions: number
+}
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
@@ -2649,6 +2673,11 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
@@ -2656,6 +2685,11 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -2666,6 +2700,31 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+}
+
+export enum SurveyQuestionBranchingType {
+    NextQuestion = 'next_question',
+    ConfirmationMessage = 'confirmation_message',
+    ResponseBased = 'response_based',
+    SpecificQuestion = 'specific_question',
+}
+
+interface NextQuestionBranching {
+    type: SurveyQuestionBranchingType.NextQuestion
+}
+
+interface ConfirmationMessageBranching {
+    type: SurveyQuestionBranchingType.ConfirmationMessage
+}
+
+interface ResponseBasedBranching {
+    type: SurveyQuestionBranchingType.ResponseBased
+    responseValue: Record<string, any>
+}
+
+interface SpecificQuestionBranching {
+    type: SurveyQuestionBranchingType.SpecificQuestion
+    index: number
 }
 
 export interface FeatureFlagGroupType {
@@ -3746,6 +3805,7 @@ export interface ExternalDataStripeSource {
     prefix: string
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
+    sync_frequency: DataWarehouseSyncInterval
 }
 export interface SimpleExternalDataSourceSchema {
     id: string
@@ -3878,6 +3938,8 @@ export type BatchExportService =
     | BatchExportServiceHTTP
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+
+export type DataWarehouseSyncInterval = 'day' | 'week' | 'month'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -4087,6 +4149,44 @@ export type OnboardingProduct = {
     url: string
     scene: Scene
 }
+
+export type HogFunctionInputSchemaType = {
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json'
+    key: string
+    label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    default?: any
+    secret?: boolean
+    description?: string
+}
+
+export type HogFunctionType = {
+    id: string
+    name: string
+    description: string
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+    enabled: boolean
+    hog: string
+
+    inputs_schema: HogFunctionInputSchemaType[]
+    inputs: Record<
+        string,
+        {
+            value: any
+            bytecode?: any
+        }
+    >
+    filters?: PluginConfigFilters | null
+    template?: HogFunctionTemplateType
+}
+
+export type HogFunctionTemplateType = Pick<
+    HogFunctionType,
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters'
+>
 
 export interface AnomalyCondition {
     absoluteThreshold: {

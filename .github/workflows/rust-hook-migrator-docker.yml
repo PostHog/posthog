@@ -3,8 +3,10 @@ name: Build hook-migrator docker image
 on:
     workflow_dispatch:
     push:
+        paths:
+            - 'rust/**'
         branches:
-            - 'main'
+            - 'master'
 
 permissions:
     packages: write
@@ -18,9 +20,19 @@ jobs:
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
 
+        defaults:
+            run:
+                working-directory: rust
+
         steps:
             - name: Check Out Repo
+              # Checkout project code
+              # Use sparse checkout to only select files in rust directory
+              # Turning off cone mode ensures that files in the project root are not included during checkout
               uses: actions/checkout@v3
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
@@ -61,8 +73,8 @@ jobs:
               id: docker_build_hook_migrator
               uses: depot/build-push-action@v1
               with:
-                  context: ./
-                  file: ./Dockerfile.migrate
+                  context: ./rust/
+                  file: ./rust/Dockerfile.migrate
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}

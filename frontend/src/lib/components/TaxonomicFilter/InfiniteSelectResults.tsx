@@ -68,7 +68,7 @@ export function InfiniteSelectResults({
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
-            onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item)}
         />
     ) : (
         <InfiniteList popupAnchorElement={popupAnchorElement} />

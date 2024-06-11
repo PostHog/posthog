@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { CSSProperties, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
@@ -81,7 +81,7 @@ export interface CodeSnippetProps {
     wrap?: boolean
     compact?: boolean
     actions?: JSX.Element
-    style?: CSSProperties
+    className?: string
     /** What is being copied. @example 'link' */
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
@@ -93,7 +93,7 @@ export function CodeSnippet({
     language = Language.Text,
     wrap = false,
     compact = false,
-    style,
+    className,
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
@@ -120,8 +120,7 @@ export function CodeSnippet({
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact')} style={style}>
+        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact', className)}>
             <div className="CodeSnippet__actions">
                 {actions}
                 <LemonButton

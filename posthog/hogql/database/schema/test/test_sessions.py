@@ -142,7 +142,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
 
-    @parameterized.expand([(BounceRatePageViewMode.uniq_urls,), (BounceRatePageViewMode.count_pageviews,)])
+    @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
     def test_bounce_rate(self, bounceRatePageViewMode):
         # person with 2 different sessions
         _create_event(

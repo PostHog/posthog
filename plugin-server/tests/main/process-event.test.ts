@@ -209,11 +209,20 @@ test('merge people', async () => {
     const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    await hub.db.updatePersonDeprecated(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
+    const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
+        created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
+    })
 
     const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    await hub.db.updatePersonDeprecated(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
+    const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
+        created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
+    })
+
+    await hub.db.kafkaProducer.queueMessages({
+        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
+        waitForAck: true,
+    })
 
     await processEvent(
         'person_1',

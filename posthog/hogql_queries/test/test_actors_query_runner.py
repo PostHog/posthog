@@ -94,7 +94,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     PersonPropertyFilter(
                         key="random_uuid",
                         value=self.random_uuid,
-                        operator=PropertyOperator.exact,
+                        operator=PropertyOperator.EXACT,
                     ),
                     HogQLPropertyFilter(key="toInt(properties.index) > 5"),
                 ]
@@ -110,7 +110,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     PersonPropertyFilter(
                         key="random_uuid",
                         value=self.random_uuid,
-                        operator=PropertyOperator.exact,
+                        operator=PropertyOperator.EXACT,
                     ),
                     HogQLPropertyFilter(key="toInt(properties.index) < 2"),
                 ]
@@ -221,10 +221,10 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     PersonPropertyFilter(
                         key="random_uuid",
                         value=self.random_uuid,
-                        operator=PropertyOperator.exact,
+                        operator=PropertyOperator.EXACT,
                     )
                 ],
-                interval=IntervalType.day,
+                interval=IntervalType.DAY,
                 dateRange=InsightDateRange(date_from="-7d"),
             )
             query = ActorsQuery(
