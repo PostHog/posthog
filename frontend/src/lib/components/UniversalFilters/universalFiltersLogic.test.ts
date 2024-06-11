@@ -32,8 +32,9 @@ describe('universalFiltersLogic', () => {
         logic = universalFiltersLogic({
             rootKey: 'test',
             group: defaultFilter,
-            taxonomicEntityFilterGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-            taxonomicPropertyFilterGroupTypes: [
+            taxonomicGroupTypes: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
             ],

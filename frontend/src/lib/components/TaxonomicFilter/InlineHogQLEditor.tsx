@@ -5,7 +5,7 @@ import { AnyDataNode } from '~/queries/schema'
 
 export interface InlineHogQLEditorProps {
     value?: TaxonomicFilterValue
-    onChange: (value: TaxonomicFilterValue) => void
+    onChange: (value: TaxonomicFilterValue, item?: any) => void
     metadataSource?: AnyDataNode
 }
 

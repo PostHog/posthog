@@ -83,12 +83,18 @@ export type SettingId =
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
 
+type FeatureFlagKey = keyof typeof FEATURE_FLAGS
+
 export type Setting = {
     id: SettingId
     title: string
     description?: JSX.Element | string
     component: JSX.Element
-    flag?: keyof typeof FEATURE_FLAGS
+    /**
+     * Feature flag to gate the setting being shown.
+     * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
+     */
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
 }
 
@@ -97,6 +103,10 @@ export type SettingSection = {
     title: string
     level: SettingLevelId
     settings: Setting[]
-    flag?: keyof typeof FEATURE_FLAGS
+    /**
+     * Feature flag to gate the section being shown.
+     * If prefixed with !, the condition is inverted - the section will only be shown if the is flag false.
+     */
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     minimumAccessLevel?: EitherMembershipLevel
 }
