@@ -57,15 +57,15 @@ class FunnelQueryContext(QueryContext):
         self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
 
         # defaults
-        self.interval = self.query.interval or IntervalType.day
+        self.interval = self.query.interval or IntervalType.DAY
 
-        self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.event
+        self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.EVENT
         self.breakdownAttributionType = (
-            self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.first_touch
+            self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
         )
         self.funnelWindowInterval = self.funnelsFilter.funnelWindowInterval or 14
         self.funnelWindowIntervalUnit = (
-            self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.day
+            self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.DAY
         )
 
         self.includeTimestamp = include_timestamp

@@ -1,29 +1,33 @@
 import { dateFilterToText } from 'lib/utils'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { containsHogQLQuery, dateRangeFor, isDataTableNode, isInsightQueryNode } from '~/queries/utils'
-import { InsightModel, InsightType } from '~/types'
+import { NodeKind } from '~/queries/schema'
+import {
+    containsHogQLQuery,
+    dateRangeFor,
+    isDataTableNode,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
+import { QueryBasedInsightModel } from '~/types'
 
-export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
-    const { filters, query } = insight
+export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
+    const { query } = insight
 
     let insightType: InsightTypeMetadata
 
-    // check the query first because the backend still adds defaults to empty filters :/
     if (query?.kind) {
-        if (isDataTableNode(query) && containsHogQLQuery(query)) {
+        if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
             insightType = QUERY_TYPES_METADATA[query.source.kind]
         } else {
             insightType = QUERY_TYPES_METADATA[query.kind]
         }
-    } else if (filters.insight) {
-        insightType = INSIGHT_TYPES_METADATA[filters.insight]
     } else {
         // maintain the existing default
-        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
+        insightType = QUERY_TYPES_METADATA[NodeKind.TrendsQuery]
     }
 
-    let { date_from, date_to } = filters
+    let date_from, date_to
     if (query) {
         const queryDateRange = dateRangeFor(query)
         if (queryDateRange) {
@@ -34,7 +38,8 @@ export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element 
 
     let dateText: string | null = null
     if (insightType?.name !== 'Retention') {
-        const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
+        const defaultDateRange =
+            query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
     return (

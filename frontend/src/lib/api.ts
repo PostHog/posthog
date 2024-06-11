@@ -43,6 +43,7 @@ import {
     FeatureFlagType,
     Group,
     GroupListParams,
+    HogFunctionType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
@@ -318,6 +319,14 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
+    }
+
+    public hogFunctions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+    }
+
+    public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctions(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -1634,6 +1643,24 @@ const api = {
         },
     },
 
+    hogFunctions: {
+        async listTemplates(): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().get()
+        },
+        async list(): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().get()
+        },
+        async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).get()
+        },
+        async create(data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunctions().create({ data })
+        },
+        async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).update({ data })
+        },
+    },
+
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -1977,6 +2004,12 @@ const api = {
         },
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+        async update(
+            sourceId: ExternalDataStripeSource['id'],
+            data: Partial<ExternalDataStripeSource>
+        ): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
             source_type: ExternalDataSourceType,

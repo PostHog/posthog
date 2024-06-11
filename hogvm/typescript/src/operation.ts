@@ -1,5 +1,5 @@
 export const enum Operation {
-    FIELD = 1,
+    GET_GLOBAL = 1,
     CALL = 2,
     AND = 3,
     OR = 4,

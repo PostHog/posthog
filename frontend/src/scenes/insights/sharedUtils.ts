@@ -45,10 +45,6 @@ export function filterTrendsClientSideParams(
     return newFilters
 }
 
-export function isTrendsInsight(insight?: InsightType): boolean {
-    return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
-}
-
 export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
     return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
 }
@@ -80,8 +76,4 @@ export function isFilterWithDisplay(
 
 export function isAreaChartDisplay(filters?: Partial<FilterType>): boolean {
     return isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsAreaGraph
-}
-
-export function isBoldNumberDisplay(filters?: Partial<FilterType>): boolean {
-    return isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber
 }
