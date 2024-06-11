@@ -9,7 +9,7 @@
     <envs>
       <env name="CLICKHOUSE_SECURE" value="False" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
-      <env name="ENABLE_ERROR_EMBEDDING_TEAM_IDS" value="1,2,3,4,5" />
+      <env name="ERROR_EMBEDDING_MAX_TEAM_ID" value="5" />
       <env name="KAFKA_HOSTS" value="localhost:9092" />
       <env name="OBJECT_STORAGE_ENABLED" value="True" />
       <env name="SESSION_RECORDING_KAFKA_BATCH_SIZE" value="200" />
