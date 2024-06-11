@@ -30,6 +30,8 @@ class LogEntryRequestSerializer(serializers.Serializer):
     after = serializers.DateTimeField(required=False)
     before = serializers.DateTimeField(required=False)
     level = serializers.ListField(child=serializers.CharField(), required=False)
+    search = serializers.CharField(required=False)
+    instance_id = serializers.CharField(required=False)
 
 
 def fetch_log_entries(
