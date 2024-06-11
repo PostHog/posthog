@@ -1,8 +1,10 @@
+import json
 from typing import Optional
 
 from celery import shared_task
 
 from posthog.models.action.action import Action
+from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -44,5 +46,12 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
         hog_function.compile_filters_bytecode(actions=actions_by_id)
 
     updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+
+    get_client().publish(
+        "reload-hog-functions",
+        json.dumps(
+            {"teamId": team_id, "hogFunctionIds": [str(hog_function.id) for hog_function in affected_hog_functions]}
+        ),
+    )
 
     return updates
