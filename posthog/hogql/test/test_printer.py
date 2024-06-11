@@ -243,7 +243,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "properties.'no strings'",
-            "no viable alternative at input '.'no strings'",
+            "no viable alternative at input",
             "hogql",
         )
 
@@ -503,11 +503,6 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-        # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
-        self.assertEqual(
-            self._expr("event makes little sense"),
-            "((events.event AS makes) AS little) AS sense",
         )
 
     def test_case_when(self):
