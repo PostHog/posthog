@@ -404,23 +404,7 @@ input::-ms-clear {
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
     // Until we have 3000 rolled out we fallback to standard colors
-    --muted-3000: var(--muted);
-    --primary-3000: var(--primary);
     --primary-3000-highlight: var(--primary-highlight);
-    --secondary-3000: var(--secondary);
-    --secondary-3000-hover: var(--secondary-light);
-    --accent-3000: var(--side);
-    --bg-3000: var(--bg-light);
-    --border-3000: var(--border);
-    --border-bold-3000: var(--border);
-    --glass-bg-3000: var(--bg-light);
-    --glass-border-3000: var(--border);
-    --bg-light: #fff;
-    --bg-table: var(--bg-light);
-    --link: var(--primary-3000);
-    --data-color-1-hover: #1d4affe5;
-    --shadow-elevation: var(--shadow-elevation-3000);
-    --primary: var(--primary-3000);
     --primary-highlight: var(--primary-3000-highlight);
 
     // Remove below once we're using Tailwind's base
