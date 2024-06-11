@@ -158,12 +158,9 @@ class Breakdown:
             else:
                 left = ast.Field(chain=self._properties_chain)
             value: Optional[str] = str(breakdown_values_override)  # non-cohorts are always strings
-            # If the value is one of the "other" values, then use the `transform()` func
             if value == BREAKDOWN_OTHER_STRING_LABEL:
-                transform_func = self._get_breakdown_transform_func
-                return ast.CompareOperation(
-                    left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value)
-                )
+                # TODO: Fix breaking down by other
+                return ast.Constant(value=True)
             elif value == BREAKDOWN_NULL_STRING_LABEL:
                 return ast.Or(
                     exprs=[

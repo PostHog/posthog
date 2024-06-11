@@ -239,7 +239,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return default_query
 
-    def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+    def _outer_select_query(
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
         total_array = parse_expr(
             """
             arrayMap(
@@ -313,19 +315,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if breakdown.enabled:
-            (
-                query.select.append(
-                    ast.Alias(
-                        alias="breakdown_value",
-                        expr=ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
-                                ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                            ],
-                        ),
-                    )
-                ),
+            query.select.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
+                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        ],
+                    ),
+                )
             )
             query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
@@ -364,7 +364,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return query
 
     def _get_breakdown_limit(self) -> int:
-        return self.query.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+        return (
+            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
+        ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery

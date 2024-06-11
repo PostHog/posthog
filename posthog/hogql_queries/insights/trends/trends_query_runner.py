@@ -216,10 +216,11 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.breakdownFilter is not None:
             res_breakdown = []
             if self.query.breakdownFilter.breakdown_type == "cohort":
+                assert isinstance(self.query.breakdownFilter.breakdown, list)
                 for value in self.query.breakdownFilter.breakdown:
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
-                            BreakdownItem(label=Cohort.objects.get(pk=value, team=self.team).name, value=value)
+                            BreakdownItem(label=Cohort.objects.get(pk=int(value), team=self.team).name, value=value)
                         )
                     else:
                         res_breakdown.append(BreakdownItem(label="all users", value="all"))
@@ -249,7 +250,9 @@ class TrendsQueryRunner(QueryRunner):
                     # timings=timings,
                     # modifiers=modifiers,
                 )
-                breakdown_values = [row[results.columns.index("breakdown_value")] for row in results.results]
+                breakdown_values = [
+                    row[results.columns.index("breakdown_value") if results.columns else 2] for row in results.results
+                ]
 
                 if breakdown.is_histogram_breakdown:
                     breakdown_values.append('["",""]')
