@@ -1006,6 +1006,13 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
+export type ErrorTrackingGroup = {
+    title: string
+    sampleEventProperties: EventType['properties']
+    occurrences: number
+    uniqueSessions: number
+}
+
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
