@@ -42,6 +42,7 @@ posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Statem
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument 1 to "exclude_keys" has incompatible type "dict[str, ResolveParamConfig | IncrementalParamConfig | Any] | None"; expected "Mapping[str, Any]"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Incompatible default for argument "incremental_param" (default has type "IncrementalParam | None", argument has type "IncrementalParam")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument "module" to "SourceInfo" has incompatible type Module | None; expected Module  [arg-type]
+posthog/celery.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -201,6 +202,15 @@ ee/billing/quota_limiting.py:0: error: "object" has no attribute "get"  [attr-de
 ee/billing/quota_limiting.py:0: error: Unsupported target for indexed assignment ("object")  [index]
 ee/billing/quota_limiting.py:0: error: Unsupported target for indexed assignment ("object")  [index]
 posthog/tasks/email.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_histogram_bin_count"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument 1 to "parse_expr" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_field" to "get_properties_chain" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
+posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_group_type_index"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str"  [list-item]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -362,19 +372,6 @@ posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery
 posthog/queries/person_query.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/queries/event_query/event_query.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_histogram_bin_count"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "exprs" to "Or" has incompatible type "list[CompareOperation]"; expected "list[Expr]"  [arg-type]
-posthog/hogql_queries/insights/trends/breakdown.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/trends/breakdown.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument 1 to "parse_expr" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_field" to "get_properties_chain" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_group_type_index"  [union-attr]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
