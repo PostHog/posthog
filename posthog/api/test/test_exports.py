@@ -34,6 +34,7 @@ class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None
     dashboard: Dashboard = None
     insight: Insight = None
+    tile: DashboardTile = None
 
     def teardown_method(self, method) -> None:
         s3 = resource(
