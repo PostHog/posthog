@@ -27,7 +27,6 @@ def compile_filters_bytecode(team: Team, filters: dict, actions: Optional[dict[i
     try:
         filters["bytecode"] = create_bytecode(hog_function_filters_to_expr(filters, team, actions))
     except Exception as e:
-        # TODO: Better reporting of this issue
         filters["bytecode"] = None
         filters["bytecode_error"] = str(e)
 

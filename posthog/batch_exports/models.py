@@ -200,6 +200,12 @@ class BatchExport(UUIDModel):
             return timedelta(**kwargs)
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
+    def save(self, *args, **kwargs):
+        from posthog.models.cdp.filters import compile_filters_bytecode
+
+        self.filters = compile_filters_bytecode(self.team, self.filters)
+        return super().save(*args, **kwargs)
+
 
 class BatchExportLogEntryLevel(str, enum.Enum):
     """Enumeration of batch export log levels."""
