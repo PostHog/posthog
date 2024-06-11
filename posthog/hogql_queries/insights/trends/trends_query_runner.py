@@ -247,6 +247,8 @@ class TrendsQueryRunner(QueryRunner):
             )
             breakdown_values = [row[results.columns.index("breakdown_value")] for row in results.results]
 
+            if breakdown.is_histogram_breakdown:
+                breakdown_values.append('["",""]')
             is_boolean_breakdown = self._is_breakdown_field_boolean()
             res_breakdown = []
 

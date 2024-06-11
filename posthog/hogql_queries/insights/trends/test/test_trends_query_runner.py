@@ -1819,10 +1819,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
         assert response.breakdown == [
-            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
         ]
 
     def test_to_actors_query_options_breakdowns_boolean(self):
@@ -1932,8 +1932,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
-            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
+            BreakdownItem(label="Safari", value="Safari"),
         ]
 
     def test_to_actors_query_options_bar_value(self):
