@@ -94,16 +94,16 @@ export class HogExecutor {
             })
         )
 
+        if (!Object.keys(functions).length) {
+            return []
+        }
+
         status.info(
             '🦔',
             `[HogExecutor] Found ${Object.keys(functions).length} matching functions out of ${
                 Object.keys(allFunctionsForTeam).length
             } for team`
         )
-
-        if (!Object.keys(functions).length) {
-            return []
-        }
 
         const results: HogFunctionInvocationResult[] = []
 
