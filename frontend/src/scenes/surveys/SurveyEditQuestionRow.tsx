@@ -339,7 +339,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
-                {hasBranching && <QuestionBranchingInput index={index} question={question} />}
+                {hasBranching && <QuestionBranchingInput questionIndex={index} question={question} />}
             </div>
         </Group>
     )

@@ -9,10 +9,10 @@ import { MultipleSurveyQuestion, RatingSurveyQuestion, SurveyQuestionBranchingTy
 import { surveyLogic } from './surveyLogic'
 
 export function QuestionBranchingInput({
-    index,
+    questionIndex,
     question,
 }: {
-    index: number
+    questionIndex: number
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 }): JSX.Element {
     const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
@@ -23,8 +23,8 @@ export function QuestionBranchingInput({
             ...question,
             questionIndex,
         }))
-        .filter((_, questionIndex) => index !== questionIndex)
-    const branchingDropdownValue = getBranchingDropdownValue(index, question)
+        .filter((_, idx) => questionIndex !== idx)
+    const branchingDropdownValue = getBranchingDropdownValue(questionIndex, question)
 
     return (
         <>
@@ -32,10 +32,10 @@ export function QuestionBranchingInput({
                 <LemonSelect
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
-                    data-attr={`branching-question-${index}`}
-                    onSelect={(value) => setQuestionBranching(index, value)}
+                    data-attr={`branching-question-${questionIndex}`}
+                    onSelect={(value) => setQuestionBranching(questionIndex, value)}
                     options={[
-                        ...(index < survey.questions.length - 1
+                        ...(questionIndex < survey.questions.length - 1
                             ? [
                                   {
                                       label: 'Next question',
