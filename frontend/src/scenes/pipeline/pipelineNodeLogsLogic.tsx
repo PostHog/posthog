@@ -1,3 +1,4 @@
+import { TZLabel } from '@posthog/apps-common'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -200,9 +201,11 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         key: 'timestamp',
                         dataIndex: 'timestamp',
                         sorter: (a: LogEntry, b: LogEntry) => dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
-                        render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+                        render: (timestamp: string) => <TZLabel time={timestamp} />,
+                        width: 0,
                     },
                     {
+                        width: 0,
                         title:
                             node.backend == PipelineBackend.HogFunction
                                 ? 'Invocation'
@@ -221,6 +224,8 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                                 : node.backend == PipelineBackend.BatchExport
                                 ? 'run_id'
                                 : 'source',
+
+                        render: (source: string) => <code className="whitespace-nowrap">{source}</code>,
                     },
                     {
                         title: 'Level',
