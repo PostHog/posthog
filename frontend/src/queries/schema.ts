@@ -989,6 +989,8 @@ interface CachedQueryResponseMixin {
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
 
+export type GenericCachedQueryResponse = CachedQueryResponse<Record<string, any>>
+
 export interface QueryStatusResponse {
     query_status: QueryStatus
 }

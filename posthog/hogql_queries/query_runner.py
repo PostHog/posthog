@@ -52,6 +52,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebTopClicksQuery,
     QueryStatusResponse,
+    GenericCachedQueryResponse,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
@@ -321,7 +322,7 @@ Q = TypeVar("Q", bound=RunnableQueryNode)
 R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
-CR = TypeVar("CR", bound=BaseModel)
+CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):

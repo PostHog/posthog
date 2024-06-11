@@ -1970,6 +1970,17 @@ class FunnelsQueryResponse(BaseModel):
     )
 
 
+class GenericCachedQueryResponse(BaseModel):
+    cache_key: str
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+
+
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
