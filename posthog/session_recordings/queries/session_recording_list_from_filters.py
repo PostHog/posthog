@@ -1,3 +1,4 @@
+import re
 from typing import Any, NamedTuple, cast, Optional
 from datetime import datetime, timedelta
 
@@ -6,13 +7,25 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Team
+from posthog.models import Team, Property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+def is_event_property(p: Property) -> bool:
+    return p.type == "event" or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
+
+
+def is_person_property(p: Property) -> bool:
+    return p.type == "person" or (p.type == "hogql" and "person.properties" in p.key)
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -179,8 +192,11 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        remaining_properties = self._strip_properties(self._filter.property_groups, ["person", "event"])
+        remaining_properties = self._strip_person_and_event_properties(self._filter.property_groups)
         if remaining_properties:
+            logger.info(
+                "session_replay_query_builder has unhandled properties", unhandled_properties=remaining_properties
+            )
             exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
@@ -254,13 +270,10 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
 
-    def _strip_properties(
-        self, property_group: PropertyGroup, types_to_strip: list[str] | None = None
-    ) -> PropertyGroup | None:
-        if types_to_strip is None:
-            return property_group
-
-        property_groups_to_keep = [g for g in property_group.flat if g.type not in types_to_strip]
+    def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
+        property_groups_to_keep = [
+            g for g in property_group.flat if not is_event_property(g) and not is_person_property(g)
+        ]
 
         return (
             PropertyGroup(
@@ -299,7 +312,7 @@ class PersonsPropertiesSubQuery:
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:
-        person_property_groups = [g for g in self._filter.property_groups.flat if g.type == "person" in g.type]
+        person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -345,7 +358,7 @@ class PersonsIdSubQuery:
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:
-        person_property_groups = [g for g in self._filter.property_groups.flat if g.type == "person" in g.type]
+        person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -484,4 +497,4 @@ class EventsSubQuery:
 
     @cached_property
     def event_properties(self):
-        return [g for g in self._filter.property_groups.flat if g.type == "event"]
+        return [g for g in self._filter.property_groups.flat if is_event_property(g)]
