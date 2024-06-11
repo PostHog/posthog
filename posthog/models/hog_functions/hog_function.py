@@ -65,7 +65,7 @@ class HogFunction(UUIDModel):
 
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
-    reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[instance.id])
+    reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
 @receiver(post_save, sender=Action)
