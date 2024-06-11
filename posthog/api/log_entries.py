@@ -58,13 +58,13 @@ def fetch_log_entries(
     clickhouse_where_parts.append("team_id = %(team_id)s")
     clickhouse_kwargs["team_id"] = team_id
 
-    if instance_id is not None:
+    if instance_id:
         clickhouse_where_parts.append("instance_id = %(instance_id)s")
         clickhouse_kwargs["instance_id"] = instance_id
-    if after is not None:
+    if after:
         clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
         clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
-    if before is not None:
+    if before:
         clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
         clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
     if search:
