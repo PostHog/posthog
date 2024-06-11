@@ -396,7 +396,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("select query from events", "mismatched input 'query' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting <EOF>")
 
     def test_logic(self):
         self.assertEqual(
