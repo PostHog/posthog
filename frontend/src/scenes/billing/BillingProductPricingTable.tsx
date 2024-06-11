@@ -1,5 +1,5 @@
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
@@ -192,6 +192,9 @@ export const BillingProductPricingTable = ({
                             .
                         </p>
                     )}
+                    <LemonBanner type="warning" className="text-sm pt-2">
+                        Tier breakdowns are updated once daily and may differ from the gauge above.
+                    </LemonBanner>
                 </>
             ) : (
                 <LemonTable
