@@ -172,6 +172,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
 
         ENABLE_ERROR_EMBEDDING_TEAM_IDS: '',
+        ERROR_EVENT_EMBEDDING_MODEL: 'mixedbread-ai/mxbai-embed-large-v1',
     }
 }
 

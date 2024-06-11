@@ -6,6 +6,7 @@ import { PreIngestionEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
 
+const errorEmbeddingModel = defaultConfig.ERROR_EVENT_EMBEDDING_MODEL
 const errorEmbeddingEnabledTeams = (defaultConfig.ENABLE_ERROR_EMBEDDING_TEAM_IDS || '')
     .split(',')
     .map((id) => parseInt(id, 10))
@@ -27,7 +28,7 @@ export async function initEmbeddingModel(): Promise<FeatureExtractionPipeline | 
                 func: async () => {
                     const TransformersApi = Function('return import("@xenova/transformers")')()
                     const { pipeline } = await TransformersApi
-                    featureExtractionPipeline = await pipeline('feature-extraction', 'Xenova/gte-small')
+                    featureExtractionPipeline = await pipeline('feature-extraction', errorEmbeddingModel)
                 },
                 statsKey: 'initErrorEventEmbeddingModel',
             })
