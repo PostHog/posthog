@@ -309,10 +309,10 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestion) {
+            // we want to initialise this as early as possible but only when a capability supports it
+            await initEmbeddingModel(serverConfig.ERROR_EMBEDDING_MAX_TEAM_ID > 0)
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
-
-            await initEmbeddingModel(serverConfig.ERROR_EMBEDDING_MAX_TEAM_ID > 0)
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(

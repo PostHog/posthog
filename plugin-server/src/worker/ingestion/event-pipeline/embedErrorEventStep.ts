@@ -27,6 +27,7 @@ export async function initEmbeddingModel(
                     const TransformersApi = Function('return import("@xenova/transformers")')()
                     const { pipeline } = await TransformersApi
                     featureExtractionPipeline = await pipeline('feature-extraction', errorEmbeddingModel)
+                    status.info('🤖', 'downloaded and initialised error model')
                 },
                 statsKey: 'initErrorEventEmbeddingModel',
             })
