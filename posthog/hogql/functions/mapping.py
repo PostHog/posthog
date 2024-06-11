@@ -292,6 +292,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
+    "corr": HogQLFunctionMeta("corr", 2, 2),
     # arrays and strings common
     "empty": HogQLFunctionMeta("empty", 1, 1),
     "notEmpty": HogQLFunctionMeta("notEmpty", 1, 1),
