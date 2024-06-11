@@ -408,7 +408,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
-        hideProjectNotice: true,
     },
 }
 
