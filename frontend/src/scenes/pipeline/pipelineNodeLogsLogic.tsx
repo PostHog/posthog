@@ -302,7 +302,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             }
             actions.loadLogs()
         },
-        setInstanceId: async ({ instanceId }) => {
+        setInstanceId: async () => {
             actions.loadLogs()
         },
     })),
