@@ -129,8 +129,8 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
-    let console_search_query = ''
     let console_logs: FilterableLogLevel[] = []
+    let console_search_query = ''
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {

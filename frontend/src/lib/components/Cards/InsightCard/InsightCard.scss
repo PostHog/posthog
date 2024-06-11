@@ -51,6 +51,10 @@
         border: none;
         border-radius: 0;
     }
+
+    .WebAnalyticsDashboard .InsightVizDisplay & {
+        min-height: var(--insight-viz-min-height);
+    }
 }
 
 .InsightDetails,
