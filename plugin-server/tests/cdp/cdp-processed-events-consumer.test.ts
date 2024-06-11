@@ -54,7 +54,7 @@ describe('CDP Processed Events Consuner', () => {
     let team: Team
 
     const insertHogFunction = async (hogFunction) => {
-        const item = await _insertHogFunction(hub.postgres, team, hogFunction)
+        const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
         await processor.hogFunctionManager.reloadAllHogFunctions()
         return item

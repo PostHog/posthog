@@ -13,7 +13,6 @@ logger = structlog.get_logger(__name__)
 
 def publish_message(channel: str, payload: Union[dict, str]):
     message = json.dumps(payload) if not isinstance(payload, str) else payload
-
     get_client(settings.PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
 
 

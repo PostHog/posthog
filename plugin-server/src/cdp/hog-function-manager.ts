@@ -71,9 +71,6 @@ export class HogFunctionManager {
         status.info('🍿', `Reloading hog functions ${ids} from DB`)
         const items = await fetchHogFunctions(this.postgres, ids)
 
-        // for each item we need to update the cache
-        // if the ID is not in the list we need to remove it from the cache
-
         if (!this.cache[teamId]) {
             this.cache[teamId] = {}
         }
@@ -126,7 +123,7 @@ export async function fetchHogFunctions(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = ANY($1)) AND deleted = FALSE AND enabled = TRUE`,
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
             [ids],
             'fetchHogFunctions'
         )
