@@ -3,12 +3,10 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelCorrelationQuery, FunnelCorrelationResultsType, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
-import { FunnelCorrelation, FunnelCorrelationType, FunnelsFilterType, InsightLogicProps } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -131,15 +129,6 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         },
     }),
     selectors({
-        apiParams: [
-            (s) => [s.querySource],
-            (querySource) => {
-                const cleanedParams: Partial<FunnelsFilterType> = querySource
-                    ? cleanFilters(queryNodeToFilter(querySource))
-                    : {}
-                return cleanedParams
-            },
-        ],
         aggregationGroupTypeIndex: [(s) => [s.querySource], (querySource) => querySource?.aggregation_group_type_index],
 
         // event correlation
