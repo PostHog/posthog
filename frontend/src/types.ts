@@ -778,7 +778,7 @@ export type AnyPropertyFilter =
     | ElementPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
-    | RecordingDurationFilter
+    | RecordingPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -947,11 +947,15 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-export interface RecordingDurationFilter extends BasePropertyFilter {
+export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: 'duration'
-    value: number
+    key: DurationType | 'console_log_level' | 'console_log_query'
     operator: PropertyOperator
+}
+
+export interface RecordingDurationFilter extends RecordingPropertyFilter {
+    key: DurationType
+    value: number
 }
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
@@ -981,6 +985,7 @@ export interface RecordingUniversalFilters {
     live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
+    duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
 }
