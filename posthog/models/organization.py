@@ -1,4 +1,3 @@
-import json
 import sys
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
@@ -22,7 +21,6 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.plugins.reload import reset_available_product_features_cache_on_workers
-from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:

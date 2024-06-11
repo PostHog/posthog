@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -30,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.redis import get_client
 
 from .utils import UUIDModel, sane_repr
 

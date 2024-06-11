@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-import json
 from typing import Literal, Optional, Union, get_args
 
 from django.db import models
@@ -10,7 +9,6 @@ from django.utils import timezone
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
 from posthog.plugins.reload import drop_action_on_workers, reload_action_on_workers
-from posthog.redis import get_client
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
