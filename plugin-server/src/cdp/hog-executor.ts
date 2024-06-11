@@ -177,9 +177,9 @@ export class HogExecutor {
         }
 
         if (!state) {
-            log('debug', `Executing function  (${hogFunction.id}) (${hogFunction.name})`)
+            log('debug', `Executing function`)
         } else {
-            log('debug', `Resuming function  (${hogFunction.id}) (${hogFunction.name})`)
+            log('debug', `Resuming function`)
         }
 
         try {
@@ -194,15 +194,17 @@ export class HogExecutor {
                     fetch: async () => Promise.resolve(),
                 },
                 functions: {
-                    print: (message: string, ...args) => {
-                        status.info('🦔', '[HogExecutor] print', message, ...args)
+                    print: (...args) => {
+                        const message = args
+                            .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
+                            .join(', ')
                         log('info', message)
                     },
                 },
             })
 
             if (!res.finished) {
-                log('debug', `Suspending function (${hogFunction.id}) (${hogFunction.name})`)
+                log('debug', `Suspending function due to async function call '${res.asyncFunctionName}`)
                 status.info('🦔', `[HogExecutor] Function returned not finished. Executing async function`, {
                     ...loggingContext,
                     asyncFunctionName: res.asyncFunctionName,
@@ -298,15 +300,15 @@ export class HogExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            await this.executeAsyncResponse({
-                ...invocation,
-                hogFunctionId: hogFunction.id,
-                vmState: execResult.state!,
-                response: {
-                    status: fetchResponse.status,
-                    body: await fetchResponse.text(),
-                },
-            })
+            // await this.executeAsyncResponse({
+            //     ...invocation,
+            //     hogFunctionId: hogFunction.id,
+            //     vmState: execResult.state!,
+            //     response: {
+            //         status: fetchResponse.status,
+            //         body: await fetchResponse.text(),
+            //     },
+            // })
         }
     }
 }
