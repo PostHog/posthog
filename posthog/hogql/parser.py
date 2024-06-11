@@ -187,10 +187,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
         declarations: list[ast.Declaration] = []
         for declaration in ctx.declaration():
-            statement = self.visit(declaration)
-            if isinstance(statement, ast.ExprStatement) and statement.expr is None:
-                continue
-            declarations.append(cast(ast.Declaration, statement))
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
         return ast.Program(declarations=declarations)
 
     def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
@@ -218,8 +217,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprStatement(expr=self.visit(ctx.expression()))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
-        if not ctx.expression():
-            return ast.ReturnStatement(expr=None)
         return ast.ReturnStatement(expr=self.visit(ctx.expression()))
 
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
@@ -258,10 +255,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitBlock(self, ctx: HogQLParser.BlockContext):
         declarations: list[ast.Declaration] = []
         for declaration in ctx.declaration():
-            statement = self.visit(declaration)
-            if isinstance(statement, ast.ExprStatement) and statement.expr is None:
-                continue
-            declarations.append(cast(ast.Declaration, statement))
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
         return ast.Block(declarations=declarations)
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):

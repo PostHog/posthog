@@ -191,7 +191,6 @@ columnExpr
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
-//columnExprWithSimpleAlias: columnExpr alias;
 columnArgList: columnArgExpr (COMMA columnArgExpr)*;
 columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
