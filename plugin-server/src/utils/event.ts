@@ -10,6 +10,7 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../types'
+import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -256,6 +257,12 @@ export function formPipelineEvent(message: Message): PipelineEvent {
             '$unset' in combinedEvent.properties)
     ) {
         setUsageInNonPersonEventsCounter.inc()
+        if (Math.random() < 0.001) {
+            status.info('👀', 'Found $set usage in non-person event', {
+                event: combinedEvent.event,
+                team_id: combinedEvent.team_id,
+            })
+        }
     }
 
     const event: PipelineEvent = normalizeEvent({
