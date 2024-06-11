@@ -210,7 +210,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             methodOptions,
                                             refresh,
                                             queryId,
-                                            undefined,
                                             actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now

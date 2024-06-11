@@ -4,22 +4,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind, PathsQuery } from '~/queries/schema'
+import { InsightActorsQuery, NodeKind, PathsQuery } from '~/queries/schema'
 import { isPathsQuery } from '~/queries/utils'
-import {
-    ActionFilter,
-    InsightLogicProps,
-    InsightType,
-    PathsFilterType,
-    PathType,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { ActionFilter, InsightLogicProps, InsightType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
@@ -51,7 +42,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'funnelPathsFilter',
                 'dateRange',
-                'isHogQLInsight',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -114,42 +104,29 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
 
     listeners(({ values }) => ({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
-            const filters: Partial<PathsFilterType> = {
-                ...queryNodeToFilter(values.vizQuerySource as PathsQuery),
-                path_start_key,
-                path_end_key,
-                path_dropoff_key,
+            const query: InsightActorsQuery = {
+                kind: NodeKind.InsightActorsQuery,
+                source: {
+                    ...values.vizQuerySource,
+                    pathsFilter: {
+                        ...(values.vizQuerySource as PathsQuery)?.pathsFilter,
+                        pathStartKey: path_start_key,
+                        pathEndKey: path_end_key,
+                        pathDropoffKey: path_dropoff_key,
+                    },
+                },
             }
             const modalProps: OpenPersonsModalProps = {
-                url: buildPeopleUrl({
-                    date_from: '',
-                    filters,
-                    response: values.insightData,
-                }),
                 title: pathsTitle({
                     label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                     mode: path_dropoff_key ? 'dropOff' : path_start_key ? 'continue' : 'completion',
                 }),
-                orderBy: ['id'],
-            }
-            if (values.isHogQLInsight && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
-                modalProps['query'] = {
-                    kind: NodeKind.InsightActorsQuery,
-                    source: {
-                        ...values.vizQuerySource,
-                        pathsFilter: {
-                            ...values.vizQuerySource.pathsFilter,
-                            pathStartKey: path_start_key,
-                            pathEndKey: path_end_key,
-                            pathDropoffKey: path_dropoff_key,
-                        },
-                    },
-                }
-                modalProps['additionalSelect'] = {
+                query,
+                additionalSelect: {
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
-                }
-                modalProps['orderBy'] = ['event_count DESC, actor_id DESC']
+                },
+                orderBy: ['event_count DESC, actor_id DESC'],
             }
             openPersonsModal(modalProps)
         },

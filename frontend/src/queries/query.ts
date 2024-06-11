@@ -11,11 +11,9 @@ import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
-    isActorsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQLQuery,
-    isInsightQueryNode,
     isInsightVizNode,
     isPersonsNode,
     isTimeToSeeDataQuery,
@@ -140,7 +138,6 @@ export async function query<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string,
     setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
@@ -165,8 +162,6 @@ export async function query<N extends DataNode>(
                 },
                 methodOptions
             )
-        } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
         } else {
             response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {

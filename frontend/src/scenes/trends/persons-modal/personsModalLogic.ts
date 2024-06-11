@@ -100,17 +100,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery(
-                            {
-                                ...values.actorsQuery,
-                                limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                                offset,
-                            } as ActorsQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            url ?? undefined
-                        )
+                        const response = await performQuery({
+                            ...values.actorsQuery,
+                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                            offset,
+                        } as ActorsQuery)
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
