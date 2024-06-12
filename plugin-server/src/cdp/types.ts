@@ -97,14 +97,28 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
+export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
+export type HogFunctionLogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface HogFunctionLogEntry {
+    team_id: number
+    log_source: string // The kind of source (hog_function)
+    log_source_id: string // The id of the hog function
+    instance_id: string // The id of the specific invocation
+    timestamp: string
+    level: HogFunctionLogEntryLevel
+    message: string
+}
+
 export type HogFunctionInvocation = {
+    id: string
     globals: HogFunctionInvocationGlobals
 }
 
 export type HogFunctionInvocationResult = HogFunctionInvocation & {
     success: boolean
     error?: any
-    logs: string[]
+    logs: HogFunctionLogEntry[]
 }
 
 export type HogFunctionInvocationAsyncRequest = HogFunctionInvocation & {

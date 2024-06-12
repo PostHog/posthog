@@ -62,6 +62,10 @@ export class HogFunctionManager {
         return this.cache[teamId] || {}
     }
 
+    public teamHasHogFunctions(teamId: Team['id']): boolean {
+        return !!Object.keys(this.getTeamHogFunctions(teamId)).length
+    }
+
     public async reloadAllHogFunctions(): Promise<void> {
         this.cache = await fetchAllHogFunctionsGroupedByTeam(this.postgres)
         status.info('🍿', 'Fetched all hog functions from DB anew')

@@ -36,7 +36,7 @@ from posthog.queries.trends.sql import (
     HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
     TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
 )
-from posthog.queries.util import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 
 ALL_USERS_COHORT_ID = 0
 
@@ -86,7 +86,9 @@ def get_breakdown_prop_values(
     sessions_join_params: dict = {}
 
     null_person_filter = (
-        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.DISABLED else ""
+        f"AND notEmpty(e.person_id)"
+        if alias_poe_mode_for_legacy(team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+        else ""
     )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
