@@ -38,7 +38,6 @@ export function ActionsLineGraph({
         isDataWarehouseSeries,
         showLegend,
         querySource,
-        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
