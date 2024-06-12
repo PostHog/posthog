@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import cast, Optional
 
 from posthog.hogql import ast
@@ -116,6 +115,3 @@ class InsightActorsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
