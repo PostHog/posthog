@@ -26,7 +26,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         dashboardItemId: insightId || 'new',
         cachedInsight: insight?.short_id === insightId ? insight : null,
     })
-    const { insightProps, insightLoading, filtersKnown } = useValues(logic)
+    const { insightProps, insightLoading } = useValues(logic)
     const { reportInsightViewedForRecentInsights } = useActions(logic)
 
     // insightDataLogic
@@ -42,7 +42,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightId !== 'new' && insightLoading && !filtersKnown) {
+    if (insightId !== 'new' && insightLoading) {
         return <InsightSkeleton />
     }
 
