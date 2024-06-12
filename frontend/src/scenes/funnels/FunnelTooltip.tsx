@@ -56,11 +56,10 @@ export function FunnelTooltip({
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
                     {formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         series.breakdown_value,
-                        series.breakdown,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )}
                 </strong>
             </LemonRow>

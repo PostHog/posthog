@@ -151,7 +151,9 @@ export function TableData(): JSX.Element {
                                         })
                                     )}
                                 >
-                                    <LemonButton type="primary">Query</LemonButton>
+                                    <LemonButton type="primary" status="alt">
+                                        Query
+                                    </LemonButton>
                                 </Link>
                                 {table.type === 'view' && (
                                     <LemonButton type="primary" onClick={() => setIsEditingSavedQuery(true)}>

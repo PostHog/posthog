@@ -33,7 +33,6 @@ def join_replay_table_to_sessions_table(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from replay")
 
-    # TODO i think this should be fixed in the where_clause_extractor so that it grabs time bounds for us
     join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
