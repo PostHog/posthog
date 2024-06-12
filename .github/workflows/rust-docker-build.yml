@@ -1,10 +1,11 @@
-name: Build container images
+name: Build rust container images
 
 on:
     workflow_dispatch:
     push:
         paths:
             - 'rust/**'
+            - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
 
