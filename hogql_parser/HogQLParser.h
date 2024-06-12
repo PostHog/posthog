@@ -45,8 +45,8 @@ public:
 
   enum {
     RuleProgram = 0, RuleDeclaration = 1, RuleExpression = 2, RuleVarDecl = 3, 
-    RuleVarAssignment = 4, RuleIdentifierList = 5, RuleStatement = 6, RuleExprStmt = 7, 
-    RuleIfStmt = 8, RuleWhileStmt = 9, RuleReturnStmt = 10, RuleFuncStmt = 11, 
+    RuleIdentifierList = 4, RuleStatement = 5, RuleReturnStmt = 6, RuleIfStmt = 7, 
+    RuleWhileStmt = 8, RuleFuncStmt = 9, RuleVarAssignment = 10, RuleExprStmt = 11, 
     RuleEmptyStmt = 12, RuleBlock = 13, RuleKvPair = 14, RuleKvPairList = 15, 
     RuleSelect = 16, RuleSelectUnionStmt = 17, RuleSelectStmtWithParens = 18, 
     RuleSelectStmt = 19, RuleWithClause = 20, RuleTopClause = 21, RuleFromClause = 22, 
@@ -92,14 +92,14 @@ public:
   class DeclarationContext;
   class ExpressionContext;
   class VarDeclContext;
-  class VarAssignmentContext;
   class IdentifierListContext;
   class StatementContext;
-  class ExprStmtContext;
+  class ReturnStmtContext;
   class IfStmtContext;
   class WhileStmtContext;
-  class ReturnStmtContext;
   class FuncStmtContext;
+  class VarAssignmentContext;
+  class ExprStmtContext;
   class EmptyStmtContext;
   class BlockContext;
   class KvPairContext;
@@ -220,7 +220,6 @@ public:
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *LET();
     IdentifierContext *identifier();
-    antlr4::tree::TerminalNode *SEMICOLON();
     antlr4::tree::TerminalNode *COLON();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     ExpressionContext *expression();
@@ -231,23 +230,6 @@ public:
   };
 
   VarDeclContext* varDecl();
-
-  class  VarAssignmentContext : public antlr4::ParserRuleContext {
-  public:
-    VarAssignmentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    std::vector<ExpressionContext *> expression();
-    ExpressionContext* expression(size_t i);
-    antlr4::tree::TerminalNode *COLON();
-    antlr4::tree::TerminalNode *EQ_SINGLE();
-    antlr4::tree::TerminalNode *SEMICOLON();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  VarAssignmentContext* varAssignment();
 
   class  IdentifierListContext : public antlr4::ParserRuleContext {
   public:
@@ -270,12 +252,12 @@ public:
     StatementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     ReturnStmtContext *returnStmt();
-    EmptyStmtContext *emptyStmt();
-    ExprStmtContext *exprStmt();
     IfStmtContext *ifStmt();
     WhileStmtContext *whileStmt();
     FuncStmtContext *funcStmt();
     VarAssignmentContext *varAssignment();
+    ExprStmtContext *exprStmt();
+    EmptyStmtContext *emptyStmt();
     BlockContext *block();
 
 
@@ -285,10 +267,11 @@ public:
 
   StatementContext* statement();
 
-  class  ExprStmtContext : public antlr4::ParserRuleContext {
+  class  ReturnStmtContext : public antlr4::ParserRuleContext {
   public:
-    ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    ReturnStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *RETURN();
     ExpressionContext *expression();
     antlr4::tree::TerminalNode *SEMICOLON();
 
@@ -297,7 +280,7 @@ public:
    
   };
 
-  ExprStmtContext* exprStmt();
+  ReturnStmtContext* returnStmt();
 
   class  IfStmtContext : public antlr4::ParserRuleContext {
   public:
@@ -327,20 +310,6 @@ public:
     ExpressionContext *expression();
     antlr4::tree::TerminalNode *RPAREN();
     StatementContext *statement();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  WhileStmtContext* whileStmt();
-
-  class  ReturnStmtContext : public antlr4::ParserRuleContext {
-  public:
-    ReturnStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *RETURN();
-    ExpressionContext *expression();
     antlr4::tree::TerminalNode *SEMICOLON();
 
 
@@ -348,7 +317,7 @@ public:
    
   };
 
-  ReturnStmtContext* returnStmt();
+  WhileStmtContext* whileStmt();
 
   class  FuncStmtContext : public antlr4::ParserRuleContext {
   public:
@@ -367,6 +336,36 @@ public:
   };
 
   FuncStmtContext* funcStmt();
+
+  class  VarAssignmentContext : public antlr4::ParserRuleContext {
+  public:
+    VarAssignmentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
+    antlr4::tree::TerminalNode *COLON();
+    antlr4::tree::TerminalNode *EQ_SINGLE();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  VarAssignmentContext* varAssignment();
+
+  class  ExprStmtContext : public antlr4::ParserRuleContext {
+  public:
+    ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ExprStmtContext* exprStmt();
 
   class  EmptyStmtContext : public antlr4::ParserRuleContext {
   public:
@@ -1246,7 +1245,6 @@ public:
     ColumnExprAliasContext(ColumnExprContext *ctx);
 
     ColumnExprContext *columnExpr();
-    AliasContext *alias();
     antlr4::tree::TerminalNode *AS();
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *STRING_LITERAL();

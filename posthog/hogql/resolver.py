@@ -110,7 +110,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr) -> ast.Expr:
+    def visit(self, node: ast.Expr | None) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."

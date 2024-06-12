@@ -1,16 +1,16 @@
-print('-- test variables --');
+print('-- test variables --')
 {
-    let a := 1 + 2;
-    print(a);
+    let a := 1 + 2
+    print(a)
 
-    let b := a + 4;
-    print(b);
+    let b := a + 4
+    print(b)
 }
 
-print('-- test variable reassignment --');
+print('-- test variable reassignment --')
 {
-    let a := 1;
-    a := a + 3;
-    a := a * 2;
-    print(a);
+    let a := 1
+    a := a + 3
+    a := a * 2
+    print(a)
 }
