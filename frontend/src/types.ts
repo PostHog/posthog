@@ -4113,6 +4113,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionType = {
     id: string
+    icon_url: string
     name: string
     description: string
     created_by: UserBasicType | null
@@ -4135,9 +4136,15 @@ export type HogFunctionType = {
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters'
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
     status: 'alpha' | 'beta' | 'stable'
+}
+
+export type HogFunctionIconResponse = {
+    id: string
+    name: string
+    url: string
 }
 
 export interface AnomalyCondition {

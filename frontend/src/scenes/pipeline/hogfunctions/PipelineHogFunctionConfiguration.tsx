@@ -15,6 +15,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { EntityTypes } from '~/types'
 
+import { HogFunctionIcon } from './HogFunctionIcon'
 import { HogFunctionInput } from './HogFunctionInputs'
 import { HogFunctionInputsEditor } from './HogFunctionInputsEditor'
 import { pipelineHogFunctionConfigurationLogic } from './pipelineHogFunctionConfigurationLogic'
@@ -107,11 +108,20 @@ export function PipelineHogFunctionConfiguration({
                     <div className="flex flex-col gap-4 flex-1 min-w-100">
                         <div className="border bg-bg-light rounded p-3 space-y-2">
                             <div className="flex flex-row gap-2 min-h-16 items-center">
-                                <span>🦔</span>
-                                <div className="flex flex-col py-1 flex-1">
-                                    <span>Hog Function</span>
-                                </div>
+                                <LemonField name="icon_url">
+                                    {({ value, onChange }) => (
+                                        <HogFunctionIcon
+                                            logicKey={id ?? templateId ?? 'new'}
+                                            search={configuration.name}
+                                            src={value}
+                                            onChange={(val) => onChange(val)}
+                                        />
+                                    )}
+                                </LemonField>
 
+                                <div className="flex flex-col py-1 flex-1">
+                                    <span className="font-semibold">{configuration.name}</span>
+                                </div>
                                 <LemonField name="enabled">
                                     {({ value, onChange }) => (
                                         <LemonSwitch

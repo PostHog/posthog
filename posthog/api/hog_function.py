@@ -1,8 +1,15 @@
+from django.http import HttpResponse
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
 from rest_framework.serializers import BaseSerializer
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
+import requests
+
+from posthog import settings
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -91,3 +98,43 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+
+    @action(detail=False, methods=["GET"])
+    def icons(self, request: Request, *args, **kwargs):
+        query = request.GET.get("query")
+        if not query:
+            return Response([])
+
+        if not settings.LOGO_DEV_TOKEN:
+            raise serializers.ValidationError("LOGO_DEV_TOKEN is not set")
+
+        res = requests.get(f"https://search.logo.dev/api/icons?token={settings.LOGO_DEV_TOKEN}&query={query}")
+
+        data = res.json()
+
+        parsed = [
+            {
+                "id": item["domain"],
+                "name": item["name"],
+                "url": f"/api/projects/@current/hog_functions/icon/?id={item['domain']}",
+            }
+            for item in data
+        ]
+
+        return Response(parsed)
+
+    @action(detail=False, methods=["GET"])
+    def icon(self, request: Request, *args, **kwargs):
+        # Stream the image from logo.dev
+
+        if not settings.LOGO_DEV_TOKEN:
+            raise serializers.ValidationError("LOGO_DEV_TOKEN is not set")
+
+        id = request.GET.get("id")
+
+        if not id:
+            raise serializers.ValidationError("id is required")
+
+        res = requests.get(f"https://img.logo.dev/{id}?token={settings.LOGO_DEV_TOKEN}")
+
+        return HttpResponse(res.content, content_type=res.headers["Content-Type"])
