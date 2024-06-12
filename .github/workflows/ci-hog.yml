@@ -51,15 +51,17 @@ jobs:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
             # there are backend changes, cancel previous runs
             - uses: n1hility/cancel-previous-runs@v3
-              if: github.actor != 'posthog-bot' && needs.changes.outputs.backend == 'true'
+              if: github.actor != 'posthog-bot' && needs.changes.outputs.hog == 'true'
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - uses: actions/checkout@v3
+              if: needs.changes.outputs.hog == 'true'
               with:
                   fetch-depth: 1
 
             - name: Set up Python
+              if: needs.changes.outputs.hog == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version: 3.10.10
@@ -69,25 +71,31 @@ jobs:
 
             # uv is a fast pip alternative: https://github.com/astral-sh/uv/
             - run: pip install uv
+              if: needs.changes.outputs.hog == 'true'
 
             - name: Install SAML (python3-saml) dependencies
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Python dependencies
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   uv pip install --system -r requirements.txt -r requirements-dev.txt
 
             - name: Install pnpm
+              if: needs.changes.outputs.hog == 'true'
               uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.hog == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
 
             - name: Check if ANTLR definitions are up to date
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   cd ..
                   sudo apt-get install default-jre
@@ -110,16 +118,19 @@ jobs:
                   ANTLR_VERSION: '4.13.1'
 
             - name: Run HogVM Python tests
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   pytest hogvm
 
             - name: Run HogVM TypeScript tests
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   cd hogvm/typescript
                   pnpm install --frozen-lockfile
                   pnpm run test
 
             - name: Run Hog tests
+              if: needs.changes.outputs.hog == 'true'
               run: |
                   cd hogvm/typescript
                   pnpm run build 

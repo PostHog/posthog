@@ -13,7 +13,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightData', 'trendsFilter', 'series', 'isHogQLInsight', 'querySource'],
+            ['insightData', 'trendsFilter', 'breakdownFilter', 'series', 'querySource'],
         ],
     })),
     actions({

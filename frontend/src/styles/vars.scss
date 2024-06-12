@@ -9,33 +9,25 @@ $xl: 1200px;
 $xxl: 1600px;
 $colors: (
     'primary-highlight': rgba(#1d4aff, 0.1),
-    'primary-light': #345cff,
     'primary': #1d4aff,
-    'primary-dark': #1330a6,
     'danger-highlight': rgba(#db3707, 0.1),
     'danger-lighter': #ffa599,
     'danger-light': #df4b20,
     'danger': #db3707,
     'danger-dark': #992705,
     'warning-highlight': rgba(#f7a501, 0.1),
-    'warning-light': #f8b633,
     'warning': #f7a501,
     'warning-dark': #e09423,
     'highlight': #e49f2c,
-    'highlight-dark': #ffbd4f,
     'success-highlight': rgba(#388600, 0.1),
     'success-light': #5f9d32,
     'success': #388600,
     'success-dark': #245700,
     'primary-alt-highlight': rgba(#35416b, 0.1),
     'primary-alt': #35416b,
-    'primary-alt-dark': #222a46,
-    'default': #2d2d2d,
-    'default-dark': #050505,
     'muted': #5f5f5f,
     'muted-dark': #403939,
     'muted-alt': #747ea1,
-    'muted-alt-dark': #515871,
     'mark': hsl(42deg 93% 86% / 80%),
     'white': #fff,
     'bg-light': #fff,
@@ -53,8 +45,8 @@ $colors: (
     'brand-yellow': #f9bd2b,
     'brand-key': #000,
 
-    // This becomes white in dark mode
     // PostHog 3000
+    'default-light': #111,
     'text-3000-light': #111,
     'text-secondary-3000-light': rgba(#111, 0.7),
     'muted-3000-light': rgba(#111, 0.6),
@@ -91,6 +83,7 @@ $colors: (
     'shadow-elevation-3000-light': 0 3px 0 var(--border-3000-light),
     'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
     'text-3000-dark': #fff,
+    'default-dark': #050505,
     'text-secondary-3000-dark': rgba(#fff, 0.7),
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
@@ -126,6 +119,7 @@ $colors: (
     'danger-3000-button-border-hover-dark': #f54e00,
 
     // The derived colors
+    'default': var(--default),
     'text-3000': var(--text-3000),
     'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
@@ -154,11 +148,8 @@ $colors: (
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$_primary: map.get($colors, 'primary');
-$_success: map.get($colors, 'success');
-$_primary_bg_active: rgba($_primary, 0.2);
-$_lifecycle_new: $_primary;
-$_lifecycle_returning: $_success;
+$_lifecycle_new: map.get($colors, 'primary');
+$_lifecycle_returning: map.get($colors, 'success');
 $_lifecycle_resurrecting: #a56eff; // --data-lilac
 $_lifecycle_dormant: map.get($colors, 'danger');
 
@@ -167,14 +158,11 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 @mixin root-variables {
     // TODO: Remove the primary-bg...
     --primary-bg-hover: var(--primary-highlight);
-    --primary-bg-active: #{$_primary_bg_active};
-    --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
 
     // Non-color vars
     --radius: 0.375rem;
     --radius-sm: 0.25rem;
-    --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
@@ -189,7 +177,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--default);
+    --black: var(--text-3000);
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -293,7 +281,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --modal-transition-time: 200ms;
 
     // Tooltips
-    --tooltip-bg-light: var(--bg-charcoal);
+    --tooltip-bg-light: #2d2d2d;
     --tooltip-bg-dark: #656d81;
 
     // Notebooks
@@ -309,6 +297,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin light-mode-3000-variables {
+    --default: var(--default-light);
     --text-3000: var(--text-3000-light);
     --text-secondary-3000: var(--text-secondary-3000-light);
     --muted-3000: var(--muted-3000-light);
@@ -347,6 +336,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin dark-mode-3000-variables {
+    --default: var(--default-dark);
     --text-3000: var(--text-3000-dark);
     --text-secondary-3000: var(--text-secondary-3000-dark);
     --muted-3000: var(--muted-3000-dark);
@@ -392,7 +382,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --default: var(--text-3000);
+    --primary: var(--primary-3000);
     --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);
     --muted-alt: var(--muted-3000);
