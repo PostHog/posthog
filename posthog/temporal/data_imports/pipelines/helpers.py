@@ -2,22 +2,14 @@ from posthog.warehouse.models import ExternalDataJob
 from django.db.models import F
 from posthog.warehouse.util import database_sync_to_async
 
-CHUNK_SIZE = 10_000
 
-
-async def check_limit(
+async def is_job_cancelled(
     team_id: int,
     job_id: str,
-    new_count: int,
-):
+) -> bool:
     model = await aget_external_data_job(team_id, job_id)
 
-    if new_count >= CHUNK_SIZE:
-        new_count = 0
-
-    status = model.status
-
-    return new_count, status
+    return model.status == ExternalDataJob.Status.CANCELLED
 
 
 @database_sync_to_async
