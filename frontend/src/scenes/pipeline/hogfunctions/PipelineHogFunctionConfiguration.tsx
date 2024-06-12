@@ -53,13 +53,18 @@ export function PipelineHogFunctionConfiguration({
             </div>
         )
     }
-    const buttons = (
+    const headerButtons = (
         <>
             {!templateId && (
                 <LemonButton type="secondary" onClick={() => duplicate()}>
                     Duplicate
                 </LemonButton>
             )}
+        </>
+    )
+
+    const saveButtons = (
+        <>
             <LemonButton
                 type="secondary"
                 htmlType="reset"
@@ -83,7 +88,15 @@ export function PipelineHogFunctionConfiguration({
 
     return (
         <div className="space-y-3">
-            <PageHeader buttons={buttons} />
+            <PageHeader
+                buttons={
+                    <>
+                        {headerButtons}
+                        {saveButtons}
+                    </>
+                }
+            />
+
             <Form
                 logic={pipelineHogFunctionConfigurationLogic}
                 props={logicProps}
@@ -243,7 +256,7 @@ export function PipelineHogFunctionConfiguration({
                                 </div>
                             )}
                         </div>
-                        <div className="flex gap-2 justify-end">{buttons}</div>
+                        <div className="flex gap-2 justify-end">{saveButtons}</div>
                     </div>
                 </div>
             </Form>
