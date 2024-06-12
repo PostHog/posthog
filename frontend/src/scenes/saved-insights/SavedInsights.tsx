@@ -36,16 +36,13 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { SceneExport } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
@@ -422,9 +419,7 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
+    const summarizeInsight = useSummarizeInsight()
 
     const { tab, layoutView, page } = filters
 
@@ -451,15 +446,7 @@ export function SavedInsights(): JSX.Element {
                             to={urls.insightView(insight.short_id)}
                             title={
                                 <>
-                                    {name || (
-                                        <i>
-                                            {summarizeInsight(insight.query, null, {
-                                                aggregationLabel,
-                                                cohortsById,
-                                                mathDefinitions,
-                                            })}
-                                        </i>
-                                    )}
+                                    {name || <i>{summarizeInsight(insight.query)}</i>}
 
                                     <LemonButton
                                         className="ml-1"

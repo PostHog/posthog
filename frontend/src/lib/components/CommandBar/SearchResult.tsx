@@ -2,14 +2,11 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
 import { tabToName } from './constants'
@@ -95,24 +92,12 @@ type ResultNameProps = {
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
+    const summarizeInsight = useSummarizeInsight()
 
     const { type, extra_fields } = result
     if (type === 'insight') {
         const query = getQueryFromInsightLike(extra_fields)
-        return extra_fields.name ? (
-            <span>{extra_fields.name}</span>
-        ) : (
-            <i>
-                {summarizeInsight(query, null, {
-                    aggregationLabel,
-                    cohortsById,
-                    mathDefinitions,
-                })}
-            </i>
-        )
+        return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{summarizeInsight(query)}</i>
     } else if (type === 'feature_flag') {
         return <span>{extra_fields.key}</span>
     } else if (type === 'notebook') {
