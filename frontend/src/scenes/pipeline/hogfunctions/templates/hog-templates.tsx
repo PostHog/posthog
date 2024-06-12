@@ -5,7 +5,7 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplateType[] = [
         id: 'template-webhook',
         name: 'HogHook',
         description: 'Sends a webhook templated by the incoming event data',
-        hog: "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method,\n  'payload': inputs.payload\n});",
+        hog: "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
         inputs_schema: [
             {
                 key: 'url',

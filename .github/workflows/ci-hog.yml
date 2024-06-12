@@ -51,7 +51,7 @@ jobs:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
             # there are backend changes, cancel previous runs
             - uses: n1hility/cancel-previous-runs@v3
-              if: github.actor != 'posthog-bot' && needs.changes.outputs.backend == 'true'
+              if: github.actor != 'posthog-bot' && needs.changes.outputs.hog == 'true'
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
