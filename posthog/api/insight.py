@@ -1,3 +1,4 @@
+import posthoganalytics
 import json
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
@@ -63,9 +64,9 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh, ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User
+from posthog.models import DashboardTile, Filter, Insight, User, Team
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -544,6 +545,27 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return representation
 
+    def is_async_shared_dashboard(self, team: Team) -> bool:
+        flag_enabled = posthoganalytics.feature_enabled(
+            "hogql-dashboard-async",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        return flag_enabled and self.context.get("is_shared", False)
+
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -554,6 +576,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
+
+                if (
+                    self.is_async_shared_dashboard(insight.team)
+                    and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                ):
+                    execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
 
                 return calculate_for_query_based_insight(
                     insight,

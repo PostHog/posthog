@@ -279,7 +279,7 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/RecordingDurationFilter"
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
@@ -542,6 +542,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -555,6 +556,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -628,6 +630,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -638,6 +641,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -709,6 +713,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -719,6 +724,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -774,6 +780,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -781,6 +788,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -861,6 +869,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -875,6 +884,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -1010,9 +1020,11 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1076,6 +1088,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1083,6 +1096,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1134,6 +1148,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1141,6 +1156,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1192,6 +1208,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1199,6 +1216,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1253,6 +1271,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1260,6 +1279,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1311,6 +1331,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1318,6 +1339,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1369,6 +1391,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1376,6 +1399,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1433,6 +1457,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1440,6 +1465,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -1501,6 +1527,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "limit": {
@@ -1511,6 +1538,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "offset": {
@@ -1574,6 +1602,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -1581,6 +1610,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {
@@ -2638,6 +2668,10 @@
         },
         "Day": {
             "type": "integer"
+        },
+        "DurationType": {
+            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "type": "string"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -3921,6 +3955,33 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "GenericCachedQueryResponse": {
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "GoalLine": {
@@ -6964,12 +7025,23 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingDurationFilter": {
+        "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "duration",
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "console_log_level",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_log_query",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "label": {
                     "type": "string"
@@ -6982,10 +7054,10 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "RefreshType": {
@@ -7011,6 +7083,10 @@
                 },
                 {
                     "const": "force_cache",
+                    "type": "string"
+                },
+                {
+                    "const": "lazy_async",
                     "type": "string"
                 }
             ]
@@ -7653,6 +7729,7 @@
                     "type": "boolean"
                 },
                 "last_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "modifiers": {
@@ -7660,6 +7737,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "next_allowed_client_refresh": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_status": {

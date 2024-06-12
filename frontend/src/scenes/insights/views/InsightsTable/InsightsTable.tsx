@@ -6,7 +6,6 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -131,14 +130,7 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(
-                cohorts,
-                formatPropertyValueForDisplay,
-                item.breakdown_value,
-                item.filter?.breakdown,
-                item.filter?.breakdown_type,
-                item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
-            )
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
