@@ -4,7 +4,9 @@
         {% include "head.html" %}
     </head>
     <style>
-        html, body, iframe {
+        html,
+        body,
+        iframe {
             width: 100%;
             height: 100%;
             margin: 0;
@@ -17,6 +19,6 @@
         }
     </style>
     <body>
-        <iframe src="https://posthog.com/service-error{% if sentry_event_id %}#{{ sentry_event_id }}{% endif %}"/>
+        <iframe src="https://posthog.com/service-error" />
     </body>
 </html>

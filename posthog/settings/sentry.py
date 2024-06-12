@@ -173,11 +173,10 @@ def sentry_init() -> None:
             traces_sampler=traces_sampler,
             before_send=before_send,
             before_send_transaction=before_send_transaction,
-            _experiments={
-                # https://docs.sentry.io/platforms/python/profiling/
-                # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
-                "profiles_sample_rate": profiles_sample_rate,
-            },
+            # https://docs.sentry.io/platforms/python/profiling/
+            # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
+            profiles_sample_rate=profiles_sample_rate,
+            max_value_length=10_000_000,
         )
 
 

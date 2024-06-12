@@ -20,7 +20,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from revproxy.views import ProxyView
-from sentry_sdk import last_event_id
+from django.utils.http import url_has_allowed_host_and_scheme
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -89,7 +89,7 @@ def handler500(request):
     Context: None
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
+    return HttpResponseServerError(template.render())
 
 
 @ensure_csrf_cookie
