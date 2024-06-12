@@ -194,7 +194,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             endpoint=schema.name,
             team_id=inputs.team_id,
             job_id=inputs.run_id,
-            is_incremental=False,
+            is_incremental=schema.is_incremental,
         )
         # Uncomment to support zendesk chat and talk
         # data_chat = zendesk_chat()

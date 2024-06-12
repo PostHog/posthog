@@ -19,7 +19,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.STRIPE: STRIPE_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.HUBSPOT: (),
-    ExternalDataSource.Type.ZENDESK: (),
+    ExternalDataSource.Type.ZENDESK: ("ticket_events", "tickets", "ticket_metric_events"),
     ExternalDataSource.Type.POSTGRES: (),
     ExternalDataSource.Type.SNOWFLAKE: (),
 }
