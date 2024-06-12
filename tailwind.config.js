@@ -93,7 +93,7 @@ const config = {
                 '1/2': '50%',
             },
             boxShadow: {
-                DEFAULT: 'var(--shadow-elevation)',
+                DEFAULT: 'var(--shadow-elevation-3000)',
             },
             flex: {
                 2: '2 2 0%',

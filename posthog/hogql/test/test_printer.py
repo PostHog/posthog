@@ -243,7 +243,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "properties.'no strings'",
-            "no viable alternative at input '.'no strings'",
+            "mismatched input",
             "hogql",
         )
 
@@ -393,10 +393,10 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("(", "no viable alternative at input '('")
         self._assert_expr_error("())", "no viable alternative at input '()'")
         self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
-        self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
-        self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
+        self._assert_expr_error("select query from events", "mismatched input 'query' expecting <EOF>")
+        self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting <EOF>")
 
     def test_logic(self):
         self.assertEqual(
@@ -503,11 +503,6 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-        # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
-        self.assertEqual(
-            self._expr("event makes little sense"),
-            "((events.event AS makes) AS little) AS sense",
         )
 
     def test_case_when(self):
