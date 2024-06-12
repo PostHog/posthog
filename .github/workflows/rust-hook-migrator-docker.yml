@@ -1,4 +1,4 @@
-name: Build hook-migrator docker image
+name: Build rust hook-migrator docker image
 
 on:
     workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Build container images
+name: Build rust container images
 
 on:
     workflow_dispatch:

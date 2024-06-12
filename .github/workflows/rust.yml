@@ -1,4 +1,4 @@
-name: Rust
+name: Rust test CI
 
 on:
     workflow_dispatch:
