@@ -174,19 +174,23 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+
+    const hasSentAsLabel = useMemo(() => {
+        const _definition = definition as PropertyDefinition
+
+        if (isDataWarehousePersonProperty) {
+            return _definition.id
+        }
+
+        if (_definition.name !== '') {
+            return _definition.name
+        }
+
+        return <i>(empty string)</i>
+    }, [isDataWarehousePersonProperty, definition, isProperty])
+
     if (isProperty) {
         const _definition = definition as PropertyDefinition
-        const hasSentAsLabel = useMemo(() => {
-            if (isDataWarehousePersonProperty) {
-                return _definition.id
-            }
-
-            if (_definition.name !== '') {
-                return _definition.name
-            }
-
-            return <i>(empty string)</i>
-        }, [isDataWarehousePersonProperty, _definition])
 
         return (
             <>
