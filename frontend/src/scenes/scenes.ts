@@ -53,6 +53,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
+    [Scene.ErrorTracking]: {
+        projectBased: true,
+        name: 'Error tracking',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -408,7 +412,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
-        hideProjectNotice: true,
     },
 }
 
@@ -541,6 +544,7 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
+    [urls.errorTracking()]: Scene.ErrorTracking,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,

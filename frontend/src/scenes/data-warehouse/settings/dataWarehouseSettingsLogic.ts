@@ -25,7 +25,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
     }),
-    loaders(({ cache, actions }) => ({
+    loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataStripeSource> | null,
             {
@@ -44,6 +44,15 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     cache.abortController = null
 
                     return res
+                },
+                updateSource: async (source: ExternalDataStripeSource) => {
+                    const updatedSource = await api.externalDataSources.update(source.id, source)
+                    return {
+                        ...values.dataWarehouseSources,
+                        results:
+                            values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
+                            [],
+                    }
                 },
             },
         ],

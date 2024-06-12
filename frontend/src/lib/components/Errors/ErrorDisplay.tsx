@@ -5,7 +5,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import posthog from 'posthog-js'
 
-import { EventType, RecordingEventType } from '~/types'
+import { EventType } from '~/types'
 
 interface StackFrame {
     filename: string
@@ -156,11 +156,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
     }
 }
 
-export function ErrorDisplay({ event }: { event: EventType | RecordingEventType }): JSX.Element {
-    if (event.event !== '$exception') {
-        return <>Unknown type of error</>
-    }
-
+export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const {
         $exception_type,
         $exception_message,
@@ -175,7 +171,7 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $sentry_url,
         $exception_stack_trace_raw,
         $level,
-    } = getExceptionPropertiesFrom(event.properties)
+    } = getExceptionPropertiesFrom(eventProperties)
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">

@@ -3,15 +3,17 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
+from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "BalanceTransaction": {
             "name": "BalanceTransaction",
-            "table_name": "balance_transaction",
+            "table_name": "balancetransaction",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/balance_transactions",
@@ -34,6 +36,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "charge",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_charge"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/charges",
@@ -55,6 +58,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "customer",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_customer"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/customers",
@@ -75,6 +79,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "invoice",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_invoice"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/invoices",
@@ -104,6 +109,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "price",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_price"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/prices",
@@ -128,6 +134,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "product",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_product"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/products",
@@ -150,6 +157,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "table_name": "subscription",
             "primary_key": "id",
             "write_disposition": "merge",
+            "columns": get_dlt_mapping_for_external_table("stripe_subscription"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/subscriptions",

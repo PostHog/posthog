@@ -160,7 +160,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
         assert result.error_message
-        self.assertRegex(result.error_message, "Unknown table")
+        self.assertRegex(result.error_message, "no viable alternative at input")
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")

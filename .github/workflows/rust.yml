@@ -1,0 +1,192 @@
+name: Rust
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [master, main]
+    pull_request:
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    # Job to decide if we should run rust ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run rust checks
+        # Set job outputs to values from filter step
+        outputs:
+            rust: ${{ steps.filter.outputs.rust }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v3
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      rust:
+                        # Avoid running rust tests for irrelevant changes
+                        - 'rust/**'
+
+    build:
+        needs: changes
+        runs-on: depot-ubuntu-22.04-4
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            # Checkout project code
+            # Use sparse checkout to only select files in rust directory
+            # Turning off cone mode ensures that files in the project root are not included during checkout
+            - uses: actions/checkout@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Install rust
+              if: needs.changes.outputs.rust == 'true'
+              uses: dtolnay/rust-toolchain@1.77
+
+            - uses: actions/cache@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      rust/target
+                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Run cargo build
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
+
+    test:
+        needs: changes
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            # Checkout project code
+            # Use sparse checkout to only select files in rust directory
+            # Turning off cone mode ensures that files in the project root are not included during checkout
+            - uses: actions/checkout@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Login to DockerHub
+              if: needs.changes.outputs.rust == 'true'
+              uses: docker/login-action@v2
+              with:
+                  username: posthog
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Setup dependencies
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  docker compose up kafka redis db echo_server -d --wait
+                  docker compose up setup_test_db
+                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Install rust
+              if: needs.changes.outputs.rust == 'true'
+              uses: dtolnay/rust-toolchain@1.77
+
+            - uses: actions/cache@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      rust/target
+                  key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Run cargo test
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo test --all-features
+
+    linting:
+        needs: changes
+        runs-on: depot-ubuntu-22.04-4
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            # Checkout project code
+            # Use sparse checkout to only select files in rust directory
+            # Turning off cone mode ensures that files in the project root are not included during checkout
+            - uses: actions/checkout@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Install rust
+              if: needs.changes.outputs.rust == 'true'
+              uses: dtolnay/rust-toolchain@1.77
+              with:
+                  components: clippy,rustfmt
+
+            - uses: actions/cache@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      rust/target
+                  key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Check format
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo fmt -- --check
+
+            - name: Run clippy
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo clippy -- -D warnings
+
+            - name: Run cargo check
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo check --all-features
+
+    shear:
+        needs: changes
+        runs-on: depot-ubuntu-22.04-4
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            # Checkout project code
+            # Use sparse checkout to only select files in rust directory
+            # Turning off cone mode ensures that files in the project root are not included during checkout
+            - uses: actions/checkout@v3
+              if: needs.changes.outputs.rust == 'true'
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Install cargo-binstall
+              if: needs.changes.outputs.rust == 'true'
+              uses: cargo-bins/cargo-binstall@main
+
+            - name: Install cargo-shear
+              if: needs.changes.outputs.rust == 'true'
+              run: cargo binstall --no-confirm cargo-shear
+
+            - run: cargo shear
+              if: needs.changes.outputs.rust == 'true'

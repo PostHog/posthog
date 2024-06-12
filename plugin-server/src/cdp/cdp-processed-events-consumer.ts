@@ -1,7 +1,7 @@
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_EVENTS_JSON } from '../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../kafka/config'
 import { createKafkaProducer } from '../kafka/producer'
@@ -18,7 +18,7 @@ import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogFunctionInvocation, HogFunctionInvocationResult } from './types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -26,7 +26,6 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'cdp-function-executor'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const histogramKafkaBatchSize = new Histogram({
@@ -52,7 +51,7 @@ export class CdpProcessedEventsConsumer {
     organizationManager: OrganizationManager
     groupTypeManager: GroupTypeManager
     hogFunctionManager: HogFunctionManager
-    hogExecutor?: HogExecutor
+    hogExecutor: HogExecutor
     appMetrics?: AppMetrics
     topic: string
     consumerGroupId: string
@@ -72,6 +71,8 @@ export class CdpProcessedEventsConsumer {
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
+        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
+        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook)
     }
 
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
@@ -80,8 +81,8 @@ export class CdpProcessedEventsConsumer {
         return promise
     }
 
-    public async consume(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult[]> {
-        return await this.hogExecutor!.executeMatchingFunctions(invocation)
+    public async consume(event: HogFunctionInvocationGlobals): Promise<HogFunctionInvocationResult[]> {
+        return await this.hogExecutor!.executeMatchingFunctions(event)
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
@@ -95,7 +96,7 @@ export class CdpProcessedEventsConsumer {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                const invocations: HogFunctionInvocation[] = []
+                const events: HogFunctionInvocationGlobals[] = []
 
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.parseKafkaMessages`,
@@ -106,6 +107,11 @@ export class CdpProcessedEventsConsumer {
                             messages.map(async (message) => {
                                 try {
                                     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+
+                                    if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                                        // No need to continue if the team doesn't have any functions
+                                        return
+                                    }
 
                                     let groupTypes: GroupTypeToColumnIndex | undefined = undefined
 
@@ -121,23 +127,18 @@ export class CdpProcessedEventsConsumer {
                                         )
                                     }
 
-                                    // TODO: Clean up all of this and parallelise
-                                    // TODO: We can fetch alot of teams and things in parallel
-
                                     const team = await this.teamManager.fetchTeam(clickHouseEvent.team_id)
                                     if (!team) {
                                         return
                                     }
-                                    const globals = convertToHogFunctionInvocationGlobals(
-                                        clickHouseEvent,
-                                        team,
-                                        this.config.SITE_URL ?? 'http://localhost:8000',
-                                        groupTypes
+                                    events.push(
+                                        convertToHogFunctionInvocationGlobals(
+                                            clickHouseEvent,
+                                            team,
+                                            this.config.SITE_URL ?? 'http://localhost:8000',
+                                            groupTypes
+                                        )
                                     )
-
-                                    invocations.push({
-                                        globals,
-                                    })
                                 } catch (e) {
                                     status.error('Error parsing message', e)
                                 }
@@ -149,25 +150,46 @@ export class CdpProcessedEventsConsumer {
 
                 const invocationResults: HogFunctionInvocationResult[] = []
 
+                if (!events.length) {
+                    return
+                }
+
                 await runInstrumentedFunction({
                     statsKey: `cdpFunctionExecutor.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        // TODO: Parallelise this
-                        for (const message of invocations) {
-                            const results = await this.consume(message)
-                            invocationResults.push(...results)
-                            heartbeat()
-                        }
+                        const results = await Promise.all(events.map((e) => this.consume(e)))
+                        invocationResults.push(...results.flat())
                     },
                 })
 
+                heartbeat()
+
                 // TODO: Follow up - process metrics from the invocationResults
-                // await runInstrumentedFunction({
-                //     statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
-                //     func: async () => {
-                //         // TODO:
-                //     },
-                // })
+                await runInstrumentedFunction({
+                    statsKey: `cdpFunctionExecutor.handleEachBatch.queueMetrics`,
+                    func: async () => {
+                        const allLogs = invocationResults.reduce((acc, result) => {
+                            return [...acc, ...result.logs]
+                        }, [] as HogFunctionLogEntry[])
+
+                        await Promise.all(
+                            allLogs.map((x) =>
+                                this.kafkaProducer!.produce({
+                                    topic: KAFKA_LOG_ENTRIES,
+                                    value: Buffer.from(JSON.stringify(x)),
+                                    key: x.instance_id,
+                                    waitForAck: true,
+                                })
+                            )
+                        )
+
+                        if (allLogs.length) {
+                            status.info('🔁', `cdp-function-executor - produced logs`, {
+                                size: allLogs.length,
+                            })
+                        }
+                    },
+                })
             },
         })
     }
@@ -188,7 +210,6 @@ export class CdpProcessedEventsConsumer {
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
 
-        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
         this.appMetrics =
             this.hub?.appMetrics ??
             new AppMetrics(
@@ -196,7 +217,6 @@ export class CdpProcessedEventsConsumer {
                 this.config.APP_METRICS_FLUSH_FREQUENCY_MS,
                 this.config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
             )
-        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook)
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({
@@ -204,7 +224,7 @@ export class CdpProcessedEventsConsumer {
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit: true,
-            sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
+            sessionTimeout: this.config.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB

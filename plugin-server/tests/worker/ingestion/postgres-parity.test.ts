@@ -170,9 +170,14 @@ describe('postgres parity', () => {
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update properties and set is_identified to true
-        await hub.db.updatePersonDeprecated(person, {
+        const [_p, kafkaMessages] = await hub.db.updatePersonDeprecated(person, {
             properties: { replacedUserProp: 'propValue' },
             is_identified: true,
+        })
+
+        await hub.db.kafkaProducer.queueMessages({
+            kafkaMessages,
+            waitForAck: true,
         })
 
         await delayUntilEventIngested(async () =>
@@ -196,9 +201,14 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson] = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson, kafkaMessages2] = await hub.db.updatePersonDeprecated(person, {
             created_at: randomDate,
             is_identified: false,
+        })
+
+        await hub.db.kafkaProducer.queueMessages({
+            kafkaMessages: kafkaMessages2,
+            waitForAck: true,
         })
 
         expect(updatedPerson.version).toEqual(2)

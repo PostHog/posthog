@@ -4,6 +4,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.bytecode import create_bytecode
@@ -167,7 +168,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().create(validated_data=validated_data)
 
 
-class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -175,6 +176,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
+    log_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer

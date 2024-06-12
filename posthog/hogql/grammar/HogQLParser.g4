@@ -6,32 +6,29 @@ options {
 
 
 program: declaration* EOF;
-declaration
-    : varDecl
-    | statement ;
+
+declaration: varDecl | statement ;
 
 expression: columnExpr;
 
-varDecl: LET identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
-varAssignment: expression COLON EQ_SINGLE expression SEMICOLON ;
+varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
-               | emptyStmt
-               | exprStmt
                | ifStmt
                | whileStmt
                | funcStmt
                | varAssignment
-               | returnStmt
+               | exprStmt
+               | emptyStmt
                | block ;
 
-exprStmt       : expression SEMICOLON ;
-ifStmt         : IF LPAREN expression RPAREN statement
-                 ( ELSE statement )? ;
-whileStmt      : WHILE LPAREN expression RPAREN statement;
-returnStmt     : RETURN expression SEMICOLON ;
+returnStmt     : RETURN expression? SEMICOLON?;
+ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+varAssignment  : expression COLON EQ_SINGLE expression ;
+exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
@@ -140,9 +137,9 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
@@ -184,8 +181,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS string" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only

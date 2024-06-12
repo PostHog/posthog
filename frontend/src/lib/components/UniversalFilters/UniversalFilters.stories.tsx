@@ -58,8 +58,9 @@ export const Default: StoryFn<typeof UniversalFilters> = ({ group }) => {
         <UniversalFilters
             rootKey={rootKey}
             group={filterGroup}
-            taxonomicEntityFilterGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            taxonomicPropertyFilterGroupTypes={[
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.SessionProperties,
