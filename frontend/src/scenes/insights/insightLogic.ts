@@ -369,14 +369,13 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
-        queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
-        isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
             (props: InsightLogicProps) =>
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
+        isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         isInExperimentContext: [
             () => [router.selectors.location],
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
@@ -390,18 +389,19 @@ export const insightLogic = kea<insightLogicType>([
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
-        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
-        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
-        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
+        insightName: [
+            (s) => [s.queryBasedInsight, s.derivedName],
+            (insight, derivedName) => insight.name || derivedName,
+        ],
+        insightId: [(s) => [s.queryBasedInsight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight],
+            (s) => [s.queryBasedInsight],
             (insight) =>
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight],
+            (s) => [s.queryBasedInsight, s.savedInsight],
             (insight, savedInsight): boolean => {
                 return (
                     (insight.name || '') !== (savedInsight.name || '') ||
@@ -410,6 +410,12 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
+        showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
+        // Selectors based on legacy filters below - will be converted one-by-one
+        /** converts potentially legacy (i.e. containing filters) insight to a query based one */
+        queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
+        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
+        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
@@ -516,7 +522,6 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
-        showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
