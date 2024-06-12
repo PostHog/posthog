@@ -102,12 +102,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
-        isHogQLInsight: [
-            (s) => [s.query],
-            (query) => {
-                return isInsightVizNode(query)
-            },
-        ],
         useQueryDashboardCards: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
