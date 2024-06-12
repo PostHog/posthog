@@ -231,7 +231,7 @@ const renderUsageLimitMessage = (
     }
     return (
         <>
-            <p>{featureInfo.description}</p>
+            <p className="max-w-160">{featureInfo.description}</p>
             <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
         </>
     )
