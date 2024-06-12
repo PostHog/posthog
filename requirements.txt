@@ -222,7 +222,6 @@ filelock==3.12.0
     # via snowflake-connector-python
 frozenlist==1.4.1
     # via
-    #   -r requirements.in
     #   aiohttp
     #   aiosignal
 fsspec==2023.10.0
@@ -467,7 +466,7 @@ python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
     # via social-auth-core
-python3-saml==1.16.0
+python3-saml==1.12.0
     # via -r requirements.in
 pytz==2023.3
     # via
@@ -683,12 +682,8 @@ wrapt==1.15.0
 wsproto==1.1.0
     # via trio-websocket
 xmlsec==1.3.14
-    # via
-    #   -r requirements.in
-    #   python3-saml
+    # via python3-saml
 yarl==1.9.4
-    # via
-    #   -r requirements.in
-    #   aiohttp
+    # via aiohttp
 zxcvbn==4.4.28
     # via -r requirements.in

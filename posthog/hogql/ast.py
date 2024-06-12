@@ -386,7 +386,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType = UnknownType()
+    item_type: ConstantType = field(default_factory=UnknownType)
 
     def print_type(self) -> str:
         return "Array"
