@@ -6,7 +6,6 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -47,7 +46,8 @@ export function DashboardReloadAction(): JSX.Element {
             <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
+                icon={<IconRefresh />}
+                loading={itemsLoading}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
@@ -59,6 +59,11 @@ export function DashboardReloadAction(): JSX.Element {
                 }
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',
+                    icon: autoRefresh.enabled ? (
+                        <span className="LemonButton__content text-sm">
+                            {humanFriendlyDuration(autoRefresh.interval)}
+                        </span>
+                    ) : undefined,
                     dropdown: {
                         closeOnClickInside: false,
                         placement: 'bottom-end',
