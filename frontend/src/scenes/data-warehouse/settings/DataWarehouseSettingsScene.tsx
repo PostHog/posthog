@@ -23,7 +23,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         key="new-data-warehouse-easy-link"
                         to={urls.dataWarehouseTable()}
                     >
-                        Link Source
+                        Link source
                     </LemonButton>
                 }
                 caption={

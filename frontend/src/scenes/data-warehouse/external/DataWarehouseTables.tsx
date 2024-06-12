@@ -1,5 +1,5 @@
 import { IconBrackets, IconChevronDown, IconDatabase } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -10,22 +10,19 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode } from '~/queries/schema'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: 'new-AdHoc.data-warehouse',
+        dashboardItemId: 'new',
         cachedInsight: null,
-        query: examples.DataVisualization as InsightVizNode,
     })
     const { insightProps } = useValues(logic)
-
     // insightDataLogic
     const { query } = useValues(
         insightDataLogic({
@@ -77,6 +74,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         name: source_type,
                         items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                             name: table.name,
+                            table: table,
                             items: Object.values(table.fields).map((column) => ({
                                 name: column.name,
                                 type: column.type,
@@ -95,6 +93,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     name: 'PostHog',
                     items: posthogTables.map((table) => ({
                         name: table.name,
+                        table: table,
                         items: Object.values(table.fields).map((column) => ({
                             name: column.name,
                             type: column.type,
@@ -110,6 +109,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     name: 'Views',
                     items: views.map((table) => ({
                         name: table.name,
+                        table: table,
                         items: Object.values(table.fields).map((column) => ({
                             name: column.name,
                             type: column.type,
@@ -188,6 +188,9 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}
+            <LemonModal width="50rem" isOpen={!!selectedRow} onClose={() => selectRow(null)} title="Table Schema">
+                <TableData />
+            </LemonModal>
         </div>
     )
 }

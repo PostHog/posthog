@@ -333,7 +333,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                 },
                             }
                             return (
-                                <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                     <code>{schema.table.name}</code>
                                 </Link>
                             )

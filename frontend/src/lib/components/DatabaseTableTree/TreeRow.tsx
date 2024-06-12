@@ -1,4 +1,4 @@
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconGear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useCallback, useState } from 'react'
 
@@ -77,6 +77,17 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                 size="small"
                 fullWidth
                 onClick={_onClick}
+                sideAction={
+                    isColumnType
+                        ? {
+                              icon: <IconGear className="text-muted-alt self-center" />,
+                              tooltip: `View Table Schema`,
+                              onClick: () => {
+                                  onClick && item.table && onClick(item.table)
+                              },
+                          }
+                        : {}
+                }
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
             >
                 {name}

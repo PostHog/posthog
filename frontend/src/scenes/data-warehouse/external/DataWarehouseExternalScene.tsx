@@ -1,10 +1,9 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,30 +17,18 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                            <LemonButton
-                                type="secondary"
-                                data-attr="new-data-warehouse-view"
-                                key="new-data-warehouse-view"
-                                to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
-                            >
-                                Create View
-                            </LemonButton>
-                        )}
                         <LemonButton
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
                             key="new-data-warehouse-easy-link"
                             to={urls.dataWarehouseTable()}
                         >
-                            Link Source
+                            Link source
                         </LemonButton>
 
                         <LemonButton
@@ -65,7 +52,9 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseBetaNotice />
-            <DataWarehouseTables />
+            <BindLogic logic={insightSceneLogic} props={{}}>
+                <DataWarehouseTables />
+            </BindLogic>
         </div>
     )
 }

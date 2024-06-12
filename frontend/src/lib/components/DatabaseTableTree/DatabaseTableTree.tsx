@@ -14,6 +14,7 @@ export type TreeItem = TreeItemFolder | TreeItemLeaf | TreeTableItemLeaf
 
 export interface TreeItemFolder {
     name: string
+    table?: DatabaseSchemaTable
     items: TreeItem[]
     emptyLabel?: JSX.Element
     isLoading?: boolean

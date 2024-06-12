@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { examples } from '~/queries/examples'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -174,8 +175,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse': () => {
+        '/data-warehouse': (_, __, { q }) => {
             actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataVisualization)
+            values.insightLogicRef?.logic.actions.setInsight(
+                {
+                    ...createEmptyInsight('new', false),
+                    ...(q ? { query: JSON.parse(q) } : {}),
+                },
+                {
+                    fromPersistentApi: false,
+                    overrideFilter: false,
+                }
+            )
         },
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
