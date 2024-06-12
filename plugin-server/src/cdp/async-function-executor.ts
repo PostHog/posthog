@@ -83,8 +83,7 @@ export class AsyncFunctionExecutor {
 
                 response.vmResponse = {
                     status: fetchResponse.status,
-                    body: await fetchResponse.text(),
-                    json: maybeJson,
+                    body: maybeJson ? maybeJson : await fetchResponse.text(),
                 }
             } catch (err) {
                 status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
