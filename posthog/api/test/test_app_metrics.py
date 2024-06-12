@@ -20,17 +20,14 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 
-def insert_event(
-    team_id: int,
-    timestamp: dt.datetime,
-):
+def insert_event(team_id: int, timestamp: dt.datetime, event: str = "test-event"):
     sync_execute(
         "INSERT INTO `sharded_events` (uuid, team_id, event, timestamp) VALUES",
         [
             {
                 "uuid": uuid.uuid4(),
                 "team_id": team_id,
-                "event": "test_event",
+                "event": event,
                 "timestamp": timestamp,
             }
         ],
@@ -107,6 +104,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "prefix": "posthog-events/",
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
+                "include_events": ["test-event"],
             },
         }
 
@@ -141,6 +139,10 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     )
                     for _ in range(3):
                         insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
+
+                    insert_event(
+                        team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1), event="not-included"
+                    )
 
                     BatchExportRun.objects.create(
                         batch_export_id=batch_export_id,
@@ -186,6 +188,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "prefix": "posthog-events/",
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
+                "exclude_events": ["exclude-me"],
             },
         }
 
@@ -219,6 +222,9 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         status=BatchExportRun.Status.COMPLETED,
                     )
                     insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
+                    insert_event(
+                        team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1), event="exclude-me"
+                    )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

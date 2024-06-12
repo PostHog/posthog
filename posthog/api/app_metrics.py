@@ -95,7 +95,8 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         )
         date_range = (after_datetime, before_datetime)
         runs = (
-            BatchExportRun.objects.filter(
+            BatchExportRun.objects.select_related("batch_export__destination")
+            .filter(
                 batch_export_id=batch_export_uuid,
                 last_updated_at__range=date_range,
                 status__in=(
@@ -128,6 +129,8 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
 
             count = fetch_batch_export_run_count(
                 team_id=run.batch_export.team_id,
+                include_events=run.batch_export.destination.config.get("include_events", None),
+                exclude_events=run.batch_export.destination.config.get("exclude_events", None),
                 data_interval_start=run.data_interval_start,
                 data_interval_end=run.data_interval_end,
             )
