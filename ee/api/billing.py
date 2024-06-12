@@ -89,7 +89,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     class ActivateSerializer(serializers.Serializer):
         plan = serializers.CharField(required=False)
-        products = serializers.CharField(
+        upgrade_products = serializers.CharField(
             required=False
         )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
         custom_limits_usd = serializers.CharField(required=False)
@@ -97,16 +97,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         def validate(self, data):
             plan = data.get("plan")
-            products = data.get("products")
+            products = data.get("upgrade_products")
 
             if plan and not products:
                 raise ValidationError(
                     {
-                        "plan": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead."
+                        "plan": "The 'plan' parameter is no longer supported. Please use the 'upgrade_products' parameter instead."
                     }
                 )
             if not products:
-                raise ValidationError({"products": "The 'products' parameter is required."})
+                raise ValidationError({"upgrade_products": "The 'upgrade_products' parameter is required."})
 
             return data
 
@@ -135,7 +135,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
         url = f"{BILLING_SERVICE_URL}/activate?redirect_uri={redirect_uri}&organization_name={organization.name}"
 
-        products = serializer.validated_data.get("products")
+        products = serializer.validated_data.get("upgrade_products")
         url = f"{url}&products={products}"
 
         custom_limits_usd = serializer.validated_data.get("custom_limits_usd")

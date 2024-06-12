@@ -166,7 +166,7 @@ export const getUpgradeProductLink = (
     addonDict?: Record<string, string>,
     billingLimit?: number
 ): string => {
-    let url = '/api/billing/activate?products='
+    let url = '/api/billing/activate?upgrade_products='
     url += `${product.type}:${upgradeToPlanKey},`
     if (includeAllAddons && product.addons?.length) {
         for (const addon of product.addons) {
@@ -187,6 +187,7 @@ export const getUpgradeProductLink = (
 
     // remove the trailing comma that will be at the end of the url
     url = url.slice(0, -1)
+
     if (billingLimit) {
         url += `&custom_limits_usd=${product.type}:${billingLimit}`
     }

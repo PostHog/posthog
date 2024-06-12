@@ -136,8 +136,11 @@ export const BillingUpgradePopover = ({
                 })
             )
         }
+    }, [product, plan])
+
+    useEffect(() => {
         setAddonsEnabled(filteredAddons.map(() => false))
-    }, [product])
+    }, [filteredAddons])
 
     useEffect(() => {
         const addonsDict = {}
