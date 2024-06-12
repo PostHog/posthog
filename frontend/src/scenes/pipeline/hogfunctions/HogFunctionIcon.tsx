@@ -1,7 +1,42 @@
-import { LemonInput, LemonLabel, LemonSkeleton, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Popover, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 import { hogFunctionIconLogic, HogFunctionIconLogicProps } from './hogFunctionIconLogic'
+
+const fileToBase64 = (file?: File): Promise<string> => {
+    return new Promise((resolve) => {
+        if (!file) {
+            return
+        }
+
+        const reader = new FileReader()
+
+        reader.onload = (e) => {
+            const img = new Image()
+            img.onload = () => {
+                const canvas = document.createElement('canvas')
+                const ctx = canvas.getContext('2d')
+
+                // Set the dimensions at the wanted size.
+                const wantedWidth = 128 
+                const wantedHeight = 128
+                canvas.width = wantedWidth
+                canvas.height = wantedHeight
+
+                // Resize the image with the canvas method drawImage();
+                ctx!.drawImage(img, 0, 0, wantedWidth, wantedHeight)
+
+                const dataURI = canvas.toDataURL()
+
+                resolve(dataURI)
+            }
+            img.src = e.target.result as string
+        }
+
+        reader.readAsDataURL(file)
+    })
+}
 
 export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
     const { possibleIconsLoading, showPopover, possibleIcons, searchTerm } = useValues(hogFunctionIconLogic(props))
@@ -20,8 +55,30 @@ export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
             visible={showPopover}
             onClickOutside={() => setShowPopover(false)}
             overlay={
-                <div className="p-1 w-100">
-                    <h2>Choose an icon</h2>
+                <div className="p-1 w-100 space-y-2">
+                    <div className="flex items-center gap-2 justify-between">
+                        <h2 className="m-0">Choose an icon</h2>
+
+                        <LemonFileInput
+                            multiple={false}
+                            accept={'image/*'}
+                            showUploadedFiles={false}
+                            onChange={(files) => {
+                                void fileToBase64(files[0])
+                                    .then((dataURI) => {
+                                        props.onChange?.(dataURI)
+                                    })
+                                    .catch((error) => {
+                                        lemonToast.error('Error uploading image')
+                                    })
+                            }}
+                            callToAction={
+                                <LemonButton size="small" type="secondary" icon={<IconUploadFile />}>
+                                    Upload image
+                                </LemonButton>
+                            }
+                        />
+                    </div>
 
                     <LemonInput
                         size="small"
@@ -32,8 +89,6 @@ export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
                         onChange={setSearchTerm}
                         suffix={possibleIconsLoading ? <Spinner /> : null}
                     />
-
-                    <LemonLabel className="mb-2">Company logos</LemonLabel>
 
                     <div className="flex flex-wrap gap-2">
                         {possibleIcons?.map((icon) => (

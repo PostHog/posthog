@@ -29,8 +29,15 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
-        useValues(logic)
+    const {
+        isConfigurationSubmitting,
+        configurationChanged,
+        showSource,
+        configuration,
+        loading,
+        loaded,
+        configurationAllErrors,
+    } = useValues(logic)
     const { submitConfiguration, resetForm, setShowSource, duplicate } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -53,6 +60,10 @@ export function PipelineHogFunctionConfiguration({
                 </div>
             </div>
         )
+    }
+
+    if (configurationAllErrors) {
+        console.log('Configuration errors:', configurationAllErrors)
     }
     const headerButtons = (
         <>
