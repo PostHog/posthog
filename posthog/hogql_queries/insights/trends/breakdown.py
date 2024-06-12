@@ -69,26 +69,24 @@ class Breakdown:
             return ast.Alias(
                 alias="quantile_values",
                 expr=ast.WindowFunction(
-                    name="quantiles",
+                    name="quantilesDistinct",
                     args=[ast.Field(chain=self._properties_chain)],
                     exprs=[ast.Constant(value=quantile) for quantile in [1, 2]],
                     over_expr=None,
-                    distinct=True,
                 ),
             )
         quantiles = []
         bin_size = 1.0 / histogram_bin_count
         for i in range(histogram_bin_count + 1):
-            quantiles.append(i * bin_size)
+            quantiles.append(round(i * bin_size, 2))
 
         return ast.Alias(
             alias="quantile_values",
             expr=ast.WindowFunction(
-                name="quantiles",
+                name="quantilesDistinct",
                 args=[ast.Field(chain=self._properties_chain)],
                 exprs=[ast.Constant(value=quantile) for quantile in quantiles],
                 over_expr=None,
-                distinct=True,
             ),
         )
 

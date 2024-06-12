@@ -1118,7 +1118,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
                 [
                     ("[4.95,10.05]", 2.0, [2, 0, 0, 0]),
-                    ("[0.0,4.95]", 1.0, [1, 0, 0, 0]),
+                    ("[0,4.95]", 1.0, [1, 0, 0, 0]),
                     ("[10.05,15.01]", 1.0, [0, 1, 0, 0]),
                 ],
             )

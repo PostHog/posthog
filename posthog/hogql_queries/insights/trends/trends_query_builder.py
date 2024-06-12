@@ -130,7 +130,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        if not self._trends_display.is_total_value():  # TODO: remove: and not is_actors_query
+        # If it's total value, we should order the results as there's no outer query to do the ordering
+        if self._trends_display.is_total_value():
+            default_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["total"]), order="DESC")]
+            if breakdown.enabled:
+                default_query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="DESC"))
+
+        else:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
                 self.query.trendsFilter
