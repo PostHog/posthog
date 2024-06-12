@@ -1,0 +1,13 @@
+import dataclasses
+from typing import Literal, Optional
+
+
+@dataclasses.dataclass(frozen=True)
+class HogFunctionTemplate:
+    status: Literal["alpha", "beta", "stable"]
+    id: str
+    name: str
+    description: str
+    hog: str
+    inputs_schema: Optional[list[dict]] = None
+    filters: Optional[dict] = None
