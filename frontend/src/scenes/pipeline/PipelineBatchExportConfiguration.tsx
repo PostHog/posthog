@@ -3,17 +3,16 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { useState } from 'react'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
-import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
 import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
@@ -29,17 +28,13 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         tables,
         savedConfiguration,
         isConfigurationSubmitting,
-        isEditingModel,
         batchExportConfigLoading,
         configurationChanged,
         batchExportConfig,
         selectedModel,
     } = useValues(logic)
-    const { resetConfiguration, submitConfiguration, setSelectedModel, setIsEditingModel, createOrUpdateCustomModel } =
-        useActions(logic)
-
-    const [localQuery, setLocalQuery] = useState<HogQLQuery>()
-    const [queryChanged, setQueryChanged] = useState<boolean>(false)
+    const { resetConfiguration, submitConfiguration, setSelectedModel } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service)) {
         return <NotFound object={`batch export service ${service}`} />
@@ -117,86 +112,28 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                 <LemonInput type="text" />
                             </LemonField>
 
-                            <LemonField
-                                name="model"
-                                label="Model"
-                                info="A model defines the data that will be exported."
-                            >
-                                <LemonSelect
-                                    options={tables.map((table) => ({ value: table.name, label: table.id }))}
-                                    value={selectedModel?.name}
-                                    onSelect={(newValue) => {
-                                        const found = tables.find((table) => table.name == newValue)
-                                        if (found) {
-                                            setSelectedModel(found)
-                                        }
-                                    }}
-                                />
-                            </LemonField>
-
-                            {!isEditingModel && (
+                            {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] && (
                                 <>
+                                    <LemonField
+                                        name="model"
+                                        label="Model"
+                                        info="A model defines the data that will be exported."
+                                    >
+                                        <LemonSelect
+                                            options={tables.map((table) => ({ value: table.name, label: table.id }))}
+                                            value={selectedModel}
+                                            onSelect={(newValue) => {
+                                                setSelectedModel(newValue)
+                                            }}
+                                        />
+                                    </LemonField>
+
                                     <DatabaseTable
-                                        table={selectedModel ? selectedModel.name : 'events'}
+                                        table={selectedModel ? selectedModel : 'events'}
                                         tables={tables}
                                         inEditSchemaMode={false}
                                     />
-
-                                    <LemonButton type="primary" onClick={() => setIsEditingModel(true)}>
-                                        Edit
-                                    </LemonButton>
                                 </>
-                            )}
-
-                            {isEditingModel && selectedModel && (
-                                <div className="mt-2">
-                                    <span className="card-secondary">Update Model</span>
-                                    <HogQLQueryEditor
-                                        query={selectedModel.query}
-                                        onChange={(queryInput) => {
-                                            if (queryInput) {
-                                                setLocalQuery({
-                                                    kind: NodeKind.HogQLQuery,
-                                                    query: queryInput,
-                                                })
-
-                                                if (queryInput !== selectedModel.query.query) {
-                                                    setQueryChanged(true)
-                                                }
-                                            }
-                                        }}
-                                        editorFooter={(hasErrors, error, isValidView) => (
-                                            <div className="flex flex-row gap-2 justify-between">
-                                                <LemonButton
-                                                    className="ml-2"
-                                                    onClick={() => {
-                                                        if (localQuery) {
-                                                            createOrUpdateCustomModel(selectedModel, localQuery)
-                                                            setIsEditingModel(false)
-                                                        }
-                                                    }}
-                                                    type="primary"
-                                                    center
-                                                    disabledReason={
-                                                        hasErrors
-                                                            ? error ?? 'Query has errors'
-                                                            : !isValidView
-                                                            ? 'All fields must have an alias'
-                                                            : !queryChanged
-                                                            ? 'No changes to save'
-                                                            : ''
-                                                    }
-                                                    data-attr="hogql-query-editor-save-as-view"
-                                                >
-                                                    Save
-                                                </LemonButton>
-                                                <LemonButton type="secondary" onClick={() => setIsEditingModel(false)}>
-                                                    Cancel
-                                                </LemonButton>
-                                            </div>
-                                        )}
-                                    />
-                                </div>
                             )}
                         </div>
                         <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
