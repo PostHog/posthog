@@ -83,7 +83,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.10.10-slim-bullseye AS posthog-build
+FROM python:3.11.9-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -135,23 +135,20 @@ RUN apt-get update && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
 
-
 #
 # ---------------------------------------------------------
 #
-# Build a version of the unit docker image for python3.10
-# We can remove this step once we are on python3.11
-FROM unit:python3.11 as unit
-FROM python:3.10-bullseye as unit-131-python-310
+
+FROM unit:python3.11 as unit-132-python-311
 
 # copied from https://github.com/nginx/unit/blob/master/pkg/docker/Dockerfile.python3.11
-LABEL org.opencontainers.image.title="Unit (python3.10)"
+LABEL org.opencontainers.image.title="Unit (python3.11)"
 LABEL org.opencontainers.image.description="Official build of Unit for Docker."
 LABEL org.opencontainers.image.url="https://unit.nginx.org"
 LABEL org.opencontainers.image.source="https://github.com/nginx/unit"
 LABEL org.opencontainers.image.documentation="https://unit.nginx.org/installation/#docker-images"
 LABEL org.opencontainers.image.vendor="NGINX Docker Maintainers <docker-maint@nginx.com>"
-LABEL org.opencontainers.image.version="1.31.1"
+LABEL org.opencontainers.image.version="1.32.0"
 
 RUN set -ex \
     && savedAptMark="$(apt-mark showmanual)" \
@@ -236,7 +233,7 @@ CMD ["unitd", "--no-daemon", "--control", "unix:/var/run/control.unit.sock"]
 #
 # ---------------------------------------------------------
 #
-FROM unit-131-python-310
+FROM unit-132-python-311
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1

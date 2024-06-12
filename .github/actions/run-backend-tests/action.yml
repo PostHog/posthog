@@ -6,7 +6,7 @@ name: Run Django tests
 inputs:
     python-version:
         required: true
-        description: Python version, e.g. 3.10.10
+        description: Python version, e.g. 3.11.9
     clickhouse-server-image:
         required: true
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
