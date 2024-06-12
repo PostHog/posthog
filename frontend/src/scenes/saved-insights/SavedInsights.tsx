@@ -46,6 +46,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
@@ -442,7 +443,8 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, insight) {
+            render: function renderName(name: string, legacyInsight) {
+                const insight = getQueryBasedInsightModel(legacyInsight)
                 return (
                     <>
                         <LemonTableLink
@@ -451,7 +453,7 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || (
                                         <i>
-                                            {summarizeInsight(insight.query, insight.filters, {
+                                            {summarizeInsight(insight.query, null, {
                                                 aggregationLabel,
                                                 cohortsById,
                                                 mathDefinitions,
