@@ -134,7 +134,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
-            query.orderBy = ["count() DESC", "event"]
+            query.order_by = ["count() DESC", "event"]
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/query/", {"query": query.model_dump(by_alias=True)}
             ).json()
