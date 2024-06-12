@@ -109,7 +109,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -140,7 +139,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -155,7 +153,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -181,7 +178,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -212,7 +208,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -243,7 +238,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -274,7 +268,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -305,7 +298,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -332,7 +324,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -362,7 +353,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -381,7 +371,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -398,7 +387,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -417,7 +405,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -444,7 +431,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -465,7 +451,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -487,7 +472,6 @@ describe('summarizing insights', () => {
 
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
-                {},
                 summaryContext
             )
 
@@ -505,7 +489,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('event from events')
         })
@@ -519,7 +503,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('event, timestamp from events')
         })
@@ -534,7 +518,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('event from events')
         })
@@ -549,7 +533,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('timestamp from events')
         })
@@ -563,7 +547,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('session_id, session_start, session_end, duration_ms from time to see data stats')
         })
@@ -579,7 +563,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('Time to see data in session complete_me')
         })
@@ -593,7 +577,7 @@ describe('summarizing insights', () => {
                     select: ['count()'],
                 },
             }
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('count() from events')
         })
@@ -608,7 +592,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('SQL query')
         })
@@ -621,7 +605,7 @@ describe('summarizing insights', () => {
                     kind: NodeKind.PersonsNode,
                 },
             }
-            const result = summarizeInsight(query, {}, summaryContext)
+            const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('person, id, created_at, person.$delete from persons')
         })

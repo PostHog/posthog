@@ -384,7 +384,7 @@ export const insightLogic = kea<insightLogicType>([
         derivedName: [
             (s) => [s.queryBasedInsight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (insight, aggregationLabel, cohortsById, mathDefinitions) =>
-                summarizeInsight(insight.query, null, {
+                summarizeInsight(insight.query, {
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
