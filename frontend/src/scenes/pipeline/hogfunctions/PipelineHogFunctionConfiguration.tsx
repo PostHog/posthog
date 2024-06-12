@@ -30,7 +30,7 @@ export function PipelineHogFunctionConfiguration({
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
     const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
         useValues(logic)
-    const { submitConfiguration, resetForm, setShowSource } = useActions(logic)
+    const { submitConfiguration, resetForm, setShowSource, duplicate } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -55,6 +55,11 @@ export function PipelineHogFunctionConfiguration({
     }
     const buttons = (
         <>
+            {!templateId && (
+                <LemonButton type="secondary" onClick={() => duplicate()}>
+                    Duplicate
+                </LemonButton>
+            )}
             <LemonButton
                 type="secondary"
                 htmlType="reset"

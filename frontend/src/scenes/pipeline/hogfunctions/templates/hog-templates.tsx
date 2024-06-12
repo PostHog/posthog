@@ -2,6 +2,13 @@ import { HogFunctionTemplateType } from '~/types'
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplateType[] = [
     {
+        id: 'template-new',
+        name: '',
+        description: '',
+        hog: "print('Hello, world!');",
+        inputs_schema: [],
+    },
+    {
         id: 'template-webhook',
         name: 'HogHook',
         description: 'Sends a webhook templated by the incoming event data',

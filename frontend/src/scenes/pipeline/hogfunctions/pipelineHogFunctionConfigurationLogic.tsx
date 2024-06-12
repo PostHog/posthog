@@ -67,6 +67,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: true,
+        duplicate: true,
     }),
     reducers({
         showSource: [
@@ -84,6 +85,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     if (!props.templateId) {
                         return null
                     }
+
                     const res = HOG_FUNCTION_TEMPLATES.find((template) => template.id === props.templateId)
 
                     if (!res) {
@@ -224,6 +226,18 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         PipelineNodeTab.Configuration
                     )
                 )
+            }
+        },
+
+        duplicate: async () => {
+            if (values.hogFunction) {
+                const newConfig = {
+                    ...values.configuration,
+                    name: `${values.configuration.name} (copy)`,
+                }
+                router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-new`), undefined, {
+                    configuration: newConfig,
+                })
             }
         },
     })),
