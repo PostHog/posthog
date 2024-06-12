@@ -367,11 +367,10 @@ export function summarizeInsight(
         : ''
 }
 
-export function useSummarizeInsight(): (query: Node | undefined | null, filters?: Partial<FilterType>) => string {
+export function useSummarizeInsight(): (query: Node | undefined | null) => string {
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
-    return (query, filters) =>
-        summarizeInsight(query, filters || {}, { aggregationLabel, cohortsById, mathDefinitions })
+    return (query) => summarizeInsight(query, null, { aggregationLabel, cohortsById, mathDefinitions })
 }
