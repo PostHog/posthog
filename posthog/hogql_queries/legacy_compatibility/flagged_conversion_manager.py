@@ -17,7 +17,7 @@ def conversion_to_query_based(insight: "Insight") -> Iterator[None]:
         # TRICKY: We're making it so that a `filters`-based insights is converted to a `query`-based one
         # and treated as such
         try:
-            insight.query = filter_to_query(insight.filters).model_dump()
+            insight.query = filter_to_query(insight.filters).model_dump(by_alias=True)
         except Exception as e:
             set_tag("filter_to_query_todo", True)
             capture_exception(e)
