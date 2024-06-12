@@ -5,7 +5,7 @@ on:
     push:
         paths:
             - 'rust/**'
-            - 'rust-docker-build.yml'
+            - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
 

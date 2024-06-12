@@ -5,7 +5,7 @@ on:
     push:
         paths:
             - 'rust/**'
-            - 'rust-hook-migrator-docker.yml'
+            - '.github/workflows/rust-hook-migrator-docker.yml'
         branches:
             - 'master'
 
