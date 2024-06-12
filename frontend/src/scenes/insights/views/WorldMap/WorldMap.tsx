@@ -25,7 +25,7 @@ const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
 function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
-    const { series, trendsFilter, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(
+    const { series, trendsFilter, breakdownFilter, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(
         worldMapLogic(insightProps)
     )
     const { aggregationLabel } = useValues(groupsModel)
@@ -52,6 +52,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },
                             ]}
+                            breakdownFilter={breakdownFilter}
                             renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                                 typeof datum.breakdown_value === 'string' && (
                                     <div className="flex items-center font-semibold">

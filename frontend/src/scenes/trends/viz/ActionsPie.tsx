@@ -42,6 +42,7 @@ export function ActionsPie({
         pieChartVizOptions,
         isDataWarehouseSeries,
         querySource,
+        breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -61,12 +62,10 @@ export function ActionsPie({
                 breakdownValues: indexedResults.map((item) => item.breakdown_value),
                 breakdownLabels: indexedResults.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: indexedResults.map((item) => item.compare_label),
