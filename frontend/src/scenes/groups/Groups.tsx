@@ -40,7 +40,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
     ) {
         return (
             <>
-                <GroupsIntroduction access={groupsAccessStatus} />
+                <GroupsIntroduction />
             </>
         )
     }

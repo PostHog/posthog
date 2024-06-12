@@ -1,5 +1,5 @@
-import { IconInfo } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +28,7 @@ export interface PayGateMiniProps {
     className?: string
     background?: boolean
     isGrandfathered?: boolean
+    docsLink?: string
 }
 
 /** A sort of paywall for premium features.
@@ -43,6 +44,7 @@ export function PayGateMini({
     overrideShouldShowGate,
     background = true,
     isGrandfathered,
+    docsLink,
 }: PayGateMiniProps): JSX.Element | null {
     const {
         productWithFeature,
@@ -52,7 +54,7 @@ export function PayGateMini({
         isAddonProduct,
         featureInfoOnNextPlan,
     } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
@@ -117,6 +119,18 @@ export function PayGateMini({
                         scrollToProduct={scrollToProduct}
                     />
                 )}
+                {docsLink && isCloudOrDev && (
+                    <LemonButton
+                        type="secondary"
+                        to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                        targetBlank
+                        center
+                        className="mt-3"
+                        data-attr={`${feature}-learn-more`}
+                    >
+                        Learn more <IconOpenSidebar className="ml-2" />
+                    </LemonButton>
+                )}
             </PayGateContent>
         )
     }
@@ -159,10 +173,10 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">
+            <div className="flex text-4xl text-warning mb-2">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
-            <h3>{featureInfo.name}</h3>
+            <h2>{featureInfo.name}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,
                 featureInfoOnNextPlan,
@@ -231,7 +245,7 @@ const renderUsageLimitMessage = (
     }
     return (
         <>
-            <p className="max-w-160">{featureInfo.description}</p>
+            <p className="max-w-140">{featureInfo.description}</p>
             <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
         </>
     )
