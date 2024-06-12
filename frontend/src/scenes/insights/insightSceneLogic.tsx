@@ -174,6 +174,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
+        '/data-warehouse': () => {
+            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+        },
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params

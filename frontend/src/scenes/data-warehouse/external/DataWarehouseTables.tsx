@@ -1,26 +1,57 @@
 import { IconBrackets, IconChevronDown, IconDatabase } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
+
+import { examples } from '~/queries/examples'
+import { Query } from '~/queries/Query/Query'
+import { InsightVizNode } from '~/queries/schema'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
+    // insightLogic
+    const logic = insightLogic({
+        dashboardItemId: 'new-AdHoc.data-warehouse',
+        cachedInsight: null,
+        query: examples.DataVisualization as InsightVizNode,
+    })
+    const { insightProps } = useValues(logic)
+
+    // insightDataLogic
+    const { query } = useValues(
+        insightDataLogic({
+            ...insightProps,
+        })
+    )
+
+    const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
+
     return (
         <>
-            <div className="flex flex-wrap items-start gap-2 overflow-hidden">
-                <DatabaseTableTreeWithItems />
-                <div className="flex-3 min-w-80 overflow-hidden">
-                    <TableData />
+            <BindLogic logic={insightLogic} props={insightProps}>
+                <div className="Insight">
+                    <Query
+                        query={query}
+                        setQuery={setInsightQuery}
+                        readOnly={false}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: false,
+                            showQueryHelp: false,
+                            insightProps,
+                        }}
+                    />
                 </div>
-            </div>
+            </BindLogic>
             <ViewLinkModal />
         </>
     )

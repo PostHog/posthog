@@ -145,6 +145,27 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 },
             },
         },
+        "Refund": {
+            "name": "Refund",
+            "table_name": "refund",
+            "primary_key": "id",
+            "write_disposition": "merge",
+            "endpoint": {
+                "data_selector": "data",
+                "path": "/v1/refunds",
+                "params": {
+                    # the parameters below can optionally be configured
+                    # "charge": "OPTIONAL_CONFIG",
+                    # "created": "OPTIONAL_CONFIG",
+                    # "ending_before": "OPTIONAL_CONFIG",
+                    # "expand": "OPTIONAL_CONFIG",
+                    "limit": 100,
+                    # "payment_intent": "OPTIONAL_CONFIG",
+                    # "reason": "OPTIONAL_CONFIG",
+                    # "starting_after": "OPTIONAL_CONFIG",
+                },
+            },
+        },
         "Subscription": {
             "name": "Subscription",
             "table_name": "subscription",
