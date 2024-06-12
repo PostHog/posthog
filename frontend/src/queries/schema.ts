@@ -1448,7 +1448,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1463,6 +1463,11 @@ export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
     type: 'posthog'
 }
 
+export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
+    type: 'batch_export'
+    query: HogQLQuery
+}
+
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
     format: string
@@ -1475,6 +1480,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaBatchExportTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>

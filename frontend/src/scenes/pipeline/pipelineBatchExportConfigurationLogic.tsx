@@ -7,6 +7,8 @@ import api from 'lib/api'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
+import { DatabaseSchemaBatchExportTable, HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -36,6 +38,197 @@ function getDefaultConfiguration(service: BatchExportService['type']): Record<st
     }
 }
 
+function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatchExportTable {
+    const S3EventsQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: hogql`\
+SELECT
+    toString(uuid) AS uuid,
+    timestamp AS timestamp,
+    event AS event,
+    toString(distinct_id) AS distinct_id,
+    properties AS properties,
+    toString(person_id) AS person_id,
+    nullIf(person.properties, '') AS person_properties,
+    created_at AS created_at
+FROM
+    events`,
+    }
+
+    const AllEventsQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: hogql`\
+SELECT
+    toString(uuid) AS uuid,
+    timestamp AS timestamp,
+    event AS event,
+    toString(distinct_id) AS distinct_id,
+    properties AS properties,
+    ${service == 'BigQuery' ? 'NOW64() AS bq_ingested_timestamp,' : ''}
+    ${service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id'} AS team_id,
+    nullIf(JSONExtractString(properties, '$set'), '') AS ${service == 'Snowflake' ? 'people_set' : 'set'},
+    nullIf(JSONExtractString(properties, '$set_once'), '') AS ${service == 'Snowflake' ? 'people_set' : 'set_once'},
+    '' AS site_url,
+    nullIf(JSONExtractString(properties, '$ip'), '') AS ip,
+    toJSONString(elements_chain) AS elements
+FROM
+    events`,
+    }
+
+    const eventsTable: DatabaseSchemaBatchExportTable = {
+        type: 'batch_export',
+        id: 'Events',
+        name: 'events',
+        query: service == 'S3' ? S3EventsQuery : AllEventsQuery,
+        fields: {
+            uuid: {
+                name: 'uuid',
+                hogql_value: 'toString(uuid)',
+                type: 'string',
+                schema_valid: true,
+            },
+            timestamp: {
+                name: 'timestamp',
+                hogql_value: 'timestamp',
+                type: 'datetime',
+                schema_valid: true,
+            },
+            event: {
+                name: 'event',
+                hogql_value: 'event',
+                type: 'string',
+                schema_valid: true,
+            },
+            distinct_id: {
+                name: 'distinct_id',
+                hogql_value: 'toString(distinct_id)',
+                type: 'string',
+                schema_valid: true,
+            },
+            properties: {
+                name: 'properties',
+                hogql_value: 'properties',
+                type: 'json',
+                schema_valid: true,
+            },
+            ...(service == 'S3' && {
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'toString(person_id)',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                person_properties: {
+                    name: 'person_properties',
+                    hogql_value: "nullIf(person_properties, '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                created_at: {
+                    name: 'created_at',
+                    hogql_value: 'created_at',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+            }),
+            ...(service != 'S3' && {
+                team_id: {
+                    name: 'team_id',
+                    hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                set: {
+                    name: service == 'Snowflake' ? 'people_set' : 'set',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                set_once: {
+                    name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                site_url: {
+                    name: 'site_url',
+                    hogql_value: "''",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                ip: {
+                    name: 'ip',
+                    hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
+                    type: 'string',
+                    schema_valid: true,
+                },
+                elements_chain: {
+                    name: 'elements',
+                    hogql_value: 'toJSONString(elements_chain)',
+                    type: 'string',
+                    schema_valid: true,
+                },
+            }),
+            ...(service == 'BigQuery' && {
+                bq_ingested_timestamp: {
+                    name: 'bq_ingested_timestamp',
+                    hogql_value: 'NOW64()',
+                    type: 'string',
+                    schema_valid: true,
+                },
+            }),
+        },
+    }
+
+    return eventsTable
+}
+
+const personsQuery: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: hogql`
+SELECT
+    team_id AS team_id,
+    distinct_id AS distinct_id,
+    person_id AS person_id,
+    properties AS properties
+FROM
+    persons
+    `,
+}
+
+const personsTable: DatabaseSchemaBatchExportTable = {
+    type: 'batch_export',
+    id: 'Persons',
+    name: 'persons',
+    query: personsQuery,
+    fields: {
+        team_id: {
+            name: 'team_id',
+            hogql_value: 'team_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        distinct_id: {
+            name: 'distinct_id',
+            hogql_value: 'distinct_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        person_id: {
+            name: 'person_id',
+            hogql_value: 'person_id',
+            type: 'string',
+            schema_valid: true,
+        },
+        properties: {
+            name: 'properties',
+            hogql_value: 'properties',
+            type: 'json',
+            schema_valid: true,
+        },
+    },
+}
+
 // Should likely be somewhat similar to pipelinePluginConfigurationLogic
 export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConfigurationLogicType>([
     props({} as PipelineBatchExportConfigurationLogicProps),
@@ -51,6 +244,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
+        setSelectedModel: (model: DatabaseSchemaBatchExportTable) => ({ model }),
+        setIsEditingModel: (isEditingModel: boolean) => ({ isEditingModel }),
+        setModelQuery: (query: HogQLQuery) => ({ query }),
+        createOrUpdateCustomModel: (model: DatabaseSchemaBatchExportTable, query: HogQLQuery) => ({ model, query }),
+        appendTable: (table: DatabaseSchemaBatchExportTable) => ({ table }),
     }),
     loaders(({ props, values }) => ({
         batchExportConfig: [
@@ -98,6 +296,27 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         ],
     })),
     reducers(({ props }) => ({
+        tables: [
+            props.service ? [getEventTable(props.service), personsTable] : ([] as DatabaseSchemaBatchExportTable[]),
+            {
+                appendTable: (state, { table }) => {
+                    state.push(table)
+                    return state
+                },
+            },
+        ],
+        selectedModel: [
+            props.service ? getEventTable(props.service) : null,
+            {
+                setSelectedModel: (_, { model }) => model,
+            },
+        ],
+        isEditingModel: [
+            false,
+            {
+                setIsEditingModel: (_, { isEditingModel }) => isEditingModel,
+            },
+        ],
         configuration: [
             props.service ? getDefaultConfiguration(props.service) : ({} as BatchExportConfigurationForm),
             {
@@ -196,6 +415,25 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 return
             }
             pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+        },
+        createOrUpdateCustomModel: ({ model, query }) => {
+            const customModelName = model.name + (model.name.includes('-custom') ? '' : '-custom')
+            const modelFound = values.tables.find((table) => table.name === customModelName)
+
+            if (typeof modelFound === 'undefined') {
+                const customModel: DatabaseSchemaBatchExportTable = {
+                    type: 'batch_export',
+                    id: model.id + ' (Custom)',
+                    name: model.name + '-custom',
+                    query: query,
+                    fields: {},
+                }
+                actions.appendTable(customModel)
+                actions.setSelectedModel(customModel)
+            } else {
+                modelFound.query = query
+                actions.setSelectedModel(modelFound)
+            }
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {
