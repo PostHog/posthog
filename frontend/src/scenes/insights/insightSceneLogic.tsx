@@ -102,7 +102,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 mathsLogic.selectors.mathDefinitions,
             ],
             (insightLogicRef, legacyInsight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
-                const insight = getQueryBasedInsightModel(legacyInsight)
+                const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : null
                 return [
                     {
                         key: Scene.SavedInsights,
