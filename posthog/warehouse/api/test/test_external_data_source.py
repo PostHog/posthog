@@ -345,8 +345,15 @@ class TestSavedQuery(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
+            assert response.status_code == 200
+            assert response.json() == [
+                {
+                    "should_sync": True,
+                    "table": "table_1",
+                    "sync_type": "full_refresh",
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                }
+            ]
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
@@ -379,8 +386,16 @@ class TestSavedQuery(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
+
+            assert response.status_code == 200
+            assert response.json() == [
+                {
+                    "should_sync": True,
+                    "table": "table_1",
+                    "sync_type": "full_refresh",
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                }
+            ]
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
