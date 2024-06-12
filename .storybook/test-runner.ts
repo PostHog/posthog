@@ -4,6 +4,9 @@ import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
 
+
+const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
+
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
@@ -73,6 +76,9 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
+    async preVisit(page, _story) {
+        await page.setViewportSize(DEFAULT_VIEWPORT);
+	},
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         await page.evaluate(
@@ -83,7 +89,7 @@ module.exports = {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize({ width: 1280, height: 720 })
+            await page.setViewportSize(DEFAULT_VIEWPORT)
         }
         const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
