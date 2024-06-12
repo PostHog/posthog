@@ -168,12 +168,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>
