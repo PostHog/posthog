@@ -172,6 +172,12 @@ class BatchExport(UUIDModel):
     a BatchExportRun.
     """
 
+    class Model(models.TextChoices):
+        """Possible models that this BatchExport can export."""
+
+        EVENTS = ("events",)
+        PERSONS = ("persons",)
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name: models.TextField = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination: models.ForeignKey = models.ForeignKey(
@@ -216,6 +222,14 @@ class BatchExport(UUIDModel):
         null=True,
         default=None,
         help_text="A schema of custom fields to select when exporting data.",
+    )
+
+    model = models.CharField(
+        max_length=64,
+        null=False,
+        choices=Model.choices,
+        default=Model.EVENTS,
+        help_text="Which model this BatchExport is exporting.",
     )
 
     @property
