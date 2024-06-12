@@ -1,9 +1,9 @@
-print('-- test while loop --');
+print('-- test while loop --')
 {
-    let i := 0;
+    let i := 0
     while (i < 3) {
-        i := i + 1;
-        print(i);
+        i := i + 1
+        print(i)
     }
-    print(i);
+    print(i)
 }
