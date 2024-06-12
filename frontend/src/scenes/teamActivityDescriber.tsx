@@ -8,6 +8,7 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -138,9 +139,11 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    session_replay_config(_change: ActivityChange | undefined): ChangeMapping | null {
+    session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
         // TODO we'll eventually need a deeper mapping for this nested object
-        const recordCanvasAfter = typeof _change?.after === 'object' ? _change?.after?.record_canvas : null
+        const after = change?.after
+        const recordCanvasAfter =
+            after && typeof after === 'object' && !Array.isArray(after) ? after.record_canvas : null
 
         if (recordCanvasAfter === null) {
             return null
@@ -166,6 +169,50 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    test_account_filters: (change) => {
+        // change?.after is an array of property filters
+        // change?.before is an array o property filters
+        // so we can say what was removed and what was added
+        const afters = Array.isArray(change?.after) ? change?.after || [] : []
+        const befores = Array.isArray(change?.before) ? change?.before || [] : []
+
+        const addedFilters = afters.filter((filter) => !befores.some((before) => before.key === filter.key))
+
+        const removedFilters = befores.filter((filter) => !afters.some((after) => after.key === filter.key))
+
+        const listParts = []
+        if (addedFilters.length) {
+            listParts.push(
+                <>
+                    added <PropertyFiltersDisplay filters={addedFilters} />
+                </>
+            )
+        }
+        if (removedFilters.length) {
+            listParts.push(
+                <>
+                    removed <PropertyFiltersDisplay filters={removedFilters} />
+                </>
+            )
+        }
+        if (listParts.length === 0) {
+            return null
+        }
+
+        return {
+            description: [
+                <>Updated the "internal and test" account filters</>,
+                <SentenceList key={0} listParts={listParts} />,
+            ],
+        }
+    },
+    test_account_filters_default_checked: (change) => {
+        return {
+            description: [
+                <>{change?.after ? 'enabled' : 'disabled'} "internal & test account filters" for all insights</>,
+            ],
+        }
+    },
     // TODO if I had to test and describe every single one of this I'd never release this
     // we can add descriptions here as the need arises
     access_control: () => null,
@@ -186,8 +233,6 @@ const teamActionsMapping: Record<
     person_on_events_querying_enabled: () => null,
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
-    test_account_filters: () => null,
-    test_account_filters_default_checked: () => null,
     timezone: () => null,
     surveys_opt_in: () => null,
     week_start_day: () => null,
