@@ -1,4 +1,5 @@
 import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Popover, Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 
@@ -19,7 +20,7 @@ const fileToBase64 = (file?: File): Promise<string> => {
                 const ctx = canvas.getContext('2d')
 
                 // Set the dimensions at the wanted size.
-                const wantedWidth = 128 
+                const wantedWidth = 128
                 const wantedHeight = 128
                 canvas.width = wantedWidth
                 canvas.height = wantedHeight
@@ -31,21 +32,31 @@ const fileToBase64 = (file?: File): Promise<string> => {
 
                 resolve(dataURI)
             }
-            img.src = e.target.result as string
+            img.src = e.target?.result as string
         }
 
         reader.readAsDataURL(file)
     })
 }
 
-export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
+export function HogFunctionIconEditable({
+    size = 'medium',
+    ...props
+}: HogFunctionIconLogicProps & { size?: 'small' | 'medium' | 'large' }): JSX.Element {
     const { possibleIconsLoading, showPopover, possibleIcons, searchTerm } = useValues(hogFunctionIconLogic(props))
     const { setShowPopover, setSearchTerm } = useActions(hogFunctionIconLogic(props))
 
     const content = (
-        <span className="relative w-10 h-10 cursor-pointer" onClick={() => setShowPopover(!showPopover)}>
+        <span
+            className={clsx('relative cursor-pointer', {
+                'w-8 h-8': size === 'small',
+                'w-10 h-10': size === 'medium',
+                'w-12 h-12': size === 'large',
+            })}
+            onClick={() => setShowPopover(!showPopover)}
+        >
             {possibleIconsLoading ? <Spinner className="absolute -top-1 -right-1" /> : null}
-            <img src={props.src} title={props.src} className="w-full h-full rounded overflow-hidden" />
+            <HogFunctionIcon size={size} src={props.src} />
         </span>
     )
 
@@ -68,7 +79,7 @@ export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
                                     .then((dataURI) => {
                                         props.onChange?.(dataURI)
                                     })
-                                    .catch((error) => {
+                                    .catch(() => {
                                         lemonToast.error('Error uploading image')
                                     })
                             }}
@@ -87,7 +98,7 @@ export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
                         fullWidth
                         value={searchTerm ?? ''}
                         onChange={setSearchTerm}
-                        suffix={possibleIconsLoading ? <Spinner /> : null}
+                        prefix={possibleIconsLoading ? <Spinner /> : undefined}
                     />
 
                     <div className="flex flex-wrap gap-2">
@@ -121,5 +132,25 @@ export function HogFunctionIcon(props: HogFunctionIconLogicProps): JSX.Element {
         </Popover>
     ) : (
         content
+    )
+}
+
+export function HogFunctionIcon({
+    src,
+    size = 'medium',
+}: {
+    src?: string
+    size?: 'small' | 'medium' | 'large'
+}): JSX.Element {
+    return (
+        <span
+            className={clsx('flex items-center justify-center', {
+                'w-8 h-8 text-2xl': size === 'small',
+                'w-10 h-10 text-4xl': size === 'medium',
+                'w-12 h-12 text-6xl': size === 'large',
+            })}
+        >
+            {src ? <img className="w-full h-full rounded overflow-hidden" src={src} /> : <span>🦔</span>}
+        </span>
     )
 }
