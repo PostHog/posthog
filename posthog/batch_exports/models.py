@@ -175,8 +175,8 @@ class BatchExport(UUIDModel):
     class Model(models.TextChoices):
         """Possible models that this BatchExport can export."""
 
-        EVENTS = ("events",)
-        PERSONS = ("persons",)
+        EVENTS = "events"
+        PERSONS = "persons"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name: models.TextField = models.TextField(help_text="A human-readable name for this BatchExport.")
