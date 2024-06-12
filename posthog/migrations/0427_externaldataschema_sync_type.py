@@ -14,10 +14,18 @@ class Migration(migrations.Migration):
             name="sync_type",
             field=models.CharField(
                 blank=True,
-                null=True,
                 choices=[("full_refresh", "full_refresh"), ("incremental", "incremental")],
                 default="full_refresh",
                 max_length=128,
             ),
+        ),
+        migrations.RunSQL(
+            sql="""
+        UPDATE posthog_externaldataschema AS schema
+        SET sync_type = 'incremental'
+        FROM posthog_externaldatasource AS source
+        WHERE schema.source_id = source.id AND source.source_type = 'Stripe' AND schema.name = 'Invoice'
+            """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]

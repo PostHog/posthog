@@ -36,20 +36,14 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     sync_type: models.CharField = models.CharField(
-        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True, null=True
+        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True
     )
 
     __repr__ = sane_repr("name")
 
     @property
     def is_incremental(self):
-        from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
-
-        # Temp keep the pipeline type check until we backfill stripe_invoices schemas
-        return (
-            self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
-            or self.sync_type == self.SyncType.INCREMENTAL
-        )
+        return self.sync_type == self.SyncType.INCREMENTAL
 
 
 @database_sync_to_async
