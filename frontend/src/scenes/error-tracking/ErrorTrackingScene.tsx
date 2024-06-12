@@ -1,9 +1,8 @@
 import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { ErrorTrackingGroup } from '~/types'
+import { urls } from 'scenes/urls'
 
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -21,6 +20,13 @@ export function ErrorTrackingScene(): JSX.Element {
                 {
                     dataIndex: 'title',
                     width: '50%',
+                    render: (_, group) => (
+                        <LemonTableLink
+                            title={group.title}
+                            description={<div className="line-clamp-1">{group.description}</div>}
+                            to={urls.errorTrackingGroup(group.id)}
+                        />
+                    ),
                 },
                 {
                     title: 'Occurrences',
@@ -32,15 +38,14 @@ export function ErrorTrackingScene(): JSX.Element {
                     dataIndex: 'uniqueSessions',
                     sorter: (a, b) => a.uniqueSessions - b.uniqueSessions,
                 },
+                {
+                    title: 'Users',
+                    dataIndex: 'uniqueUsers',
+                    sorter: (a, b) => a.uniqueUsers - b.uniqueUsers,
+                },
             ]}
             loading={errorGroupsLoading}
             dataSource={errorGroups}
-            expandable={{
-                expandedRowRender: function renderExpand(group: ErrorTrackingGroup) {
-                    return <ErrorDisplay eventProperties={group.sampleEventProperties} />
-                },
-                noIndent: true,
-            }}
         />
     )
 }
