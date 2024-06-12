@@ -56,7 +56,7 @@
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.8;
     --lemon-button-profile-picture-opacity: 0.9; // Profile pictures must be more prominent than icons
-    --lemon-button-color: var(--default);
+    --lemon-button-color: var(--text-3000);
 
     // column-gap: 4px;
     // flex-direction: row;
@@ -232,7 +232,7 @@
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
-            --lemon-button-color: var(--default);
+            --lemon-button-color: var(--text-3000);
         }
     }
 
