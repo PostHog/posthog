@@ -2,13 +2,12 @@ import { afterMount, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
-import { EventType } from 'rrweb'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { Breadcrumb, ErrorTrackingGroup } from '~/types'
+import { Breadcrumb, ErrorTrackingGroup, EventType } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
 
@@ -38,7 +37,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             },
         ],
         eventProperties: [
-            [] as EventType[],
+            [] as EventType['properties'][],
             {
                 loadGroupEvents: async () => {
                     const query: HogQLQuery = {
