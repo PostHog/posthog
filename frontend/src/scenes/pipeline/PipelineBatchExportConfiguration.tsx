@@ -13,6 +13,8 @@ import { BatchExportGeneralEditFields, BatchExportsEditFields } from 'scenes/bat
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
 import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
@@ -28,6 +30,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         tables,
         savedConfiguration,
         isConfigurationSubmitting,
+        isEditingModel,
         batchExportConfigLoading,
         configurationChanged,
         batchExportConfig,

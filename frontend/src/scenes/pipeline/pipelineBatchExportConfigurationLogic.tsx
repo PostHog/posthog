@@ -382,6 +382,25 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             }
             pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
         },
+        createOrUpdateCustomModel: ({ model, query }) => {
+            const customModelName = model.name + (model.name.includes('-custom') ? '' : '-custom')
+            const modelFound = values.tables.find((table) => table.name === customModelName)
+
+            if (typeof modelFound === 'undefined') {
+                const customModel: DatabaseSchemaBatchExportTable = {
+                    type: 'batch_export',
+                    id: model.id + ' (Custom)',
+                    name: model.name + '-custom',
+                    query: query,
+                    fields: {},
+                }
+                actions.appendTable(customModel)
+                actions.setSelectedModel(customModel)
+            } else {
+                modelFound.query = query
+                actions.setSelectedModel(modelFound)
+            }
+        },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {
                 try {
