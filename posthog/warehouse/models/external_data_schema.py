@@ -36,7 +36,7 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     sync_type: models.CharField = models.CharField(
-        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True
+        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True, null=True
     )
 
     __repr__ = sane_repr("name")

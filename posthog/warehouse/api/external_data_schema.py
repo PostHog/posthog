@@ -27,14 +27,28 @@ logger = structlog.get_logger(__name__)
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
+    sync_type = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
 
-        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error", "incremental", "status"]
+        fields = [
+            "id",
+            "name",
+            "table",
+            "should_sync",
+            "last_synced_at",
+            "latest_error",
+            "incremental",
+            "status",
+            "sync_type",
+        ]
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
+
+    def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType:
+        return schema.sync_type or ExternalDataSchema.SyncType.FULL_REFRESH
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer

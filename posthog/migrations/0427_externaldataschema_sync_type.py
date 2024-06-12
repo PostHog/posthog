@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="sync_type",
             field=models.CharField(
                 blank=True,
+                null=True,
                 choices=[("full_refresh", "full_refresh"), ("incremental", "incremental")],
                 default="full_refresh",
                 max_length=128,
