@@ -17,6 +17,10 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         COMPLETED = "Completed", "Completed"
         CANCELLED = "Cancelled", "Cancelled"
 
+    class SyncType(models.TextChoices):
+        FULL_REFRESH = "full_refresh", "full_refresh"
+        INCREMENTAL = "incremental", "incremental"
+
     name: models.CharField = models.CharField(max_length=400)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source: models.ForeignKey = models.ForeignKey(
@@ -31,6 +35,9 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     )
     status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    sync_type: models.CharField = models.CharField(
+        max_length=128, choices=SyncType.choices, default=SyncType.FULL_REFRESH, blank=True
+    )
 
     __repr__ = sane_repr("name")
 
@@ -38,7 +45,11 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     def is_incremental(self):
         from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 
-        return self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
+        # Temp keep the pipeline type check until we backfill stripe_invoices schemas
+        return (
+            self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
+            or self.sync_type == self.SyncType.INCREMENTAL
+        )
 
 
 @database_sync_to_async

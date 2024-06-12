@@ -1,11 +1,29 @@
-import { LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOptionLeaf, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { ExternalDataSourceSyncSchema } from '~/types'
+
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 
+const syncTypesToOptions = (
+    schema: ExternalDataSourceSyncSchema
+): LemonSelectOptionLeaf<ExternalDataSourceSyncSchema['sync_type']>[] => {
+    const options: LemonSelectOptionLeaf<ExternalDataSourceSyncSchema['sync_type']>[] = []
+
+    if (schema.sync_types.full_refresh) {
+        options.push({ value: 'full_refresh', label: 'Full refresh' })
+    }
+
+    if (schema.sync_types.incremental) {
+        options.push({ value: 'incremental', label: 'Incremental' })
+    }
+
+    return options
+}
+
 export default function PostgresSchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync } = useActions(sourceWizardLogic)
+    const { toggleSchemaShouldSync, updateSchemaSyncType } = useActions(sourceWizardLogic)
     const { databaseSchema } = useValues(sourceWizardLogic)
     const [toggleAllState, setToggleAllState] = useState(false)
 
@@ -51,6 +69,23 @@ export default function PostgresSchemaForm(): JSX.Element {
                                         onChange={(checked) => {
                                             toggleSchemaShouldSync(schema, checked)
                                         }}
+                                    />
+                                )
+                            },
+                        },
+                        {
+                            key: 'sync_type',
+                            title: 'Sync type',
+                            tooltip:
+                                'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
+                            render: (_, schema) => {
+                                const options = syncTypesToOptions(schema)
+
+                                return (
+                                    <LemonSelect
+                                        options={options}
+                                        value={schema.sync_type}
+                                        onChange={(newValue) => updateSchemaSyncType(schema, newValue)}
                                     />
                                 )
                             },

@@ -22,6 +22,7 @@ from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, Ext
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
@@ -206,7 +207,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         payload = request.data["payload"]
-        enabled_schemas = payload.get("schemas", None)
+        schemas = payload.get("schemas", None)
         if source_type == ExternalDataSource.Type.POSTGRES:
             default_schemas = postgres_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
@@ -214,22 +215,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
-        # Fallback to defaults if schemas is missing
-        if enabled_schemas is None:
-            enabled_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        if not schemas or not isinstance(schemas, list):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas not given"},
+            )
 
-        disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
+        # Return 400 if we get any schema names that don't exist in our source
+        if any(schema.get("name") not in default_schemas for schema in schemas):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas given do not exist in source"},
+            )
 
         active_schemas: list[ExternalDataSchema] = []
 
-        for schema in enabled_schemas:
-            active_schemas.append(
-                ExternalDataSchema.objects.create(
-                    name=schema, team=self.team, source=new_source_model, should_sync=True
-                )
+        for schema in schemas:
+            schema_model = ExternalDataSchema.objects.create(
+                name=schema.get("name"),
+                team=self.team,
+                source=new_source_model,
+                should_sync=schema.get("should_sync"),
+                sync_type=schema.get("sync_type"),
             )
-        for schema in disabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
+
+            if schema.get("should_sync"):
+                active_schemas.append(schema_model)
 
         try:
             for active_schema in active_schemas:
@@ -594,7 +607,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": GenericPostgresError},
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            result_mapped_to_options = [
+                {
+                    "table": row,
+                    "should_sync": True,
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                    "sync_type": "full_refresh",
+                }
+                for row in result
+            ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             account_id = request.data.get("account_id")
@@ -638,18 +659,36 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": GenericSnowflakeError},
                 )
-            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            result_mapped_to_options = [
+                {
+                    "table": row,
+                    "should_sync": True,
+                    "sync_types": {"full_refresh": True, "incremental": False},
+                    "sync_type": "full_refresh",
+                }
+                for row in result
+            ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
         schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
+        incremental_schemas = PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING.get(source_type, ())
+
         if schemas is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": True} for row in schemas]
+        options = [
+            {
+                "table": row,
+                "should_sync": True,
+                "sync_types": {"full_refresh": True, "incremental": row in incremental_schemas},
+                "sync_type": "incremental" if row in incremental_schemas else "full_refresh",
+            }
+            for row in schemas
+        ]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)
