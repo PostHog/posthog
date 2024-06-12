@@ -13,13 +13,17 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
                 "url": "https://posthog.com",
                 "method": "GET",
                 "headers": {},
-                "body": json.dumps({}),
+                "body": json.dumps({"hello": "world"}),
             }
         )
 
         assert res.result is None
 
-        expected = call(("https://posthog.com",), {"headers": {}, "body": "", "method": "GET"})
-
-        assert self.mock_fetch.call_count == 1
-        assert self.mock_fetch.call_args == expected
+        assert self.mock_fetch.mock_calls[0] == call(
+            "https://posthog.com",
+            {
+                "headers": {},
+                "body": '{"hello": "world"}',
+                "method": "GET",
+            },
+        )

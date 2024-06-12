@@ -9,7 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 fetch(inputs.url, {
   'headers': inputs.headers,
-  'body': inputs.payload,
+  'body': inputs.body,
   'method': inputs.method
 });
 """.strip(),
@@ -47,9 +47,9 @@ fetch(inputs.url, {
             "required": False,
         },
         {
-            "key": "payload",
+            "key": "body",
             "type": "json",
-            "label": "JSON Payload",
+            "label": "JSON Body",
             "secret": False,
             "required": False,
         },
