@@ -328,7 +328,7 @@ export class PersonState {
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                if (this.shouldUpdatePersonIfOnlyChange(key)) {
+                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
                     updated = true
                 }
                 metricsKeys.add(this.getMetricKey(key))
