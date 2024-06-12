@@ -7,7 +7,6 @@ import { PoolClient } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
-    ActionStep,
     Hook,
     Plugin,
     PluginConfig,
@@ -106,6 +105,7 @@ export const capture = async ({
             })
         ),
         key: teamId ? teamId.toString() : '',
+        waitForAck: true,
     })
 }
 
@@ -350,12 +350,59 @@ export const createOrganization = async (organizationProperties = {}) => {
         personalization: '{}', // DEPRECATED
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
-        available_features: [],
         domain_whitelist: [],
+        available_product_features: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
         ...organizationProperties,
     })
+    return organizationId
+}
+
+export const createOrganizationRaw = async (organizationProperties = {}) => {
+    const organizationId = new UUIDT().toString()
+
+    const properties = {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        domain_whitelist: '{}',
+        available_product_features: '{}',
+        is_member_join_email_enabled: false,
+        slug: Math.round(Math.random() * 20000),
+        ...organizationProperties,
+    }
+
+    const keys = Object.keys(properties)
+        .map((key) => `"${key}"`)
+        .join(',')
+
+    const values = Object.values(properties)
+        .map((value) => {
+            if (Array.isArray(value) && value.length > 0) {
+                return JSON.stringify(value)
+            } else if (typeof value === 'string' && !value.includes('array')) {
+                return `'${value || null}'`
+            }
+
+            return value
+        })
+        .join(',')
+
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `INSERT into posthog_organization 
+        (${keys})
+        VALUES (${values})
+        `,
+        undefined,
+        ''
+    )
     return organizationId
 }
 
@@ -405,14 +452,8 @@ export const createTeam = async (
     return id
 }
 
-export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
+export const createAction = async (action: Omit<RawAction, 'id'>) => {
     const actionRow = await insertRow(postgres, 'posthog_action', action)
-    for (const step of steps) {
-        await insertRow(postgres, 'posthog_actionstep', {
-            ...step,
-            action_id: actionRow.id,
-        })
-    }
     return actionRow
 }
 

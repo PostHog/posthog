@@ -4,8 +4,6 @@ from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -17,14 +15,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    return action
 
 
 class TestClickhouseLifecycle(TestLifecycleBase):

@@ -133,7 +133,7 @@ export function TextCardInternal(
                                         fullWidth
                                         data-attr="remove-text-tile-from-dashboard"
                                     >
-                                        Remove from dashboard
+                                        Delete
                                     </LemonButton>
                                 )}
                             </>

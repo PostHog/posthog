@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from posthog.hogql.database.models import (
     IntegerDatabaseField,
@@ -12,7 +12,7 @@ NUMBERS_TABLE_FIELDS = {
 
 
 class NumbersTable(FunctionCallTable):
-    fields: Dict[str, FieldOrTable] = NUMBERS_TABLE_FIELDS
+    fields: dict[str, FieldOrTable] = NUMBERS_TABLE_FIELDS
 
     name: str = "numbers"
     min_args: Optional[int] = 1

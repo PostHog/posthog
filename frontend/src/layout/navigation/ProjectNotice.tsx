@@ -1,8 +1,10 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -17,6 +19,21 @@ interface ProjectNoticeBlueprint {
     message: JSX.Element | string
     action?: LemonBannerAction
     type?: 'info' | 'warning' | 'success' | 'error'
+}
+
+function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
+    const [now, setNow] = useState(dayjs())
+
+    useEffect(() => {
+        const interval = setInterval(() => setNow(dayjs()), 1000)
+        return () => clearInterval(interval)
+    }, [])
+
+    // Format the time difference as 00:00:00
+    const duration = dayjs.duration(datetime.diff(now))
+    const countdown = duration.hours() > 0 ? duration.format('HH:mm:ss') : duration.format('mm:ss')
+
+    return <>{countdown}</>
 }
 
 export function ProjectNotice(): JSX.Element | null {
@@ -100,7 +117,16 @@ export function ProjectNotice(): JSX.Element | null {
             type: 'warning',
         },
         is_impersonated: {
-            message: 'You are currently impersonating another user.',
+            message: (
+                <>
+                    You are currently logged in as a customer.{' '}
+                    {user?.is_impersonated_until && (
+                        <>
+                            Expires in <CountDown datetime={dayjs(user.is_impersonated_until)} />
+                        </>
+                    )}
+                </>
+            ),
             type: 'warning',
             action: {
                 'data-attr': 'stop-impersonation-cta',

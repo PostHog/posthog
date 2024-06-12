@@ -1,32 +1,36 @@
 import copy
 from enum import Enum
 import json
-from typing import List, Dict, Literal
+from typing import Any, Literal
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
-    DateRange,
+    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    InsightDateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
-    PropertyGroupFilter,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
+    FunnelVizType,
 )
 from posthog.types import InsightQueryNode
+from posthog.utils import str_to_bool
 
 
 class MathAvailability(str, Enum):
@@ -36,98 +40,16 @@ class MathAvailability(str, Enum):
 
 
 actors_only_math_types = [
-    BaseMathType.dau,
-    BaseMathType.weekly_active,
-    BaseMathType.monthly_active,
+    BaseMathType.DAU,
+    BaseMathType.WEEKLY_ACTIVE,
+    BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
 ]
 
 
-def is_property_with_operator(property: Dict):
-    return property.get("type") not in ("cohort", "hogql")
-
-
-def clean_property(property: Dict):
-    cleaned_property = {**property}
-
-    # fix type typo
-    if cleaned_property.get("type") == "events":
-        cleaned_property["type"] = "event"
-
-    # fix value key typo
-    if cleaned_property.get("values") is not None and cleaned_property.get("value") is None:
-        cleaned_property["value"] = cleaned_property.pop("values")
-
-    # convert precalculated and static cohorts to cohorts
-    if cleaned_property.get("type") in ("precalculated-cohort", "static-cohort"):
-        cleaned_property["type"] = "cohort"
-
-    # fix invalid property key for cohorts
-    if cleaned_property.get("type") == "cohort" and cleaned_property.get("key") != "id":
-        cleaned_property["key"] = "id"
-
-    # set a default operator for properties that support it, but don't have an operator set
-    if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
-        cleaned_property["operator"] = "exact"
-
-    # remove the operator for properties that don't support it, but have it set
-    if not is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is not None:
-        del cleaned_property["operator"]
-
-    # remove none from values
-    if isinstance(cleaned_property.get("value"), List):
-        cleaned_property["value"] = list(filter(lambda x: x is not None, cleaned_property.get("value")))
-
-    # remove keys without concrete value
-    cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}
-
-    return cleaned_property
-
-
-# old style dict properties
-def is_old_style_properties(properties):
-    return isinstance(properties, Dict) and len(properties) == 1 and properties.get("type") not in ("AND", "OR")
-
-
-def transform_old_style_properties(properties):
-    key = list(properties.keys())[0]
-    value = list(properties.values())[0]
-    key_split = key.split("__")
-    return [
-        {
-            "key": key_split[0],
-            "value": value,
-            "operator": key_split[1] if len(key_split) > 1 else "exact",
-            "type": "event",
-        }
-    ]
-
-
-def clean_entity_properties(properties: List[Dict] | None):
-    if properties is None:
-        return None
-    elif is_old_style_properties(properties):
-        return transform_old_style_properties(properties)
-    else:
-        return list(map(clean_property, properties))
-
-
-def clean_property_group_filter_value(value: Dict):
-    if value.get("type") in ("AND", "OR"):
-        value["values"] = map(clean_property_group_filter_value, value.get("values"))
-        return value
-    else:
-        return clean_property(value)
-
-
-def clean_properties(properties: Dict):
-    properties["values"] = map(clean_property_group_filter_value, properties.get("values"))
-    return properties
-
-
 def clean_display(display: str):
-    if display not in ChartDisplayType.__members__:
+    if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
         return display
@@ -135,7 +57,7 @@ def clean_display(display: str):
 
 def legacy_entity_to_node(
     entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
-) -> EventsNode | ActionsNode:
+) -> EventsNode | ActionsNode | DataWarehouseNode:
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
@@ -159,7 +81,7 @@ def legacy_entity_to_node(
             and math_availability == MathAvailability.ActorsOnly
             and entity.math not in actors_only_math_types
         ):
-            shared = {**shared, "math": BaseMathType.dau}
+            shared = {**shared, "math": BaseMathType.DAU}
         else:
             shared = {
                 **shared,
@@ -171,6 +93,15 @@ def legacy_entity_to_node(
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
+    elif entity.type == "data_warehouse":
+        return DataWarehouseNode(
+            id=entity.id,
+            id_field=entity.id_field,
+            distinct_id_field=entity.distinct_id_field,
+            timestamp_field=entity.timestamp_field,
+            table_name=entity.table_name,
+            **shared,
+        )
     else:
         return EventsNode(event=entity.id, **shared)
 
@@ -197,7 +128,7 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
 
 
 # TODO: remove this method that returns legacy entities
-def to_base_entity_dict(entity: Dict):
+def to_base_entity_dict(entity: dict):
     return {
         "type": entity.get("type"),
         "id": entity.get("id"),
@@ -219,8 +150,12 @@ insight_to_query_type = {
 INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]
 
 
-def _date_range(filter: Dict):
-    date_range = DateRange(date_from=filter.get("date_from"), date_to=filter.get("date_to"))
+def _date_range(filter: dict):
+    date_range = InsightDateRange(
+        date_from=filter.get("date_from"),
+        date_to=filter.get("date_to"),
+        explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
+    )
 
     if len(date_range.model_dump(exclude_defaults=True)) == 0:
         return {}
@@ -228,7 +163,7 @@ def _date_range(filter: Dict):
     return {"dateRange": date_range}
 
 
-def _interval(filter: Dict):
+def _interval(filter: dict):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
@@ -238,7 +173,7 @@ def _interval(filter: Dict):
     return {"interval": filter.get("interval")}
 
 
-def _series(filter: Dict):
+def _series(filter: dict):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
@@ -263,8 +198,8 @@ def _series(filter: Dict):
     }
 
 
-def _entities(filter: Dict):
-    processed_entities: List[LegacyEntity] = []
+def _entities(filter: dict):
+    processed_entities: list[LegacyEntity] = []
 
     # add actions
     actions = filter.get("actions", [])
@@ -278,6 +213,12 @@ def _entities(filter: Dict):
         events = json.loads(events)
     processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
 
+    # add data warehouse
+    warehouse = filter.get("data_warehouse", [])
+    if isinstance(warehouse, str):
+        warehouse = json.loads(warehouse)
+    processed_entities.extend([LegacyEntity({**entity, "type": "data_warehouse"}) for entity in warehouse])
+
     # order by order
     processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
 
@@ -288,7 +229,7 @@ def _entities(filter: Dict):
     return processed_entities
 
 
-def _sampling_factor(filter: Dict):
+def _sampling_factor(filter: dict):
     if isinstance(filter.get("sampling_factor"), str):
         try:
             return float(filter.get("sampling_factor"))
@@ -298,32 +239,16 @@ def _sampling_factor(filter: Dict):
         return {"samplingFactor": filter.get("sampling_factor")}
 
 
-def _filter_test_accounts(filter: Dict):
+def _properties(filter: dict):
+    raw_properties = filter.get("properties", None)
+    return {"properties": clean_global_properties(raw_properties)}
+
+
+def _filter_test_accounts(filter: dict):
     return {"filterTestAccounts": filter.get("filter_test_accounts")}
 
 
-def _properties(filter: Dict):
-    raw_properties = filter.get("properties", None)
-    if raw_properties is None or len(raw_properties) == 0:
-        return {}
-    elif isinstance(raw_properties, list):
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": raw_properties}],
-        }
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
-    elif is_old_style_properties(raw_properties):
-        raw_properties = transform_old_style_properties(raw_properties)
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": raw_properties}],
-        }
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
-    else:
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
-
-
-def _breakdown_filter(_filter: Dict):
+def _breakdown_filter(_filter: dict):
     if _insight_type(_filter) != "TRENDS" and _insight_type(_filter) != "FUNNELS":
         return {}
 
@@ -366,13 +291,13 @@ def _breakdown_filter(_filter: Dict):
     return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
 
 
-def _group_aggregation_filter(filter: Dict):
+def _group_aggregation_filter(filter: dict):
     if _insight_type(filter) == "STICKINESS" or _insight_type(filter) == "LIFECYCLE":
         return {}
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
 
-def _insight_filter(filter: Dict):
+def _insight_filter(filter: dict):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -392,9 +317,15 @@ def _insight_filter(filter: Dict):
             )
         }
     elif _insight_type(filter) == "FUNNELS":
+        funnel_viz_type = filter.get("funnel_viz_type")
+        # Backwards compatibility
+        # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
+        if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
+            funnel_viz_type = FunnelVizType.TRENDS
+
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnelVizType=filter.get("funnel_viz_type"),
+                funnelVizType=funnel_viz_type,
                 funnelOrderType=filter.get("funnel_order_type"),
                 funnelFromStep=filter.get("funnel_from_step"),
                 funnelToStep=filter.get("funnel_to_step"),
@@ -416,13 +347,18 @@ def _insight_filter(filter: Dict):
                 retentionType=filter.get("retention_type"),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
-                returningEntity=to_base_entity_dict(filter.get("returning_entity"))
-                if filter.get("returning_entity") is not None
-                else None,
-                targetEntity=to_base_entity_dict(filter.get("target_entity"))
-                if filter.get("target_entity") is not None
-                else None,
+                returningEntity=(
+                    to_base_entity_dict(filter.get("returning_entity"))
+                    if filter.get("returning_entity") is not None
+                    else None
+                ),
+                targetEntity=(
+                    to_base_entity_dict(filter.get("target_entity"))
+                    if filter.get("target_entity") is not None
+                    else None
+                ),
                 period=filter.get("period"),
+                showMean=filter.get("show_mean"),
             )
         }
     elif _insight_type(filter) == "PATHS":
@@ -440,14 +376,14 @@ def _insight_filter(filter: Dict):
                 edgeLimit=filter.get("edge_limit"),
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
-                funnelPaths=filter.get("funnel_paths"),
-                funnelFilter=filter.get("funnel_filter"),
-            )
+            ),
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
                 toggledLifecycles=filter.get("toggledLifecycles"),
+                showLegend=filter.get("show_legend"),
                 showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
@@ -463,19 +399,36 @@ def _insight_filter(filter: Dict):
     else:
         raise Exception(f"Invalid insight type {filter.get('insight')}.")
 
-    if len(list(insight_filter.values())[0].model_dump(exclude_defaults=True)) == 0:
+    if len(next(iter(insight_filter.values())).model_dump(exclude_defaults=True)) == 0:
         return {}
 
     return insight_filter
 
 
-def _insight_type(filter: Dict) -> INSIGHT_TYPE:
+def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter | None:
+    funnel_paths = filter.get("funnel_paths")
+    funnel_filter = filter.get("funnel_filter")
+
+    if funnel_paths is None or funnel_filter is None:
+        return None
+
+    funnel_query = filter_to_query(funnel_filter)
+    assert isinstance(funnel_query, FunnelsQuery)
+
+    return FunnelPathsFilter(
+        funnelPathType=funnel_paths,
+        funnelSource=funnel_query,
+        funnelStep=funnel_filter["funnel_step"],
+    )
+
+
+def _insight_type(filter: dict) -> INSIGHT_TYPE:
     if filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 
 
-def filter_to_query(filter: Dict) -> InsightQueryNode:
+def filter_to_query(filter: dict) -> InsightQueryNode:
     filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
 
     Query = insight_to_query_type[_insight_type(filter)]
@@ -492,7 +445,9 @@ def filter_to_query(filter: Dict) -> InsightQueryNode:
         **_insight_filter(filter),
     }
 
-    return Query(**data)
+    # :KLUDGE: We do this dance to have default values instead of None, when setting
+    # values from a filter above.
+    return Query(**Query(**data).model_dump(exclude_none=True))
 
 
 def filter_str_to_query(filters: str) -> InsightQueryNode:

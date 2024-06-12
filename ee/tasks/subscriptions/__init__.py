@@ -118,7 +118,7 @@ def _deliver_subscription_report(
 
     if not is_new_subscription_target:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
-        subscription.save()
+        subscription.save(update_fields=["next_delivery_date"])
 
 
 @shared_task(queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value)

@@ -3,6 +3,7 @@ import { forwardRef } from 'react'
 
 export type LemonProgressProps = {
     size?: 'medium' | 'large'
+    bgColor?: string
     strokeColor?: string
     percent: number
     children?: React.ReactNode
@@ -11,7 +12,14 @@ export type LemonProgressProps = {
 
 export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.RefAttributes<HTMLDivElement>> =
     forwardRef(function LemonProgress(
-        { size = 'medium', percent, strokeColor = 'var(--brand-blue)', children, className },
+        {
+            size = 'medium',
+            percent,
+            bgColor = 'var(--bg-3000)',
+            strokeColor = 'var(--brand-blue)',
+            children,
+            className,
+        },
         ref
     ): JSX.Element {
         const width = isNaN(percent) ? 0 : Math.max(Math.min(percent, 100), 0)
@@ -20,10 +28,12 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
             <div
                 ref={ref}
                 className={clsx(
-                    'LemonProgress rounded-full w-full inline-block bg-bg-3000',
+                    'LemonProgress rounded-full w-full inline-block',
                     size === 'large' ? 'h-5' : 'h-1.5',
                     className
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ backgroundColor: bgColor }}
             >
                 <span
                     className={clsx(

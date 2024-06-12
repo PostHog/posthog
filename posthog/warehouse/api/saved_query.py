@@ -1,19 +1,17 @@
-from typing import Any, List
+from typing import Any
 
 from django.conf import settings
-from rest_framework import exceptions, filters, serializers, viewsets
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework import exceptions, filters, serializers, viewsets, response, request, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models import User
-from posthog.warehouse.models import DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -33,11 +31,23 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
+    def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
         context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
 
-        return serialize_fields(view.hogql_definition().fields, context)
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name)
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -84,7 +94,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 settings=None,
             )
         except Exception as err:
-            if isinstance(err, ValueError) or isinstance(err, HogQLException):
+            if isinstance(err, ExposedHogQLError):
                 error = str(err)
                 raise exceptions.ValidationError(detail=f"Invalid query: {error}")
             elif not settings.DEBUG:
@@ -106,16 +116,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
 
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by")
-                .order_by(self.ordering)
-            )
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: DataWarehouseSavedQuery = self.get_object()
+        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+        self.perform_destroy(instance)
 
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)

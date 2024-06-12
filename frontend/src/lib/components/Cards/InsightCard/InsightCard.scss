@@ -16,10 +16,12 @@
         outline: 1px solid var(--primary-3000);
     }
 
-    .ant-alert {
-        width: 100%;
-        margin: 1rem;
-        overflow: auto;
+    &.react-draggable::after {
+        // During dashboard layout editing, we need an overlay to prevent accidental interaction with card content
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-content-overlay);
+        content: '';
     }
 }
 
@@ -49,14 +51,21 @@
         border: none;
         border-radius: 0;
     }
+
+    .WebAnalyticsDashboard .InsightVizDisplay & {
+        min-height: var(--insight-viz-min-height);
+    }
 }
 
-.InsightDetails {
+.InsightDetails,
+.CardMeta .InsightDetails {
+    // Including .CardMeta to increase specificity there, specifically for h5
     font-size: 0.8125rem;
     line-height: 1.5rem;
 
     h5 {
         margin-bottom: 0.125rem;
+        line-height: 1.5rem;
     }
 
     section:not(:last-child) {
@@ -70,9 +79,9 @@
 }
 
 .InsightDetails__query {
-    padding: 0.5rem;
+    padding: 0.375rem 0.5rem;
     margin-top: 0.25rem;
-    background: var(--side);
+    border-width: 1px;
     border-radius: var(--radius);
 
     .LemonRow {
@@ -112,8 +121,9 @@
 }
 
 .InsightDetails__footer {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
 
     .profile-package {
         vertical-align: middle;
@@ -175,6 +185,10 @@
 
 .SeriesDisplay__condition {
     display: flex;
+
+    .SeriesDisplay__raw-name {
+        vertical-align: middle;
+    }
 }
 
 .SeriesDisplay__arrow {

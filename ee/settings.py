@@ -1,21 +1,22 @@
 """
 Django settings for PostHog Enterprise Edition.
 """
+
 import os
-from typing import Dict, List
 
 from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, DEBUG
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
 # Zapier REST hooks
-HOOK_EVENTS: Dict[str, str] = {
+HOOK_EVENTS: dict[str, str] = {
     # "event_name": "App.Model.Action" (created/updated/deleted)
     "action_performed": "posthog.Action.performed",
 }
 
 # SSO
-AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
+AUTHENTICATION_BACKENDS = [
+    *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
     "social_core.backends.google.GoogleOAuth2",
 ]
@@ -41,7 +42,7 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
-    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: list[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
 elif DEMO:
@@ -59,7 +60,7 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
     "MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS", 7 * 24, type_cast=int
 )
 # How big of a timeframe to backfill when materializing event properties. 0 for no backfilling
-MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
+MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 0, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
@@ -68,7 +69,6 @@ BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posth
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
 
-ASSET_GENERATION_MAX_TIMEOUT_SECONDS = get_from_env("ASSET_GENERATION_MAX_TIMEOUT_SECONDS", 60.0, type_cast=float)
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )

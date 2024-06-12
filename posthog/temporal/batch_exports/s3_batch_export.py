@@ -1,4 +1,4 @@
-import asyncio
+import collections.abc
 import contextlib
 import datetime as dt
 import io
@@ -8,29 +8,45 @@ import typing
 from dataclasses import dataclass
 
 import aioboto3
+import orjson
+import pyarrow as pa
 from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportSchema,
+    S3BatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportTemporaryFile,
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
+    FinishBatchExportRunInputs,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+    BatchExportWriter,
+    FlushCallable,
+    JSONLBatchExportWriter,
+    ParquetBatchExportWriter,
+    UnsupportedFileFormatError,
+)
+from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -50,19 +66,31 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
     }
 
 
+FILE_FORMAT_EXTENSIONS = {
+    "Parquet": "parquet",
+    "JSONLines": "jsonl",
+}
+
+COMPRESSION_EXTENSIONS = {
+    "gzip": "gz",
+    "snappy": "sz",
+    "brotli": "br",
+    "ztsd": "zst",
+    "lz4": "lz4",
+}
+
+
 def get_s3_key(inputs) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
+    file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
-    match inputs.compression:
-        case "gzip":
-            file_name = base_file_name + ".jsonl.gz"
-        case "brotli":
-            file_name = base_file_name + ".jsonl.br"
-        case _:
-            file_name = base_file_name + ".jsonl"
+    if inputs.compression is not None:
+        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[inputs.compression]}"
+    else:
+        file_name = base_file_name + f".{file_extension}"
 
     key = posixpath.join(key_prefix, file_name)
 
@@ -120,11 +148,13 @@ class S3MultiPartUpload:
         kms_key_id: str | None,
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
+        endpoint_url: str | None = None,
     ):
         self._session = aioboto3.Session()
         self.region_name = region_name
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.endpoint_url = endpoint_url
         self.bucket_name = bucket_name
         self.key = key
         self.encryption = encryption
@@ -154,11 +184,13 @@ class S3MultiPartUpload:
     @contextlib.asynccontextmanager
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
+
         async with self._session.client(
             "s3",
             region_name=self.region_name,
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
         ) as client:
             yield client
 
@@ -306,6 +338,11 @@ class S3InsertInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
+    # TODO: In Python 3.11, this could be a enum.StrEnum.
+    file_format: str = "JSONLines"
+    run_id: str | None = None
+    is_backfill: bool = False
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -321,6 +358,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
+        endpoint_url=inputs.endpoint_url,
     )
 
     details = activity.info().heartbeat_details
@@ -372,8 +410,6 @@ def s3_default_fields() -> list[BatchExportField]:
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
     batch_export_fields.append({"expression": "toString(person_id)", "alias": "person_id"})
-    # In contrast to other destinations, we do export this field.
-    batch_export_fields.append({"expression": "COALESCE(inserted_at, _timestamp)", "alias": "inserted_at"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
     not_exported_by_default = {"team_id", "set", "set_once"}
@@ -382,7 +418,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
     It currently only creates a single file per run, and uploads as a multipart upload.
@@ -394,114 +430,179 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        get_s3_key(inputs),
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
+    async with Heartbeater() as heartbeater:
+        await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
+        async with get_client(team_id=inputs.team_id) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
+            s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+
+            if inputs.batch_export_schema is None:
+                fields = s3_default_fields()
+                query_parameters = None
+
+            else:
+                fields = inputs.batch_export_schema["fields"]
+                query_parameters = inputs.batch_export_schema["values"]
+
+            record_iterator = iter_records(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=interval_start,
+                interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                fields=fields,
+                extra_query_parameters=query_parameters,
+                is_backfill=inputs.is_backfill,
             )
-            return
 
-        logger.info("BatchExporting %s rows to S3", count)
+            async with s3_upload as s3_upload:
 
-        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
-
-        if inputs.batch_export_schema is None:
-            fields = s3_default_fields()
-            query_parameters = None
-
-        else:
-            fields = inputs.batch_export_schema["fields"]
-            query_parameters = inputs.batch_export_schema["values"]
-
-        record_iterator = iter_records(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            fields=fields,
-            extra_query_parameters=query_parameters,
-        )
-
-        last_uploaded_part_timestamp: str | None = None
-
-        async def worker_shutdown_handler():
-            """Handle the Worker shutting down by heart-beating our latest status."""
-            await activity.wait_for_worker_shutdown()
-            logger.warn(
-                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
-            )
-            if last_uploaded_part_timestamp is None:
-                # Don't heartbeat if worker shuts down before we could even send anything
-                # Just start from the beginning again.
-                return
-
-            activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
-
-        asyncio.create_task(worker_shutdown_handler())
-
-        record = None
-
-        async with s3_upload as s3_upload:
-            with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
-
-                async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
+                async def flush_to_s3(
+                    local_results_file,
+                    records_since_last_flush: int,
+                    bytes_since_last_flush: int,
+                    last_inserted_at: dt.datetime,
+                    last: bool,
+                ):
                     logger.debug(
                         "Uploading %s part %s containing %s records with size %s bytes",
                         "last " if last else "",
                         s3_upload.part_number + 1,
-                        local_results_file.records_since_last_reset,
-                        local_results_file.bytes_since_last_reset,
+                        records_since_last_flush,
+                        bytes_since_last_flush,
                     )
 
                     await s3_upload.upload_part(local_results_file)
-                    rows_exported.add(local_results_file.records_since_last_reset)
-                    bytes_exported.add(local_results_file.bytes_since_last_reset)
+                    rows_exported.add(records_since_last_flush)
+                    bytes_exported.add(bytes_since_last_flush)
 
-                    activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+                    heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
-                for record_batch in record_iterator:
-                    for record in record_batch.to_pylist():
-                        for json_column in ("properties", "person_properties", "set", "set_once"):
-                            if (json_str := record.get(json_column, None)) is not None:
-                                record[json_column] = json.loads(json_str)
+                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+                first_record_batch = cast_record_batch_json_columns(first_record_batch)
+                column_names = first_record_batch.column_names
+                column_names.pop(column_names.index("_inserted_at"))
 
-                        inserted_at = record.pop("_inserted_at")
+                schema = pa.schema(
+                    # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+                    # record batches have them as nullable.
+                    # Until we figure it out, we set all fields to nullable. There are some fields we know
+                    # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+                    # between batches.
+                    [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
+                )
 
-                        local_results_file.write_records_to_jsonl([record])
+                writer = get_batch_export_writer(
+                    inputs,
+                    flush_callable=flush_to_s3,
+                    max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                    schema=schema,
+                )
 
-                        if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                            last_uploaded_part_timestamp = str(inserted_at)
-                            await flush_to_s3(last_uploaded_part_timestamp)
-                            local_results_file.reset()
+                async with writer.open_temporary_file():
+                    rows_exported = get_rows_exported_metric()
+                    bytes_exported = get_bytes_exported_metric()
 
-                if local_results_file.tell() > 0 and record is not None:
-                    last_uploaded_part_timestamp = str(inserted_at)
-                    await flush_to_s3(last_uploaded_part_timestamp, last=True)
+                    for record_batch in record_iterator:
+                        record_batch = cast_record_batch_json_columns(record_batch)
 
-            await s3_upload.complete()
+                        await writer.write_record_batch(record_batch)
+
+                await s3_upload.complete()
+
+            return writer.records_total
+
+
+def get_batch_export_writer(
+    inputs: S3InsertInputs, flush_callable: FlushCallable, max_bytes: int, schema: pa.Schema | None = None
+) -> BatchExportWriter:
+    """Return the `BatchExportWriter` corresponding to configured `file_format`.
+
+    Raises:
+        UnsupportedFileFormatError: If no writer exists for given `file_format`.
+    """
+    writer: BatchExportWriter
+
+    if inputs.file_format == "Parquet":
+        writer = ParquetBatchExportWriter(
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+            compression=inputs.compression,
+            schema=schema,
+        )
+    elif inputs.file_format == "JSONLines":
+        writer = JSONLBatchExportWriter(
+            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            flush_callable=flush_callable,
+            compression=inputs.compression,
+        )
+    else:
+        raise UnsupportedFileFormatError(inputs.file_format, "S3")
+
+    return writer
+
+
+def cast_record_batch_json_columns(
+    record_batch: pa.RecordBatch,
+    json_columns: collections.abc.Sequence = ("properties", "person_properties", "set", "set_once"),
+) -> pa.RecordBatch:
+    """Cast json_columns in record_batch to JsonType.
+
+    We return a new RecordBatch with any json_columns replaced by fields casted to JsonType.
+    Casting is not copying the underlying array buffers, so memory usage does not increase when creating
+    the new array or the new record batch.
+    """
+    column_names = set(record_batch.column_names)
+    intersection = column_names & set(json_columns)
+
+    casted_arrays = []
+    for array in record_batch.select(intersection):
+        if pa.types.is_string(array.type):
+            casted_array = array.cast(JsonType())
+            casted_arrays.append(casted_array)
+
+    remaining_column_names = list(column_names - intersection)
+    return pa.RecordBatch.from_arrays(
+        record_batch.select(remaining_column_names).columns + casted_arrays,
+        names=remaining_column_names + list(intersection),
+    )
+
+
+class JsonScalar(pa.ExtensionScalar):
+    """Represents a JSON binary string."""
+
+    def as_py(self) -> dict | None:
+        if self.value:
+            return orjson.loads(self.value.as_py().encode("utf-8"))
+        else:
+            return None
+
+
+class JsonType(pa.ExtensionType):
+    """Type for JSON binary strings."""
+
+    def __init__(self):
+        super().__init__(pa.string(), "json")
+
+    def __arrow_ext_serialize__(self):
+        return b""
+
+    @classmethod
+    def __arrow_ext_deserialize__(self, storage_type, serialized):
+        return JsonType()
+
+    def __arrow_ext_scalar_class__(self):
+        return JsonScalar
 
 
 @workflow.defn(name="s3-export")
@@ -524,15 +625,18 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -542,11 +646,26 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
+            batch_export_id=inputs.batch_export_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -555,6 +674,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
+            endpoint_url=inputs.endpoint_url,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
@@ -563,11 +683,15 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
             batch_export_schema=inputs.batch_export_schema,
+            file_format=inputs.file_format,
+            run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(
             insert_into_s3_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 # S3 parameter validation failed.
                 "ParamValidationError",
@@ -576,5 +700,5 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
         )

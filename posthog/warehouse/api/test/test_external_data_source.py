@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
@@ -5,10 +6,14 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.warehouse.data_load.service import get_sync_schedule
 from django.test import override_settings
 from django.conf import settings
 from posthog.models import Team
 import psycopg
+from rest_framework import status
+
+import datetime
 
 
 class TestSavedQuery(APIBaseTest):
@@ -101,17 +106,29 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertListEqual(
             list(payload.keys()),
-            ["id", "created_at", "created_by", "status", "source_type", "prefix", "last_run_at", "schemas"],
+            [
+                "id",
+                "created_at",
+                "created_by",
+                "status",
+                "source_type",
+                "prefix",
+                "last_run_at",
+                "schemas",
+                "sync_frequency",
+            ],
         )
         self.assertEqual(
             payload["schemas"],
             [
                 {
                     "id": str(schema.pk),
+                    "incremental": False,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
+                    "status": schema.status,
                     "table": schema.table,
                 }
             ],
@@ -128,7 +145,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertFalse(ExternalDataSource.objects.filter(pk=source.pk).exists())
         self.assertFalse(ExternalDataSchema.objects.filter(pk=schema.pk).exists())
 
-    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_workflow")
+    # TODO: update this test
+    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
@@ -164,6 +182,7 @@ class TestSavedQuery(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
             data={
+                "source_type": "Postgres",
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
                 "dbname": settings.PG_DATABASE,
@@ -189,6 +208,21 @@ class TestSavedQuery(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_non_postgres_source(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            data={
+                "source_type": "Stripe",
+            },
+        )
+        results = response.json()
+
+        self.assertEqual(response.status_code, 200)
+
+        table_names = [table["table"] for table in results]
+        for table in ENDPOINTS:
+            assert table in table_names
+
     @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
     def test_internal_postgres(self, patch_get_postgres_schemas):
         patch_get_postgres_schemas.return_value = ["table_1"]
@@ -198,6 +232,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -207,13 +242,14 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
             response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -230,6 +266,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -239,13 +276,14 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
             response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -256,3 +294,36 @@ class TestSavedQuery(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+
+    @patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow")
+    def test_update_source_sync_frequency(self, _patch_sync_external_data_job_workflow):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+
+        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.DAILY)
+        # test schedule
+        schedule = get_sync_schedule(schema)
+        self.assertEqual(
+            schedule.spec.intervals[0].every,
+            datetime.timedelta(days=1),
+        )
+
+        # test api
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/external_data_sources/{source.pk}/",
+            data={"sync_frequency": ExternalDataSource.SyncFrequency.WEEKLY},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        source.refresh_from_db()
+        schema.refresh_from_db()
+
+        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.WEEKLY)
+        self.assertEqual(_patch_sync_external_data_job_workflow.call_count, 1)
+
+        # test schedule
+        schedule = get_sync_schedule(schema)
+        self.assertEqual(
+            schedule.spec.intervals[0].every,
+            datetime.timedelta(days=7),
+        )

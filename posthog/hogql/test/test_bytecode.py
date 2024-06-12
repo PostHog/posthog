@@ -1,6 +1,8 @@
-from posthog.hogql.bytecode import to_bytecode
+import pytest
+
+from posthog.hogql.bytecode import to_bytecode, execute_hog
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
-from posthog.hogql.errors import NotImplementedException
+from posthog.hogql.errors import NotImplementedError
 from posthog.test.base import BaseTest
 
 
@@ -54,7 +56,7 @@ class TestBytecode(BaseTest):
         self.assertEqual(to_bytecode("3.14"), [_H, op.FLOAT, 3.14])
         self.assertEqual(
             to_bytecode("properties.bla"),
-            [_H, op.STRING, "bla", op.STRING, "properties", op.FIELD, 2],
+            [_H, op.STRING, "bla", op.STRING, "properties", op.GET_GLOBAL, 2],
         )
         self.assertEqual(
             to_bytecode("concat('arg', 'another')"),
@@ -62,7 +64,7 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("ifNull(properties.email, false)"),
-            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.FIELD, 2, op.CALL, "ifNull", 2],
+            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.GET_GLOBAL, 2, op.CALL, "ifNull", 2],
         )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
@@ -127,11 +129,90 @@ class TestBytecode(BaseTest):
             [_H, op.STRING, "test2", op.STRING, "test", op.AND, 2],
         )
 
-    def test_bytecode_create_error(self):
-        with self.assertRaises(NotImplementedException) as e:
-            to_bytecode("(select 1)")
-        self.assertEqual(str(e.exception), "Visitor has no method visit_select_query")
+    @pytest.mark.skip(reason="C++ parsing is not working for these cases yet.")
+    def test_bytecode_objects(self):
+        self.assertEqual(
+            to_bytecode("[1, 2, 3]"),
+            [_H, op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.ARRAY, 3],
+        )
+        self.assertEqual(
+            to_bytecode("[1, 2, 3][1]"),
+            [_H, op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.ARRAY, 3, op.INTEGER, 1, op.GET_PROPERTY, 1],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b'}"),
+            [_H, op.STRING, "a", op.STRING, "b", op.DICT, 1],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b', 'c': 'd'}"),
+            [_H, op.STRING, "a", op.STRING, "b", op.STRING, "c", op.STRING, "d", op.DICT, 2],
+        )
+        self.assertEqual(
+            to_bytecode("{'a': 'b', 'c': {'a': 'b'}}"),
+            [
+                _H,
+                op.STRING,
+                "a",
+                op.STRING,
+                "b",
+                op.STRING,
+                "c",
+                op.STRING,
+                "a",
+                op.STRING,
+                "b",
+                op.DICT,
+                1,
+                op.DICT,
+                2,
+            ],
+        )
+        self.assertEqual(
+            to_bytecode("['a', 'b']"),
+            [_H, op.STRING, "a", op.STRING, "b", op.ARRAY, 2],
+        )
+        self.assertEqual(
+            to_bytecode("('a', 'b')"),
+            [_H, op.STRING, "a", op.STRING, "b", op.TUPLE, 2],
+        )
 
-        with self.assertRaises(NotImplementedException) as e:
+    def test_bytecode_create_error(self):
+        with self.assertRaises(NotImplementedError) as e:
+            to_bytecode("(select 1)")
+        self.assertEqual(str(e.exception), "BytecodeBuilder has no method visit_select_query")
+
+        with self.assertRaises(NotImplementedError) as e:
             to_bytecode("1 in cohort 2")
         self.assertEqual(str(e.exception), "Cohort operations are not supported")
+
+        with self.assertRaises(NotImplementedError) as e:
+            execute_hog("globalVar := 1;")
+        self.assertEqual(
+            str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
+        )
+
+        with self.assertRaises(NotImplementedError) as e:
+            execute_hog("globalVar.properties.bla := 1;")
+        self.assertEqual(
+            str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
+        )
+
+    def test_bytecode_execute(self):
+        # Test a simple operations. The Hog execution itself is tested under hogvm/python/
+        self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)
+        self.assertEqual(
+            execute_hog(
+                """
+            fn fibonacci(number) {
+                if (number < 2) {
+                    return number;
+                } else {
+                    return fibonacci(number - 1) + fibonacci(number - 2);
+                }
+            }
+            return fibonacci(6);
+        """,
+                team=self.team,
+            ).result,
+            8,
+        )

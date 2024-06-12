@@ -4,9 +4,10 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { settingsLogic } from './settingsLogic'
@@ -32,7 +33,7 @@ export function Settings({
         }
     )
 
-    const isCompact = size === 'small'
+    const isCompact = !inStorybookTestRunner() && size === 'small'
 
     const showSections = isCompact ? isCompactNavigationOpen : true
 
@@ -84,21 +85,23 @@ export function Settings({
                 </>
             )}
 
-            <div className="flex-1 w-full space-y-2 overflow-hidden">
-                {!hideSections && selectedLevel === 'project' && (
-                    <LemonBanner type="info">
-                        These settings only apply to the current project{' '}
-                        {currentTeam?.name ? (
-                            <>
-                                (<b>{currentTeam.name}</b>)
-                            </>
-                        ) : null}
-                        .
-                    </LemonBanner>
-                )}
+            <TimeSensitiveAuthenticationArea>
+                <div className="flex-1 w-full space-y-2 min-w-0">
+                    {!hideSections && selectedLevel === 'project' && (
+                        <LemonBanner type="info">
+                            These settings only apply to the current project{' '}
+                            {currentTeam?.name ? (
+                                <>
+                                    (<b>{currentTeam.name}</b>)
+                                </>
+                            ) : null}
+                            .
+                        </LemonBanner>
+                    )}
 
-                <SettingsRenderer {...props} />
-            </div>
+                    <SettingsRenderer {...props} />
+                </div>
+            </TimeSensitiveAuthenticationArea>
         </div>
     )
 }

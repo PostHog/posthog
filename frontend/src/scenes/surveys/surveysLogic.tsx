@@ -4,8 +4,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -33,14 +31,7 @@ export interface SurveysFilters {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [
-            userLogic,
-            ['hasAvailableFeature'],
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
@@ -151,21 +142,21 @@ export const surveysLogic = kea<surveysLogicType>([
                 },
             ],
         ],
-        payGateFlagOn: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SURVEYS_PAYGATES]],
         surveysStylingAvailable: [
-            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
-            (hasAvailableFeature, payGateFlagOn) =>
-                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_STYLING)),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],
         surveysHTMLAvailable: [
-            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
-            (hasAvailableFeature, payGateFlagOn) =>
-                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML)),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),
         ],
         surveysMultipleQuestionsAvailable: [
-            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
-            (hasAvailableFeature, payGateFlagOn) =>
-                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
+        ],
+        surveysRecurringScheduleAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_RECURRING),
         ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],

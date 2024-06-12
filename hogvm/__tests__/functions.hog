@@ -1,0 +1,35 @@
+print('-- test functions --')
+
+fn add(a, b) {
+    return a + b
+}
+fn add2(a, b) {
+    let c := a + b
+    return c
+}
+fn mult(a, b) {
+    return a * b
+}
+fn noArgs() {
+    let url := 'basdfasdf'
+    let second := 2 + 3
+    return second
+}
+fn empty() {}
+fn empty2() {}
+fn empty3() {}
+fn noReturn() {
+    let a := 1
+    let b := 2
+    let c := a + b
+}
+
+print(add(3, 4))
+print(add(3, 4) + 100 + add(1, 1))
+print(noArgs() ?? -1)
+print(empty() ?? -1)
+print(empty2() ?? -1)
+print(empty3() ?? -1)
+print(noReturn() ?? -1)
+print(mult(add(3, 4) + 100 + add(2, 1), 2))
+print(mult(add2(3, 4) + 100 + add2(2, 1), 10))

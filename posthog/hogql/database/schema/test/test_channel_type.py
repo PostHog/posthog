@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_person,
+    _create_event,
 )
 
 
@@ -76,7 +77,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_initial_channel_type(self, properties=None):
+    def _get_person_initial_channel_type(self, properties=None):
         person_id = str(uuid.uuid4())
 
         _create_person(
@@ -86,22 +87,72 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
 
-        response = execute_hogql_query(
+        person_response = execute_hogql_query(
             parse_select(
                 "select $virt_initial_channel_type as channel_type from persons where id = {person_id}",
                 placeholders={"person_id": ast.Constant(value=person_id)},
             ),
             self.team,
         )
+        return (person_response.results or [])[0][0]
 
-        return response.results[0][0]
+    def _get_session_channel_type(self, properties=None):
+        person_id = str(uuid.uuid4())
+        properties = {
+            "$session_id": str(uuid.uuid4()),
+            **(properties or {}),
+        }
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=person_id,
+            properties=properties,
+        )
+        session_response = execute_hogql_query(
+            parse_select(
+                "select events.session.$channel_type as channel_type, events.session.$entry_utm_source, events.session.$entry_utm_medium, events.session.$entry_utm_campaign, events.session.$entry_referring_domain from events where distinct_id = {person_id}",
+                placeholders={"person_id": ast.Constant(value=person_id)},
+            ),
+            self.team,
+        )
+        return (session_response.results or [])[0][0]
 
     def test_direct(self):
         self.assertEqual(
             "Direct",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "$direct",
+                }
+            ),
+        )
+
+    def test_direct_empty_string(self):
+        self.assertEqual(
+            "Direct",
+            self._get_person_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "",
+                    "$initial_utm_medium": "",
+                    "$initial_utm_campaign": "",
+                    "$initial_gclid": "",
+                    "$initial_gad_source": "",
+                }
+            ),
+        )
+
+    def test_direct_null_string(self):
+        self.assertEqual(
+            "Direct",
+            self._get_person_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "null",
+                    "$initial_utm_medium": "null",
+                    "$initial_utm_campaign": "null",
+                    "$initial_gclid": "null",
+                    "$initial_gad_source": "null",
                 }
             ),
         )
@@ -109,7 +160,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_cross_network(self):
         self.assertEqual(
             "Cross Network",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "$direct",
                     "$initial_utm_campaign": "cross-network",
@@ -120,7 +171,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_shopping_domain(self):
         self.assertEqual(
             "Paid Shopping",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "www.ebay.co.uk",
                     "$initial_utm_medium": "ppc",
@@ -131,7 +182,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_shopping_source(self):
         self.assertEqual(
             "Paid Shopping",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_utm_source": "ebay",
                     "$initial_utm_medium": "ppc",
@@ -142,7 +193,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_shopping_campaign(self):
         self.assertEqual(
             "Paid Shopping",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_utm_campaign": "shopping",
                     "$initial_utm_medium": "ppc",
@@ -153,7 +204,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_search(self):
         self.assertEqual(
             "Paid Search",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "www.google.co.uk",
                     "$initial_gclid": "some-gclid",
@@ -164,7 +215,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_search_source(self):
         self.assertEqual(
             "Paid Search",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_utm_source": "yahoo",
                     "$initial_utm_medium": "ppc",
@@ -175,7 +226,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_video(self):
         self.assertEqual(
             "Paid Video",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "youtube.com",
                     "$initial_utm_medium": "cpc",
@@ -186,7 +237,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_paid_video_source(self):
         self.assertEqual(
             "Paid Video",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_utm_source": "youtube.com",
                     "$initial_utm_medium": "cpc",
@@ -197,23 +248,23 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_organic_video(self):
         self.assertEqual(
             "Organic Video",
-            self._get_initial_channel_type(
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "youtube.com",
                 }
             ),
         )
 
-    def test_no_info_is_other(self):
+    def test_no_info_is_unknown(self):
         self.assertEqual(
-            "Other",
-            self._get_initial_channel_type({}),
+            "Unknown",
+            self._get_person_initial_channel_type({}),
         )
 
-    def test_unknown_domain_is_other(self):
+    def test_unknown_domain_is_unknown(self):
         self.assertEqual(
-            "Other",
-            self._get_initial_channel_type(
+            "Unknown",
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
                 }
@@ -222,8 +273,8 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_doesnt_fail_on_numbers(self):
         self.assertEqual(
-            "Other",
-            self._get_initial_channel_type(
+            "Unknown",
+            self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "example.com",
                     "$initial_utm_source": 123,
@@ -233,27 +284,64 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_empty_session(self):
+        self.assertEqual(
+            "Unknown",
+            self._get_session_channel_type({}),
+        )
+
+    def test_empty_string_session(self):
+        self.assertEqual(
+            "Unknown",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "",
+                    "utm_medium": "",
+                    "utm_campaign": "",
+                    "referring_domain": "",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
+        session_id = str(uuid.uuid4())
         parsed_url = urlparse(url)
         query = parse_qs(parsed_url.query)
-        properties = {}
+        person_properties = {}
+        event_properties = {
+            "$session_id": session_id,
+        }
         if utm_source := query.get("utm_source"):
-            properties["$initial_utm_source"] = utm_source[0]
+            person_properties["$initial_utm_source"] = utm_source[0]
+            event_properties["utm_source"] = utm_source[0]
         if utm_medium := query.get("utm_medium"):
-            properties["$initial_utm_medium"] = utm_medium[0]
+            person_properties["$initial_utm_medium"] = utm_medium[0]
+            event_properties["utm_medium"] = utm_medium[0]
         if utm_campaign := query.get("utm_campaign"):
-            properties["$initial_utm_campaign"] = utm_campaign[0]
+            person_properties["$initial_utm_campaign"] = utm_campaign[0]
+            event_properties["utm_campaign"] = utm_campaign[0]
         if gclid := query.get("gclid"):
-            properties["$initial_gclid"] = gclid[0]
+            person_properties["$initial_gclid"] = gclid[0]
+            event_properties["gclid"] = gclid[0]
         if gad_source := query.get("gad_source"):
-            properties["$initial_gad_source"] = gad_source[0]
+            person_properties["$initial_gad_source"] = gad_source[0]
+            event_properties["gad_source"] = gad_source[0]
         if msclickid := query.get("msclkid"):
-            properties["$initial_msclkid"] = msclickid[0]
+            person_properties["$initial_msclkid"] = msclickid[0]
+            event_properties["msclkid"] = msclickid[0]
         if fbclid := query.get("fbclid"):
-            properties["$initial_fbclid"] = fbclid[0]
-        properties["$initial_referring_domain"] = urlparse(referrer).netloc if referrer else "$direct"
+            person_properties["$initial_fbclid"] = fbclid[0]
+            event_properties["fbclid"] = fbclid[0]
+        referring_domain = urlparse(referrer).netloc if referrer else "$direct"
+        person_properties["$initial_referring_domain"] = referring_domain
+        event_properties["$referring_domain"] = referring_domain
 
-        return self._get_initial_channel_type(properties)
+        session_channel_type = self._get_session_channel_type(event_properties)
+        person_channel_type = self._get_person_initial_channel_type(person_properties)
+        self.assertEqual(session_channel_type, person_channel_type)
+        return person_channel_type
 
     def test_yahoo_search_for_shoes(self):
         # yahoo search for shoes -> click ad
@@ -288,7 +376,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_daily_mail_ad_click(self):
         # go to daily mail -> click ad
         self.assertEqual(
-            "Paid Other",
+            "Paid Unknown",
             self._get_initial_channel_type_from_wild_clicks(
                 "https://www.vivaia.com/item/square-toe-v-cut-flats-p_10003645.html?gid=10011676&currency=GBP&shipping_country_code=GB&gclid=EAIaIQobChMIxvGy5rr_ggMVYi0GAB0KSAumEAEYASABEgLZ2PD_BwE",
                 "https://2bb5cd7f10ba63d8b55ecfac1a3948db.safeframe.googlesyndication.com/",

@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from django.db import IntegrityError
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -43,9 +43,9 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
             "updated_at",
             "user_uuid",  # write_only (see above)
         ]
-        read_only_fields = ["id", "dashboard_id", "user", "user"]
+        read_only_fields = ["id", "dashboard_id", "user"]
 
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         dashboard: Dashboard = self.context["dashboard"]
         dashboard_permissions = self.user_permissions.dashboard(dashboard)
         if dashboard_permissions.effective_restriction_level <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
@@ -88,7 +88,7 @@ class DashboardCollaboratorViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "dashboard"
     permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
     queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
@@ -96,7 +96,7 @@ class DashboardCollaboratorViewSet(
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         try:
             context["dashboard"] = Dashboard.objects.get(id=context["dashboard_id"])

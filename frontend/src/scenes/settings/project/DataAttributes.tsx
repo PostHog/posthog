@@ -1,6 +1,6 @@
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,7 +18,7 @@ export function DataAttributes(): JSX.Element {
     return (
         <>
             <p>
-                Specify a comma-separated list of{' '}
+                Specify a list of{' '}
                 <Link to="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes">
                     data attributes
                 </Link>{' '}
@@ -33,8 +33,9 @@ export function DataAttributes(): JSX.Element {
                 be <code>button[data-custom-id='cta-button']</code>.
             </p>
             <div className="space-y-4 max-w-160">
-                <LemonSelectMultiple
-                    mode="multiple-custom"
+                <LemonInputSelect
+                    mode="multiple"
+                    allowCustomValues
                     onChange={(values: string[]) => setValue(values || [])}
                     value={value}
                     data-attr="data-attribute-select"

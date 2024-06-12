@@ -1,10 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    convertSnapshotsByWindowId,
-    snapshotsAsRealTimeJSONPayload,
-} from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
     deduplicateSnapshots,
     sessionRecordingDataLogic,
@@ -16,7 +13,6 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { waitForExpect } from '~/test/waitForExpect'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
@@ -30,14 +26,12 @@ const BLOB_SOURCE: SessionRecordingSnapshotSource = {
     start_timestamp: '2023-08-11T12:03:36.097000Z',
     end_timestamp: '2023-08-11T12:04:52.268000Z',
     blob_key: '1691755416097-1691755492268',
-    loaded: false,
 }
 const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
     source: 'realtime',
     start_timestamp: '2024-01-28T21:19:49.217000Z',
     end_timestamp: undefined,
     blob_key: undefined,
-    loaded: false,
 }
 
 describe('sessionRecordingDataLogic', () => {
@@ -53,10 +47,9 @@ describe('sessionRecordingDataLogic', () => {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'realtime') {
                         if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json({ snapshots: [] }))
+                            return res(ctx.json([]))
                         }
-                        // ... since this is fake, we'll just return the same data in the right format
-                        return res(ctx.json(snapshotsAsRealTimeJSONPayload()))
+                        return res(ctx.text(snapshotsAsJSONLines()))
                     }
 
                     // with no source requested should return sources
@@ -115,11 +108,14 @@ describe('sessionRecordingDataLogic', () => {
         it('loads all data', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             })
                 .toDispatchActions([
+                    'loadSnapshots',
+                    'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
-                    'loadRecordingSnapshotsSuccess',
+                    'loadSnapshotSourcesSuccess',
+                    'loadSnapshotsForSourceSuccess',
                     'reportUsageIfFullyLoaded',
                 ])
                 .toFinishAllListeners()
@@ -174,9 +170,9 @@ describe('sessionRecordingDataLogic', () => {
             })
             logic.mount()
             logic.actions.loadRecordingMeta()
-            logic.actions.loadRecordingSnapshots()
+            logic.actions.loadSnapshots()
 
-            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess', 'loadRecordingSnapshotsFailure'])
+            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSourcesFailure'])
             expect(logic.values.sessionPlayerData).toMatchObject({
                 person: recordingMetaJson.person,
                 durationMs: 11868,
@@ -219,7 +215,7 @@ describe('sessionRecordingDataLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledWith(
@@ -255,11 +251,11 @@ describe('sessionRecordingDataLogic', () => {
     describe('report usage', () => {
         it('sends `recording loaded` event only when entire recording has loaded', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             })
                 .toDispatchActionsInAnyOrder([
-                    'loadRecordingSnapshots',
-                    'loadRecordingSnapshotsSuccess',
+                    'loadSnapshots',
+                    'loadSnapshotsForSourceSuccess',
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
@@ -267,9 +263,9 @@ describe('sessionRecordingDataLogic', () => {
         })
         it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             })
-                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
+                .toDispatchActions(['loadSnapshotsForSourceSuccess'])
                 .toDispatchActionsInAnyOrder([
                     eventUsageLogic.actionTypes.reportRecording, // loaded
                     eventUsageLogic.actionTypes.reportRecording, // viewed
@@ -278,7 +274,7 @@ describe('sessionRecordingDataLogic', () => {
         })
         it('clears the cache after unmounting', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             })
             expect(Object.keys(logic.cache)).toEqual(
                 expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
@@ -292,7 +288,7 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('prepareRecordingSnapshots', () => {
+    describe('deduplicateSnapshots', () => {
         it('should remove duplicate snapshots and sort by timestamp', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
@@ -309,7 +305,7 @@ describe('sessionRecordingDataLogic', () => {
             // these two snapshots are not duplicates but have the same timestamp and delay
             // this regression test proves that we deduplicate them against themselves
             // prior to https://github.com/PostHog/posthog/pull/20019
-            // each time prepareRecordingSnapshots was called with this input
+            // each time deduplicateSnapshots was called with this input
             // the result would be one event longer, introducing, instead of removing, a duplicate
             const verySimilarSnapshots: RecordingSnapshot[] = [
                 {
@@ -326,7 +322,9 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(deduplicateSnapshots(verySimilarSnapshots, verySimilarSnapshots)).toEqual(verySimilarSnapshots)
+            expect(deduplicateSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+                verySimilarSnapshots
+            )
         })
 
         it('should match snapshot', () => {
@@ -351,71 +349,33 @@ describe('sessionRecordingDataLogic', () => {
 
         it('loads each source, and on success reports recording viewed', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-                // loading the snapshots will trigger a loadRecordingSnapshotsSuccess
+                logic.actions.loadSnapshots()
+                // loading the snapshots will trigger a loadSnapshotsForSourceSuccess
                 // that will have the blob source
-                // that triggers loadRecordingSnapshots
+                // that triggers loadNextSnapshotSource
             }).toDispatchActions([
                 // the action we triggered
-                logic.actionCreators.loadRecordingSnapshots(),
-                'loadRecordingSnapshotsSuccess',
+                'loadSnapshots',
                 // the response to that triggers loading of the first item which is the blob source
                 (action) =>
-                    action.type === logic.actionTypes.loadRecordingSnapshots &&
+                    action.type === logic.actionTypes.loadSnapshotsForSource &&
                     action.payload.source?.source === 'blob',
-                'loadRecordingSnapshotsSuccess',
+                'loadSnapshotsForSourceSuccess',
                 // and then we report having viewed the recording
                 'reportViewed',
                 // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
-                    action.type === logic.actionTypes.loadRecordingSnapshots &&
+                    action.type === logic.actionTypes.loadSnapshotsForSource &&
                     action.payload.source?.source === 'realtime',
-                'loadRecordingSnapshotsSuccess',
+                'loadSnapshotsForSourceSuccess',
                 // having loaded any real time data we start polling to check for more
-                'startRealTimePolling',
+                'pollRealtimeSnapshots',
+                // which in turn triggers another load
+                (action) =>
+                    action.type === logic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.source?.source === 'realtime',
+                'loadSnapshotsForSourceSuccess',
             ])
-        })
-
-        it('can start polling for snapshots', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.startRealTimePolling()
-            })
-                .toDispatchActions([
-                    // the action we triggered
-                    'startRealTimePolling',
-                    'pollRecordingSnapshots', // 0
-                    'pollRecordingSnapshotsSuccess',
-                    // the returned data isn't changing from our mock,
-                    // so we'll not keep polling indefinitely
-                    'pollRecordingSnapshots', // 1
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 2
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 3
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 4
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 5
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 6
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 7
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 8
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 9
-                    'pollRecordingSnapshotsSuccess',
-                    'pollRecordingSnapshots', // 10
-                    'pollRecordingSnapshotsSuccess',
-                ])
-                .toNotHaveDispatchedActions([
-                    // this isn't called again
-                    'pollRecordingSnapshots',
-                ])
-
-            await waitForExpect(() => {
-                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
-            })
         })
     })
 
@@ -433,12 +393,14 @@ describe('sessionRecordingDataLogic', () => {
 
         it('should start polling even though realtime is empty', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+                logic.actions.loadSnapshots()
             }).toDispatchActions([
-                'loadRecordingSnapshotsSuccess',
-                'startRealTimePolling',
-                'pollRecordingSnapshots',
-                'pollRecordingSnapshotsSuccess',
+                'loadSnapshots',
+                'loadSnapshotSourcesSuccess',
+                'loadNextSnapshotSource',
+                'pollRealtimeSnapshots',
+                'loadSnapshotsForSource',
+                'loadSnapshotsForSourceSuccess',
             ])
         })
     })

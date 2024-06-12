@@ -3,6 +3,37 @@ import { dayjs } from 'lib/dayjs'
 export const ingestionWarningsResponse = (baseTime: dayjs.Dayjs): { results: Record<string, any> } => ({
     results: [
         {
+            type: 'replay_timestamp_invalid',
+            lastSeen: baseTime.subtract(1, 'day'),
+            warnings: [
+                {
+                    type: 'replay_timestamp_invalid',
+                    timestamp: baseTime.subtract(1, 'day'),
+                    details: {
+                        timestamp: 'not a date',
+                        replayRecord: { session_id: 'some uuid' },
+                    },
+                },
+            ],
+            count: 1,
+        },
+        {
+            type: 'replay_timestamp_too_far',
+            lastSeen: baseTime.subtract(1, 'day'),
+            warnings: [
+                {
+                    type: 'replay_timestamp_too_far',
+                    timestamp: baseTime.subtract(1, 'day'),
+                    details: {
+                        timestamp: baseTime.add(4, 'day').toISOString(),
+                        replayRecord: { session_id: 'some uuid' },
+                        daysFromNow: 4,
+                    },
+                },
+            ],
+            count: 1,
+        },
+        {
             type: 'event_timestamp_in_future',
             lastSeen: '2023-06-07T15:11:42.149000Z',
             warnings: [

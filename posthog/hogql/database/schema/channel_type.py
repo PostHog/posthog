@@ -62,6 +62,14 @@ def create_channel_type_expr(
     gclid: ast.Expr,
     gad_source: ast.Expr,
 ) -> ast.Expr:
+    def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="nullIf",
+            args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+        )
+
+    # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
+    # update either.
     return parse_expr(
         """
 multiIf(
@@ -69,7 +77,8 @@ multiIf(
     'Cross Network',
 
     (
-        match({medium}, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
+        startsWith({medium}, 'paid') OR
         {gclid} IS NOT NULL OR
         {gad_source} IS NOT NULL
     ),
@@ -89,14 +98,14 @@ multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Paid Video',
 
-            'Paid Other'
+            'Paid Unknown'
         )
     ),
 
     (
         {referring_domain} = '$direct'
-        AND ({medium} IS NULL OR {medium} = '')
-        AND ({source} IS NULL OR {source} IN ('', '(direct)', 'direct'))
+        AND ({medium} IS NULL)
+        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct'))
     ),
     'Direct',
 
@@ -116,17 +125,37 @@ multiIf(
             match({medium}, 'push$'),
             'Push',
 
-            'Other'
+            'Unknown'
         )
     )
 )""",
         start=None,
         placeholders={
-            "campaign": campaign,
-            "medium": medium,
-            "source": source,
+            "campaign": wrap_with_null_if_empty(campaign),
+            "medium": wrap_with_null_if_empty(medium),
+            "source": wrap_with_null_if_empty(source),
             "referring_domain": referring_domain,
-            "gclid": gclid,
-            "gad_source": gad_source,
+            "gclid": wrap_with_null_if_empty(gclid),
+            "gad_source": wrap_with_null_if_empty(gad_source),
         },
     )
+
+
+POSSIBLE_CHANNEL_TYPES = [
+    "Cross Network",
+    "Paid Search",
+    "Paid Video",
+    "Paid Shopping",
+    "Paid Other",
+    "Direct",
+    "Organic Search",
+    "Organic Video",
+    "Organic Shopping",
+    "Push",
+    "SMS",
+    "Audio",
+    "Email",
+    "Referral",
+    "Affiliate",
+    "Other",
+]

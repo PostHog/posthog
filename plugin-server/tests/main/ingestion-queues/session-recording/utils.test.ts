@@ -1,19 +1,21 @@
+import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
     maxDefined,
     minDefined,
+    parseKafkaBatch,
     parseKafkaMessage,
-    reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
+import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
+import { UUIDT } from '../../../../src/utils/utils'
 
 describe('session-recording utils', () => {
     const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>
         ({
-            headers,
+            headers: headers || [{ token: 'the_token' }],
             value: Buffer.from(
                 JSON.stringify({
                     uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -57,23 +59,33 @@ describe('session-recording utils', () => {
                 })
             ),
             timestamp: 1,
-            size: 1,
+            size: 42,
             topic: 'the_topic',
             offset: 1,
             partition: 1,
         } satisfies Message)
 
-    describe('parsing the message', () => {
+    describe('parseKafkaMessage', () => {
+        let fakeProducer: KafkaProducerWrapper
+        beforeEach(() => {
+            Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
+            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+        })
+
         it('can parse a message correctly', async () => {
-            const parsedMessage = await parseKafkaMessage(validMessage('my-distinct-id'), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage('my-distinct-id', [{ token: 'something' }]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage).toMatchSnapshot()
         })
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
-            const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage(numericId, [{ token: 'something' }]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage).toMatchObject({
                 distinct_id: String(numericId),
@@ -91,6 +103,7 @@ describe('session-recording utils', () => {
 
             const createMessage = ($snapshot_items: unknown[]) => {
                 return {
+                    headers: [{ token: Buffer.from('the_token') }],
                     value: Buffer.from(
                         JSON.stringify({
                             uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -126,7 +139,8 @@ describe('session-recording utils', () => {
                         timestamp: null,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                fakeProducer
             )
             expect(parsedMessage).toEqual(undefined)
 
@@ -143,7 +157,8 @@ describe('session-recording utils', () => {
                         timestamp: 123,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                fakeProducer
             )
             expect(parsedMessage2).toMatchObject({
                 eventsByWindowId: {
@@ -157,13 +172,92 @@ describe('session-recording utils', () => {
                 },
             })
 
-            const parsedMessage3 = await parseKafkaMessage(createMessage([null]), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage3 = await parseKafkaMessage(
+                createMessage([null]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage3).toEqual(undefined)
         })
 
-        describe('team token can be in header or body', () => {
+        function expectedIngestionWarningMessage(details: Record<string, any>): Record<string, any> {
+            return {
+                value: JSON.stringify({
+                    team_id: 1,
+                    type: 'replay_lib_version_too_old',
+                    source: 'plugin-server',
+                    details: JSON.stringify(details),
+                    timestamp: '2023-08-30 19:15:54.887',
+                }),
+            }
+        }
+
+        test.each([
+            ['absent lib version means no call to capture ingestion warning', [], []],
+            ['unknown lib version means no call to capture ingestion warning', [{ lib_version: 'unknown' }], []],
+            ['not-three-part lib version means no call to capture ingestion warning', [{ lib_version: '1.25' }], []],
+            [
+                'three-part non-numeric lib version means no call to capture ingestion warning',
+                [{ lib_version: '1.twenty.2' }],
+                [],
+            ],
+            [
+                'three-part lib version that is recent enough means no call to capture ingestion warning',
+                [{ lib_version: '1.116.0' }],
+                [],
+            ],
+            [
+                'three-part lib version that is too old means call to capture ingestion warning',
+                [{ lib_version: '1.74.0' }],
+                [
+                    [
+                        {
+                            kafkaMessage: {
+                                messages: [
+                                    expectedIngestionWarningMessage({
+                                        libVersion: '1.74.0',
+                                        parsedVersion: { major: 1, minor: 74 },
+                                    }),
+                                ],
+                                topic: 'clickhouse_ingestion_warnings_test',
+                            },
+                            waitForAck: false,
+                        },
+                    ],
+                ],
+            ],
+            [
+                'another three-part lib version that is too old means call to capture ingestion warning',
+                [{ lib_version: '1.32.0' }],
+                [
+                    [
+                        {
+                            kafkaMessage: {
+                                messages: [
+                                    expectedIngestionWarningMessage({
+                                        libVersion: '1.32.0',
+                                        parsedVersion: { major: 1, minor: 32 },
+                                    }),
+                                ],
+                                topic: 'clickhouse_ingestion_warnings_test',
+                            },
+                            waitForAck: false,
+                        },
+                    ],
+                ],
+            ],
+        ])('lib_version - captureIngestionWarning - %s', async (_name, headers, expectedCalls) => {
+            await parseKafkaMessage(
+                validMessage(12345, [{ token: 'q123' } as MessageHeader].concat(headers), {
+                    $snapshot_consumer: 'v2',
+                }),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
+            )
+            expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
+        })
+
+        describe('team token must be in header *not* body', () => {
             const mockTeamResolver = jest.fn()
 
             beforeEach(() => {
@@ -173,13 +267,13 @@ describe('session-recording utils', () => {
 
             test.each([
                 [
-                    'calls the team id resolver once when token is in header, not in the body',
+                    'calls the team id resolver once when token is in header, even if not in the body',
                     'the_token',
                     undefined,
                     ['the_token'],
                 ],
                 [
-                    'calls the team id resolver once when token is in header, and in the body',
+                    'calls the team id resolver once when token is in header, even if it is in the body',
                     'the_token',
                     'the body token',
                     ['the_token'],
@@ -191,17 +285,18 @@ describe('session-recording utils', () => {
                     undefined,
                 ],
                 [
-                    'calls the team id resolver twice when token is not in header, and is in body',
+                    'does not call the team id resolver when token is not in header, but is in body',
                     undefined,
                     'the body token',
-                    ['the body token'],
+                    undefined,
                 ],
             ])('%s', async (_name, headerToken, payloadToken, expectedCalls) => {
                 await parseKafkaMessage(
-                    validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : undefined, {
+                    validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : [], {
                         token: payloadToken,
                     }),
-                    mockTeamResolver
+                    mockTeamResolver,
+                    fakeProducer
                 )
                 expect(mockTeamResolver.mock.calls).toEqual([expectedCalls])
             })
@@ -250,65 +345,373 @@ describe('session-recording utils', () => {
         })
     })
 
-    describe('reduceMessages', () => {
-        const messages: IncomingRecordingMessage[] = [
-            // Should merge
-            {
-                distinct_id: '1',
-                eventsRange: { start: 1, end: 1 },
-                eventsByWindowId: { window_1: [{ timestamp: 1, type: 1, data: {} }] },
-                metadata: { lowOffset: 1, highOffset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            {
-                distinct_id: '1',
-                eventsRange: { start: 2, end: 2 },
-                eventsByWindowId: { window_1: [{ timestamp: 2, type: 2, data: {} }] },
-                metadata: { lowOffset: 2, highOffset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            // Different window_id but should still merge
-            {
-                distinct_id: '1',
-                eventsRange: { start: 3, end: 3 },
-                eventsByWindowId: { window_2: [{ timestamp: 3, type: 3, data: {} }] },
-                metadata: { lowOffset: 3, highOffset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            // different team
-            {
-                distinct_id: '1',
-                eventsRange: { start: 4, end: 4 },
-                eventsByWindowId: { window_1: [{ timestamp: 4, type: 4, data: {} }] },
-                metadata: { lowOffset: 4, highOffset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
-                session_id: '1',
-                team_id: 2,
-                snapshot_source: null,
-            },
-            // Different session_id
-            {
-                distinct_id: '1',
-                eventsRange: { start: 5, end: 5 },
-                eventsByWindowId: { window_1: [{ timestamp: 5, type: 5, data: {} }] },
-                metadata: { lowOffset: 5, highOffset: 5, partition: 1, timestamp: 5, topic: 'the_topic' },
-                session_id: '2',
-                team_id: 1,
-                snapshot_source: null,
-            },
-        ]
+    describe('parseKafkaBatch', () => {
+        let fakeProducer: KafkaProducerWrapper
+        beforeEach(() => {
+            Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
+            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+        })
 
-        // Call it once already to make sure that it doesn't mutate the input
-        expect(reduceRecordingMessages(messages)).toHaveLength(3)
-        const reduced = reduceRecordingMessages(messages)
-        expect(reduceRecordingMessages(messages)).toMatchSnapshot()
-        expect(reduced[0].eventsRange).toEqual({ start: 1, end: 3 })
-        expect(reduced[0].metadata).toMatchObject({ lowOffset: 1, highOffset: 3 })
+        it('can parse and reduce a batch of messages', async () => {
+            const sessions = [
+                {
+                    distinct_id: 'c3936f0b-875f-4992-8e8a-26499d1f3a0a',
+                    $session_id: 'e38da031-6341-4db8-ab00-af04f91f9962',
+                    $window_id: 'b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea',
+                },
+                {
+                    distinct_id: '207f0e52-f265-4932-86e5-cec62844d990',
+                    $session_id: '1fc12a30-5a0f-4af8-808a-328423acf0c4',
+                    $window_id: '0bbe7878-6516-46b2-80cf-e387839d7313',
+                },
+                {
+                    distinct_id: '9696eba5-4f24-4f06-957b-10f98e26f2a9',
+                    $session_id: 'cb91c812-98d0-4d5f-ae88-ffb68b7f51d3',
+                    $window_id: '1260fae8-08b5-4e5f-bea1-b8abd6250b70',
+                },
+            ]
+            const otherWindowId = 'c74d85fa-ccbb-43ba-981c-5e7d17f211de'
+            const eventUuids = Array.from(Array(6), () => new UUIDT().toString())
+            const headers = [{ token: Buffer.from('the_token') }]
+
+            const messages: Message[] = [
+                // Six messages for three sessions on two partitions, second is invalid.
+                // The first session has three events on two windows.
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: sessions[0].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: null, // Invalid, item will be skipped
+                                        },
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 123,
+                                        },
+                                    ],
+                                    ...sessions[0],
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 100,
+                    size: 5,
+                    topic: 'the_topic',
+                    offset: 232,
+                    partition: 1,
+                },
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[1],
+                            distinct_id: sessions[2].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({}), // Invalid, message will be skipped
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 96,
+                    size: 100,
+                    topic: 'the_topic',
+                    offset: 499,
+                    partition: 2,
+                },
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[2],
+                            distinct_id: sessions[1].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[2],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            data: {},
+                                            timestamp: 222,
+                                            type: 6,
+                                        },
+                                    ],
+                                    ...sessions[1],
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 101,
+                    size: 30,
+                    topic: 'the_topic',
+                    offset: 233,
+                    partition: 1,
+                },
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[3],
+                            distinct_id: sessions[2].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[3],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            data: {},
+                                            timestamp: 432,
+                                            type: 6,
+                                        },
+                                    ],
+                                    ...sessions[2],
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 98,
+                    size: 100,
+                    topic: 'the_topic',
+                    offset: 500,
+                    partition: 2,
+                },
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[4],
+                            distinct_id: sessions[0].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[4],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            data: {},
+                                            timestamp: 433,
+                                            type: 6,
+                                        },
+                                    ],
+                                    ...sessions[0],
+                                    $window_id: otherWindowId,
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 106,
+                    size: 4,
+                    topic: 'the_topic',
+                    offset: 234,
+                    partition: 1,
+                },
+                {
+                    headers,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[5],
+                            distinct_id: sessions[0].distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[5],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            data: {},
+                                            timestamp: 438,
+                                            type: 6,
+                                        },
+                                    ],
+                                    ...sessions[0],
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 107,
+                    size: 4,
+                    topic: 'the_topic',
+                    offset: 235,
+                    partition: 1,
+                },
+            ]
+
+            const parsedBatch = await parseKafkaBatch(
+                messages,
+                () =>
+                    Promise.resolve({
+                        teamId: 1,
+                        consoleLogIngestionEnabled: true,
+                    }),
+                fakeProducer
+            )
+
+            // Check returned partition statistics
+            expect(parsedBatch.partitionStats).toHaveLength(2)
+            parsedBatch.partitionStats.sort((a, b) => {
+                return a.partition - b.partition
+            })
+            expect(parsedBatch.partitionStats[0]).toMatchObject({
+                partition: 1,
+                offset: 235,
+                timestamp: 107,
+            })
+            expect(parsedBatch.partitionStats[1]).toMatchObject({
+                partition: 2,
+                offset: 500,
+                timestamp: 98,
+            })
+
+            // Check aggregated session data
+            expect(parsedBatch.sessions).toHaveLength(3)
+            expect(parsedBatch.sessions[0].eventsByWindowId[sessions[0].$window_id]).toHaveLength(2)
+            expect(parsedBatch.sessions[0].eventsByWindowId[otherWindowId]).toHaveLength(1)
+            expect(parsedBatch.sessions).toMatchSnapshot()
+        })
+
+        it('does not merge sessions for different teams', async () => {
+            const session = {
+                distinct_id: 'c3936f0b-875f-4992-8e8a-26499d1f3a0a',
+                $session_id: 'e38da031-6341-4db8-ab00-af04f91f9962',
+                $window_id: 'b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea',
+            }
+            const eventUuids = Array.from(Array(3), () => new UUIDT().toString())
+
+            const messages: Message[] = [
+                // Three messages with the same distinct_id and $session_id but two different tokens
+                {
+                    headers: [{ token: Buffer.from('one_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 123,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'one_token',
+                        })
+                    ),
+                    timestamp: 100,
+                    size: 5,
+                    topic: 'the_topic',
+                    offset: 232,
+                    partition: 1,
+                },
+                {
+                    headers: [{ token: Buffer.from('one_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 124,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'one_token',
+                        })
+                    ),
+                    timestamp: 101,
+                    size: 4,
+                    topic: 'the_topic',
+                    offset: 233,
+                    partition: 1,
+                },
+                {
+                    headers: [{ token: Buffer.from('another_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 127,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'another_token',
+                        })
+                    ),
+                    timestamp: 103,
+                    size: 20,
+                    topic: 'the_topic',
+                    offset: 234,
+                    partition: 1,
+                },
+            ]
+
+            const parsedBatch = await parseKafkaBatch(
+                messages,
+                (token: string) =>
+                    Promise.resolve({
+                        teamId: token.length,
+                        consoleLogIngestionEnabled: true,
+                    }),
+                fakeProducer
+            )
+
+            // Check aggregated session data
+            expect(parsedBatch.sessions).toHaveLength(2)
+            expect(parsedBatch.sessions[0].team_id).toEqual(9)
+            expect(parsedBatch.sessions[1].team_id).toEqual(13)
+            expect(parsedBatch.sessions).toMatchSnapshot()
+        })
     })
 
     describe('allSettledWithConcurrency', () => {

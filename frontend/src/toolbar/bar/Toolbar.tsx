@@ -4,10 +4,11 @@ import {
     IconBolt,
     IconCursorClick,
     IconDay,
+    IconLive,
     IconLogomark,
     IconNight,
     IconQuestion,
-    IconTarget,
+    IconSearch,
     IconToggle,
     IconX,
 } from '@posthog/icons'
@@ -20,6 +21,7 @@ import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -54,7 +56,7 @@ function MoreMenu(): JSX.Element {
                     hedgehogMode
                         ? {
                               icon: <IconFlare />,
-                              label: 'Hedgehog accessories',
+                              label: 'Hedgehog options',
                               onClick: () => {
                                   setVisibleMenu('hedgehog')
                               },
@@ -77,15 +79,18 @@ function MoreMenu(): JSX.Element {
             }
             maxContentWidth={true}
         >
-            <ToolbarButton icon={<IconMenu />} title="More options" />
+            <ToolbarButton title="More options">
+                <IconMenu />
+            </ToolbarButton>
         </LemonMenu>
     )
 }
 
-export function ToolbarInfoMenu(): JSX.Element {
+export function ToolbarInfoMenu(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -95,12 +100,18 @@ export function ToolbarInfoMenu(): JSX.Element {
         <ActionsToolbarMenu />
     ) : visibleMenu === 'hedgehog' ? (
         <HedgehogMenu />
+    ) : visibleMenu === 'debugger' ? (
+        <EventDebugMenu />
     ) : null
 
     useEffect(() => {
         setMenu(ref.current)
         return () => setMenu(null)
     }, [ref.current])
+
+    if (!isAuthenticated) {
+        return null
+    }
 
     return (
         <div
@@ -130,9 +141,9 @@ export function ToolbarInfoMenu(): JSX.Element {
     )
 }
 
-export function Toolbar(): JSX.Element {
+export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
@@ -153,8 +164,15 @@ export function Toolbar(): JSX.Element {
         if (userIntent === 'add-action' || userIntent === 'edit-action') {
             setVisibleMenu('actions')
         }
+
+        if (userIntent === 'heatmaps') {
+            setVisibleMenu('heatmap')
+        }
     }, [userIntent])
 
+    if (isEmbeddedInApp) {
+        return null
+    }
     return (
         <>
             <ToolbarInfoMenu />
@@ -163,7 +181,6 @@ export function Toolbar(): JSX.Element {
                 className={clsx(
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
-                    !isAuthenticated && 'Toolbar--unauthenticated',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
@@ -178,19 +195,35 @@ export function Toolbar(): JSX.Element {
                 }
             >
                 <ToolbarButton
-                    icon={<IconLogomark />}
                     onClick={isAuthenticated ? toggleMinimized : authenticate}
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
-                />
+                >
+                    <IconLogomark />
+                </ToolbarButton>
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton icon={<IconTarget />} menuId="inspect" />
-                        <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
-                        <ToolbarButton icon={<IconBolt />} menuId="actions" />
-                        <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
+                        <ToolbarButton menuId="inspect">
+                            <IconSearch />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="heatmap">
+                            <IconCursorClick />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="actions">
+                            <IconBolt />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="flags" title="Feature flags">
+                            <IconToggle />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="debugger" title="Event debugger">
+                            <IconLive />
+                        </ToolbarButton>
                     </>
-                ) : null}
+                ) : (
+                    <ToolbarButton flex onClick={authenticate}>
+                        Authenticate
+                    </ToolbarButton>
+                )}
 
                 <MoreMenu />
             </div>

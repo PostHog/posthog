@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
 
 
 class NodeType(Enum):
@@ -24,7 +23,7 @@ NODE_TYPE_WEIGHTS = {
 class Node:
     type: NodeType
     data: dict
-    children: List["Node"] = field(default_factory=list)
+    children: list["Node"] = field(default_factory=list)
 
     def to_dict(self):
         return {
@@ -39,7 +38,7 @@ def construct_hierarchy(session, interactions_and_events, queries) -> dict:
     Constructs a tree-like hierarchy for session based on interactions and queries, to expose
     triggered-by relationships.
     """
-    nodes: List[Node] = []
+    nodes: list[Node] = []
     nodes.extend(make_empty_node(interaction_type, data) for data in interactions_and_events)
     nodes.extend(make_empty_node(query_type, data) for data in queries)
 

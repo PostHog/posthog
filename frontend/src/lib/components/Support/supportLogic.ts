@@ -11,10 +11,24 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { AvailableFeature, Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+
+export function getPublicSupportSnippet(region: Region | null | undefined, user: UserType | null): string {
+    if (!user || !region) {
+        return ''
+    }
+
+    return `Session: ${posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')} ${
+        !window.location.href.includes('settings/project') ? `(at ${window.location.href})` : ''
+    }\n${`Admin: ${`http://go/adminOrg${region}/${user.organization?.id}`} (Project: ${
+        teamLogic.values.currentTeamId
+    })`}\nSentry: ${`http://go/sentry${region}/${user.team?.id}`}`
+}
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -36,6 +50,14 @@ function getDjangoAdminLink(
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
+function getBillingAdminLink(user: UserType | null): string {
+    if (!user) {
+        return ''
+    }
+    const link = `http://go/billing/${user.organization?.id}`
+    return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
+}
+
 function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
     if (!user || !cloudRegion) {
         return ''
@@ -45,7 +67,7 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
-    support: 'Ask a question',
+    support: 'Contact support',
     feedback: 'Give feedback',
     bug: 'Report a bug',
 }
@@ -57,7 +79,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'apps',
                 'data-attr': `support-form-target-area-apps`,
-                label: 'Apps',
+                label: 'Data pipelines',
             },
             {
                 value: 'login',
@@ -144,10 +166,10 @@ export const TARGET_AREA_TO_NAME = [
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Product outage / data loss / data breach',
-    high: 'Specific feature not working at all',
-    medium: 'Feature functioning but not as expected',
-    low: 'General question or feature request',
+    critical: 'Outage, data loss, or data breach',
+    high: 'Feature is not working at all',
+    medium: 'Feature not working as expected',
+    low: 'Question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -207,6 +229,14 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     web: 'web_analytics',
 }
 
+export const SUPPORT_TICKET_TEMPLATES = {
+    bug: 'Please describe the bug you saw, and how to reproduce it.\n\nIf the bug appeared on a specific insight or dashboard, please include a link to it.',
+    feedback:
+        "If your request is due to a problem, please describe the problem as best you can.\n\nPlease also describe the solution you'd like to see, and any alternatives you considered.\n\nYou can add images below to help illustrate your request, if needed!",
+    support:
+        "Please explain as fully as possible what it is you're trying to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
+}
+
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const first_part = pathname.split('/')[1]
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
@@ -223,13 +253,23 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
 export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight'], sidePanelStateLogic, ['sidePanelAvailable']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
@@ -237,6 +277,8 @@ export const supportLogic = kea<supportLogicType>([
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
         updateUrlParams: true,
+        openEmailForm: true,
+        closeEmailForm: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -244,6 +286,13 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
+            },
+        ],
+        isEmailFormOpen: [
+            false,
+            {
+                openEmailForm: () => true,
+                closeEmailForm: () => false,
             },
         ],
     })),
@@ -292,14 +341,18 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
+                values.isEmailFormOpen ?? 'false',
             ].join(':')
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
-            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
+            let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            if (!userLogic.values.user) {
+                area = 'login'
+            }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',
@@ -309,6 +362,12 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: severity_level ?? null,
                 message: message ?? '',
             })
+
+            if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
+                actions.openEmailForm()
+            } else {
+                actions.closeEmailForm()
+            }
 
             if (values.sidePanelAvailable) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
@@ -345,6 +404,14 @@ export const supportLogic = kea<supportLogicType>([
                             id: 22129191462555,
                             value: posthog.get_distinct_id(),
                         },
+                        {
+                            id: 26073267652251,
+                            value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
+                                ? 'priority_support'
+                                : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
+                                ? 'email_support'
+                                : 'free_support',
+                        },
                     ],
                     comment: {
                         body: (
@@ -358,6 +425,14 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
                             '\n' +
+                            'PoE mode: ' +
+                            (teamLogic.values.currentTeam?.modifiers?.personsOnEventsMode ??
+                                teamLogic.values.currentTeam?.default_modifiers?.personsOnEventsMode ??
+                                'disabled') +
+                            '\n' +
+                            (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
+                                ? getBillingAdminLink(userLogic.values.user) + '\n'
+                                : '') +
                             getSentryLink(userLogic.values.user, cloudRegion)
                         ).trim(),
                     },
@@ -442,12 +517,13 @@ export const supportLogic = kea<supportLogicType>([
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
             if (panel === SidePanelTab.Support) {
-                const [kind, area, severity] = panelOptions
+                const [kind, area, severity, isEmailFormOpen] = panelOptions
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
                     severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
+                    isEmailFormOpen: isEmailFormOpen ?? 'false',
                 })
                 return
             }

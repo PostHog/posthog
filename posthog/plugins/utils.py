@@ -4,7 +4,7 @@ import os
 import re
 import tarfile
 from tarfile import ReadError
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
@@ -12,7 +12,7 @@ import requests
 from django.conf import settings
 
 
-def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
+def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)/?([A-Za-z0-9_.\-/]+)?)?$",
@@ -27,7 +27,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     if not match:
         return None
 
-    parsed: Dict[str, Optional[str]] = {
+    parsed: dict[str, Optional[str]] = {
         "type": "github",
         "root_url": f"https://github.com/{match.group(1)}/{match.group(2)}",
         "user": match.group(1),
@@ -76,13 +76,13 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     return parsed
 
 
-def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
+def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(r"^https?://(?:www\.)?gitlab\.com/([A-Za-z0-9_.\-/]+)$", url)
     if not match:
         return None
 
-    parsed: Dict[str, Optional[str]] = {
+    parsed: dict[str, Optional[str]] = {
         "type": "gitlab",
         "project": match.group(1),
         "tag": None,
@@ -127,7 +127,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     return parsed
 
 
-def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
+def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$",
@@ -135,7 +135,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
     )
     if not match:
         return None
-    parsed: Dict[str, Optional[str]] = {
+    parsed: dict[str, Optional[str]] = {
         "type": "npm",
         "pkg": match.group(1),
         "tag": match.group(4),
@@ -166,7 +166,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
     return parsed
 
 
-def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
+def parse_url(url: str, get_latest_if_none=False) -> dict[str, Optional[str]]:
     parsed_url = parse_github_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
@@ -179,7 +179,7 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
     raise Exception("Must be a GitHub/GitLab repository or npm package URL!")
 
 
-def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
+def split_url_and_private_token(url: str) -> tuple[str, Optional[str]]:
     private_token = None
     if "?" in url:
         url, query = url.split("?")
@@ -242,7 +242,7 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
 
 def load_json_file(filename: str):
     try:
-        with open(filename, "r", encoding="utf_8") as reader:
+        with open(filename, encoding="utf_8") as reader:
             return json.loads(reader.read())
     except FileNotFoundError:
         return None
@@ -313,8 +313,8 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
-) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+    archive: bytes, plugin_json_parsed: Optional[dict[str, Any]] = None
+) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
     If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""

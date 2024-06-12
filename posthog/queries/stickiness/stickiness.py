@@ -1,6 +1,6 @@
 import copy
 import urllib.parse
-from typing import Any, Dict, List
+from typing import Any
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -19,7 +19,7 @@ class Stickiness:
     event_query_class = StickinessEventsQuery
     actor_query_class = StickinessActors
 
-    def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> list[dict[str, Any]]:
         response = []
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
@@ -29,7 +29,7 @@ class Stickiness:
             response.extend(entity_resp)
         return response
 
-    def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
+    def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> dict[str, Any]:
         events_query, event_params = self.event_query_class(
             entity, filter, team, person_on_events_mode=team.person_on_events_mode
         ).get_query()
@@ -66,8 +66,8 @@ class Stickiness:
         _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
-    def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
-        response: Dict[int, int] = {}
+    def process_result(self, counts: list, filter: StickinessFilter, entity: Entity) -> dict[str, Any]:
+        response: dict[int, int] = {}
         for result in counts:
             response[result[1]] = result[0]
 
@@ -85,15 +85,15 @@ class Stickiness:
 
         return {
             "labels": labels,
-            "days": [day for day in range(1, filter.total_intervals)],
+            "days": list(range(1, filter.total_intervals)),
             "data": data,
             "count": sum(data),
             "filter": filter_params,
             "persons_urls": self._get_persons_url(filter, entity),
         }
 
-    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> List[Dict[str, Any]]:
-        serialized: Dict[str, Any] = {
+    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> list[dict[str, Any]]:
+        serialized: dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
             "count": 0,
@@ -107,7 +107,7 @@ class Stickiness:
         response.append(new_dict)
         return response
 
-    def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
+    def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> list[dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
         for interval_idx in range(1, filter.total_intervals):
@@ -119,7 +119,7 @@ class Stickiness:
                 "entity_math": entity.math,
                 "entity_order": entity.order,
             }
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {
                     "filter": extra_params,

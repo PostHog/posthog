@@ -32,6 +32,7 @@ describe('subscriptionLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/integrations': { count: 0, results: [] },
             },
         })
         initKeaTests()

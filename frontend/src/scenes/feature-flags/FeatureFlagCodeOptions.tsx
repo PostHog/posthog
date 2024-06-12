@@ -141,14 +141,14 @@ export const PAYLOAD_LIBRARIES: string[] = [
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
+        documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
         Snippet: JSBootstrappingSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
     },
     {
         value: 'React Native',
-        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
+        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
         Snippet: JSBootstrappingSnippet,
         type: LibraryType.Client,
         key: SDKKey.REACT_NATIVE,

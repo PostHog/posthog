@@ -1,13 +1,13 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +27,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
 
     return (
@@ -46,14 +46,12 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
                 fullWidth
                 disabled={!!projectCreationForbiddenReason}
                 tooltip={projectCreationForbiddenReason}
+                data-attr="new-project-button"
                 onClick={() => {
                     onClickInside?.()
-                    guardAvailableFeature(
-                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                        showCreateProjectModal,
-                        undefined,
-                        currentOrganization?.teams?.length
-                    )
+                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                        currentUsage: currentOrganization?.teams?.length,
+                    })
                 }}
             >
                 New project

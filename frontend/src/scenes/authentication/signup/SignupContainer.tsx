@@ -2,9 +2,8 @@ import { IconCheckCircle } from '@posthog/icons'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -22,25 +21,21 @@ export function SignupContainer(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     const footerHighlights = {
-        cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Community, Slack & email support'],
-        selfHosted: [
-            'Fully featured product, unlimited events',
-            'Data in your own infrastructure',
-            'Community, Slack & email support',
-        ],
+        cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
+        selfHosted: ['Fully featured product, unlimited events', 'Data in your own infrastructure', 'Community forum'],
     }
 
     return !user ? (
         <BridgePage
             view="signup"
             footer={
-                <>
+                <div className="sm:flex sm:justify-center w-full gap-[10%]">
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
-                        <span key={idx} className="text-center">
+                        <p key={idx} className="text-center mb-2">
                             {val}
-                        </span>
+                        </p>
                     ))}
-                </>
+                </div>
             }
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
@@ -50,59 +45,36 @@ export function SignupContainer(): JSX.Element | null {
     ) : null
 }
 
+const productBenefits = [
+    {
+        benefit: 'Free usage every month - even on paid plans',
+        description: '1M free events, 5K free session recordings, and more. Every month. Forever.',
+    },
+    {
+        benefit: 'Start collecting data immediately',
+        description: 'Integrate with developer-friendly APIs or a low-code web snippet.',
+    },
+    {
+        benefit: 'Join industry leaders that run on PostHog',
+        description: 'Airbus, Hasura, Y Combinator, Staples, and thousands more trust PostHog as their Product OS.',
+    },
+]
+
 export function SignupLeftContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showGenericSignupBenefits: boolean = featureFlags[FEATURE_FLAGS.GENERIC_SIGNUP_BENEFITS] === 'test'
 
     const getRegionUrl = (region: string): string => {
         const { pathname, search, hash } = router.values.currentLocation
         return `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
     }
 
-    const productBenefits: {
-        benefit: string
-        description: string
-    }[] = showGenericSignupBenefits
-        ? [
-              {
-                  benefit: 'Free usage every month - even on paid plans',
-                  description: '1M free events, 5K free session recordings, and more. Every month. Forever.',
-              },
-              {
-                  benefit: 'Start collecting data immediately',
-                  description: 'Integrate with developer-friendly APIs or low-code web snippet.',
-              },
-              {
-                  benefit: 'Join industry leaders that run on PostHog',
-                  description:
-                      'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
-              },
-          ]
-        : [
-              {
-                  benefit: 'Free for 1M events every month',
-                  description: 'Product analytics, feature flags, experiments, and more.',
-              },
-              {
-                  benefit: 'Start collecting events immediately',
-                  description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
-              },
-              {
-                  benefit: 'Join industry leaders that run on PostHog',
-                  description:
-                      'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
-              },
-          ]
-
     return (
         <>
             <div className="mb-16 max-w-100">
                 {productBenefits.map((benefit, i) => (
-                    <div className="flex flex-row gap-4 mb-4" key={i}>
+                    <div className="flex flex-row gap-3 mb-4" key={i}>
                         <div>
-                            <IconCheckCircle className="mt-2 w-4 h-4 text-link" />
+                            <IconCheckCircle className="mt-0.5 w-5 h-5 text-link" />
                         </div>
                         <div>
                             <h3 className="mb-1 font-bold leading-6">{benefit.benefit}</h3>

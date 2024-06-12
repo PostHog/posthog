@@ -7,6 +7,7 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/componen
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,13 +43,13 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     connect({
         values: [userLogic, ['hasAvailableFeature']],
     }),
-    actions({
-        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
+    actions(({ values }) => ({
+        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
         recordHoverActivity: true,
-    }),
+    })),
     loaders(({ values, props, cache }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
@@ -120,7 +121,50 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         localDefinition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
-                setDefinition: (_, { item }) => item,
+                setDefinition: (_, { item, isDataWarehouse }) => {
+                    if (isDataWarehouse && 'fields' in item) {
+                        // Pre-populate the data warehouse table settings for insights
+                        const warehouseItem = item as DataWarehouseTableForInsight
+
+                        if (!('id_field' in item)) {
+                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                            if (idField) {
+                                warehouseItem['id_field'] = idField.name
+                            }
+                        }
+
+                        if (!('distinct_id_field' in item)) {
+                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                            if (idField) {
+                                warehouseItem['distinct_id_field'] = idField.name
+                            }
+                        }
+
+                        if (!('timestamp_field' in item)) {
+                            const timestampKeys = [
+                                'created',
+                                'created_at',
+                                'createdAt',
+                                'updated',
+                                'updated_at',
+                                'updatedAt',
+                            ]
+                            const timestampNameField = Object.values(warehouseItem.fields).find((n) =>
+                                timestampKeys.includes(n.name)
+                            )
+                            const timestampTypeField = Object.values(warehouseItem.fields).find(
+                                (n) => n.type == 'datetime' || n.type == 'date'
+                            )
+                            if (timestampNameField || timestampTypeField) {
+                                warehouseItem['timestamp_field'] = timestampNameField?.name || timestampTypeField?.name
+                            }
+                        }
+
+                        return warehouseItem
+                    }
+
+                    return item
+                },
                 setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
             },
         ],
@@ -176,13 +220,24 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 [
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
                     TaxonomicFilterGroupType.Metadata,
+                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
+        ],
+        hasSentAs: [
+            (s) => [s.type, s.isProperty, s.isEvent],
+            (type, isProperty, isEvent) =>
+                isEvent || (isProperty && type !== TaxonomicFilterGroupType.SessionProperties),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],
+        isDataWarehousePersonProperty: [
+            (s) => [s.type],
+            (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        ],
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {

@@ -183,7 +183,7 @@ export function AuthorizedUrlList({
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: <>Remove {keyedURL.url} ?</>,
-                                                        description: `Are you want to remove this authorized ${
+                                                        description: `Are you sure you want to remove this authorized ${
                                                             onlyAllowDomains ? 'domain' : 'URL'
                                                         }?`,
                                                         primaryButton: {

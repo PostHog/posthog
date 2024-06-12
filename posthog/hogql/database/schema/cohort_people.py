@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
@@ -7,9 +5,9 @@ from posthog.hogql.database.models import (
     LazyJoin,
     LazyTable,
     FieldOrTable,
+    LazyTableToAdd,
 )
 from posthog.hogql.database.schema.persons import join_with_persons_table
-from posthog.schema import HogQLQueryModifiers
 
 COHORT_PEOPLE_FIELDS = {
     "person_id": StringDatabaseField(name="person_id"),
@@ -23,35 +21,45 @@ COHORT_PEOPLE_FIELDS = {
 }
 
 
-def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], team_id: int):
     from posthog.hogql import ast
+    from posthog.models import Cohort
+
+    cohort_tuples = list(
+        Cohort.objects.filter(is_static=False, team_id=team_id)
+        .exclude(version__isnull=True)
+        .values_list("id", "version")
+    )
 
     table_name = "raw_cohort_people"
 
-    # must always include the person and cohort ids regardless of what other fields are requested
-    requested_fields = {
-        "person_id": ["person_id"],
-        "cohort_id": ["cohort_id"],
-        **requested_fields,
-    }
-    fields: List[ast.Expr] = [
-        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
+    if "person_id" not in requested_fields:
+        requested_fields = {**requested_fields, "person_id": ["person_id"]}
+    if "cohort_id" not in requested_fields:
+        requested_fields = {**requested_fields, "cohort_id": ["cohort_id"]}
+
+    fields: list[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])) for name, chain in requested_fields.items()
     ]
 
     return ast.SelectQuery(
         select=fields,
+        distinct=True,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-        group_by=[ast.Field(chain=[name]) for name, chain in requested_fields.items()],
-        having=ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Call(name="sum", args=[ast.Field(chain=[table_name, "sign"])]),
-            right=ast.Constant(value=0),
-        ),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Tuple(
+                exprs=[ast.Field(chain=[table_name, "cohort_id"]), ast.Field(chain=[table_name, "version"])]
+            ),
+            right=ast.Constant(value=cohort_tuples),
+        )
+        if len(cohort_tuples) > 0
+        else ast.Constant(value=False),
     )
 
 
 class RawCohortPeople(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **COHORT_PEOPLE_FIELDS,
         "sign": IntegerDatabaseField(name="sign"),
         "version": IntegerDatabaseField(name="version"),
@@ -65,10 +73,10 @@ class RawCohortPeople(Table):
 
 
 class CohortPeople(LazyTable):
-    fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
+    fields: dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
-        return select_from_cohort_people_table(requested_fields)
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_cohort_people_table(table_to_add.fields_accessed, context.team_id)
 
     def to_printed_clickhouse(self, context):
         return "cohortpeople"

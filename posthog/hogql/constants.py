@@ -1,10 +1,8 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Literal, TypeAlias, Tuple, List
+from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
-
-from posthog.hogql.errors import HogQLException
 
 ConstantDataType: TypeAlias = Literal[
     "int",
@@ -20,21 +18,31 @@ ConstantDataType: TypeAlias = Literal[
 ]
 ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
 ConstantSupportedData: TypeAlias = (
-    ConstantSupportedPrimitive | List[ConstantSupportedPrimitive] | Tuple[ConstantSupportedPrimitive, ...]
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
 # Keywords you can't alias to
-RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
+RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
-# Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+# Max limit for all SELECT queries, and the default for CSV exports
+# Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
+MAX_SELECT_RETURNED_ROWS = 50000
+# Max limit for heatmaps which don't really need 1 billion so have their own max
+MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+
+CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
+CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
+CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
+
+BREAKDOWN_VALUES_LIMIT = 25
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
 class LimitContext(str, Enum):
@@ -42,29 +50,40 @@ class LimitContext(str, Enum):
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
+    HEATMAPS = "heatmaps"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
-    if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 10k
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
-        return MAX_SELECT_RETURNED_ROWS  # 10k
+    if limit_context in (LimitContext.EXPORT, LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+        return MAX_SELECT_RETURNED_ROWS  # 50k
+    elif limit_context == LimitContext.HEATMAPS:
+        return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
 
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 10k
+        return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.HEATMAPS:
+        return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
+
+
+def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
+    """Limit used for breakdowns"""
+    if limit_context == LimitContext.EXPORT:
+        return CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
+    return BREAKDOWN_VALUES_LIMIT
 
 
 # Settings applied at the SELECT level
@@ -79,3 +98,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
+    format_csv_allow_double_quotes: Optional[bool] = False
+    max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
+    max_expanded_ast_elements: Optional[int] = 1000000
+    max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)

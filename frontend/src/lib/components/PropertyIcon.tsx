@@ -18,8 +18,7 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { HTMLAttributes, ReactNode } from 'react'
+import { forwardRef, HTMLAttributes, Ref } from 'react'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 const osIcons = {
@@ -66,19 +65,13 @@ interface PropertyIconProps {
     property: string
     value?: string
     className?: string
-    noTooltip?: boolean
     onClick?: HTMLAttributes<HTMLDivElement>['onClick']
-    tooltipTitle?: (property: string, value?: string) => ReactNode // Tooltip title will default to `value`
 }
 
-export function PropertyIcon({
-    property,
-    value,
-    className,
-    noTooltip,
-    tooltipTitle,
-    onClick,
-}: PropertyIconProps): JSX.Element {
+export const PropertyIcon = forwardRef(function PropertyIcon(
+    { property, value, className }: PropertyIconProps,
+    ref: Ref<HTMLDivElement>
+): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
         return <></>
     }
@@ -93,11 +86,9 @@ export function PropertyIcon({
         icon = countryCodeToFlag(value)
     }
 
-    const content = (
-        <div onClick={onClick} className={clsx('inline-flex items-center', className)}>
+    return (
+        <div ref={ref} className={clsx('inline-flex items-center', className)}>
             {icon}
         </div>
     )
-
-    return noTooltip ? content : <Tooltip title={tooltipTitle?.(property, value) ?? value}>{content}</Tooltip>
-}
+})

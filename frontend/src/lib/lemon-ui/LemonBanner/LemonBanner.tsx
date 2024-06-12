@@ -3,7 +3,6 @@ import './LemonBanner.scss'
 import { IconInfo, IconWarning, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
@@ -30,16 +29,11 @@ export function LemonBanner({
     action,
     className,
     dismissKey = '',
-}: LemonBannerProps): JSX.Element {
+}: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
     const { dismiss } = useActions(logic)
     const showCloseButton = dismissKey || onClose
-
-    const { ref: wrapperRef, size } = useResizeBreakpoints({
-        0: 'compact',
-        400: 'normal',
-    })
 
     const _onClose = (): void => {
         if (dismissKey) {
@@ -49,29 +43,22 @@ export function LemonBanner({
     }
 
     if (isDismissed) {
-        return <></>
+        return null
     }
 
-    const isCompact = size === 'compact'
-
     return (
-        <div
-            className={clsx('LemonBanner', `LemonBanner--${type}`, isCompact && 'LemonBanner--compact', className)}
-            ref={wrapperRef}
-        >
-            <div className="flex items-center gap-2 grow">
-                {!isCompact ? (
-                    type === 'warning' || type === 'error' ? (
-                        <IconWarning className="LemonBanner__icon" />
-                    ) : (
-                        <IconInfo className="LemonBanner__icon" />
-                    )
-                ) : null}
+        <div className={clsx('LemonBanner @container', `LemonBanner--${type}`, className)}>
+            <div className="flex items-center gap-2 grow @md:px-1">
+                {type === 'warning' || type === 'error' ? (
+                    <IconWarning className="LemonBanner__icon hidden @md:block" />
+                ) : (
+                    <IconInfo className="LemonBanner__icon hidden @md:block" />
+                )}
                 <div className="grow overflow-hidden">{children}</div>
-                {!isCompact && action && <LemonButton type="secondary" {...action} />}
+                {action && <LemonButton className="hidden @md:flex" type="secondary" {...action} />}
                 {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
             </div>
-            {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}
+            {action && <LemonButton className="@md:hidden" type="secondary" fullWidth {...action} />}
         </div>
     )
 }

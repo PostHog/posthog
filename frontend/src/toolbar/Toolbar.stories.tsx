@@ -1,7 +1,7 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -47,7 +47,7 @@ type ToolbarStoryProps = {
     theme?: 'light' | 'dark'
 }
 
-const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
+const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
     const toolbarParams: ToolbarParams = {
         temporaryToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
         actionId: undefined,
@@ -79,6 +79,7 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/users/@me/hedgehog_config/': {},
         },
     })
 
@@ -95,7 +96,7 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
     }, [Object.values(props)])
 
     return (
-        <div>
+        <div className="min-h-[32rem]">
             <div>The toolbar should show up now! Click it to open.</div>
             <button>Click Me</button>
             <ToolbarApp {...toolbarParams} disableExternalStyles />
@@ -131,6 +132,10 @@ export const FeatureFlags = (): JSX.Element => {
     return <BasicTemplate menu="flags" />
 }
 
+export const EventsDebuggerEmpty = (): JSX.Element => {
+    return <BasicTemplate menu="debugger" />
+}
+
 // Dark theme
 export const DefaultDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" />
@@ -154,4 +159,8 @@ export const ActionsDark = (): JSX.Element => {
 
 export const FeatureFlagsDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" menu="flags" />
+}
+
+export const EventsDebuggerEmptyDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="debugger" />
 }

@@ -151,11 +151,7 @@ function ResetThrottled(): JSX.Element {
     return (
         <div className="text-center">
             There have been too many reset requests for the email <b>{requestPasswordReset?.email || 'you typed'}</b>.
-            Please try again later or{' '}
-            <Link to="mailto:hey@posthog.com" className="inline-block">
-                get in touch
-            </Link>{' '}
-            if you think this has been a mistake.
+            Please try again later or contact support if you think this has been a mistake.
             <div className="mt-4">
                 <LemonButton
                     type="primary"

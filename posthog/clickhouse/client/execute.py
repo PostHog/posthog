@@ -4,7 +4,8 @@ import types
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Optional, Union
+from collections.abc import Sequence
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
@@ -19,7 +20,7 @@ from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
 InsertParams = Union[list, tuple, types.GeneratorType]
-NonInsertParams = Dict[str, Any]
+NonInsertParams = dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
@@ -39,7 +40,7 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 
 @lru_cache(maxsize=1)
-def default_settings() -> Dict:
+def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash",
         "distributed_replica_max_ignored_errors": 1000,
@@ -87,6 +88,18 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
+    if workload == Workload.DEFAULT and (
+        # When someone uses an API key, always put their query to the offline cluster
+        get_query_tag_value("access_method") == "personal_api_key"
+        or
+        # Execute all celery tasks not directly set to be online on the offline cluster
+        (
+            get_query_tag_value("kind") == "celery"
+            and get_query_tag_value("id") != "posthog.tasks.tasks.process_query_task"
+        )
+    ):
+        workload = Workload.OFFLINE
+
     with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
@@ -106,14 +119,14 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as err:
-            err = wrap_query_error(err)
+        except Exception as e:
+            err = wrap_query_error(e)
             statsd.incr(
                 "clickhouse_sync_execution_failure",
                 tags={"failed": True, "reason": type(err).__name__},
             )
 
-            raise err
+            raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
@@ -131,11 +144,11 @@ def query_with_columns(
     query: str,
     args: Optional[QueryArgs] = None,
     columns_to_remove: Optional[Sequence[str]] = None,
-    columns_to_rename: Optional[Dict[str, str]] = None,
+    columns_to_rename: Optional[dict[str, str]] = None,
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
-) -> List[Dict]:
+) -> list[dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
@@ -184,7 +197,7 @@ def _prepare_query(
     below predicate.
     """
     prepared_args: Any = QueryArgs
-    if isinstance(args, (list, tuple, types.GeneratorType)):
+    if isinstance(args, list | tuple | types.GeneratorType):
         # If we get one of these it means we have an insert, let the clickhouse
         # client handle substitution here.
         rendered_sql = query
@@ -201,7 +214,11 @@ def _prepare_query(
         rendered_sql = substitute_params(query, args)
         prepared_args = None
 
-    formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    if "--" in rendered_sql or "/*" in rendered_sql:
+        # This can take a very long time with e.g. large funnel queries
+        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    else:
+        formatted_sql = rendered_sql
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 
     if app_settings.SHELL_PLUS_PRINT_SQL:

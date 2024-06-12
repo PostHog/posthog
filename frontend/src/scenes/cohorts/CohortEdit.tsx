@@ -1,11 +1,12 @@
-import { LemonDivider, LemonFileInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum } from 'lib/constants'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,22 +21,31 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
+    }
+
+    if (cohortLoading) {
+        return (
+            <div className="space-y-2">
+                <LemonSkeleton active className="h-4 w-2/5" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-3/5" />
+            </div>
+        )
     }
     return (
         <div className="cohort">
@@ -120,7 +130,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <div className="space-y-2 max-w-160">
+                <div className="space-y-2 max-w-200">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
@@ -147,14 +157,40 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 )}
                             </LemonField>
                         </div>
+                        {!isNewCohort && !cohort?.is_static && (
+                            <div className="max-w-70 w-fit">
+                                <div className="flex gap-1 flex-col">
+                                    <LemonLabel>Last calculated</LemonLabel>
+                                    {cohort.is_calculating ? (
+                                        <div className="text-s">In progress...</div>
+                                    ) : cohort.last_calculation ? (
+                                        <div className="flex flex-1 flex-row gap-1">
+                                            <TZLabel time={cohort.last_calculation} />
+                                            {cohort.errors_calculating ? (
+                                                <Tooltip
+                                                    title={
+                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
+                                                    }
+                                                >
+                                                    <div className="text-danger">
+                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
+                                                    </div>
+                                                </Tooltip>
+                                            ) : null}
+                                        </div>
+                                    ) : (
+                                        <div className="text-s">Not yet calculated</div>
+                                    )}
+                                    <div className="text-muted text-xs">Cohorts are recalculated every 24 hours</div>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="description" label="Description" data-attr="cohort-description">
-                                <LemonTextArea />
-                            </LemonField>
-                        </div>
-                    )}
+                    <div className="ph-ignore-input">
+                        <LemonField name="description" label="Description" data-attr="cohort-description">
+                            <LemonTextArea />
+                        </LemonField>
+                    </div>
                 </div>
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">
@@ -207,6 +243,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 ) : (
                     <>
                         <LemonDivider className="my-6" />
+                        {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
+                            <LemonBanner type="info">
+                                This cohort manages exposure for an experiment. Editing this cohort may change
+                                experiment metrics. If unsure,{' '}
+                                <Link to={urls.experiment(cohort.experiment_set[0])}>
+                                    check the experiment details.
+                                </Link>
+                            </LemonBanner>
+                        )}
                         <div className="flex items-center justify-between my-4">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
@@ -252,7 +297,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} />
+                                <Query query={query} setQuery={setQuery} context={{ alwaysRefresh: true }} />
                             )}
                         </div>
                     </>

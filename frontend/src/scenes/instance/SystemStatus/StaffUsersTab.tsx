@@ -3,7 +3,7 @@ import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -87,12 +87,11 @@ export function StaffUsersTab(): JSX.Element {
             <section>
                 <div className="flex gap-2 mb-4">
                     <div className="flex-1">
-                        <LemonSelectMultiple
+                        <LemonInputSelect
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}
                             onChange={(newValues: string[]) => setStaffUsersToBeAdded(newValues)}
-                            filterOption={true}
                             mode="multiple"
                             data-attr="subscribed-emails"
                             options={usersLemonSelectOptions(nonStaffUsers, 'uuid')}

@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import time
 from datetime import timedelta
-from typing import Dict, List, Literal
+from typing import Literal
 
 from django.db import models
 from rest_framework.request import Request
@@ -50,7 +50,7 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self) -> List[Dict]:
+    def list_channels(self) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
         public_channels = self._list_channels_by_type("public_channel")
@@ -59,7 +59,7 @@ class SlackIntegration:
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> List[Dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
         max_page = 10
         channels = []
         cursor = None
@@ -76,7 +76,7 @@ class SlackIntegration:
         return channels
 
     @classmethod
-    def integration_from_slack_response(cls, team_id: str, created_by: User, params: Dict[str, str]) -> Integration:
+    def integration_from_slack_response(cls, team_id: str, created_by: User, params: dict[str, str]) -> Integration:
         client = WebClient()
         slack_config = cls.slack_config()
 

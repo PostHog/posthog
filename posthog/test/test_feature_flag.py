@@ -10,6 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 import pytest
 
+from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
@@ -985,7 +986,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -1014,7 +1015,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # test with a flag where the property is a number
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
@@ -1493,7 +1494,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
@@ -1625,6 +1626,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={},
         )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["309"],
+            properties={"Distinct Id": "307"},
+        )
         feature_flag = self.create_feature_flag(
             key="random",
             filters={
@@ -1648,8 +1654,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+        # person doesn't exist, meaning the property doesn't exist, so it should pass the is_not check
         self.assertEqual(
             self.match_flag(feature_flag, "308"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag, "309"),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -2773,8 +2785,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="variant",
         )
 
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(
-            self
+        with (
+            self.assertNumQueries(10),
+            snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
             matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
@@ -2848,8 +2861,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(
-            self
+        with (
+            self.assertNumQueries(9),
+            snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
             matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
@@ -3272,11 +3286,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "email", "operator": "is_not_set"}]}]}
         )
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
+        with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
                     [feature_flag],
@@ -3286,16 +3301,436 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
+        with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
                     [feature_flag],
                     "random_id",
                     property_value_overrides={"email": "example@example.com"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_non_existing_person_with_is_not_set(self):
+        feature_flag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "email", "operator": "is_not_set"}]}]}
+        )
+
+        # one extra query to check existence
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "not-seen-person").get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "not-seen-person",
+                    property_value_overrides={"email": "example@example.com"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_is_not_equal_with_non_existing_person(self):
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$initial_utm_source", "type": "person", "value": ["fb"], "operator": "is_not"}
+                        ]
+                    }
+                ]
+            }
+        )
+
+        # one extra query to check existence
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "not-seen-person").get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "not-seen-person",
+                    property_value_overrides={"$initial_utm_source": "fb"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "not-seen-person",
+                    property_value_overrides={"$initial_utm_source": "fbx"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    def test_is_not_set_operator_with_overrides(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"company": "example.com"},
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="x1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "operator": "is_not_set"},
+                            {"key": "company", "operator": "is_set"},
+                        ]
+                    }
+                ]
+            },
+        )
+
+        # no extra query to check existence because it doesn't matter - since not a pure condition
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "not-seen-person").get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+        # still goes to DB because no company override, and then fails because person doesn't exist
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "not-seen-person",
+                    property_value_overrides={"email": "example@example.com"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+        # :TRICKY: For optimising queries, we're not supporting this case yet - because it should be pretty
+        # rare in practice: One property is overridden, another property doesn't exist, and the person doesn't exist yet either
+        # This will get sorted in the rewrite.
+        #
+        # goes to DB because no email override, and then FAILS because person doesn't exist (should pass ideally)
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "not-seen-person",
+                    property_value_overrides={"company": "x.com"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+        # doesn't go to DB
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "not-seen-person",
+                    property_value_overrides={"company": "x.com", "email": "k"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        # now dealing with existing person
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "another_id").get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+        # since not all conditions are available in overrides, goes to DB, but then correctly matches is_not_set condition
+        # using the given override
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "another_id",
+                    property_value_overrides={"email": "example@example.com"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_is_not_set_operator_with_pure_multiple_conditions(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id_without_email"],
+            properties={},
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="x2",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "email", "operator": "is_not_set"}]},
+                    {"properties": [{"key": "email", "operator": "icontains", "type": "person", "value": "example"}]},
+                ]
+            },
+        )
+
+        # 1 extra query to get existence clause
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "not-seen-person").get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "not-seen-person",
+                    property_value_overrides={"email": "x"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
+            )
+
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "not-seen-person",
+                    property_value_overrides={"email": "example.com"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+            )
+
+        # now dealing with existing person
+        # one extra query to check existence
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "another_id").get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+            )
+
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "another_id",
+                    property_value_overrides={"email": "x"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
+            )
+
+        # without email, person exists though, should thus return True
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "another_id_without_email").get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    def test_is_not_set_operator_with_groups(self):
+        self.create_groups()
+        Group.objects.create(
+            team=self.team,
+            group_type_index=0,
+            group_key="target_group",
+            group_properties={},
+            version=1,
+        )
+        feature_flag = self.create_feature_flag(
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "operator": "is_not_set",
+                                "type": "group",
+                                "group_type_index": 0,
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+        feature_flag_different_group = self.create_feature_flag(
+            key="x1_group2",
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "operator": "is_not_set",
+                                "type": "group",
+                                "group_type_index": 1,
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+        feature_flag_unknown_group_type = self.create_feature_flag(
+            key="x_unkown",
+            filters={
+                "aggregation_group_type_index": 5,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "operator": "is_not_set",
+                                "type": "group",
+                                "group_type_index": 5,
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+        feature_flag_with_no_person_is_not_set = self.create_feature_flag(
+            key="x1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "operator": "is_set",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+        feature_flag_with_person_is_not_set = self.create_feature_flag(
+            key="x2",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "email", "operator": "is_not_set"}]},
+                    {"properties": [{"key": "email", "operator": "icontains", "type": "person", "value": "example"}]},
+                ]
+            },
+        )
+
+        # one extra query for existence clause
+        with self.assertNumQueries(9):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "", {"organization": "target_group"}).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(9):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "", {"organization": "foo"}).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+        with self.assertNumQueries(9):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "", {"organization": "unknown-new-org"}).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # now with overrides - only query to get group type mappings
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "",
+                    {"organization": "target_group"},
+                    group_property_value_overrides={"organization": {"name": "x"}},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "",
+                    {"organization": "unknown-new-org"},
+                    group_property_value_overrides={"organization": {"name": "x"}},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        # now queries with additional flags - check if existence queries are made for different group types / persons
+
+        # no extra query for second group type because groups not passed in
+        with self.assertNumQueries(9):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_different_group], "", {"organization": "target_group"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # no extra query for second group type because unknown group not passed in
+        with self.assertNumQueries(9):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_unknown_group_type], "", {"organization": "target_group"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+        # one extra query to query group
+        # second extra query to check existence
+        with self.assertNumQueries(11):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_different_group],
+                    "",
+                    {"organization": "target_group", "project": "shazam"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # override means one less query to fetch group property values
+        # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
+        with self.assertNumQueries(10):
+            matcher = FeatureFlagMatcher(
+                [feature_flag, feature_flag_different_group],
+                "",
+                {"organization": "target_group", "project": "shazam"},
+                group_property_value_overrides={"project": {"name": "x"}},
+            )
+            self.assertEqual(
+                matcher.get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+            self.assertEqual(
+                matcher.get_match(feature_flag_different_group),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        # 9 queries same as before for groups, 1 extra for person existence check, 1 extra for person query
+        with self.assertNumQueries(11):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_with_person_is_not_set], "random_id", {"organization": "target_group"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # 9 queries same as before for groups, 1 extra for person existence check, no person query because overrides
+        # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
+        with self.assertNumQueries(10):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_with_person_is_not_set],
+                    "random_id",
+                    {"organization": "target_group"},
+                    property_value_overrides={"email": "x"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # no existence check for person because flag has not is_not_set condition
+        with self.assertNumQueries(10):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag, feature_flag_with_no_person_is_not_set],
+                    "random_id",
+                    {"organization": "target_group"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -3972,6 +4407,67 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="other-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "tear", "value": "tear", "type": "person"}], "rollout_percentage": 100}
+                ],
+            },
+        )
+
+        matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html?\x00")
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {
+                    "active-flag": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    }
+                },
+                {},
+                True,
+            ),
+        )
+        self.assertEqual(matcher.failed_to_fetch_conditions, True)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
+        # with operational error, should set db down
+        with connection.execute_wrapper(QueryTimeoutWrapper()):
+            matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html")
+
+            self.assertEqual(
+                matcher.get_matches(),
+                (
+                    {"active-flag": True},
+                    {
+                        "active-flag": {
+                            "condition_index": 0,
+                            "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                        }
+                    },
+                    {},
+                    True,
+                ),
+            )
+            self.assertEqual(matcher.failed_to_fetch_conditions, True)
+            mock_database_healthcheck.set_connection.assert_called_once_with(False)
+
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
@@ -4248,6 +4744,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
+
+    @pytest.mark.skip("This case doesn't work yet, which is a bit problematic")
+    @snapshot_postgres_queries
+    def test_property_with_double_underscores(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"org__member_count": 15},
+        )
+        # double scores in key name are interpreted in the ORM as a nested property.
+        # Unclear if there's a way to solve this, other than moving away from the ORM.
+        # But, we're doing that anyway with the rust rewrite, so not fixing for now.
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "org__member_count",
+                                "value": "9",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
 
     def test_numeric_operator(self):
         Person.objects.create(
@@ -5584,8 +6115,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
-        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
-            InsertFailOnce()
+        with (
+            snapshot_postgres_queries_context(self, capture_all_queries=True),
+            connection.execute_wrapper(InsertFailOnce()),
         ):
             flags, reasons, payloads, errors = get_all_feature_flags(
                 team.pk, "other_id", {}, hash_key_override="example_id"

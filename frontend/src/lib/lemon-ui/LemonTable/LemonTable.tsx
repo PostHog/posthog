@@ -55,6 +55,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Whether to hide the table background and inner borders. **/
     stealth?: boolean
     loading?: boolean
+    /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
+    disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
@@ -86,6 +88,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
+    // Max width for the column headers
+    maxHeaderWidth?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -102,6 +106,7 @@ export function LemonTable<T extends Record<string, any>>({
     embedded = false,
     stealth = false,
     loading,
+    disableTableWhileLoading = true,
     pagination,
     expandable,
     showHeader = true,
@@ -119,6 +124,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
+    maxHeaderWidth,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -217,7 +223,7 @@ export function LemonTable<T extends Record<string, any>>({
                 'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
-                loading && 'LemonTable--loading',
+                loading && disableTableWhileLoading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
@@ -305,7 +311,13 @@ export function LemonTable<T extends Record<string, any>>({
                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    <div className="flex items-center">
+                                                    <div
+                                                        className="flex items-center"
+                                                        /* eslint-disable-next-line react/forbid-dom-props */
+                                                        style={
+                                                            maxHeaderWidth ? { maxWidth: maxHeaderWidth } : undefined
+                                                        }
+                                                    >
                                                         {column.tooltip ? (
                                                             <Tooltip title={column.tooltip}>
                                                                 <div className="flex items-center">

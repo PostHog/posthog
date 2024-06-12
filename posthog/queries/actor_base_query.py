@@ -2,12 +2,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import (
     Any,
-    Dict,
-    List,
     Literal,
     Optional,
-    Set,
-    Tuple,
     TypedDict,
     Union,
     cast,
@@ -34,14 +30,14 @@ class EventInfoForRecording(TypedDict):
 
 class MatchedRecording(TypedDict):
     session_id: str
-    events: List[EventInfoForRecording]
+    events: list[EventInfoForRecording]
 
 
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
-    properties: Dict[str, Any]
-    matched_recordings: List[MatchedRecording]
+    properties: dict[str, Any]
+    matched_recordings: list[MatchedRecording]
     value_at_data_point: Optional[float]
 
 
@@ -50,7 +46,7 @@ class SerializedPerson(CommonActor):
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
-    distinct_ids: List[str]
+    distinct_ids: list[str]
 
 
 class SerializedGroup(CommonActor):
@@ -81,7 +77,7 @@ class ActorBaseQuery:
         self.entity = entity
         self._filter = filter
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         """Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids"""
         raise NotImplementedError()
 
@@ -96,9 +92,9 @@ class ActorBaseQuery:
 
     def get_actors(
         self,
-    ) -> Tuple[
+    ) -> tuple[
         Union[QuerySet[Person], QuerySet[Group]],
-        Union[List[SerializedGroup], List[SerializedPerson]],
+        Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
         """Get actors in data model and dict formats. Builds query and executes"""
@@ -124,10 +120,10 @@ class ActorBaseQuery:
 
     def query_for_session_ids_with_recordings(
         self,
-        session_ids: Set[str],
+        session_ids: set[str],
         date_from: datetime | None,
         date_to: datetime | None,
-    ) -> Set[str]:
+    ) -> set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
         SELECT DISTINCT session_id
@@ -148,7 +144,7 @@ class ActorBaseQuery:
 
         params = {
             "team_id": self._team.pk,
-            "session_ids": sorted(list(session_ids)),  # Sort for stable queries
+            "session_ids": sorted(session_ids),  # Sort for stable queries
             # widen the date range a little
             # we don't want to exclude sessions that start or end within a
             # reasonable time of the query date range
@@ -166,9 +162,9 @@ class ActorBaseQuery:
 
     def add_matched_recordings_to_serialized_actors(
         self,
-        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]],
+        serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]],
         raw_result,
-    ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
+    ) -> Union[list[SerializedGroup], list[SerializedPerson]]:
         all_session_ids = set()
 
         session_events_column_index = 2 if self.ACTOR_VALUES_INCLUDED else 1
@@ -192,9 +188,9 @@ class ActorBaseQuery:
         )
         session_ids_with_recordings = session_ids_with_all_recordings.difference(session_ids_with_deleted_recordings)
 
-        matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
+        matched_recordings_by_actor_id: dict[Union[uuid.UUID, str], list[MatchedRecording]] = {}
         for row in raw_result:
-            recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
+            recording_events_by_session_id: dict[str, list[EventInfoForRecording]] = {}
             if len(row) > session_events_column_index - 1:
                 for event in row[session_events_column_index]:
                     event_session_id = event[2]
@@ -211,7 +207,7 @@ class ActorBaseQuery:
 
         # Casting Union[SerializedActor, SerializedGroup] as SerializedPerson because mypy yells
         # when you do an indexed assignment on a Union even if all items in the Union support it
-        serialized_actors = cast(List[SerializedPerson], serialized_actors)
+        serialized_actors = cast(list[SerializedPerson], serialized_actors)
         serialized_actors_with_recordings = []
         for actor in serialized_actors:
             actor["matched_recordings"] = matched_recordings_by_actor_id[actor["id"]]
@@ -221,12 +217,12 @@ class ActorBaseQuery:
 
     def get_actors_from_result(
         self, raw_result
-    ) -> Tuple[
+    ) -> tuple[
         Union[QuerySet[Person], QuerySet[Group]],
-        Union[List[SerializedGroup], List[SerializedPerson]],
+        Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
         actors: Union[QuerySet[Person], QuerySet[Group]]
-        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
+        serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
         value_per_actor_id = {str(row[0]): row[1] for row in raw_result} if self.ACTOR_VALUES_INCLUDED else None
@@ -255,9 +251,9 @@ class ActorBaseQuery:
 def get_groups(
     team_id: int,
     group_type_index: int,
-    group_ids: List[Any],
-    value_per_actor_id: Optional[Dict[str, float]] = None,
-) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
+    group_ids: list[Any],
+    value_per_actor_id: Optional[dict[str, float]] = None,
+) -> tuple[QuerySet[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
     groups: QuerySet[Group] = Group.objects.filter(
         team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
@@ -267,10 +263,10 @@ def get_groups(
 
 def get_people(
     team: Team,
-    people_ids: List[Any],
-    value_per_actor_id: Optional[Dict[str, float]] = None,
+    people_ids: list[Any],
+    value_per_actor_id: Optional[dict[str, float]] = None,
     distinct_id_limit=1000,
-) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
+) -> tuple[QuerySet[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
         PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[
@@ -294,9 +290,9 @@ def get_people(
 
 def serialize_people(
     team: Team,
-    data: Union[QuerySet[Person], List[Person]],
-    value_per_actor_id: Optional[Dict[str, float]] = None,
-) -> List[SerializedPerson]:
+    data: Union[QuerySet[Person], list[Person]],
+    value_per_actor_id: Optional[dict[str, float]] = None,
+) -> list[SerializedPerson]:
     from posthog.api.person import get_person_name
 
     return [
@@ -316,7 +312,7 @@ def serialize_people(
     ]
 
 
-def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[Dict[str, float]]) -> List[SerializedGroup]:
+def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[dict[str, float]]) -> list[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,

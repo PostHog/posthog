@@ -1,26 +1,29 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { lowercaseFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
-import { sceneLogic } from 'scenes/sceneLogic'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
 
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateMiniButton } from './PayGateMiniButton'
+import { PayGateMiniButtonVariant } from './PayGateMiniButtonVariant'
 import { payGateMiniLogic } from './payGateMiniLogic'
 
 export interface PayGateMiniProps {
     feature: AvailableFeature
     currentUsage?: number
-    children: React.ReactNode
+    /**
+     * The content to show when the feature is available. Will show nothing if children is undefined.
+     */
+    children?: React.ReactNode
     overrideShouldShowGate?: boolean
     className?: string
     background?: boolean
@@ -41,13 +44,20 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant } = useValues(
-        payGateMiniLogic({ featureKey: feature, currentUsage })
-    )
+    const {
+        productWithFeature,
+        featureInfo,
+        featureAvailableOnOrg,
+        gateVariant,
+        isAddonProduct,
+        featureInfoOnNextPlan,
+    } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
     const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
+    const { hideUpgradeModal } = useActions(upgradeModalLogic)
+
+    const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
 
     useEffect(() => {
         if (gateVariant) {
@@ -59,6 +69,15 @@ export function PayGateMini({
         }
     }, [gateVariant])
 
+    const handleCtaClick = (): void => {
+        hideUpgradeModal()
+        posthog.capture('pay gate CTA clicked', {
+            product_key: productWithFeature?.type,
+            feature: feature,
+            gate_variant: gateVariant,
+        })
+    }
+
     if (billingLoading) {
         return null
     }
@@ -67,79 +86,72 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
-        gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
-            <div
-                className={clsx(
-                    className,
-                    background && 'bg-side border border-border',
-                    'PayGateMini rounded flex flex-col items-center p-4 text-center'
-                )}
+    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
+        return (
+            <PayGateContent
+                className={className}
+                background={background}
+                featureInfo={featureInfo}
+                featureAvailableOnOrg={featureAvailableOnOrg}
+                gateVariant={gateVariant}
+                productWithFeature={productWithFeature}
+                isGrandfathered={isGrandfathered}
+                isAddonProduct={isAddonProduct}
+                featureInfoOnNextPlan={featureInfoOnNextPlan}
+                handleCtaClick={handleCtaClick}
             >
-                <div className="flex text-4xl text-warning">
-                    {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
-                </div>
-                <h3>{featureInfo.name}</h3>
-                {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
-                    <div>
-                        <p>
-                            You've reached your usage limit for{' '}
-                            <Tooltip title={featureInfo.description}>
-                                <span>
-                                    <b>{featureInfo.name}</b>
-                                    <IconInfo className="ml-0.5 text-muted" />
-                                </span>
-                            </Tooltip>
-                            .
-                        </p>
-                        <p className="border border-border bg-side rounded p-4">
-                            <b>Your current plan limit:</b>{' '}
-                            <span>
-                                {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
-                            </span>
-                        </p>
-                        <p>
-                            Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
-                        </p>
-                    </div>
+                {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
+                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
+                    <PayGateMiniButton
+                        product={productWithFeature}
+                        featureInfo={featureInfo}
+                        gateVariant={gateVariant}
+                    />
                 ) : (
-                    <>
-                        <p>{featureInfo.description}</p>
-                        <p>
-                            {gateVariant === 'move-to-cloud' ? (
-                                <>This feature is only available on PostHog Cloud.</>
-                            ) : (
-                                <>
-                                    Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-                                </>
-                            )}
-                        </p>
-                    </>
+                    <PayGateMiniButtonVariant
+                        gateVariant={gateVariant}
+                        productWithFeature={productWithFeature}
+                        featureInfo={featureInfo}
+                        onCtaClick={handleCtaClick}
+                        billing={billing}
+                        scrollToProduct={scrollToProduct}
+                    />
                 )}
-                {isGrandfathered && (
-                    <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
-                        <IconInfo className="text-muted text-2xl" />
-                        <p className="text-muted mb-0">
-                            Your plan does not include this feature, but previously set settings may remain. Please
-                            upgrade your plan to regain access.
-                        </p>
-                    </div>
-                )}
-                {featureInfo.docsUrl && (
-                    <div className="mb-4">
-                        <>
-                            <Link to={featureInfo.docsUrl} target="_blank">
-                                Learn more in PostHog Docs.
-                            </Link>
-                        </>
-                    </div>
-                )}
-                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
-            </div>
-        ) : (
-            <div className={className}>{children}</div>
+            </PayGateContent>
         )
-    ) : gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
+    }
+
+    return <div className={className}>{children}</div>
+}
+
+interface PayGateContentProps {
+    className?: string
+    background: boolean
+    featureInfo: BillingV2FeatureType
+    featureAvailableOnOrg?: BillingV2FeatureType | null
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type
+    isGrandfathered?: boolean
+    isAddonProduct?: boolean
+    featureInfoOnNextPlan?: BillingV2FeatureType
+    children: React.ReactNode
+    handleCtaClick: () => void
+}
+
+function PayGateContent({
+    className,
+    background,
+    featureInfo,
+    featureAvailableOnOrg,
+    gateVariant,
+    productWithFeature,
+    isGrandfathered,
+    isAddonProduct,
+    featureInfoOnNextPlan,
+    children,
+    handleCtaClick,
+}: PayGateContentProps): JSX.Element {
+    return (
         <div
             className={clsx(
                 className,
@@ -151,89 +163,119 @@ export function PayGateMini({
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h3>{featureInfo.name}</h3>
-            {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
-                <div>
-                    <p>
-                        You've reached your usage limit for{' '}
-                        <Tooltip title={featureInfo.description}>
-                            <span>
-                                <b>{featureInfo.name}</b>
-                                <IconInfo className="ml-0.5 text-muted" />
-                            </span>
-                        </Tooltip>
-                        .
-                    </p>
-                    <p className="border border-border bg-side rounded p-4">
-                        <b>Your current plan limit:</b>{' '}
+            {renderUsageLimitMessage(
+                featureAvailableOnOrg,
+                featureInfoOnNextPlan,
+                gateVariant,
+                featureInfo,
+                productWithFeature,
+                isAddonProduct,
+                handleCtaClick
+            )}
+            {isGrandfathered && <GrandfatheredMessage />}
+            {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
+            {children}
+        </div>
+    )
+}
+
+const renderUsageLimitMessage = (
+    featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
+    featureInfoOnNextPlan: BillingV2FeatureType | undefined,
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    featureInfo: BillingV2FeatureType,
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean,
+    handleCtaClick?: () => void
+): JSX.Element => {
+    if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
+        return (
+            <div>
+                <p>
+                    You've reached your usage limit for{' '}
+                    <Tooltip title={featureInfo.description}>
                         <span>
-                            {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                            <b>{featureInfo.name}</b>
+                            <IconInfo className="ml-0.5 text-muted" />
                         </span>
-                    </p>
+                    </Tooltip>
+                    .
+                </p>
+                <p className="border border-border bg-side rounded p-4">
+                    <b>Your current plan limit:</b>{' '}
+                    <span>
+                        {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                    </span>
+                </p>
+                {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
+                    <>
+                        <p>
+                            Please enter your credit card details by subscribing to any product (eg. Product analytics
+                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                        </p>
+                        <p className="italic text-xs text-muted mb-4">
+                            Need unlimited projects? Check out the{' '}
+                            <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
+                                Teams addon
+                            </Link>
+                            .
+                        </p>
+                    </>
+                ) : (
                     <p>
                         Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
                     </p>
-                </div>
-            ) : (
-                <p>
-                    {gateVariant === 'move-to-cloud' ? (
-                        <>On PostHog Cloud, you can </>
-                    ) : (
-                        <>
-                            Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
-                        </>
-                    )}
-                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
-                </p>
-            )}
-            {isGrandfathered && (
-                <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
-                    <IconInfo className="text-muted text-2xl" />
-                    <p className="text-muted mb-0">
-                        Your plan does not include this feature, but previously set settings may remain. Please upgrade
-                        your plan to regain access.
-                    </p>
-                </div>
-            )}
-            {featureInfo.docsUrl && (
-                <div className="mb-4">
-                    <>
-                        <Link to={featureInfo.docsUrl} target="_blank">
-                            Learn more in PostHog Docs.
-                        </Link>
-                    </>
-                </div>
-            )}
-            <LemonButton
-                to={
-                    gateVariant === 'add-card'
-                        ? `/organization/billing?products=${productWithFeature.type}`
-                        : gateVariant === 'contact-sales'
-                        ? `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
-                        : gateVariant === 'move-to-cloud'
-                        ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
-                        : undefined
-                }
-                type="primary"
-                center
-                onClick={() => {
-                    hideUpgradeModal()
-                    posthog.capture('pay gate CTA clicked', {
-                        product_key: productWithFeature?.type,
-                        feature: feature,
-                        gate_variant: gateVariant,
-                    })
-                }}
-            >
-                {gateVariant === 'add-card'
-                    ? billing?.has_active_subscription
-                        ? `Upgrade ${productWithFeature?.name}`
-                        : 'Subscribe now'
-                    : gateVariant === 'contact-sales'
-                    ? 'Contact sales'
-                    : 'Move to PostHog Cloud'}
-            </LemonButton>
+                )}
+            </div>
+        )
+    }
+    return (
+        <>
+            <p>{featureInfo.description}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+        </>
+    )
+}
+
+const renderGateVariantMessage = (
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean
+): JSX.Element => {
+    if (gateVariant === 'move-to-cloud') {
+        return <>This feature is only available on PostHog Cloud.</>
+    } else if (isAddonProduct) {
+        return (
+            <>
+                Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+            </>
+        )
+    }
+    return (
+        <>
+            Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+        </>
+    )
+}
+
+const GrandfatheredMessage = (): JSX.Element => {
+    return (
+        <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+            <IconInfo className="text-muted text-2xl" />
+            <p className="text-muted mb-0">
+                Your plan does not include this feature, but previously set settings may remain. Please upgrade your
+                plan to regain access.
+            </p>
         </div>
-    ) : (
-        <div className={className}>{children}</div>
+    )
+}
+
+const DocsLink = ({ url }: { url: string }): JSX.Element => {
+    return (
+        <div className="mb-4">
+            <Link to={url} target="_blank">
+                Learn more in PostHog Docs.
+            </Link>
+        </div>
     )
 }

@@ -5,14 +5,16 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-export function useThemedHtml(): void {
+export function useThemedHtml(overflowHidden = true): void {
     const { isDarkModeOn } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
     useEffect(() => {
         document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
-        document.body.classList.add('overflow-hidden')
+        if (overflowHidden) {
+            document.body.classList.add('overflow-hidden')
+        }
     }, [isDarkModeOn])
 
     useEffect(() => {

@@ -4,8 +4,10 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useEffect } from 'react'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -18,23 +20,23 @@ import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/Funn
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
+import { InsightTestAccountFilter } from '~/queries/nodes/InsightViz/filters/InsightTestAccountFilter'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
-
-import { DEFAULT_DURATION } from './experimentLogic'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
     showDateRangeBanner?: boolean
+    forceTrendExposureMetric?: boolean
 }
 
 export function MetricSelector({
     dashboardItemId,
     setPreviewInsight,
     showDateRangeBanner,
+    forceTrendExposureMetric,
 }: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
@@ -45,6 +47,12 @@ export function MetricSelector({
 
     // insightVizDataLogic
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
+
+    useEffect(() => {
+        if (forceTrendExposureMetric && !isTrends) {
+            setPreviewInsight({ insight: InsightType.TRENDS })
+        }
+    }, [forceTrendExposureMetric, isTrends])
 
     return (
         <>
@@ -60,6 +68,7 @@ export function MetricSelector({
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
                         { value: InsightType.FUNNELS, label: <b>Funnels</b> },
                     ]}
+                    disabledReason={forceTrendExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
                 />
             </div>
 
@@ -75,8 +84,8 @@ export function MetricSelector({
 
             {showDateRangeBanner && (
                 <LemonBanner type="info" className="mt-3 mb-3">
-                    Preview insights are generated based on {DEFAULT_DURATION} days of data. This can cause a mismatch
-                    between the preview and the actual results.
+                    Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
+                    mismatch between the preview and the actual results.
                 </LemonBanner>
             )}
 
@@ -143,7 +152,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                         <AttributionSelect insightProps={insightProps} />
                     </>
                 )}
-                <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
+                <InsightTestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
             </div>
         </>
     )

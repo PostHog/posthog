@@ -19,16 +19,25 @@ export function UserDetails(): JSX.Element {
                 maxWidth: '28rem',
             }}
         >
-            <LemonField name="first_name" label="Your name">
+            <LemonField name="first_name" label="First name">
                 <LemonInput
                     className="ph-ignore-input"
                     data-attr="settings-update-first-name"
-                    placeholder="Jane Doe"
+                    placeholder="Jane"
                     disabled={userLoading}
                 />
             </LemonField>
 
-            <LemonField name="email" label="Your email">
+            <LemonField name="last_name" label="Last name">
+                <LemonInput
+                    className="ph-ignore-input"
+                    data-attr="settings-update-last-name"
+                    placeholder="Doe"
+                    disabled={userLoading}
+                />
+            </LemonField>
+
+            <LemonField name="email" label="Email">
                 <LemonInput
                     className="ph-ignore-input"
                     data-attr="settings-update-email"

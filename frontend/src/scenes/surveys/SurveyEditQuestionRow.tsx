@@ -7,20 +7,22 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { Survey, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { BaseAppearance, SurveyMultipleChoiceAppearance, SurveyRatingAppearance } from './SurveyAppearance'
+import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
-    setSelectedQuestion: (index: number) => void
+    setSelectedPageIndex: (index: number) => void
     setSurveyValue: (key: string, value: any) => void
 }
 
@@ -33,7 +35,7 @@ const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | un
 export function SurveyEditQuestionHeader({
     index,
     survey,
-    setSelectedQuestion,
+    setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
@@ -70,7 +72,7 @@ export function SurveyEditQuestionHeader({
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
-                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
+                        setSelectedPageIndex(index <= 0 ? 0 : index - 1)
                         setSurveyValue(
                             'questions',
                             survey.questions.filter((_, i) => i !== index)
@@ -84,8 +86,32 @@ export function SurveyEditQuestionHeader({
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
-    const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
+    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const hasBranching =
+        featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC] &&
+        (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice)
+
+    const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
+
+    const handleQuestionValueChange = (key: string, val: string): void => {
+        const updatedQuestion = survey.questions.map((question, idx) => {
+            if (index === idx) {
+                return {
+                    ...question,
+                    [key]: val,
+                }
+            }
+            return question
+        })
+        setSurveyValue('questions', updatedQuestion)
+    }
+
+    const handleTabChange = (key: string): void => {
+        handleQuestionValueChange('descriptionContentType', key)
+    }
+
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -113,106 +139,23 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             {
                                 label: SurveyQuestionLabel[SurveyQuestionType.Open],
                                 value: SurveyQuestionType.Open,
-                                tooltip: () => (
-                                    <BaseAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{
-                                            ...survey.appearance,
-                                            whiteLabel: true,
-                                        }}
-                                        question={{
-                                            type: SurveyQuestionType.Open,
-                                            question: 'Share your thoughts',
-                                            description: 'Optional form description',
-                                        }}
-                                    />
-                                ),
                             },
                             {
                                 label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
-                                tooltip: () => (
-                                    <BaseAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{
-                                            ...survey.appearance,
-                                            whiteLabel: true,
-                                        }}
-                                        question={{
-                                            type: SurveyQuestionType.Link,
-                                            question: 'Do you want to join our upcoming webinar?',
-                                            buttonText: 'Register',
-                                            link: '',
-                                        }}
-                                    />
-                                ),
                             },
                             {
                                 label: 'Rating',
                                 value: SurveyQuestionType.Rating,
-                                tooltip: () => (
-                                    <SurveyRatingAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{ ...survey.appearance, whiteLabel: true }}
-                                        ratingSurveyQuestion={{
-                                            question: 'How satisfied are you with our product?',
-                                            description: 'Optional form description.',
-                                            display: 'number',
-                                            lowerBoundLabel: 'Not great',
-                                            upperBoundLabel: 'Fantastic',
-                                            scale: 5,
-                                            type: SurveyQuestionType.Rating,
-                                        }}
-                                    />
-                                ),
                             },
                             ...[
                                 {
                                     label: 'Single choice select',
                                     value: SurveyQuestionType.SingleChoice,
-                                    tooltip: () => (
-                                        <SurveyMultipleChoiceAppearance
-                                            initialChecked={[0]}
-                                            preview
-                                            onSubmit={() => undefined}
-                                            appearance={{
-                                                ...survey.appearance,
-                                                whiteLabel: true,
-                                            }}
-                                            multipleChoiceQuestion={{
-                                                type: SurveyQuestionType.SingleChoice,
-                                                choices: ['Yes', 'No'],
-                                                question: 'Have you found this tutorial useful?',
-                                            }}
-                                        />
-                                    ),
                                 },
                                 {
                                     label: 'Multiple choice select',
                                     value: SurveyQuestionType.MultipleChoice,
-                                    tooltip: () => (
-                                        <SurveyMultipleChoiceAppearance
-                                            initialChecked={[0, 1]}
-                                            preview
-                                            onSubmit={() => undefined}
-                                            appearance={{
-                                                ...survey.appearance,
-                                                whiteLabel: true,
-                                            }}
-                                            multipleChoiceQuestion={{
-                                                type: SurveyQuestionType.MultipleChoice,
-                                                choices: [
-                                                    'Tutorials',
-                                                    'Customer case studies',
-                                                    'Product announcements',
-                                                ],
-                                                question: 'Which types of content would you like to see more of?',
-                                            }}
-                                        />
-                                    ),
                                 },
                             ],
                         ]}
@@ -225,9 +168,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
-                            onChange={onChange}
-                            writingHTMLDescription={writingHTMLDescription}
-                            setWritingHTMLDescription={setWritingHTMLDescription}
+                            onChange={(val) => {
+                                onChange(val)
+                                handleQuestionValueChange('description', val)
+                            }}
+                            onTabChange={handleTabChange}
+                            activeTab={initialDescriptionContentType}
                         />
                     )}
                 </LemonField>
@@ -362,6 +308,20 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 Add open-ended choice
                                                             </LemonButton>
                                                         )}
+                                                        <LemonField name="shuffleOptions" className="mt-2">
+                                                            {({
+                                                                value: shuffleOptions,
+                                                                onChange: toggleShuffleOptions,
+                                                            }) => (
+                                                                <LemonCheckbox
+                                                                    checked={!!shuffleOptions}
+                                                                    label="Shuffle options"
+                                                                    onChange={(checked) =>
+                                                                        toggleShuffleOptions(checked)
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </LemonField>
                                                     </>
                                                 )}
                                             </div>
@@ -379,6 +339,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
+                {hasBranching && <QuestionBranchingInput questionIndex={index} question={question} />}
             </div>
         </Group>
     )

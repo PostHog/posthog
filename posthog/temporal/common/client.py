@@ -49,3 +49,16 @@ async def sync_connect() -> Client:
         settings.TEMPORAL_CLIENT_KEY,
     )
     return client
+
+
+async def async_connect() -> Client:
+    """Asynchronous connect to Temporal and return a Client."""
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+    return client

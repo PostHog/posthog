@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from django.conf import settings
 from django.middleware.gzip import GZipMiddleware
@@ -9,7 +8,7 @@ class InvalidGZipAllowList(Exception):
     pass
 
 
-def allowed_path(path: str, allowed_paths: List) -> bool:
+def allowed_path(path: str, allowed_paths: list) -> bool:
     return any(pattern.search(path) for pattern in allowed_paths)
 
 

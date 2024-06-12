@@ -24,9 +24,8 @@ const periodIsLatest = (date_to: string | null, period: string | null): boolean 
         (period == 'Month' && curr.isSame(dayjs(), 'month'))
     ) {
         return true
-    } else {
-        return false
     }
+    return false
 }
 
 export const retentionTableLogic = kea<retentionTableLogicType>([

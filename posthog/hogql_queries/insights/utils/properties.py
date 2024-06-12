@@ -1,11 +1,11 @@
-from typing import List, TypeAlias
+from typing import TypeAlias
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.schema import PropertyGroupFilter
 from posthog.types import AnyPropertyFilter
 
-PropertiesType: TypeAlias = List[AnyPropertyFilter] | PropertyGroupFilter | None
+PropertiesType: TypeAlias = list[AnyPropertyFilter] | PropertyGroupFilter | None
 
 
 class Properties:
@@ -17,8 +17,8 @@ class Properties:
     ) -> None:
         self.context = context
 
-    def to_exprs(self) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def to_exprs(self) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
         team, query = self.context.team, self.context.query
 

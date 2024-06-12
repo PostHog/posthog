@@ -15,10 +15,19 @@
   <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/community">Community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://posthog.com/changelog">Changelog</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug reports</a> 
 </p>
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
+    <img src="https://img.youtube.com/vi/2jQco8hEvTI/0.jpg" alt="PostHog Demonstration">
+  </a>
+  <br
+  <em><a href="https://www.youtube.com/watch?v=2jQco8hEvTI">See PostHog in action</a></em>
+</p>
+
 ## PostHog is an all-in-one, open source platform for building better products
 
 - Specify events manually, or use autocapture to get started quickly
 - Analyze data with ready-made visualizations, or do it yourself with SQL
+- Only capture properties on the people you want to track, save money when you don't
 - Gather insights by capturing session replays, console logs, and network monitoring
 - Improve your product with A/B testing that automatically analyzes performance
 - Safely roll out features to select users or cohorts with feature flags
@@ -31,7 +40,7 @@ PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. 
 - 1 million feature flag requests
 - 250 survey responses
 
-We're constantly adding new features, with web analytics and data warehouse now in beta!
+We're constantly adding new features, with <a href="https://posthog.com/docs/web-analytics">web analytics</a> and <a href="https://posthog.com/docs/data-warehouse">data warehouse</a> now in beta!
 
 ## Table of Contents
 
@@ -65,8 +74,8 @@ PostHog brings all the tools and data you need to build better products.
 
 ### Analytics and optimization tools
 
-- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/integrate/client/js#autocapture), or [customize](https://posthog.com/docs/integrate) it to your needs
-- **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
+- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/libraries/js#autocapture), or [customize](https://posthog.com/docs/getting-started/install) it to your needs
+- **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them when needed
 - **Data visualizations:** Create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
 - **SQL access:** Use [SQL](https://posthog.com/docs/product-analytics/sql) to get a deeper understanding of your users, breakdown information and create completely tailored visualizations
 - **Session replays:** [Watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs

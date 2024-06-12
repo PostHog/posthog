@@ -1,6 +1,6 @@
 import './ViewLinkModal.scss'
 
-import { IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField, NodeKind } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -35,7 +35,7 @@ export function ViewLinkModal(): JSX.Element {
             }
             isOpen={isJoinTableModalOpen}
             onClose={toggleJoinTableModal}
-            width={600}
+            width={700}
         >
             <ViewLinkForm />
         </LemonModal>
@@ -57,6 +57,7 @@ export function ViewLinkForm(): JSX.Element {
         selectedJoiningKey,
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
+        isViewLinkSubmitting,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -66,27 +67,30 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceKey,
         selectJoiningKey,
     } = useActions(viewLinkLogic)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
             <div className="flex flex-col w-full justify-between items-center">
                 <div className="flex flex-row w-full justify-between">
-                    <div className={isNewJoin ? 'w-50' : 'flex flex-col'}>
+                    <div className="w-60">
                         <span className="l4">Source Table</span>
-                        {isNewJoin ? (
-                            <Field name="source_table_name">
-                                <LemonSelect
-                                    fullWidth
-                                    options={tableOptions}
-                                    onSelect={selectSourceTable}
-                                    placeholder="Select a table"
-                                />
-                            </Field>
-                        ) : (
-                            selectedSourceTableName ?? ''
-                        )}
+                        <div className="text-wrap break-all">
+                            {isNewJoin ? (
+                                <Field name="source_table_name">
+                                    <LemonSelect
+                                        fullWidth
+                                        options={tableOptions}
+                                        onSelect={selectSourceTable}
+                                        placeholder="Select a table"
+                                    />
+                                </Field>
+                            ) : (
+                                selectedSourceTableName ?? ''
+                            )}
+                        </div>
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table</span>
                         <Field name="joining_table_name">
                             <LemonSelect
@@ -98,8 +102,8 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
-                <div className="mt-3 flex flex-row justify-between items-center w-full">
-                    <div className="w-50">
+                <div className="mt-4 flex flex-row justify-between items-center w-full">
+                    <div className="w-60">
                         <span className="l4">Source Table Key</span>
                         <Field name="source_table_key">
                             <>
@@ -124,7 +128,7 @@ export function ViewLinkForm(): JSX.Element {
                     <div className="mt-5">
                         <IconSwapHoriz />
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table Key</span>
                         <Field name="joining_table_key">
                             <>
@@ -148,8 +152,22 @@ export function ViewLinkForm(): JSX.Element {
                     </div>
                 </div>
                 {sqlCodeSnippet && (
-                    <>
+                    <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
+                        <LemonButton
+                            fullWidth
+                            onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                            sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                        >
+                            <div>
+                                <h3 className="l4 mt-2">Advanced settings</h3>
+                                <div className="text-muted mb-2 font-medium">Customize how the fields are accessed</div>
+                            </div>
+                        </LemonButton>
+                    </div>
+                )}
+                {sqlCodeSnippet && advancedSettingsExpanded && (
+                    <>
                         <div className="mt-3 flex flex-row justify-between items-center w-full">
                             <div className="w-full">
                                 <span className="l4">Field Name</span>
@@ -166,7 +184,7 @@ export function ViewLinkForm(): JSX.Element {
                             </div>
                         </div>
                         <div className="mt-4 flex w-full">
-                            <CodeSnippet style={{ width: '100%' }} language={Language.SQL}>
+                            <CodeSnippet className="w-full" language={Language.SQL}>
                                 {sqlCodeSnippet}
                             </CodeSnippet>
                         </div>
@@ -185,7 +203,7 @@ export function ViewLinkForm(): JSX.Element {
                 <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
                     Close
                 </LemonButton>
-                <LemonButton type="primary" htmlType="submit">
+                <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
                     Save
                 </LemonButton>
             </div>
@@ -237,33 +255,14 @@ const HogQLDropdown = ({
     )
 }
 
-interface ViewLinkDeleteButtonProps {
-    table: string
-    column: string
-}
-
-export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProps): JSX.Element {
-    const { deleteViewLink } = useActions(viewLinkLogic)
-
-    return (
-        <LemonButton
-            icon={<IconTrash />}
-            onClick={() => deleteViewLink(table, column)}
-            tooltip="Remove view association"
-            tooltipPlacement="bottom-start"
-            size="small"
-        />
-    )
-}
-
 interface KeyLabelProps {
-    column: DatabaseSchemaQueryResponseField
+    column: DatabaseSchemaField
 }
 
 export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
     return (
         <span>
-            {column.key}{' '}
+            {column.name}{' '}
             <LemonTag type="success" className="uppercase">
                 {column.type}
             </LemonTag>

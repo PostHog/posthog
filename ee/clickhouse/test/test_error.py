@@ -35,6 +35,12 @@ from posthog.errors import wrap_query_error
             "Query exceeds memory limits. Try reducing its scope by changing the time range.",
             241,
         ),
+        (
+            ServerException("Too many simultaneous queries. Maximum: 100.", code=202),
+            "CHQueryErrorTooManySimultaneousQueries",
+            "Code: 202.\nToo many simultaneous queries. Try again later.",
+            202,
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code):

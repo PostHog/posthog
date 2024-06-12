@@ -15,6 +15,7 @@ import {
     FunnelsQuery,
     HogQLMetadata,
     HogQLQuery,
+    HogQuery,
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
@@ -40,7 +41,9 @@ import {
     WebTopClicksQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+export function isDataNode(
+    node?: Record<string, any> | null
+): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return (
         isEventsNode(node) ||
         isActionsNode(node) ||
@@ -53,16 +56,16 @@ export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNod
     )
 }
 
-function isTimeToSeeDataJSONNode(node?: Node | null): node is TimeToSeeDataJSONNode {
+function isTimeToSeeDataJSONNode(node?: Record<string, any> | null): node is TimeToSeeDataJSONNode {
     return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
 }
 
-function isTimeToSeeDataWaterfallNode(node?: Node | null): node is TimeToSeeDataWaterfallNode {
+function isTimeToSeeDataWaterfallNode(node?: Record<string, any> | null): node is TimeToSeeDataWaterfallNode {
     return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
 }
 
 export function isNodeWithSource(
-    node?: Node | null
+    node?: Record<string, any> | null
 ): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
     if (!node) {
         return false
@@ -77,71 +80,75 @@ export function isNodeWithSource(
     )
 }
 
-export function isEventsNode(node?: Node | null): node is EventsNode {
+export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
 }
 
-export function isEventsQuery(node?: Node | null): node is EventsQuery {
+export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
 }
 
-export function isActionsNode(node?: Node | null): node is ActionsNode {
+export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isDataWarehouseNode(node?: Node | null): node is DataWarehouseNode {
+export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
 }
 
-export function isPersonsNode(node?: Node | null): node is PersonsNode {
+export function isPersonsNode(node?: Record<string, any> | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
 
-export function isActorsQuery(node?: Node | null): node is ActorsQuery {
+export function isActorsQuery(node?: Record<string, any> | null): node is ActorsQuery {
     return node?.kind === NodeKind.ActorsQuery
 }
 
-export function isInsightActorsQuery(node?: Node | null): node is InsightActorsQuery {
+export function isInsightActorsQuery(node?: Record<string, any> | null): node is InsightActorsQuery {
     return node?.kind === NodeKind.InsightActorsQuery
 }
 
-export function isDataTableNode(node?: Node | null): node is DataTableNode {
+export function isDataTableNode(node?: Record<string, any> | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
 
-export function isDataVisualizationNode(node?: Node | null): node is DataVisualizationNode {
+export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
-export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
+export function isSavedInsightNode(node?: Record<string, any> | null): node is SavedInsightNode {
     return node?.kind === NodeKind.SavedInsightNode
 }
 
-export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
+export function isInsightVizNode(node?: Record<string, any> | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
 }
 
-export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
+export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {
+    return node?.kind === NodeKind.HogQuery
+}
+
+export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
 }
 
-export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
+export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isWebOverviewQuery(node?: Node | null): node is WebOverviewQuery {
+export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
 
-export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+export function isWebStatsTableQuery(node?: Record<string, any> | null): node is WebStatsTableQuery {
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
-export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
+export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
 }
 
-export function containsHogQLQuery(node?: Node | null): boolean {
+export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
     if (!node) {
         return false
     }
@@ -152,35 +159,35 @@ export function containsHogQLQuery(node?: Node | null): boolean {
  * Insight Queries
  */
 
-export function isTrendsQuery(node?: Node | null): node is TrendsQuery {
+export function isTrendsQuery(node?: Record<string, any> | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isFunnelsQuery(node?: Node | null): node is FunnelsQuery {
+export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
 
-export function isRetentionQuery(node?: Node | null): node is RetentionQuery {
+export function isRetentionQuery(node?: Record<string, any> | null): node is RetentionQuery {
     return node?.kind === NodeKind.RetentionQuery
 }
 
-export function isPathsQuery(node?: Node | null): node is PathsQuery {
+export function isPathsQuery(node?: Record<string, any> | null): node is PathsQuery {
     return node?.kind === NodeKind.PathsQuery
 }
 
-export function isStickinessQuery(node?: Node | null): node is StickinessQuery {
+export function isStickinessQuery(node?: Record<string, any> | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
 
-export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
+export function isLifecycleQuery(node?: Record<string, any> | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {
+export function isInsightQueryWithDisplay(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Node | null): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
@@ -203,7 +210,7 @@ export function isInsightQueryWithSeries(
     return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }
 
-export function isInsightQueryNode(node?: Node | null): node is InsightQueryNode {
+export function isInsightQueryNode(node?: Record<string, any> | null): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
         isFunnelsQuery(node) ||
@@ -214,15 +221,15 @@ export function isInsightQueryNode(node?: Node | null): node is InsightQueryNode
     )
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Node | null): node is TimeToSeeDataSessionsQuery {
+export function isTimeToSeeDataSessionsQuery(node?: Record<string, any> | null): node is TimeToSeeDataSessionsQuery {
     return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
 }
 
-export function isTimeToSeeDataQuery(node?: Node | null): node is TimeToSeeDataQuery {
+export function isTimeToSeeDataQuery(node?: Record<string, any> | null): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
-export function isTimeToSeeDataSessionsNode(node?: Node | null): node is TimeToSeeDataNode {
+export function isTimeToSeeDataSessionsNode(node?: Record<string, any> | null): node is TimeToSeeDataNode {
     return (
         !!node?.kind &&
         [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
@@ -230,7 +237,9 @@ export function isTimeToSeeDataSessionsNode(node?: Node | null): node is TimeToS
 }
 
 export function dateRangeFor(node?: Node): DateRange | undefined {
-    if (isInsightQueryNode(node)) {
+    if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    } else if (isInsightQueryNode(node)) {
         return node.dateRange
     } else if (isTimeToSeeDataQuery(node)) {
         return {
@@ -247,8 +256,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined
     } else if (isDataTableNode(node)) {
         return undefined
-    } else if (isInsightVizNode(node)) {
-        return node.source.dateRange
     }
 
     return undefined

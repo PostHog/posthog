@@ -7,7 +7,7 @@ import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
 
-const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 6 hour
+const CHECK_INTERVAL_MS = 1000 * 60 * 60 * 6 // 6 hour
 
 export type SDKVersion = {
     version: string

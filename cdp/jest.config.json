@@ -1,5 +1,0 @@
-{
-    "roots": ["functional_tests"],
-    "preset": "ts-jest",
-    "testEnvironment": "node"
-}

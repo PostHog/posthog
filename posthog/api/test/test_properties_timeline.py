@@ -1,7 +1,7 @@
 import json
 import random
 import uuid
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -52,7 +52,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 return group.group_key
 
         def _create_event(self, event: str, timestamp: str, actor_properties: dict):
-            create_event_kwargs: Dict[str, Any] = {}
+            create_event_kwargs: dict[str, Any] = {}
             if actor_type == "person":
                 create_event_kwargs["person_id"] = main_actor_id
                 create_event_kwargs["person_properties"] = actor_properties

@@ -33,7 +33,7 @@ export async function populateTeamDataStep(
     if (event.team_id) {
         // Check for an invalid UUID, which should be blocked by capture, when team_id is present
         if (!UUID.validateString(event.uuid, false)) {
-            await captureIngestionWarning(db, event.team_id, 'skipping_event_invalid_uuid', {
+            await captureIngestionWarning(db.kafkaProducer, event.team_id, 'skipping_event_invalid_uuid', {
                 eventUuid: JSON.stringify(event.uuid),
             })
             throw new Error(`Not a valid UUID: "${event.uuid}"`)
@@ -70,7 +70,7 @@ export async function populateTeamDataStep(
 
     // Check for an invalid UUID, which should be blocked by capture, when team_id is present
     if (!UUID.validateString(event.uuid, false)) {
-        await captureIngestionWarning(db, team.id, 'skipping_event_invalid_uuid', {
+        await captureIngestionWarning(db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
             eventUuid: JSON.stringify(event.uuid),
         })
         throw new Error(`Not a valid UUID: "${event.uuid}"`)

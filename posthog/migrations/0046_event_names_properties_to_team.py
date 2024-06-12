@@ -20,8 +20,8 @@ def migrate_event_names_and_properties(apps, schema_editor):
             .values_list("keys", flat=True)
         )
         names = events.distinct("event").values_list("event", flat=True)
-        team.event_keys = [key for key in keys]
-        team.event_names = [name for name in names]
+        team.event_keys = list(keys)
+        team.event_names = list(names)
         team.save()
 
 

@@ -6,6 +6,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -22,9 +25,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -76,14 +79,15 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
-                      allow_experimental_object_type=1
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000,
+                      max_query_size=524288
   '''
 # ---
 # name: TestFunnelTrends.test_timezones_trends.1
@@ -93,6 +97,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -109,9 +116,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -163,14 +170,15 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
-                      allow_experimental_object_type=1
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000,
+                      max_query_size=524288
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval
@@ -180,6 +188,9 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
+    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill
+  LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
@@ -196,9 +207,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -250,14 +261,15 @@
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
-     GROUP BY entrance_period_start) AS data
-  RIGHT OUTER JOIN
-    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+     GROUP BY entrance_period_start) AS data ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
-                      allow_experimental_object_type=1
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000,
+                      max_query_size=524288
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval.1

@@ -1,12 +1,11 @@
-from django.utils.html import format_html
-
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
-from django.contrib.auth.tokens import default_token_generator
+from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
+from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 
 
@@ -18,7 +17,7 @@ class UserChangeForm(DjangoUserChangeForm):
         # we have a link to the password reset page which the _user_ can use themselves.
         # This way if some user needs to reset their password and there's a problem with receiving the reset link email,
         # an admin can provide that reset link manually – much better than sending a new password in plain text.
-        password_reset_token = default_token_generator.make_token(self.instance)
+        password_reset_token = password_reset_token_generator.make_token(self.instance)
         self.fields["password"].help_text = (
             "Raw passwords are not stored, so there is no way to see this user’s password, but you can send them "
             f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
@@ -39,6 +38,7 @@ class UserAdmin(DjangoUserAdmin):
             None,
             {
                 "fields": (
+                    "id",
                     "email",
                     "password",
                     "current_organization",
@@ -67,7 +67,7 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["current_team", "current_organization"]
+    readonly_fields = ["id", "current_team", "current_organization"]
     ordering = ("email",)
 
     def current_team_link(self, user: User):

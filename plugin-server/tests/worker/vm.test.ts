@@ -689,10 +689,10 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(
-            KAFKA_PLUGIN_LOG_ENTRIES,
-            expect.any(String),
-            {
+        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+            topic: KAFKA_PLUGIN_LOG_ENTRIES,
+            key: expect.any(String),
+            object: {
                 id: expect.any(String),
                 instance_id: hub.instanceId.toString(),
                 message: 'logged event',
@@ -703,8 +703,8 @@ describe('vm tests', () => {
                 timestamp: expect.any(String),
                 type: PluginLogEntryType.Log,
             },
-            false
-        )
+            waitForAck: false,
+        })
     })
 
     test('fetch', async () => {
@@ -969,8 +969,8 @@ describe('vm tests', () => {
 
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
+        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
@@ -998,8 +998,8 @@ describe('vm tests', () => {
 
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
+        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
             distinct_id: 'plugin-id-60',
@@ -1025,8 +1025,8 @@ describe('vm tests', () => {
         expect(response).toBe('haha')
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
+        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             distinct_id: 'custom id',
             event: 'my-new-event',

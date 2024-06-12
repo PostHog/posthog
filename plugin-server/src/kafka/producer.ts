@@ -2,11 +2,12 @@ import {
     ClientMetrics,
     HighLevelProducer as RdKafkaProducer,
     MessageHeader,
-    MessageKey,
+    MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
 } from 'node-rdkafka'
+import { Summary } from 'prom-client'
 
 import { getSpan } from '../sentry'
 import { status } from '../utils/status'
@@ -16,6 +17,18 @@ export type KafkaProducerConfig = {
     KAFKA_PRODUCER_BATCH_SIZE: number
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
 }
+
+// Disallow use of ``undefined`` with ``HighLevelProducer`` since it will result
+// in messages that are never produced, and the corresponding callback is never
+// called, causing the promise returned to never settle.
+export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
+
+export const ingestEventKafkaProduceLatency = new Summary({
+    name: 'ingest_event_kafka_produce_latency',
+    help: 'Wait time for individual Kafka produces',
+    labelNames: ['topic', 'waitForAck'],
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 // Kafka production related functions using node-rdkafka.
 export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, producerConfig: KafkaProducerConfig) => {
@@ -71,18 +84,22 @@ export const produce = async ({
     value,
     key,
     headers = [],
-    waitForAck = true,
+    waitForAck,
 }: {
     producer: RdKafkaProducer
     topic: string
     value: MessageValue
     key: MessageKey
     headers?: MessageHeader[]
-    waitForAck?: boolean
+    waitForAck: boolean
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
     return await new Promise((resolve, reject) => {
+        const produceTimer = ingestEventKafkaProduceLatency
+            .labels({ topic, waitForAck: waitForAck.toString() })
+            .startTimer()
+
         if (waitForAck) {
             producer.produce(
                 topic,
@@ -100,6 +117,7 @@ export const produce = async ({
                         resolve(offset)
                     }
 
+                    produceTimer()
                     produceSpan?.finish()
                 }
             )
@@ -112,6 +130,7 @@ export const produce = async ({
                 produceSpan?.finish()
             })
             resolve(undefined)
+            produceTimer()
         }
     })
 }

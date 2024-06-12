@@ -3,8 +3,31 @@ import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
 import { Link } from './lemon-ui/Link'
 
+/** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
+// Ideally this would be imported from posthog-js, we just need to start exporting the list there
+export const CAMPAIGN_PROPERTIES: string[] = [
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'gclid', // google ads
+    'gad_source', // google ads
+    'gclsrc', // google ads 360
+    'dclid', // google display ads
+    'gbraid', // google ads, web to app
+    'wbraid', // google ads, app to web
+    'fbclid', // facebook
+    'msclkid', // microsoft
+    'twclid', // twitter
+    'li_fat_id', // linkedin
+    'mc_cid', // mailchimp campaign id
+    'igshid', // instagram
+    'ttclid', // tiktok
+]
+
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
-const eventToPersonProperties = new Set([
+const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -20,19 +43,29 @@ const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
-    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+    ...CAMPAIGN_PROPERTIES,
+])
+
+export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
+    '$referring_domain',
     'utm_source',
-    'utm_medium',
     'utm_campaign',
+    'utm_medium',
     'utm_content',
-    'utm_name',
     'utm_term',
     'gclid',
     'gad_source',
+    'gclsrc',
+    'dclid',
     'gbraid',
     'wbraid',
     'fbclid',
     'msclkid',
+    'twclid',
+    'li_fat_id',
+    'mc_cid',
+    'igshid',
+    'ttclid',
 ])
 
 // If adding event properties with labels, check whether they should be added to
@@ -672,6 +705,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'What library was used to send the event.',
             examples: ['web', 'posthog-ios'],
         },
+        $lib_custom_api_host: {
+            label: 'Library Custom API Host',
+            description: 'The custom API host used to send the event.',
+            examples: ['https://ph.example.com'],
+        },
         $lib_version: {
             label: 'Library Version',
             description: 'Version of the library used to send the event. Used in combination with Library.',
@@ -778,6 +816,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $survey_id: {
             label: 'Survey ID',
             description: 'The unique identifier for the survey.',
+        },
+        $survey_iteration: {
+            label: 'Survey Iteration Number',
+            description: 'The iteration number for the survey.',
+        },
+        $survey_iteration_start_date: {
+            label: 'Survey Iteration Start Date',
+            description: 'The start date for the current iteration of the survey.',
         },
         $device: {
             label: 'Device',
@@ -900,10 +946,66 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The previous build number for the app',
             examples: ['1'],
         },
+        gclid: {
+            label: 'gclid',
+            description: 'Google Click ID',
+        },
+        gad_source: {
+            label: 'gad_source',
+            description: 'Google Ads Source',
+        },
+        gclsrc: {
+            label: 'gclsrc',
+            description: 'Google Click Source',
+        },
+        dclid: {
+            label: 'dclid',
+            description: 'DoubleClick ID',
+        },
+        gbraid: {
+            label: 'gbraid',
+            description: 'Google Ads, web to app',
+        },
+        wbraid: {
+            label: 'wbraid',
+            description: 'Google Ads, app to web',
+        },
+        fbclid: {
+            label: 'fbclid',
+            description: 'Facebook Click ID',
+        },
+        msclkid: {
+            label: 'msclkid',
+            description: 'Microsoft Click ID',
+        },
+        twclid: {
+            label: 'twclid',
+            description: 'Twitter Click ID',
+        },
+        li_fat_id: {
+            label: 'li_fat_id',
+            description: 'LinkedIn First-Party Ad Tracking ID',
+        },
+        mc_cid: {
+            label: 'mc_cid',
+            description: 'Mailchimp Campaign ID',
+        },
+        igshid: {
+            label: 'igshid',
+            description: 'Instagram Share ID',
+        },
+        ttclid: {
+            label: 'ttclid',
+            description: 'TikTok Click ID',
+        },
+        $is_identified: {
+            label: 'Is Identified',
+            description: 'When the person was identified',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
-    sessions: {
+    session_properties: {
         $session_duration: {
             label: 'Session duration',
             description: (
@@ -916,6 +1018,56 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
             examples: ['01:04:12'],
         },
+        $start_timestamp: {
+            label: 'Start timestamp',
+            description: <span>The timestamp of the first event from this session.</span>,
+            examples: [new Date().toISOString()],
+        },
+        $end_timestamp: {
+            label: 'End timestamp',
+            description: <span>The timestamp of the last event from this session</span>,
+            examples: [new Date().toISOString()],
+        },
+        $entry_current_url: {
+            label: 'Entry URL',
+            description: <span>The first URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $entry_pathname: {
+            label: 'Entry pathname',
+            description: <span>The first pathname visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_current_url: {
+            label: 'Exit URL',
+            description: <span>The last URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_pathname: {
+            label: 'Exit pathname',
+            description: <span>The last pathname visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $pageview_count: {
+            label: 'Pageview count',
+            description: <span>The number of page view events in this session</span>,
+            examples: ['123'],
+        },
+        $autocapture_count: {
+            label: 'Autocapture count',
+            description: <span>The number of autocapture events in this session</span>,
+            examples: ['123'],
+        },
+        $channel_type: {
+            label: 'Channel type',
+            description: <span>What type of acquisition channel this traffic came from.</span>,
+            examples: ['Paid Search', 'Organic Video', 'Direct'],
+        },
+        $is_bounce: {
+            label: 'Is bounce',
+            description: <span>Whether the session was a bounce.</span>,
+            examples: ['true', 'false'],
+        },
     },
     groups: {
         $group_key: {
@@ -923,44 +1075,63 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Specified group key',
         },
     },
+    replay: {
+        console_log_level: {
+            label: 'Log level',
+            description: 'Level of console logs captured',
+            examples: ['info', 'warn', 'error'],
+        },
+        console_log_query: {
+            label: 'Console log',
+            description: 'Text of console logs captured',
+        },
+    },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
-    Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
-        eventToPersonProperties.has(key) || key.startsWith('$geoip_')
-            ? [
-                  [
-                      key,
-                      {
-                          ...value,
-                          label: `Latest ${value.label}`,
-                          description:
-                              'description' in value
-                                  ? `${value.description} Data from the last time this user was seen.`
-                                  : 'Data from the last time this user was seen.',
-                      },
-                  ],
-                  [
-                      `$initial_${key.replace(/^\$/, '')}`,
-                      {
-                          ...value,
-                          label: `Initial ${value.label}`,
-                          description:
-                              'description' in value
-                                  ? `${value.description} Data from the first time this user was seen.`
-                                  : 'Data from the first time this user was seen.',
-                      },
-                  ],
-              ]
-            : [[key, value]]
-    )
-)
+
+CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
+
+for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
+    if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
+            ...value,
+            label: `Latest ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the last time this user was seen.`
+                    : 'Data from the last time this user was seen.',
+        }
+
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[`$initial_${key.replace(/^\$/, '')}`] = {
+            ...value,
+            label: `Initial ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the first time this user was seen.`
+                    : 'Data from the first time this user was seen.',
+        }
+    } else {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
+    }
+    if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$entry_${key.replace(/^\$/, '')}`] = {
+            ...value,
+            label: `Entry ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the first event in this session.`
+                    : 'Data from the first event in this session.',
+            examples: 'examples' in value ? value.examples : undefined,
+        }
+    }
+}
+
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
-    CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration
+    CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties.$session_duration
 
 export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
 

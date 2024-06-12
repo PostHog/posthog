@@ -52,7 +52,13 @@ export function SignupForm(): JSX.Element | null {
                 <>
                     <SignupPanel2 />
                     <div className="flex justify-center">
-                        <LemonButton icon={<IconArrowLeft />} onClick={() => setPanel(panel - 1)} size="small" center>
+                        <LemonButton
+                            icon={<IconArrowLeft />}
+                            onClick={() => setPanel(panel - 1)}
+                            size="small"
+                            center
+                            data-attr="signup-go-back"
+                        >
                             or go back
                         </LemonButton>
                     </div>

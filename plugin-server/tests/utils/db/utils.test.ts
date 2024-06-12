@@ -22,6 +22,12 @@ describe('personInitialAndUTMProperties()', () => {
             $app_name: 'my app',
             $app_namespace: 'com.posthog.myapp',
             $app_version: '1.2.3',
+            $set: {
+                $browser_version: 'manually $set value wins',
+            },
+            $set_once: {
+                $initial_os_version: 'manually $set_once value wins',
+            },
         }
 
         expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
@@ -57,7 +63,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$app_namespace": "com.posthog.myapp",
                 "$app_version": "1.2.3",
                 "$browser": "Chrome",
-                "$browser_version": "95",
+                "$browser_version": "manually $set value wins",
                 "$current_url": "https://test.com",
                 "$os": "Mac OS X",
                 "$os_version": "10.15.7",
@@ -78,7 +84,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$initial_gclid": "GOOGLE ADS ID",
                 "$initial_msclkid": "BING ADS ID",
                 "$initial_os": "Mac OS X",
-                "$initial_os_version": "10.15.7",
+                "$initial_os_version": "manually $set_once value wins",
                 "$initial_referrer": "https://google.com/?q=posthog",
                 "$initial_referring_domain": "https://google.com",
                 "$initial_utm_medium": "twitter",

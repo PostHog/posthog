@@ -6,7 +6,6 @@ from django.utils.timezone import now
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
     Action,
-    ActionStep,
     Dashboard,
     DashboardTile,
     EventDefinition,
@@ -29,14 +28,13 @@ class AppDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", is_numerical=True)
 
     def create_actions_dashboards(self):
-        installed_app_action = Action.objects.create(team=self.team, name="Installed App")
-        ActionStep.objects.create(action=installed_app_action, event="installed_app")
+        installed_app_action = Action.objects.create(
+            team=self.team, name="Installed App", steps_json=[{"event": "installed_app"}]
+        )
 
-        rated_app_action = Action.objects.create(team=self.team, name="Rated App")
-        ActionStep.objects.create(action=rated_app_action, event="rated_app")
+        rated_app_action = Action.objects.create(team=self.team, name="Rated App", steps_json=[{"event": "rated_app"}])
 
-        watched_movie_action = Action.objects.create(team=self.team, name="Watched Movie")
-        ActionStep.objects.create(action=watched_movie_action, event="watched_movie")
+        Action.objects.create(team=self.team, name="Watched Movie", steps_json=[{"event": "watched_movie"}])
 
         dashboard = Dashboard.objects.create(name="App Analytics", pinned=True, team=self.team)
         insight = Insight.objects.create(

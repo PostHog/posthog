@@ -1,8 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonInput, Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { LemonDialog, LemonDialogProps } from './LemonDialog'
+import { LemonField } from '../LemonField'
+import { LemonDialog, LemonDialogProps, LemonFormDialog, LemonFormDialogProps } from './LemonDialog'
 
 type Story = StoryObj<typeof LemonDialog>
 const meta: Meta<typeof LemonDialog> = {
@@ -98,3 +99,31 @@ Customised.args = {
         onClick: () => alert('Organization and all events deleted!'),
     },
 }
+
+export const Form: StoryObj = (props: LemonFormDialogProps): JSX.Element => {
+    const onClick = (): void => {
+        LemonDialog.openForm(props)
+    }
+    return (
+        <div>
+            <div className="bg-default p-4">
+                <LemonFormDialog {...props} inline />
+            </div>
+            <LemonButton type="primary" onClick={() => onClick()} className="mx-auto mt-2">
+                Open as modal
+            </LemonButton>
+        </div>
+    )
+}
+Form.args = {
+    title: 'This is a test',
+    initialValues: { name: 'one' },
+    description: undefined,
+    tertiaryButton: undefined,
+    content: (
+        <LemonField name="name">
+            <LemonInput placeholder="Please enter the new name" autoFocus />
+        </LemonField>
+    ),
+}
+Form.storyName = 'Category - Elements'

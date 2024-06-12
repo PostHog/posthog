@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -16,7 +16,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
     APIBaseTest,
@@ -35,8 +35,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
 
     @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
+    @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
+    def test_creating_update_and_calculating(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"team_id": 5})
@@ -74,21 +75,24 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            data={
-                "name": "whatever2",
-                "description": "A great cohort!",
-                "groups": [{"properties": {"team_id": 6}}],
-                "created_by": "something something",
-                "last_calculation": "some random date",
-                "errors_calculating": 100,
-                "deleted": False,
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        with self.capture_queries("INSERT INTO cohortpeople") as insert_statements:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+                data={
+                    "name": "whatever2",
+                    "description": "A great cohort!",
+                    "groups": [{"properties": {"team_id": 6}}],
+                    "created_by": "something something",
+                    "last_calculation": "some random date",
+                    "errors_calculating": 100,
+                    "deleted": False,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
+            self.assertEqual(patch_calculate_cohort.call_count, 2)
+
+            self.assertIn(f" user_id:{self.user.id} ", insert_statements[0])
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -127,7 +131,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -136,10 +140,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
-            assert len(response.json()["results"]) == 2
+            assert len(response.json()["results"]) == 3
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
@@ -346,9 +355,7 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
-    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+    def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -692,6 +699,84 @@ email@example.org,
         self.assertEqual(2, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_calculating_with_new_cohort_event_filters(self, patch_capture):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            properties={"$filter_prop": "something"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(days=12),
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                                "event_filters": [
+                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                                ],
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(1, len(response.json()["results"]))
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query(self, patch_capture):
         _create_person(
             distinct_ids=["p1"],
@@ -731,7 +816,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },
@@ -761,7 +846,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },
@@ -1406,11 +1491,11 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
 
-def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

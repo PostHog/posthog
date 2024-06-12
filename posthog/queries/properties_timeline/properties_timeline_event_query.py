@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from posthog.models.entity.util import get_entity_filtering_params
@@ -20,7 +20,7 @@ class PropertiesTimelineEventQuery(EventQuery):
         super().__init__(filter, *args, **kwargs)
         self._group_type_index = filter.aggregation_group_type_index
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         real_fields = [f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp"]
         sentinel_fields = ["NULL AS timestamp"]
 
@@ -72,8 +72,8 @@ class PropertiesTimelineEventQuery(EventQuery):
     def _determine_should_join_sessions(self) -> None:
         self._should_join_sessions = False
 
-    def _get_date_filter(self) -> Tuple[str, Dict]:
-        query_params: Dict[str, Any] = {}
+    def _get_date_filter(self) -> tuple[str, dict]:
+        query_params: dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
         effective_timezone = ZoneInfo(self._team.timezone)
         # Get effective date range from QueryDateRange
@@ -92,7 +92,7 @@ class PropertiesTimelineEventQuery(EventQuery):
 
         return date_filter, query_params
 
-    def _get_entity_query(self) -> Tuple[str, Dict]:
+    def _get_entity_query(self) -> tuple[str, dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
             allowed_entities=self._filter.entities,
             team_id=self._team_id,

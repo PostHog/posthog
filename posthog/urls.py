@@ -1,11 +1,13 @@
-from typing import Any, Callable, List, Optional, cast
-from posthog.models.instance_setting import get_instance_setting
+from collections.abc import Callable
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
+import structlog
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import (
     csrf_exempt,
     ensure_csrf_cookie,
@@ -41,25 +43,26 @@ from posthog.api import (
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
+from posthog.models.instance_setting import get_instance_setting
+
 from .utils import render_template
 from .views import (
     health,
     login_required,
     preflight_check,
+    redis_values_view,
     robots_txt,
     security_txt,
     stats,
 )
 from .year_in_posthog import year_in_posthog
-from posthog.constants import PERMITTED_FORUM_DOMAINS
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 
-ee_urlpatterns: List[Any] = []
+ee_urlpatterns: list[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
@@ -171,6 +174,7 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
     # ee
     *ee_urlpatterns,
     # api

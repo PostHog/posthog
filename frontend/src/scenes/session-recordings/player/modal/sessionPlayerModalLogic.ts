@@ -42,9 +42,7 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
         ],
     }),
     actionToUrl(({ values }) => {
-        const buildURL = (
-            replace: boolean
-        ): [
+        const buildURL = (): [
             string,
             Record<string, any>,
             Record<string, any>,
@@ -71,12 +69,12 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
                 searchParams.timestamp = values.initialTimestamp
             }
 
-            return [router.values.location.pathname, searchParams, hashParams, { replace }]
+            return [router.values.location.pathname, searchParams, hashParams, { replace: true }]
         }
 
         return {
-            openSessionPlayer: () => buildURL(false),
-            closeSessionPlayer: () => buildURL(false),
+            openSessionPlayer: () => buildURL(),
+            closeSessionPlayer: () => buildURL(),
         }
     }),
     urlToAction(({ actions, values }) => {

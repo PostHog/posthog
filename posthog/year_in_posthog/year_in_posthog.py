@@ -2,7 +2,7 @@ from django.http import HttpResponse
 from django.template.loader import get_template
 from django.views.decorators.cache import cache_control
 import os
-from typing import Dict, List, Union
+from typing import Union
 
 import structlog
 
@@ -58,7 +58,7 @@ explanation = {
 }
 
 
-def stats_for_user(data: Dict) -> List[Dict[str, Union[int, str]]]:
+def stats_for_user(data: dict) -> list[dict[str, Union[int, str]]]:
     stats = data["stats"]
 
     return [
@@ -75,7 +75,7 @@ def stats_for_user(data: Dict) -> List[Dict[str, Union[int, str]]]:
     ]
 
 
-def sort_list_based_on_preference(badges: List[str]) -> str:
+def sort_list_based_on_preference(badges: list[str]) -> str:
     """sort a list based on its order in badge_preferences and then choose the last one"""
     if len(badges) >= 3:
         return "champion"

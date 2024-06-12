@@ -1,6 +1,6 @@
 from django.conf import settings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -58,11 +58,11 @@ def get_hogql_metadata(
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings
         response.notices = context.notices
+        response.errors = context.errors
+        response.isValid = len(response.errors) == 0
     except Exception as e:
         response.isValid = False
-        if isinstance(e, ValueError):
-            response.errors.append(HogQLNotice(message=str(e)))
-        elif isinstance(e, HogQLException):
+        if isinstance(e, ExposedHogQLError):
             error = str(e)
             if "mismatched input '<EOF>' expecting" in error:
                 error = "Unexpected end of query"

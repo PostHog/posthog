@@ -5,11 +5,13 @@ import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
 import {
+    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
     Person,
+    PersonMode,
     PreIngestionEvent,
     RawClickHouseEvent,
     Team,
@@ -21,9 +23,8 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow } from '../../utils/utils'
-import { GroupTypeManager } from './group-type-manager'
+import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
@@ -57,7 +58,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
         this.propertyDefinitionsManager = new PropertyDefinitionsManager(
             this.teamManager,
             this.groupTypeManager,
@@ -71,12 +72,14 @@ export class EventsProcessor {
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
-        eventUuid: string
+        eventUuid: string,
+        processPerson: boolean
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
-        const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
-            event: JSON.stringify(data),
-        })
+        const timeout = timeoutGuard(
+            'Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!',
+            () => ({ event: JSON.stringify(data) })
+        )
 
         let result: PreIngestionEvent | null = null
         try {
@@ -92,7 +95,15 @@ export class EventsProcessor {
                 eventUuid,
             })
             try {
-                result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
+                result = await this.capture(
+                    eventUuid,
+                    team,
+                    data['event'],
+                    distinctId,
+                    properties,
+                    timestamp,
+                    processPerson
+                )
                 processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
@@ -135,7 +146,8 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        processPerson: boolean
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
 
@@ -156,11 +168,13 @@ export class EventsProcessor {
             }
         }
 
-        // Adds group_0 etc values to properties
-        properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
+        if (processPerson) {
+            // Adds group_0 etc values to properties
+            properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
-        if (event === '$groupidentify') {
-            await this.upsertGroup(team.id, properties, timestamp)
+            if (event === '$groupidentify') {
+                await this.upsertGroup(team.id, properties, timestamp)
+            }
         }
 
         return {
@@ -175,7 +189,7 @@ export class EventsProcessor {
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
         const res: GroupId[] = []
-        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+        for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
             const key = `$group_${groupTypeIndex}`
             if (key in properties) {
                 res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
@@ -186,7 +200,8 @@ export class EventsProcessor {
 
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
-        person: Person
+        person: Person,
+        processPerson: boolean
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
         const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -203,16 +218,34 @@ export class EventsProcessor {
             })
         }
 
-        const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
+        let groupsColumns: Record<string, string | ClickHouseTimestamp> = {}
+        let eventPersonProperties = '{}'
+        if (processPerson) {
+            const groupIdentifiers = this.getGroupIdentifiers(properties)
+            groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
+            eventPersonProperties = JSON.stringify({
+                ...person.properties,
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested.
+                ...(properties.$set || {}),
+            })
+        } else {
+            // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
+            // and tests demand this for now.
+            for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+                const key = `$group_${groupTypeIndex}`
+                delete properties[key]
+            }
+        }
 
-        const eventPersonProperties: string = JSON.stringify({
-            ...person.properties,
-            // For consistency, we'd like events to contain the properties that they set, even if those were changed
-            // before the event is ingested.
-            ...(properties.$set || {}),
-        })
         // TODO: Remove Redis caching for person that's not used anymore
+
+        let personMode: PersonMode = 'full'
+        if (person.force_upgrade) {
+            personMode = 'force_upgrade'
+        } else if (!processPerson) {
+            personMode = 'propertyless'
+        }
 
         const rawEvent: RawClickHouseEvent = {
             uuid,
@@ -224,8 +257,9 @@ export class EventsProcessor {
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
             person_id: person.uuid,
-            person_properties: eventPersonProperties ?? undefined,
+            person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+            person_mode: personMode,
             ...groupsColumns,
         }
 
@@ -240,12 +274,10 @@ export class EventsProcessor {
                 // Some messages end up significantly larger than the original
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
-                    if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
-                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
-                            eventUuid: uuid,
-                            distinctId: distinctId,
-                        })
-                    }
+                    await captureIngestionWarning(this.db.kafkaProducer, teamId, 'message_size_too_large', {
+                        eventUuid: uuid,
+                        distinctId: distinctId,
+                    })
                 } else {
                     throw error
                 }

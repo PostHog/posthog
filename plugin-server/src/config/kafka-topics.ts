@@ -29,11 +29,15 @@ export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffi
 
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`
+export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = `${prefix}session_recording_snapshot_item_overflow${suffix}`
+
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
+// write heatmap events to ClickHouse
+export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
 
 // log entries for ingestion into clickhouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`

@@ -2,6 +2,7 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
@@ -15,10 +16,14 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
+
+
+VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
 
 def totp_str(key):
@@ -317,6 +322,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+        self.assertEqual(response.headers["Content-Length"], "0")
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -434,6 +440,23 @@ class TestPasswordResetAPI(APIBaseTest):
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 6)
 
+    def test_is_rate_limited_on_email_not_ip(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        for email in ["email@posthog.com", "other-email@posthog.com"]:
+            for i in range(7):
+                with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                    response = self.client.post("/api/reset/", {"email": email})
+                if i < 6:
+                    self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                else:
+                    # Fourth request should fail
+                    self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                    self.assertDictContainsSubset(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"},
+                        response.json(),
+                    )
+
     # Token validation
 
     def test_can_validate_token(self):
@@ -441,6 +464,7 @@ class TestPasswordResetAPI(APIBaseTest):
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+        self.assertEqual(response.headers["Content-Length"], "0")
 
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")
@@ -490,7 +514,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.requested_password_reset_at = datetime.datetime.now()
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
 
@@ -501,7 +525,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # check password was changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("00112233"))
+        self.assertTrue(self.user.check_password(VALID_TEST_PASSWORD))
         self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertEqual(self.user.requested_password_reset_at, None)
 
@@ -511,7 +535,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # new password can be used immediately
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "00112233"})
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
@@ -786,3 +810,30 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+
+
+class TestTimeSensitivePermissions(APIBaseTest):
+    def test_after_timeout_modifications_require_reauthentication(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        now = datetime.datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/organizations/@current")
+            assert res.status_code == 200

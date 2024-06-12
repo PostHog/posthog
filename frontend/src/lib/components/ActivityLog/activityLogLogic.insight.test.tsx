@@ -157,7 +157,7 @@ describe('the activity log logic', () => {
 
             const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total count where event'sBrowser= equals Chrome and person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
+                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
             )
         })
 
@@ -329,7 +329,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter added tags 4 5 , and removed tags 2 3 on test insight'
+                'peter added tags 45, and removed tags 23 on test insight'
             )
         })
 

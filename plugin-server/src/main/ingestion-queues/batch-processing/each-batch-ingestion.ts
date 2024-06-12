@@ -6,7 +6,7 @@ import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
@@ -14,7 +14,9 @@ import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingDistinctIdBatchLengthSummary,
     ingestEventBatchingInputLengthSummary,
+    ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -27,7 +29,8 @@ require('@sentry/tracing')
 
 export enum IngestionOverflowMode {
     Disabled,
-    Reroute,
+    Reroute, // preserves partition locality
+    RerouteRandomly, // discards partition locality
     ConsumeSplitByDistinctId,
     ConsumeSplitEvenly,
 }
@@ -41,7 +44,7 @@ type IngestionSplitBatch = {
 type IngestResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
-    promises?: Array<Promise<void>>
+    ackPromises?: Array<Promise<void>>
 }
 
 async function handleProcessingError(
@@ -74,7 +77,7 @@ async function handleProcessingError(
             await queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                 value: message.value,
-                key: message.key,
+                key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
                 waitForAck: true,
             })
@@ -121,6 +124,10 @@ export async function eachBatchParallelIngestion(
 
         ingestEventBatchingInputLengthSummary.observe(messages.length)
         ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
+        splitBatch.toProcess.forEach((b) => {
+            ingestEventBatchingDistinctIdBatchLengthSummary.observe(b.length)
+        })
+
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
@@ -143,11 +150,17 @@ export async function eachBatchParallelIngestion(
                 ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                    if (team) {
                         processingPromises.push(
-                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                                overflowDistinctId: distinct_id,
-                            })
+                            captureIngestionWarning(
+                                queue.pluginsServer.db.kafkaProducer,
+                                team.id,
+                                'ingestion_capacity_overflow',
+                                {
+                                    overflowDistinctId: distinct_id,
+                                },
+                                { key: distinct_id }
+                            )
                         )
                     }
                 }
@@ -160,7 +173,7 @@ export async function eachBatchParallelIngestion(
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
-                        result.promises?.forEach((promise) =>
+                        result.ackPromises?.forEach((promise) =>
                             processingPromises.push(
                                 promise.catch(async (error) => {
                                     await handleProcessingError(error, message, pluginEvent, queue)
@@ -210,7 +223,7 @@ export async function eachBatchParallelIngestion(
                 op: 'emitToOverflow',
                 data: { eventCount: splitBatch.toOverflow.length },
             })
-            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow))
+            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow, overflowMode))
             overflowSpan.finish()
         }
 
@@ -221,7 +234,9 @@ export async function eachBatchParallelIngestion(
         // impact the success. Delaying ACKs allows the producer to write in big batches for
         // better throughput and lower broker load.
         const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
+        const kafkaAckWaitMetric = ingestEventEachBatchKafkaAckWait.startTimer()
         await Promise.all(processingPromises)
+        kafkaAckWaitMetric()
         awaitSpan.finish()
 
         for (const message of messages) {
@@ -244,18 +259,22 @@ export async function eachBatchParallelIngestion(
     }
 }
 
-function computeKey(pluginEvent: PipelineEvent): string {
+export function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 
-async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]) {
+async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+    const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: null, // No locality guarantees in overflow
+                // ``message.key`` should not be undefined here, but in the
+                // (extremely) unlikely event that it is, set it to ``null``
+                // instead as that behavior is safer.
+                key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
                 waitForAck: true,
             })
@@ -277,6 +296,9 @@ export function splitIngestionBatch(
         toProcess: [],
         toOverflow: [],
     }
+    const shouldRerouteToOverflow = [IngestionOverflowMode.Reroute, IngestionOverflowMode.RerouteRandomly].includes(
+        overflowMode
+    )
 
     if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
@@ -305,7 +327,7 @@ export function splitIngestionBatch(
 
     const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
-        if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
+        if (shouldRerouteToOverflow && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
             // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
@@ -325,12 +347,8 @@ export function splitIngestionBatch(
         }
 
         const eventKey = computeKey(pluginEvent)
-        if (
-            overflowMode === IngestionOverflowMode.Reroute &&
-            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
-        ) {
+        if (shouldRerouteToOverflow && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
             // Local overflow detection triggering, reroute to overflow topic too
-            message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
                 status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)

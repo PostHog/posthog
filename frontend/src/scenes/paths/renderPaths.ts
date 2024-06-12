@@ -4,7 +4,7 @@ import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNode } from './pathsDataLogic'
@@ -34,6 +34,7 @@ const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
+    funnelPathsFilter: FunnelPathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     svg.append('g')
@@ -62,7 +63,7 @@ const appendPathNodes = (
                     }
                 }
             }
-            if (isSelectedPathStartOrEnd(pathsFilter, d)) {
+            if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, d)) {
                 return d3.color('purple')
             }
             const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
@@ -201,6 +202,7 @@ export function renderPaths(
     canvasHeight: number,
     paths: { links: PathNode[]; nodes: any[] },
     pathsFilter: PathsFilter,
+    funnelPathsFilter: FunnelPathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {
@@ -227,7 +229,7 @@ export function renderPaths(
 
     setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 
-    appendPathNodes(svg, nodes, pathsFilter, setNodeCards)
+    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
     appendDropoffs(svg)
     appendPathLinks(svg, links, nodes, setNodeCards)
     addChartAxisLines(svg, height, nodes, maxLayer)

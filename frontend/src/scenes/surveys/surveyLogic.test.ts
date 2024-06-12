@@ -48,6 +48,9 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     end_date: null,
     archived: false,
     targeting_flag_filters: undefined,
+    responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const SINGLE_CHOICE_SURVEY: Survey = {
@@ -93,6 +96,9 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     end_date: null,
     archived: false,
     targeting_flag_filters: undefined,
+    responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -139,6 +145,9 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     end_date: null,
     archived: false,
     targeting_flag_filters: undefined,
+    responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -185,6 +194,9 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     end_date: null,
     archived: false,
     targeting_flag_filters: undefined,
+    responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 describe('multiple choice survey logic', () => {

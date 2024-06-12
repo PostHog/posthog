@@ -1,13 +1,12 @@
 import './Billing.scss'
 
-import { IconCheckCircle, IconPlus } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -29,21 +28,16 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-export function BillingPageHeader(): JSX.Element {
-    return <PageHeader />
-}
-
 export function Billing(): JSX.Element {
     const {
         billing,
         billingLoading,
-        redirectPath,
         isOnboarding,
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
-        isUnlicensedDebug,
         over20kAnnual,
         isAnnualPlan,
+        billingError,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -67,7 +61,6 @@ export function Billing(): JSX.Element {
     if (!billing && billingLoading) {
         return (
             <>
-                <BillingPageHeader />
                 <SpinnerOverlay sceneLevel />
             </>
         )
@@ -76,7 +69,6 @@ export function Billing(): JSX.Element {
     if (!billing && !billingLoading) {
         return (
             <div className="space-y-4">
-                {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
                     {
                         'There was an issue retrieving your current billing information. If this message persists, please '
@@ -95,46 +87,8 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const getUpgradeAllProductsLink = (): string => {
-        if (!products) {
-            return ''
-        }
-        let url = '/api/billing-v2/activation?products='
-        let productsToUpgrade = ''
-        for (const product of products) {
-            if (product.subscribed || product.contact_support || product.inclusion_only) {
-                continue
-            }
-            const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
-            const upgradePlanKey = isUnlicensedDebug
-                ? product.plans?.[product.plans?.length - 1].plan_key
-                : product.plans?.[currentPlanIndex + 1]?.plan_key
-            if (!upgradePlanKey) {
-                continue
-            }
-            productsToUpgrade += `${product.type}:${upgradePlanKey},`
-            if (product.addons?.length) {
-                for (const addon of product.addons) {
-                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
-                }
-            }
-        }
-        // remove the trailing comma that will be at the end of the url
-        if (!productsToUpgrade) {
-            return ''
-        }
-        url += productsToUpgrade.slice(0, -1)
-        if (redirectPath) {
-            url += `&redirect_path=${redirectPath}`
-        }
-        return url
-    }
-
-    const upgradeAllProductsLink = getUpgradeAllProductsLink()
-
     return (
-        <div ref={ref}>
-            {!isOnboarding && <BillingPageHeader />}
+        <div ref={ref} className="pb-60">
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -153,6 +107,11 @@ export function Billing(): JSX.Element {
                         </LemonButton>
                     </Form>
                 </>
+            )}
+            {billingError && (
+                <LemonBanner type={billingError.status} className="mb-2" action={billingError.action}>
+                    {billingError.message}
+                </LemonBanner>
             )}
             {billing?.free_trial_until ? (
                 <LemonBanner type="success" className="mb-2">
@@ -186,7 +145,7 @@ export function Billing(): JSX.Element {
                                     {billing?.has_active_subscription && (
                                         <>
                                             <LemonLabel
-                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far.`}
+                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
                                             >
                                                 Current bill total
                                             </LemonLabel>
@@ -309,16 +268,6 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
-                {isOnboarding && upgradeAllProductsLink && (
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={upgradeAllProductsLink}
-                        disableClientSideRouting
-                    >
-                        Upgrade all
-                    </LemonButton>
-                )}
             </div>
             <LemonDivider className="mt-2 mb-8" />
 

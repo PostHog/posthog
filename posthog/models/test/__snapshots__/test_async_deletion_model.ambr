@@ -164,6 +164,7 @@
   DELETE
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_person_unrelated
@@ -173,6 +174,7 @@
   DELETE
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams
@@ -181,6 +183,7 @@
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.1
@@ -189,6 +192,7 @@
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.2
@@ -197,6 +201,7 @@
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.3
@@ -205,6 +210,7 @@
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.4
@@ -213,6 +219,7 @@
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.5
@@ -221,6 +228,7 @@
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.6
@@ -229,6 +237,7 @@
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.7
@@ -237,6 +246,7 @@
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated
@@ -331,6 +341,7 @@
   FROM events
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person_when_not_done
@@ -341,6 +352,7 @@
   FROM events
   WHERE (team_id = 2
          AND person_id = '00000000-0000-0000-0000-000000000000')
+    AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_team_when_not_done

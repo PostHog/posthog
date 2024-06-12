@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -25,19 +26,11 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import {
-    AvailableFeature,
-    ExporterFormat,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-    NotebookNodeType,
-} from '~/types'
+import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -45,10 +38,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic(insightLogicProps)
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
-        useValues(logic)
-    const { setInsightMetadata } = useActions(logic)
+    const {
+        insightProps,
+        canEditInsight,
+        insight: legacyInsight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+    } = useValues(insightLogic(insightLogicProps))
+    const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
+    const insight = getQueryBasedInsightModel(legacyInsight)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -59,7 +58,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -87,8 +85,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
                         closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={insight}
+                        insight={legacyInsight}
                         canEditInsight={canEditInsight}
+                    />
+                    <AlertsModal
+                        isOpen={insightMode === ItemMode.Alerts}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insight.short_id as InsightShortId}
+                        alertId={subscriptionId}
                     />
                     <NewDashboardModal />
                 </>
@@ -102,7 +106,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -137,6 +141,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
+                                            <AlertsButton insight={insight} />
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
@@ -213,7 +218,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteWithUndo({
-                                                        object: insight,
+                                                        object: legacyInsight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
@@ -292,14 +297,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
                             />
                         )}
                         {canEditInsight ? (
                             <ObjectTags
                                 tags={insight.tags ?? []}
                                 saving={insightSaving}
-                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                onChange={(tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
                                 className="mt-2"
                                 data-attr="insight-tags"

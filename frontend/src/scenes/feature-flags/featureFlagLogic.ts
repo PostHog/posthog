@@ -3,7 +3,6 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -23,7 +22,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
-    AnyPropertyFilter,
     AvailableFeature,
     Breadcrumb,
     CohortType,
@@ -110,7 +108,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
-        ? 'You need to set a key'
+        ? 'Please set a key'
         : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
@@ -196,6 +194,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
             ['submitNewDashboardSuccessWithResult'],
+            featureFlagsLogic,
+            ['updateFlag', 'deleteFlag'],
         ],
     })),
     actions({
@@ -216,7 +216,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
-        triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
@@ -259,21 +258,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             { ...NEW_FLAG } as FeatureFlagType,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
-                    if (featureFlag.filters.groups) {
-                        // TODO: This propertygroup conversion is non-sensical, don't need it here.
-                        const groups = featureFlag.filters.groups.map((group) => {
-                            if (group.properties) {
-                                return {
-                                    ...group,
-                                    properties: convertPropertyGroupToProperties(
-                                        group.properties
-                                    ) as AnyPropertyFilter[],
-                                }
-                            }
-                            return group
-                        })
-                        return { ...featureFlag, filters: { ...featureFlag?.filters, groups } }
-                    }
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
@@ -447,7 +431,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setSchedulePayload: (state, { errors }) => {
-                    return errors === null ? state : errors
+                    return errors === null || errors === undefined ? state : errors
                 },
             },
         ],
@@ -673,7 +657,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+            actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
         },
@@ -682,8 +666,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
-                    featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
-                    featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()
+                    featureFlag.id && actions.deleteFlag(featureFlag.id)
                     router.actions.push(urls.featureFlags())
                 },
             })
@@ -724,16 +707,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 index,
                 values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
             )
-        },
-        triggerFeatureFlagUpdate: async ({ payload }) => {
-            if (values.featureFlag) {
-                const updatedFlag = await api.update(
-                    `api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`,
-                    payload
-                )
-                actions.setFeatureFlag(updatedFlag)
-                featureFlagsLogic.findMounted()?.actions.updateFlag(updatedFlag)
-            }
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
@@ -897,9 +870,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                } else {
-                    return defaultEntityFilterOnFlag
                 }
+                return defaultEntityFilterOnFlag
             },
         ],
         hasEarlyAccessFeatures: [
@@ -953,13 +925,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     afterMount(({ props, actions }) => {
         const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
         if (foundFlag) {
-            const formatPayloads = variantKeyToIndexFeatureFlagPayloads(foundFlag)
-            actions.setFeatureFlag(formatPayloads)
+            const formatPayloadsWithFlag = variantKeyToIndexFeatureFlagPayloads(foundFlag)
+            actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
-        actions.loadSentryStats()
     }),
 ])

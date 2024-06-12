@@ -36,11 +36,8 @@ export function PathNodeCardMenu({
 
     return (
         <div
-            className="bg-bg-light border rounded"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: PATH_NODE_CARD_WIDTH,
-            }}
+            style={{ width: PATH_NODE_CARD_WIDTH }}
         >
             {!isPathEnd && (
                 <CardItem

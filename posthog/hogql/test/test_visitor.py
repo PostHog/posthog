@@ -1,6 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.ast import UUIDType, HogQLXTag, HogQLXAttribute
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
 from posthog.test.base import BaseTest
@@ -85,7 +85,8 @@ class TestVisitor(BaseTest):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["d"]),
                                     right=ast.Field(chain=["e"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                         ),
                         sample=ast.SampleExpr(
@@ -123,17 +124,17 @@ class TestVisitor(BaseTest):
             def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(InternalHogQLError) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(str(e.exception), "Visitor has no method visit_constant")
+        self.assertEqual(str(e.exception), "UnknownNotDefinedVisitor has no method visit_constant")
 
     def test_hogql_exception_start_end(self):
         class EternalVisitor(TraversingVisitor):
             def visit_constant(self, node: ast.Constant):
                 if node.value == 616:
-                    raise HogQLException("You tried accessing a forbidden number, perish!")
+                    raise InternalHogQLError("You tried accessing a forbidden number, perish!")
 
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(InternalHogQLError) as e:
             EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
         self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish!")
         self.assertEqual(e.exception.start, 4)

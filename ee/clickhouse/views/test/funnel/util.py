@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Dict, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.test.client import Client
 
@@ -12,7 +12,7 @@ class EventPattern(TypedDict, total=False):
     id: str
     type: Union[Literal["events"], Literal["actions"]]
     order: int
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
 
 
 @dataclasses.dataclass
@@ -46,7 +46,7 @@ def get_funnel(client: Client, team_id: int, request: FunnelRequest):
     )
 
 
-def get_funnel_ok(client: Client, team_id: int, request: FunnelRequest) -> Dict[str, Any]:
+def get_funnel_ok(client: Client, team_id: int, request: FunnelRequest) -> dict[str, Any]:
     response = get_funnel(client=client, team_id=team_id, request=request)
 
     assert response.status_code == 200, response.content
@@ -73,14 +73,14 @@ def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelat
     )
 
 
-def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorrelationRequest) -> Dict[str, Any]:
+def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorrelationRequest) -> dict[str, Any]:
     response = get_funnel_correlation(client=client, team_id=team_id, request=request)
 
     assert response.status_code == 200, response.content
     return response.json()
 
 
-def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSerialized) -> Dict[str, Any]:
+def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSerialized) -> dict[str, Any]:
     """
     Helper for getting people for a correlation. Note we keep checking to just
     inclusion of name, to make the stable to changes in other people props.

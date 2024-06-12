@@ -67,6 +67,7 @@ export type serializedNodeWithId = serializedNode & { id: number }
 export type MobileNodeType =
     | 'text'
     | 'image'
+    | 'screenshot'
     | 'rectangle'
     | 'placeholder'
     | 'web_view'
@@ -121,6 +122,22 @@ export type MobileStyles = {
      * @description maps to CSS font-family. Accepts any valid CSS font-family value.
      */
     fontFamily?: string
+    /**
+     * @description maps to CSS padding-left. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingLeft?: string | number
+    /**
+     * @description maps to CSS padding-right. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingRight?: string | number
+    /**
+     * @description maps to CSS padding-top. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingTop?: string | number
+    /**
+     * @description maps to CSS padding-bottom. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingBottom?: string | number
 }
 
 type wireframeBase = {
@@ -242,6 +259,13 @@ export type wireframeImage = wireframeBase & {
     base64?: string
 }
 
+/**
+ * @description a screenshot behaves exactly like an image, but it is expected to be a screenshot of the screen at the time of the event, when sent as a mutation it must always attached to the root of the playback, when sent as an initial snapshot it must be sent as the first or only snapshot so that it attaches to the body of the playback
+ */
+export type wireframeScreenshot = wireframeImage & {
+    type: 'screenshot'
+}
+
 export type wireframeRectangle = wireframeBase & {
     type: 'rectangle'
 }
@@ -280,6 +304,7 @@ export type wireframeNavigationBar = wireframeBase & {
 export type wireframe =
     | wireframeText
     | wireframeImage
+    | wireframeScreenshot
     | wireframeRectangle
     | wireframeDiv
     | wireframeInputComponent

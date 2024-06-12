@@ -62,6 +62,7 @@ export interface LemonSelectPropsBase<T>
         | 'onClick'
         | 'tabIndex'
         | 'type'
+        | 'tooltip'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -130,7 +131,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
         <LemonMenu
             items={items}
             tooltipPlacement={optionTooltipPlacement}
-            sameWidth={dropdownMatchSelectWidth}
+            matchWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
@@ -154,6 +155,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                           }
                         : null
                 }
+                tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
                 <span className="flex flex-1">
@@ -216,31 +218,30 @@ function convertToMenuSingle<T>(
             items,
             custom: doOptionsContainCustomControl(childOptions),
         } as LemonMenuItemNode
-    } else {
-        acc.push(option)
-        if (option.hidden) {
-            // Add hidden options to the accumulator, but don't show
-            return null
-        }
-        const { value, label, labelInMenu, ...leaf } = option
-        let CustomControl: LemonSelectCustomControl<T> | undefined
-        if (typeof labelInMenu === 'function') {
-            CustomControl = labelInMenu
-        }
-        return {
-            ...leaf,
-            label: CustomControl
-                ? function LabelWrapped() {
-                      if (!CustomControl) {
-                          throw new Error('CustomControl became undefined')
-                      }
-                      return <CustomControl onSelect={onSelect} />
-                  }
-                : labelInMenu || label,
-            active: value === activeValue,
-            onClick: () => onSelect(value),
-        } as LemonMenuItemLeaf
     }
+    acc.push(option)
+    if (option.hidden) {
+        // Add hidden options to the accumulator, but don't show
+        return null
+    }
+    const { value, label, labelInMenu, ...leaf } = option
+    let CustomControl: LemonSelectCustomControl<T> | undefined
+    if (typeof labelInMenu === 'function') {
+        CustomControl = labelInMenu
+    }
+    return {
+        ...leaf,
+        label: CustomControl
+            ? function LabelWrapped() {
+                  if (!CustomControl) {
+                      throw new Error('CustomControl became undefined')
+                  }
+                  return <CustomControl onSelect={onSelect} />
+              }
+            : labelInMenu || label,
+        active: value === activeValue,
+        onClick: () => onSelect(value),
+    } as LemonMenuItemLeaf
 }
 
 export function isLemonSelectSection<T>(

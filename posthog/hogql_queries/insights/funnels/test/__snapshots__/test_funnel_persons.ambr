@@ -5,35 +5,29 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id,
             step_0_matching_events AS matching_events
      FROM
-       (SELECT aggregation_target AS aggregation_target,
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
                steps AS steps,
                avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
-               groupArray(10)(step_0_matching_event) AS step_0_matching_events,
-               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
-               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
-          (SELECT aggregation_target AS aggregation_target,
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
                   steps AS steps,
                   max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
-                                  step_2_conversion_time AS step_2_conversion_time,
-                                  tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
-                                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
-                                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
-                                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+                                  step_2_conversion_time AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -52,9 +46,9 @@
                      uuid_2 AS uuid_2,
                      `$session_id_2` AS `$session_id_2`,
                      `$window_id_2` AS `$window_id_2`,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                      tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                      tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
@@ -159,26 +153,36 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.2
@@ -187,35 +191,29 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id,
             step_1_matching_events AS matching_events
      FROM
-       (SELECT aggregation_target AS aggregation_target,
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
                steps AS steps,
                avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
-               groupArray(10)(step_0_matching_event) AS step_0_matching_events,
-               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
-               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
-          (SELECT aggregation_target AS aggregation_target,
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
                   steps AS steps,
                   max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
-                                  step_2_conversion_time AS step_2_conversion_time,
-                                  tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
-                                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
-                                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
-                                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+                                  step_2_conversion_time AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -234,9 +232,9 @@
                      uuid_2 AS uuid_2,
                      `$session_id_2` AS `$session_id_2`,
                      `$window_id_2` AS `$window_id_2`,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                      tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                      tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
@@ -341,26 +339,36 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.3
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.4
@@ -369,35 +377,29 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id,
             step_1_matching_events AS matching_events
      FROM
-       (SELECT aggregation_target AS aggregation_target,
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
                steps AS steps,
                avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
                avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
                median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
-               median(step_2_conversion_time) AS step_2_median_conversion_time_inner,
-               groupArray(10)(step_0_matching_event) AS step_0_matching_events,
-               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
-               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
-               groupArray(10)(final_matching_event) AS final_matching_events
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
         FROM
-          (SELECT aggregation_target AS aggregation_target,
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
                   steps AS steps,
                   max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
                                   step_1_conversion_time AS step_1_conversion_time,
-                                  step_2_conversion_time AS step_2_conversion_time,
-                                  tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
-                                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
-                                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
-                                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+                                  step_2_conversion_time AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -416,9 +418,9 @@
                      uuid_2 AS uuid_2,
                      `$session_id_2` AS `$session_id_2`,
                      `$window_id_2` AS `$window_id_2`,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                      tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                      tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
@@ -523,25 +525,35 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(equals(steps, 2), 0)
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.5
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---

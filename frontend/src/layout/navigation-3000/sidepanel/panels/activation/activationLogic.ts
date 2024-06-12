@@ -2,10 +2,10 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +24,7 @@ export enum ActivationTasks {
     CreateFirstDashboard = 'create_first_dashboard',
     SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
-    InstallFirstApp = 'install_first_app',
+    SetUpReverseProxy = 'set_up_reverse_proxy',
 }
 
 export type ActivationTaskType = {
@@ -51,22 +51,18 @@ export const activationLogic = kea<activationLogicType>([
             ['memberCount'],
             inviteLogic,
             ['invites'],
-            pluginsLogic,
-            ['installedPlugins'],
             savedInsightsLogic,
             ['insights'],
             dashboardsModel,
             ['rawDashboards'],
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
         ],
         actions: [
             inviteLogic,
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
-            pluginsLogic,
-            ['loadPluginsSuccess', 'loadPluginsFailure'],
             sidePanelStateLogic,
             ['openSidePanel'],
-            eventUsageLogic,
-            ['reportActivationSideBarShown'],
             savedInsightsLogic,
             ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
             dashboardsModel,
@@ -94,13 +90,6 @@ export const activationLogic = kea<activationLogicType>([
             {
                 loadInvitesSuccess: () => true,
                 loadInvitesFailure: () => false,
-            },
-        ],
-        arePluginsLoaded: [
-            false,
-            {
-                loadPluginsSuccess: () => true,
-                loadPluginsFailure: () => false,
             },
         ],
         areDashboardsLoaded: [
@@ -156,7 +145,6 @@ export const activationLogic = kea<activationLogicType>([
                 s.memberCount,
                 s.areInvitesLoaded,
                 s.areDashboardsLoaded,
-                s.arePluginsLoaded,
                 s.areCustomEventsLoaded,
                 s.areInsightsLoaded,
             ],
@@ -165,7 +153,6 @@ export const activationLogic = kea<activationLogicType>([
                 memberCount,
                 areInvitesLoaded,
                 areDashboardsLoaded,
-                arePluginsLoaded,
                 areCustomEventsLoaded,
                 areInsightsLoaded
             ): boolean => {
@@ -175,8 +162,7 @@ export const activationLogic = kea<activationLogicType>([
                     areInsightsLoaded &&
                     !!memberCount &&
                     areInvitesLoaded &&
-                    areDashboardsLoaded &&
-                    arePluginsLoaded
+                    areDashboardsLoaded
                 )
             },
         ],
@@ -192,8 +178,8 @@ export const activationLogic = kea<activationLogicType>([
                 s.insights,
                 s.rawDashboards,
                 s.customEventsCount,
-                s.installedPlugins,
                 s.currentTeamSkippedTasks,
+                s.hasReverseProxy,
             ],
             (
                 currentTeam,
@@ -202,8 +188,8 @@ export const activationLogic = kea<activationLogicType>([
                 insights,
                 dashboards,
                 customEventsCount,
-                installedPlugins,
-                skippedTasks
+                skippedTasks,
+                hasReverseProxy
             ) => {
                 const tasks: ActivationTaskType[] = []
                 for (const task of Object.values(ActivationTasks)) {
@@ -272,14 +258,15 @@ export const activationLogic = kea<activationLogicType>([
                                 url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                             })
                             break
-                        case ActivationTasks.InstallFirstApp:
+                        case ActivationTasks.SetUpReverseProxy:
                             tasks.push({
-                                id: ActivationTasks.InstallFirstApp,
-                                name: 'Install your first app',
-                                description: `Extend PostHog's core functionality with apps`,
-                                completed: installedPlugins.length > 0,
+                                id: ActivationTasks.SetUpReverseProxy,
+                                name: 'Set up a reverse proxy',
+                                description: 'Send your events from your own domain to avoid tracking blockers',
+                                completed: hasReverseProxy || false,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.InstallFirstApp),
+                                skipped: skippedTasks.includes(ActivationTasks.SetUpReverseProxy),
+                                url: 'https://posthog.com/docs/advanced/proxy',
                             })
                             break
                         default:
@@ -334,14 +321,14 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTasks.SetupSessionRecordings:
                     router.actions.push(urls.replay())
                     break
-                case ActivationTasks.InstallFirstApp:
-                    router.actions.push(urls.projectApps())
-                    break
                 default:
                     break
             }
         },
         skipTask: ({ id }) => {
+            posthog.capture('activation sidebar task skipped', {
+                task: id,
+            })
             if (values.currentTeam?.id) {
                 actions.addSkippedTask(values.currentTeam.id, id)
             }

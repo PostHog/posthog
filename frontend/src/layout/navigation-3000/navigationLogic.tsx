@@ -1,5 +1,6 @@
 import {
     IconChat,
+    IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -16,6 +17,7 @@ import {
     IconServer,
     IconTestTube,
     IconToggle,
+    IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
@@ -403,10 +405,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.Events,
+                              identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: urls.events(),
+                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
                       ]
                     : [
@@ -449,6 +451,23 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
+                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                            ? {
+                                  identifier: Scene.ErrorTracking,
+                                  label: 'Error tracking',
+                                  icon: <IconWarning />,
+                                  to: urls.errorTracking(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
+                            ? {
+                                  identifier: Scene.Heatmaps,
+                                  label: 'Heatmaps',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
@@ -488,20 +507,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               }
                             : null,
                         hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.Apps,
-                                  label: 'Data pipeline',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.projectApps(),
-                              }
+                            ? featureFlags[FEATURE_FLAGS.PIPELINE_UI]
+                                ? {
+                                      identifier: Scene.Pipeline,
+                                      label: 'Data pipeline',
+                                      icon: <IconDecisionTree />,
+                                      to: urls.pipeline(),
+                                  }
+                                : {
+                                      identifier: Scene.Apps,
+                                      label: 'Data pipeline',
+                                      icon: <IconDecisionTree />,
+                                      to: urls.projectApps(),
+                                  }
                             : null,
-                        {
-                            identifier: Scene.Pipeline,
-                            label: 'Data pipeline 3000',
-                            icon: <IconDecisionTree />,
-                            to: urls.pipeline(),
-                            featureFlag: FEATURE_FLAGS.PIPELINE_UI,
-                        },
                     ].filter(isNotNil),
                 ]
             },
@@ -519,9 +538,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     return 'min'
                 } else if (sidebarOverslide > 0) {
                     return 'max'
-                } else {
-                    return null
                 }
+                return null
             },
         ],
         activeNavbarItem: [
@@ -596,10 +614,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 document.addEventListener('mousemove', cache.onMouseMove)
                 document.addEventListener('mouseup', cache.onMouseUp)
                 return () => {}
-            } else {
-                document.removeEventListener('mousemove', cache.onMouseMove)
-                document.removeEventListener('mouseup', cache.onMouseUp)
             }
+            document.removeEventListener('mousemove', cache.onMouseMove)
+            document.removeEventListener('mouseup', cache.onMouseUp)
         },
         sidebarContentsFlattened: (sidebarContentsFlattened) => {
             for (const item of sidebarContentsFlattened) {

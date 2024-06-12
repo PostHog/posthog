@@ -12,6 +12,7 @@ const mockSessons: SessionRecordingType[] = [
         end_time: '2021-01-01T01:00:00Z',
         viewed: false,
         recording_duration: 0,
+        snapshot_source: 'web',
     },
     {
         id: 's2',
@@ -19,6 +20,7 @@ const mockSessons: SessionRecordingType[] = [
         end_time: '2021-01-01T03:00:00Z',
         viewed: false,
         recording_duration: 0,
+        snapshot_source: 'mobile',
     },
 
     {
@@ -27,6 +29,7 @@ const mockSessons: SessionRecordingType[] = [
         end_time: '2021-01-01T04:00:00Z',
         viewed: false,
         recording_duration: 0,
+        snapshot_source: 'unknown',
     },
 ]
 

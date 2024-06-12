@@ -60,7 +60,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
@@ -124,7 +128,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
@@ -188,7 +196,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
@@ -252,7 +264,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
@@ -316,7 +332,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
@@ -363,7 +383,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, 'd63e1ecf-f92f-1e50-71f9-501e16e9aebe'), 0))
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -380,7 +400,11 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
@@ -444,6 +468,10 @@
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---

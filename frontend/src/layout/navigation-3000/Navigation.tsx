@@ -1,7 +1,7 @@
 import './Navigation.scss'
 
 import clsx from 'clsx'
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -11,7 +11,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
-import { Announcement } from '../navigation/TopBar/Announcement'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
@@ -27,13 +26,14 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
-    useMountedLogic(themeLogic)
+    const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
     if (mode !== 'full') {
         return (
-            <div className="Navigation3000 flex-col">
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
                 {mode === 'minimal' ? <MinimalNavigation /> : null}
                 <main>{children}</main>
             </div>
@@ -41,15 +41,14 @@ export function Navigation({
     }
 
     return (
-        <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
             <Navbar />
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                <Announcement />
                 <TopBar />
-
                 <div
                     className={clsx(
                         'Navigation3000__scene',

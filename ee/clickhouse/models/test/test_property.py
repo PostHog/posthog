@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal, Union, cast
+from typing import Literal, Union, cast
 from uuid import UUID
 
 import pytest
@@ -43,7 +43,7 @@ from posthog.test.base import (
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _run_query(self, filter: Filter, **kwargs) -> List:
+    def _run_query(self, filter: Filter, **kwargs) -> list:
         query, params = parse_prop_grouped_clauses(
             property_group=filter.property_groups,
             allow_denormalized_props=True,
@@ -776,7 +776,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _run_query(self, filter: Filter, join_person_tables=False) -> List:
+    def _run_query(self, filter: Filter, join_person_tables=False) -> list:
         outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
@@ -1119,10 +1119,12 @@ def test_parse_prop_clauses_defaults(snapshot):
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_precalculated_cohort(snapshot):
+    Cohort.objects.filter(pk=42).delete()
     org = Organization.objects.create(name="other org")
 
     team = Team.objects.create(organization=org)
-    cohort = Cohort.objects.create(team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
+    # force pk for snapshot consistency
+    cohort = Cohort.objects.create(pk=42, team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
 
     filter = Filter(
         data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]},
@@ -1230,7 +1232,7 @@ TEST_BREAKDOWN_PROCESSING = [
 @pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
     clean_up_materialised_columns,
-    breakdown: Union[str, List[str]],
+    breakdown: Union[str, list[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
     column: str,
@@ -1279,7 +1281,7 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
 )
 def test_breakdown_query_expression_materialised(
     clean_up_materialised_columns,
-    breakdown: Union[str, List[str]],
+    breakdown: Union[str, list[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
     column: str,
@@ -1315,7 +1317,7 @@ def test_breakdown_query_expression_materialised(
 
 
 @pytest.fixture
-def test_events(db, team) -> List[UUID]:
+def test_events(db, team) -> list[UUID]:
     return [
         _create_event(
             event="$pageview",
@@ -1773,18 +1775,16 @@ TEST_PROPERTIES = [
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
@@ -1801,18 +1801,16 @@ def test_prop_filter_json_extract_materialized(
 
     assert "JSONExtract" not in query
 
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert uuids == expected
 
@@ -1837,18 +1835,16 @@ def test_prop_filter_json_extract_person_on_events_materialized(
     )
     assert "JSON" not in query
 
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert uuids == expected
 
@@ -1962,7 +1958,7 @@ def test_combine_group_properties():
         ],
     }
 
-    combined_group = PropertyGroup(PropertyOperatorType.AND, cast(List[Property], [])).combine_properties(
+    combined_group = PropertyGroup(PropertyOperatorType.AND, cast(list[Property], [])).combine_properties(
         PropertyOperatorType.OR, [propertyC, propertyD]
     )
     assert combined_group.to_dict() == {

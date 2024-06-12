@@ -32,7 +32,7 @@ cmd = None
 if runner:
     cmd = sys.argv[1] if len(sys.argv) >= 2 else None
 
-    if cmd == "test" or runner.endswith("pytest") or runner.endswith("mypy"):
+    if cmd == "test" or runner.endswith("pytest") or runner.endswith("mypy") or "/mypy/" in runner:
         print("Running in test mode. Setting DEBUG and TEST environment variables.")
         os.environ["DEBUG"] = "1"
         os.environ["TEST"] = "1"

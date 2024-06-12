@@ -1,14 +1,22 @@
+from typing import Any, Optional
 from django.db import models
-
+import snowflake.connector
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
-import psycopg
-from django.conf import settings
+import psycopg2
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
 class ExternalDataSchema(CreatedMetaFields, UUIDModel):
+    class Status(models.TextChoices):
+        RUNNING = "Running", "Running"
+        PAUSED = "Paused", "Paused"
+        ERROR = "Error", "Error"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
+
     name: models.CharField = models.CharField(max_length=400)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source: models.ForeignKey = models.ForeignKey(
@@ -21,9 +29,16 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     latest_error: models.TextField = models.TextField(
         null=True, help_text="The latest error that occurred when syncing this schema."
     )
+    status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     __repr__ = sane_repr("name")
+
+    @property
+    def is_incremental(self):
+        from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
+
+        return self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
 
 
 @database_sync_to_async
@@ -43,44 +58,86 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
 
 @database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
-    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    return ExternalDataSchema.objects.prefetch_related("source").get(id=schema_id, team_id=team_id)
 
 
+@database_sync_to_async
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
-    return [(val["id"], val["name"]) for val in schemas]
+    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all())
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).values().all()
-    return [val["name"] for val in schemas]
+    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all())
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
-    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas]
+    old_schemas_names = [schema.name for schema in old_schemas]
+
+    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
 
-def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str):
-    connection = psycopg.Connection.connect(
-        host=host,
-        port=int(port),
-        dbname=database,
+def get_snowflake_schemas(
+    account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
+) -> list[Any]:
+    with snowflake.connector.connect(
         user=user,
         password=password,
-        sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
-    )
+        account=account_id,
+        warehouse=warehouse,
+        database=database,
+        schema="information_schema",
+        role=role,
+    ) as connection:
+        with connection.cursor() as cursor:
+            if cursor is None:
+                raise Exception("Can't create cursor to Snowflake")
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            results = cursor.fetchall()
+            results = [row[0] for row in results]
+
+            return results
+
+
+def get_postgres_schemas(
+    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+) -> list[Any]:
+    def get_schemas(postgres_host: str, postgres_port: int):
+        connection = psycopg2.connect(
+            host=postgres_host,
+            port=postgres_port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="prefer",
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
         )
-        result = cursor.fetchall()
-        result = [row[0] for row in result]
 
-    connection.close()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            result = cursor.fetchall()
+            result = [row[0] for row in result]
 
-    return result
+        connection.close()
+
+        return result
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))

@@ -28,9 +28,15 @@
     display: flex;
     flex-direction: column;
 
-    .NotebookNode & {
+    .NotebookNode &,
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         flex: 1;
         height: 100%;
+
+        .LineGraph {
+            padding: 0.5rem;
+        }
     }
 
     .InsightVizDisplay__content {
@@ -38,6 +44,7 @@
         display: flex;
         flex: 1;
         flex-direction: column;
+        height: 100%;
 
         &--with-legend {
             flex-direction: row;
@@ -95,7 +102,9 @@
         min-height: 30vh;
     }
 
-    .NotebookNode & {
+    .NotebookNode &,
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         .LineGraph {
             position: relative;
             min-height: 100px;
@@ -111,7 +120,9 @@
     min-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
-    .NotebookNode & {
+    .NotebookNode &,
+    .InsightCard &,
+    .WebAnalyticsDashboard & {
         min-height: auto;
     }
 
@@ -140,7 +151,9 @@
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode & {
+        .NotebookNode &,
+        .InsightCard &,
+        .WebAnalyticsDashboard & {
             min-height: auto;
         }
     }

@@ -1,6 +1,5 @@
 import os
 import time
-from typing import Dict
 
 from celery import Celery
 from celery.signals import (
@@ -44,7 +43,7 @@ CELERY_TASK_FAILURE_COUNTER = Counter(
 CELERY_TASK_RETRY_COUNTER = Counter(
     "posthog_celery_task_retry",
     "task retry signal is dispatched when a task will be retried.",
-    labelnames=["task_name"],
+    labelnames=["task_name", "reason"],
 )
 
 
@@ -71,7 +70,7 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
-task_timings: Dict[str, float] = {}
+task_timings: dict[str, float] = {}
 
 
 @setup_logging.connect
@@ -146,8 +145,8 @@ def failure_signal_handler(sender, **kwargs):
 
 
 @task_retry.connect
-def retry_signal_handler(sender, **kwargs):
-    CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name).inc()
+def retry_signal_handler(sender, reason, **kwargs):
+    CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name, reason=str(reason)).inc()
 
 
 @app.on_after_finalize.connect

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 
+from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import PluginConfig
 
 
@@ -14,6 +14,7 @@ class PluginConfigAdmin(admin.ModelAdmin):
         ("deleted", admin.BooleanFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
         ("plugin", admin.RelatedOnlyFieldListFilter),
+        "plugin__is_global",
     )
     list_select_related = ("team", "plugin")
     search_fields = ("team__name", "team__organization__name", "plugin__name")

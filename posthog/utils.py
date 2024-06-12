@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from operator import itemgetter
 import os
 import re
 import secrets
@@ -18,15 +19,11 @@ from functools import lru_cache, wraps
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    Generator,
-    List,
-    Mapping,
     Optional,
-    Tuple,
     Union,
     cast,
 )
+from collections.abc import Generator, Mapping
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -45,6 +42,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from django.utils.cache import patch_cache_control
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -69,6 +67,7 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
 
@@ -82,6 +81,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
+        "minute": "%-d-%b-%Y %H:%M",
         "hour": "%-d-%b-%Y %H:%M",
         "month": "%b %Y",
     }
@@ -123,7 +123,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
@@ -147,7 +147,7 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the current day.
     `at` is the datetime to use as a reference point.
@@ -177,7 +177,7 @@ def relative_date_parse_with_delta_mapping(
     *,
     always_truncate: bool = False,
     now: Optional[datetime.datetime] = None,
-) -> Tuple[datetime.datetime, Optional[Dict[str, int]], str | None]:
+) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
         try:
@@ -197,14 +197,23 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
-    delta_mapping: Dict[str, int] = {}
+    delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    if match.group("type") == "h":
-        delta_mapping["hours"] = int(match.group("number"))
+    elif match.group("type") == "h":
+        if match.group("number"):
+            delta_mapping["hours"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
@@ -274,7 +283,7 @@ def get_js_url(request: HttpRequest) -> str:
 def render_template(
     template_name: str,
     request: HttpRequest,
-    context: Dict = {},
+    context: Optional[dict] = None,
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
@@ -283,6 +292,8 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
+    if context is None:
+        context = {}
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
@@ -327,13 +338,13 @@ def render_template(
     except:
         year_in_hog_url = None
 
-    posthog_app_context: Dict[str, Any] = {
+    posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
     }
 
-    posthog_bootstrap: Dict[str, Any] = {}
+    posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
@@ -350,6 +361,7 @@ def render_template(
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
+            "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
             **posthog_app_context,
         }
@@ -414,7 +426,10 @@ def render_template(
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     html = template.render(context, request=request)
-    return HttpResponse(html)
+    response = HttpResponse(html)
+    if not request.user.is_anonymous:
+        patch_cache_control(response, no_store=True)
+    return response
 
 
 def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
@@ -445,7 +460,7 @@ def get_default_event_name(team: "Team"):
     return "$pageview"
 
 
-def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
+def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
     from posthog.models import Plugin, PluginSourceFile
 
     plugin_configs = (
@@ -469,7 +484,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
+        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
@@ -533,18 +548,19 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 def get_compare_period_dates(
     date_from: datetime.datetime,
     date_to: datetime.datetime,
-    date_from_delta_mapping: Optional[Dict[str, int]],
-    date_to_delta_mapping: Optional[Dict[str, int]],
+    date_from_delta_mapping: Optional[dict[str, int]],
+    date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
-) -> Tuple[datetime.datetime, datetime.datetime]:
+) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
+    new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
         new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
         new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
-    else:
+    elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
         # Handle date_from = -7d, -14d etc. specially
@@ -606,7 +622,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -644,9 +660,9 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
@@ -775,7 +791,7 @@ def get_plugin_server_version() -> Optional[str]:
     return None
 
 
-def get_plugin_server_job_queues() -> Optional[List[str]]:
+def get_plugin_server_job_queues() -> Optional[list[str]]:
     cache_key_value = get_client().get("@posthog-plugin-server/enabled-job-queues")
     if cache_key_value:
         qs = cache_key_value.decode("utf-8").replace('"', "")
@@ -853,13 +869,13 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     return False
 
 
-def get_instance_available_sso_providers() -> Dict[str, bool]:
+def get_instance_available_sso_providers() -> dict[str, bool]:
     """
     Returns a dictionary containing final determination to which SSO providers are available.
     SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
     Validates configuration settings and license validity (if applicable).
     """
-    output: Dict[str, bool] = {
+    output: dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
@@ -889,7 +905,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
+def flatten(i: Union[list, tuple], max_depth=10) -> Generator:
     for el in i:
         if isinstance(el, list) and max_depth > 0:
             yield from flatten(el, max_depth=max_depth - 1)
@@ -901,7 +917,7 @@ def get_daterange(
     start_date: Optional[datetime.datetime],
     end_date: Optional[datetime.datetime],
     frequency: str,
-) -> List[Any]:
+) -> list[Any]:
     """
     Returns list of a fixed frequency Datetime objects between given bounds.
 
@@ -973,7 +989,7 @@ class GenericEmails:
     """
 
     def __init__(self):
-        with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
+        with open(get_absolute_path("helpers/generic_emails.txt")) as f:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
@@ -984,7 +1000,7 @@ class GenericEmails:
 
 
 @lru_cache(maxsize=1)
-def get_available_timezones_with_offsets() -> Dict[str, float]:
+def get_available_timezones_with_offsets() -> dict[str, float]:
     now = dt.datetime.now()
     result = {}
     for tz in pytz.common_timezones:
@@ -997,15 +1013,43 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def refresh_requested_by_client(request: Request) -> bool:
-    return _request_has_key_set("refresh", request)
+def refresh_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set(
+        "refresh",
+        request,
+        allowed_values=[
+            "async",
+            "blocking",
+            "force_async",
+            "force_blocking",
+            "force_cache",
+            "lazy_async",
+        ],
+    )
 
 
-def _request_has_key_set(key: str, request: Request) -> bool:
+def cache_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set("use_cache", request)
+
+
+def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
 
-    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
+    value = query_param if query_param is not None else data_value
+
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if str(value).lower() in ["true", "1", "yes", ""]:  # "" means it's set but no value
+        return True
+    if str(value).lower() in ["false", "0", "no"]:
+        return False
+    if allowed_values and value in allowed_values:
+        assert isinstance(value, str)
+        return value
+    return False
 
 
 def str_to_bool(value: Any) -> bool:
@@ -1058,7 +1102,7 @@ def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
     return abs(int((d1 - d2).total_seconds() * 1000))
 
 
-def encode_get_request_params(data: Dict[str, Any]) -> Dict[str, str]:
+def encode_get_request_params(data: dict[str, Any]) -> dict[str, str]:
     return {
         key: encode_value_as_param(value=value)
         for key, value in data.items()
@@ -1075,7 +1119,7 @@ class DataclassJSONEncoder(json.JSONEncoder):
 
 
 def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> str:
-    if isinstance(value, (list, dict, tuple)):
+    if isinstance(value, list | dict | tuple):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
@@ -1302,14 +1346,8 @@ def patchable(fn):
     return inner
 
 
-class PersonOnEventsMode(str, Enum):
-    DISABLED = "disabled"
-    V1_ENABLED = "v1_enabled"
-    V2_ENABLED = "v2_enabled"
-
-
 def label_for_team_id_to_track(team_id: int) -> str:
-    team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
+    team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
 
     team_id_as_string = str(team_id)
 
@@ -1333,3 +1371,27 @@ def label_for_team_id_to_track(team_id: int) -> str:
 
 def camel_to_snake_case(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
+    """
+    Takes a list and tuples of field and order to sort them on multiple passes. This
+    is useful to sort a list by multiple fields where some of them are ordered differently
+    than others.
+
+    Example: `multisort(list(student_objects), (('grade', True), ('age', False)))`
+
+    https://docs.python.org/3/howto/sorting.html#sort-stability-and-complex-sorts
+    """
+    for key, reverse in reversed(specs):
+        xs.sort(key=itemgetter(key), reverse=reverse)
+    return xs
+
+
+def get_from_dict_or_attr(obj: Any, key: str):
+    if isinstance(obj, dict):
+        return obj.get(key, None)
+    elif hasattr(obj, key):
+        return getattr(obj, key, None)
+    else:
+        raise AttributeError(f"Object {obj} has no key {key}")

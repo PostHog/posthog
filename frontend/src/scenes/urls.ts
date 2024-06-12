@@ -1,10 +1,12 @@
 import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
+    ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
     AppMetricsUrlParams,
@@ -16,6 +18,7 @@ import {
     PipelineTab,
     ProductKey,
     ReplayTabs,
+    SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -32,9 +35,12 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
 export const urls = {
+    absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
+    currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -61,7 +67,9 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/events',
+    activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    /** @deprecated in favor of /activity */
+    events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',
@@ -105,12 +113,21 @@ export const urls = {
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
+    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    // TODO: Default to the landing page, once it's ready
+    pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
+    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
+        if (stage === PipelineStage.DataImport) {
+            // should match 'pipelineNodeDataWarehouseNew'
+            return `/pipeline/new/data-warehouse`
+        }
+
+        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (
@@ -132,6 +149,8 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    errorTracking: (): string => '/error_tracking',
+    errorTrackingGroup: (id: string): string => `/error_tracking/${id}`,
     surveys: (): string => '/surveys',
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
@@ -175,8 +194,10 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
+            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
+        }`,
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -215,4 +236,8 @@ export const urls = {
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
+    heatmaps: (params?: string): string =>
+        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
+    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
 }

@@ -66,7 +66,7 @@ export function PieChart({
     ['data-attr']: dataAttr,
     trendsFilter,
     formula,
-    showValueOnSeries,
+    showValuesOnSeries,
     showLabelOnSeries,
     supportsPercentStackView,
     showPercentStackView,
@@ -145,7 +145,7 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            const showValueForSeries = showValuesOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
                             return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {

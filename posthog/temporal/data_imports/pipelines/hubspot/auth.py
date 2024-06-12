@@ -1,6 +1,5 @@
 import requests
 from django.conf import settings
-from typing import Tuple
 
 
 def refresh_access_token(refresh_token: str) -> str:
@@ -21,7 +20,7 @@ def refresh_access_token(refresh_token: str) -> str:
     return res.json()["access_token"]
 
 
-def get_access_token_from_code(code: str, redirect_uri: str) -> Tuple[str, str]:
+def get_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
     res = requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={

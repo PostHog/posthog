@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Literal, Optional
+from typing import Literal, Optional
 
 from posthog.constants import (
     CUSTOM_EVENT,
@@ -84,21 +84,21 @@ class PathsHogQLExpressionMixin(PathTypeMixin):
 
 class TargetEventsMixin(BaseParamMixin):
     @cached_property
-    def target_events(self) -> List[str]:
+    def target_events(self) -> list[str]:
         target_events = self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
         if isinstance(target_events, str):
             return json.loads(target_events)
         return target_events
 
     @cached_property
-    def custom_events(self) -> List[str]:
+    def custom_events(self) -> list[str]:
         custom_events = self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
         if isinstance(custom_events, str):
             return json.loads(custom_events)
         return custom_events
 
     @cached_property
-    def exclude_events(self) -> List[str]:
+    def exclude_events(self) -> list[str]:
         _exclude_events = self._data.get(PATHS_EXCLUDE_EVENTS, [])
         if isinstance(_exclude_events, str):
             return json.loads(_exclude_events)
@@ -160,7 +160,7 @@ class FunnelPathsMixin(BaseParamMixin):
 
 class PathGroupingMixin(BaseParamMixin):
     @cached_property
-    def path_groupings(self) -> Optional[List[str]]:
+    def path_groupings(self) -> Optional[list[str]]:
         path_groupings = self._data.get(PATH_GROUPINGS, None)
         if isinstance(path_groupings, str):
             return json.loads(path_groupings)
@@ -193,7 +193,7 @@ class PathReplacementMixin(BaseParamMixin):
 
 class LocalPathCleaningFiltersMixin(BaseParamMixin):
     @cached_property
-    def local_path_cleaning_filters(self) -> Optional[List[Dict[str, str]]]:
+    def local_path_cleaning_filters(self) -> Optional[list[dict[str, str]]]:
         local_path_cleaning_filters = self._data.get(LOCAL_PATH_CLEANING_FILTERS, None)
         if isinstance(local_path_cleaning_filters, str):
             return json.loads(local_path_cleaning_filters)

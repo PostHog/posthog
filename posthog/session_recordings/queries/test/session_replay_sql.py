@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional
 from uuid import uuid4
 
 from dateutil.parser import parse
@@ -94,7 +94,7 @@ def _sensible_last_timestamp(
             if isinstance(first_timestamp, str):
                 first_timestamp = parse(first_timestamp)
 
-            sensible_timestamp = (first_timestamp - relativedelta(seconds=3600)).isoformat()
+            sensible_timestamp = (first_timestamp + relativedelta(seconds=3600)).isoformat()
 
     return format_clickhouse_timestamp(cast_timestamp_or_now(sensible_timestamp))
 
@@ -113,7 +113,7 @@ def produce_replay_summary(
     console_log_count: Optional[int] = None,
     console_warn_count: Optional[int] = None,
     console_error_count: Optional[int] = None,
-    log_messages: Dict[str, List[str]] | None = None,
+    log_messages: dict[str, list[str]] | None = None,
     snapshot_source: str | None = None,
 ):
     if log_messages is None:

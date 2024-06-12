@@ -1,4 +1,7 @@
+from typing import Optional
 from posthog.hogql.autocomplete import get_hogql_autocomplete
+from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
@@ -21,9 +24,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.PERSON,
         )
 
-    def _query_response(self, query: str, start: int, end: int) -> HogQLAutocompleteResponse:
+    def _query_response(
+        self, query: str, start: int, end: int, database: Optional[Database] = None
+    ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(kind="HogQLAutocomplete", select=query, startPosition=start, endPosition=end)
-        return get_hogql_autocomplete(query=autocomplete, team=self.team)
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
     def test_autocomplete(self):
         query = "select * from events"
@@ -226,3 +231,28 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._query_response(query=query, start=9, end=9)
 
         assert len(results.suggestions) == 0
+
+    def test_autocomplete_events_hidden_field(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database.events.fields["event"] = StringDatabaseField(name="event", hidden=True)
+
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7, database=database)
+
+        for suggestion in results.suggestions:
+            assert suggestion.label != "event"
+
+    def test_autocomplete_special_characters(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database.events.fields["event-name"] = StringDatabaseField(name="event-name")
+
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "event-name", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "event-name"
+        assert suggestion.insertText == "`event-name`"

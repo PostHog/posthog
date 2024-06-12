@@ -109,9 +109,8 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
 
                 if (startIndex !== undefined && startIndex !== -1) {
                     return startIndex - trendSeries[0].days.length
-                } else {
-                    return 0
                 }
+                return 0
             },
         ],
 

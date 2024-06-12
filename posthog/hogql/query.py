@@ -1,10 +1,11 @@
-from typing import Dict, Optional, Union, cast
+import dataclasses
+from typing import Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -21,28 +22,37 @@ from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
-
-INCREASED_MAX_EXECUTION_TIME = 600
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
+    *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
-    workload: Workload = Workload.ONLINE,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    workload: Workload = Workload.DEFAULT,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
-    explain: Optional[bool] = False,
     pretty: Optional[bool] = True,
+    context: Optional[HogQLContext] = None,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
 
+    if context is None:
+        context = HogQLContext(team_id=team.pk)
+
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
+    debug = modifiers is not None and modifiers.debug
+    error: Optional[str] = None
+    explain: Optional[list[str]] = None
+    results = None
+    types = None
+    metadata: Optional[HogQLMetadataResponse] = None
 
     with timings.measure("query"):
         if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
@@ -56,7 +66,7 @@ def execute_hogql_query(
         placeholders = placeholders or {}
 
         if "filters" in placeholders and filters is not None:
-            raise HogQLException(
+            raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
         if "filters" in placeholders_in_query:
@@ -65,7 +75,7 @@ def execute_hogql_query(
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
-                raise HogQLException(
+                raise ValueError(
                     f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
                 )
             select_query = replace_placeholders(select_query, placeholders)
@@ -81,13 +91,16 @@ def execute_hogql_query(
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
         with timings.measure("prepare_ast"):
-            hogql_query_context = HogQLContext(
+            hogql_query_context = dataclasses.replace(
+                context,
+                # set the team.pk here so someone can't pass a context for a different team 🤷‍️
                 team_id=team.pk,
                 team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
             )
+
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
             select_query_hogql = cast(
@@ -120,73 +133,83 @@ def execute_hogql_query(
 
     settings = settings or HogQLGlobalSettings()
     if limit_context in (LimitContext.EXPORT, LimitContext.COHORT_CALCULATION, LimitContext.QUERY_ASYNC):
-        settings.max_execution_time = INCREASED_MAX_EXECUTION_TIME
+        settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
-        clickhouse_context = HogQLContext(
-            team_id=team.pk,
-            team=team,
-            enable_select_queries=True,
-            timings=timings,
-            modifiers=query_modifiers,
-        )
-        clickhouse_sql = print_ast(
-            select_query,
-            context=clickhouse_context,
-            dialect="clickhouse",
-            settings=settings,
-            pretty=pretty if pretty is not None else True,
-        )
-
-    timings_dict = timings.to_dict()
-    with timings.measure("clickhouse_execute"):
-        tag_queries(
-            team_id=team.pk,
-            query_type=query_type,
-            has_joins="JOIN" in clickhouse_sql,
-            has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
-            timings=timings_dict,
-        )
-
-        error = None
         try:
-            results, types = sync_execute(
-                clickhouse_sql,
-                clickhouse_context.values,
-                with_column_types=True,
-                workload=workload,
+            clickhouse_context = dataclasses.replace(
+                context,
+                # set the team.pk here so someone can't pass a context for a different team 🤷‍️
                 team_id=team.pk,
-                readonly=True,
+                team=team,
+                enable_select_queries=True,
+                timings=timings,
+                modifiers=query_modifiers,
+            )
+            clickhouse_sql = print_ast(
+                select_query,
+                context=clickhouse_context,
+                dialect="clickhouse",
+                settings=settings,
+                pretty=pretty if pretty is not None else True,
             )
         except Exception as e:
-            if explain:
-                results, types = None, None
-                if isinstance(e, (ExposedCHQueryError, HogQLException)):
+            if debug:
+                clickhouse_sql = None
+                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     error = str(e)
                 else:
                     error = "Unknown error"
             else:
                 raise e
 
-    metadata: Optional[HogQLMetadataResponse] = None
-    if explain and error is None:  # If the query errored, explain will fail as well.
-        with timings.measure("explain"):
-            explain_results = sync_execute(
-                f"EXPLAIN {clickhouse_sql}",
-                clickhouse_context.values,
-                with_column_types=True,
-                workload=workload,
+    if clickhouse_sql is not None:
+        timings_dict = timings.to_dict()
+        with timings.measure("clickhouse_execute"):
+            tag_queries(
                 team_id=team.pk,
-                readonly=True,
+                query_type=query_type,
+                has_joins="JOIN" in clickhouse_sql,
+                has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
+                timings=timings_dict,
+                modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
             )
-            explain_output = [str(r[0]) for r in explain_results[0]]
-        with timings.measure("metadata"):
-            from posthog.hogql.metadata import get_hogql_metadata
 
-            metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
-    else:
-        explain_output = None
+            try:
+                results, types = sync_execute(
+                    clickhouse_sql,
+                    clickhouse_context.values,
+                    with_column_types=True,
+                    workload=workload,
+                    team_id=team.pk,
+                    readonly=True,
+                )
+            except Exception as e:
+                if debug:
+                    results = []
+                    if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
+                        error = str(e)
+                    else:
+                        error = "Unknown error"
+                else:
+                    raise e
+
+        if debug and error is None:  # If the query errored, explain will fail as well.
+            with timings.measure("explain"):
+                explain_results = sync_execute(
+                    f"EXPLAIN {clickhouse_sql}",
+                    clickhouse_context.values,
+                    with_column_types=True,
+                    workload=workload,
+                    team_id=team.pk,
+                    readonly=True,
+                )
+                explain = [str(r[0]) for r in explain_results[0]]
+            with timings.measure("metadata"):
+                from posthog.hogql.metadata import get_hogql_metadata
+
+                metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
 
     return HogQLQueryResponse(
         query=query,
@@ -198,6 +221,6 @@ def execute_hogql_query(
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
-        explain=explain_output,
+        explain=explain,
         metadata=metadata,
     )

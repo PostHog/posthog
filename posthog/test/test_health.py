@@ -1,12 +1,14 @@
 import logging
 from contextlib import contextmanager
-from typing import List, Optional
+import random
+from typing import Optional
 from unittest import mock
 from unittest.mock import patch
 
 import django_redis.exceptions
 import kombu.connection
 import kombu.exceptions
+import psycopg2
 import pytest
 from clickhouse_driver.errors import Error as ClickhouseError
 from django.core.cache import cache
@@ -31,7 +33,7 @@ def test_readyz_returns_200_if_everything_is_ok(client: Client):
 @pytest.mark.django_db
 def test_readyz_supports_excluding_checks(client: Client):
     with simulate_postgres_error():
-        resp = get_readyz(client, exclude=["postgres", "postgres_migrations_uptodate"])
+        resp = get_readyz(client, exclude=["postgres", "postgres_flags", "postgres_migrations_uptodate"])
 
     assert resp.status_code == 200, resp.content
     data = resp.json()
@@ -40,13 +42,41 @@ def test_readyz_supports_excluding_checks(client: Client):
     } == {"postgres": False, "postgres_migrations_uptodate": False}
 
 
+@pytest.mark.django_db
+def test_readyz_can_handle_random_database_errors(client: Client):
+    with simulate_postgres_psycopg2_error():
+        resp = get_readyz(client)
+
+    assert resp.status_code == 503, resp.content
+    data = resp.json()
+    assert {
+        check: status for check, status in data.items() if check in {"postgres", "postgres_migrations_uptodate"}
+    } == {"postgres": False, "postgres_migrations_uptodate": False}
+
+
+@pytest.mark.django_db
+def test_readyz_decide_can_handle_random_database_errors(client: Client):
+    with simulate_postgres_psycopg2_error():
+        resp = get_readyz(client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+    data = resp.json()
+    assert data == {"postgres_flags": False, "cache": True}
+
+
 def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
     """
     We want the livez endpoint to involve no database queries at all, it should
     just be an indicator that the python process hasn't hung.
     """
 
-    with simulate_postgres_error(), simulate_kafka_cannot_connect(), simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect(), simulate_cache_cannot_connect():
+    with (
+        simulate_postgres_error(),
+        simulate_kafka_cannot_connect(),
+        simulate_clickhouse_cannot_connect(),
+        simulate_celery_cannot_connect(),
+        simulate_cache_cannot_connect(),
+    ):
         resp = get_livez(client)
 
     assert resp.status_code == 200, resp.content
@@ -169,6 +199,11 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
 
     assert resp.status_code == 503, resp.content
 
+    with simulate_postgres_psycopg2_error():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503, resp.content
+
     with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client)
 
@@ -234,12 +269,25 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: Optional[List[str]] = None, role: Optional[str] = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 
 def get_livez(client: Client) -> HttpResponse:
     return client.get("/_livez")
+
+
+def return_given_error_or_random(error: Optional[Exception] = None):
+    """
+    This randomly chooses between returning the given error or a random base exception. Useful
+    for testing how we handle unexpected exceptions in health checks.
+    """
+    if random.choice([True, False]):
+        return error
+
+    return Exception(
+        "random error: Make sure your checks support handling random errors! See `return_given_error_or_random` for more info."
+    )
 
 
 @contextmanager
@@ -249,7 +297,17 @@ def simulate_postgres_error():
     Exception hierachy
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = DjangoDatabaseError  # This should be the most general
+        cursor_mock.side_effect = return_given_error_or_random(DjangoDatabaseError("failed to connect"))
+        yield
+
+
+@contextmanager
+def simulate_postgres_psycopg2_error():
+    """
+    Causes psycopg2 to raise an error
+    """
+    with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
+        cursor_mock.side_effect = return_given_error_or_random(psycopg2.OperationalError)
         yield
 
 
@@ -265,7 +323,7 @@ def simulate_kafka_cannot_connect():
     expected :fingerscrossed:
     """
     with patch.object(KafkaProducerForTests, "__init__") as init_mock:
-        init_mock.side_effect = KafkaError("failed to connect")
+        init_mock.side_effect = return_given_error_or_random(KafkaError("failed to connect"))
         yield
 
 
@@ -279,7 +337,7 @@ def simulate_clickhouse_cannot_connect():
     down, fail dns etc.
     """
     with patch.object(ch_pool, "get_client") as pool_mock:
-        pool_mock.side_effect = ClickhouseError("failed to connect")
+        pool_mock.side_effect = return_given_error_or_random(ClickhouseError("failed to connect"))
         yield
 
 
@@ -289,7 +347,7 @@ def simulate_celery_cannot_connect():
     Causes celery to raise a broker connection error
     """
     with patch.object(kombu.connection.Connection, "ensure_connection") as ensure_connection_mock:
-        ensure_connection_mock.side_effect = kombu.exceptions.ConnectionError
+        ensure_connection_mock.side_effect = return_given_error_or_random(kombu.exceptions.ConnectionError)
         yield
 
 
@@ -302,7 +360,9 @@ def simulate_cache_cannot_connect():
     reality.
     """
     with patch.object(cache, "has_key") as has_key_mock:
-        has_key_mock.side_effect = django_redis.exceptions.ConnectionInterrupted(mock.Mock())
+        has_key_mock.side_effect = return_given_error_or_random(
+            django_redis.exceptions.ConnectionInterrupted(mock.Mock())
+        )
         yield
 
 

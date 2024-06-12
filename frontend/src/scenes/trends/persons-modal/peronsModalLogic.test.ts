@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { personsModalLogic } from './personsModalLogic'
@@ -8,6 +9,11 @@ describe('personsModalLogic', () => {
     let logic: ReturnType<typeof personsModalLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                'api/projects/:team_id/persons/trends': {},
+            },
+        })
         initKeaTests()
     })
 

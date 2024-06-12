@@ -1,7 +1,8 @@
 from copy import copy, deepcopy
-from typing import Callable, Dict, List, Optional, cast
+from typing import Optional, cast
+from collections.abc import Callable
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -38,7 +39,7 @@ from posthog.schema import (
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
-    selects: List[ast.SelectQuery] = []
+    selects: list[ast.SelectQuery] = []
     node: Optional[AST] = None
     parent_node: Optional[AST] = None
     last_node: Optional[AST] = None
@@ -50,7 +51,7 @@ class GetNodeAtPositionTraverser(TraversingVisitor):
         self.end = end
         super().visit(expr)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
         if node is not None and node.start is not None and node.end is not None:
             if self.start >= node.start and self.end <= node.end:
                 self.node = node
@@ -84,29 +85,29 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
 
 
 def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str | None:
-    if isinstance(field_or_table, ast.BooleanDatabaseField):
+    if isinstance(field_or_table, BooleanDatabaseField):
         return "Boolean"
-    if isinstance(field_or_table, ast.IntegerDatabaseField):
+    if isinstance(field_or_table, IntegerDatabaseField):
         return "Integer"
-    if isinstance(field_or_table, ast.FloatDatabaseField):
+    if isinstance(field_or_table, FloatDatabaseField):
         return "Float"
-    if isinstance(field_or_table, ast.StringDatabaseField):
+    if isinstance(field_or_table, StringDatabaseField):
         return "String"
-    if isinstance(field_or_table, ast.DateTimeDatabaseField):
+    if isinstance(field_or_table, DateTimeDatabaseField):
         return "DateTime"
-    if isinstance(field_or_table, ast.DateDatabaseField):
+    if isinstance(field_or_table, DateDatabaseField):
         return "Date"
-    if isinstance(field_or_table, ast.StringJSONDatabaseField):
+    if isinstance(field_or_table, StringJSONDatabaseField):
         return "Object"
     if isinstance(field_or_table, ast.ExpressionField):
         return "Expression"
-    if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
+    if isinstance(field_or_table, ast.Table | ast.LazyJoin):
         return "Table"
 
     return None
 
 
-def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dict[str, CTE]]) -> None | Table:
+def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dict[str, CTE]]) -> None | Table:
     assert context.database is not None
 
     def resolve_fields_on_table(table: Table | None, table_query: ast.SelectQuery) -> Table | None:
@@ -120,7 +121,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
                 return None
 
             selected_columns = node.type.columns
-            new_fields: Dict[str, FieldOrTable] = {}
+            new_fields: dict[str, FieldOrTable] = {}
             for name, field in selected_columns.items():
                 if isinstance(field, ast.FieldAliasType):
                     underlying_field_name = field.alias
@@ -145,7 +146,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
 
             # Return a new table with a reduced field set
             class AnonTable(Table):
-                fields: Dict[str, FieldOrTable] = new_fields
+                fields: dict[str, FieldOrTable] = new_fields
 
                 def to_printed_hogql(self):
                     # Use the base table name for resolving property definitions later
@@ -184,8 +185,8 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
     return None
 
 
-def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[str, ast.Table]:
-    tables: Dict[str, ast.Table] = {}
+def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> dict[str, ast.Table]:
+    tables: dict[str, ast.Table] = {}
 
     if query.select_from is not None and query.select_from.alias is not None:
         table = get_table(context, query.select_from, query.ctes)
@@ -207,7 +208,7 @@ def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[st
 # Replaces all ast.FieldTraverser with the underlying node
 def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table:
     new_table = deepcopy(table)
-    new_fields: Dict[str, FieldOrTable] = {}
+    new_fields: dict[str, FieldOrTable] = {}
     for key, field in list(new_table.fields.items()):
         if not isinstance(field, ast.FieldTraverser):
             new_fields[key] = field
@@ -216,9 +217,9 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
         current_table_or_field: FieldOrTable = new_table
         for chain in field.chain:
             if isinstance(current_table_or_field, Table):
-                chain_field = current_table_or_field.fields.get(chain)
+                chain_field = current_table_or_field.fields.get(str(chain))
             elif isinstance(current_table_or_field, LazyJoin):
-                chain_field = current_table_or_field.resolve_table(context).fields.get(chain)
+                chain_field = current_table_or_field.resolve_table(context).fields.get(str(chain))
             elif isinstance(current_table_or_field, DatabaseField):
                 chain_field = current_table_or_field
             else:
@@ -234,31 +235,40 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
     return new_table
 
 
-def append_table_field_to_response(table: Table, suggestions: List[AutocompleteCompletionItem]) -> None:
-    keys: List[str] = []
-    details: List[str | None] = []
+def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem]) -> None:
+    keys: list[str] = []
+    details: list[str | None] = []
     table_fields = list(table.fields.items())
     for field_name, field_or_table in table_fields:
+        # Skip over hidden fields
+        if isinstance(field_or_table, ast.DatabaseField) and field_or_table.hidden:
+            continue
+
         keys.append(field_name)
         details.append(convert_field_or_table_to_type_string(field_or_table))
 
-    extend_responses(keys=keys, suggestions=suggestions, details=details)
+    extend_responses(
+        keys=keys,
+        suggestions=suggestions,
+        details=details,
+        insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
+    )
 
     available_functions = ALL_EXPOSED_FUNCTION_NAMES
     extend_responses(
         available_functions,
         suggestions,
-        Kind.Function,
+        Kind.FUNCTION,
         insert_text=lambda key: f"{key}()",
     )
 
 
 def extend_responses(
-    keys: List[str],
-    suggestions: List[AutocompleteCompletionItem],
-    kind: Kind = Kind.Variable,
+    keys: list[str],
+    suggestions: list[AutocompleteCompletionItem],
+    kind: Kind = Kind.VARIABLE,
     insert_text: Optional[Callable[[str], str]] = None,
-    details: Optional[List[str | None]] = None,
+    details: Optional[list[str | None]] = None,
 ) -> None:
     suggestions.extend(
         [
@@ -278,11 +288,17 @@ PROPERTY_DEFINITION_LIMIT = 220
 
 
 # TODO: Support ast.SelectUnionQuery nodes
-def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
+def get_hogql_autocomplete(
+    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    database = create_hogql_database(team_id=team.pk, team_arg=team)
+    if database_arg is not None:
+        database = database_arg
+    else:
+        database = create_hogql_database(team_id=team.pk, team_arg=team)
+
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
     original_query_select = copy(query.select)
@@ -349,8 +365,8 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                             extend_responses(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
-                                kind=Kind.Folder,
-                                details=["Table"] * len(table_aliases),  # type: ignore
+                                kind=Kind.FOLDER,
+                                details=["Table"] * len(table_aliases),
                             )
                             break
 
@@ -443,8 +459,8 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
-                            kind=Kind.Folder,
-                            details=["Table"] * len(table_names),  # type: ignore
+                            kind=Kind.FOLDER,
+                            details=["Table"] * len(table_names),
                         )
         except Exception:
             pass

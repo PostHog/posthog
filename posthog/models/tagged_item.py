@@ -1,4 +1,5 @@
-from typing import Iterable, List, Union
+from typing import Union
+from collections.abc import Iterable
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -18,7 +19,7 @@ RELATED_OBJECTS = (
 
 # Checks that exactly one object field is populated
 def build_check(related_objects: Iterable[str]):
-    built_check_list: List[Union[Q, Q]] = []
+    built_check_list: list[Union[Q, Q]] = []
     for field in related_objects:
         built_check_list.append(
             Q(
@@ -102,7 +103,7 @@ class TaggedItem(UUIDModel):
     )
 
     class Meta:
-        unique_together = ("tag",) + RELATED_OBJECTS
+        unique_together = ("tag", *RELATED_OBJECTS)
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
             *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
@@ -117,7 +118,7 @@ class TaggedItem(UUIDModel):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        return super(TaggedItem, self).save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return str(self.tag)

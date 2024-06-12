@@ -1,35 +1,41 @@
-import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
-import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { lastRefreshed } = useValues(dashboardLogic)
-    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
+    const { newestRefreshed } = useValues(dashboardLogic)
+    return <span>Last updated {newestRefreshed ? dayjs(newestRefreshed).fromNow() : 'a while ago'}</span>
 }
 
-const refreshIntervalSeconds = [1800, 3600]
+const REFRESH_INTERVAL_SECONDS = [1800, 3600]
 if (process.env.NODE_ENV === 'development') {
-    refreshIntervalSeconds.push(10)
+    REFRESH_INTERVAL_SECONDS.unshift(10)
 }
-const intervalOptions = [
-    ...Array.from(refreshIntervalSeconds, (value) => ({
+const INTERVAL_OPTIONS = [
+    ...Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
         label: humanFriendlyDuration(value),
         value: value,
     })),
 ]
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
-    const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
+    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, oldestClientRefreshAllowed } =
+        useValues(dashboardLogic)
+    const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
-    const options = intervalOptions.map((option) => {
+    usePageVisibility((pageIsVisible) => {
+        setPageVisibility(pageIsVisible)
+    })
+
+    const options = INTERVAL_OPTIONS.map((option) => {
         return {
             ...option,
             disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
@@ -46,7 +52,7 @@ export function DashboardReloadAction(): JSX.Element {
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        ? `Next refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
                         : itemsLoading
                         ? 'Refreshing...'
                         : ''
@@ -57,38 +63,38 @@ export function DashboardReloadAction(): JSX.Element {
                         closeOnClickInside: false,
                         placement: 'bottom-end',
                         overlay: (
-                            <>
-                                <div
-                                    className="flex flex-col px-2 py-1"
-                                    data-attr="auto-refresh-picker"
-                                    id="auto-refresh-picker"
-                                >
-                                    <Tooltip
-                                        title="Auto refresh will only work while this tab is open"
-                                        placement="top-end"
-                                    >
-                                        <LemonSwitch
-                                            onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
-                                            label="Auto refresh"
-                                            checked={autoRefresh.enabled}
-                                            fullWidth={true}
-                                        />
-                                    </Tooltip>
-                                    <LemonDivider />
-                                    <div className="flex flex-col">
-                                        <div role="heading" className="text-muted mb-2">
-                                            Refresh interval
-                                        </div>
-                                        <LemonRadio
-                                            value={autoRefresh.interval}
-                                            options={options}
-                                            onChange={(value: number) => {
-                                                setAutoRefresh(true, value)
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            </>
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: () => (
+                                            <LemonSwitch
+                                                onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
+                                                label="Auto refresh while on page"
+                                                checked={autoRefresh.enabled}
+                                                fullWidth
+                                                className="mt-1 mb-2"
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        title: 'Refresh interval',
+                                        items: [
+                                            {
+                                                label: () => (
+                                                    <LemonRadio
+                                                        value={autoRefresh.interval}
+                                                        options={options}
+                                                        onChange={(value: number) => {
+                                                            setAutoRefresh(true, value)
+                                                        }}
+                                                        className="mx-2 mb-1"
+                                                    />
+                                                ),
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            />
                         ),
                     },
                 }}

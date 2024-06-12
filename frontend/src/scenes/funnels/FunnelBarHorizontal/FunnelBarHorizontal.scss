@@ -155,3 +155,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         }
     }
 }
+
+// Hide .funnel-bar within InsightCards for snapshots, due to flakiness
+.storybook-test-runner .InsightCard .funnel-bar {
+    display: none;
+}

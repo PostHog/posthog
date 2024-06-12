@@ -29,6 +29,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
 
+                'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+
                 '/api/projects/:team/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (
@@ -428,7 +430,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         session_recording_duration: defaultRecordingDurationFilter,
                         console_logs: [],
                         console_search_query: '',
-                        date_from: '-7d',
+                        date_from: '-3d',
                         date_to: null,
                         events: [],
                         properties: [],

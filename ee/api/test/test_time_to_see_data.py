@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, List
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -64,7 +64,7 @@ class TestTimeToSeeDataApi(APIBaseTest):
         )
 
         response = self.client.post("/api/time_to_see_data/sessions").json()
-        self.assertEquals(
+        self.assertEqual(
             response,
             [
                 {
@@ -209,18 +209,18 @@ class QueryLogRow:
     query_time_range_days: int = 1
     has_joins: int = 0
     has_json_operations: int = 0
-    filter_by_type: List[str] = field(default_factory=list)
-    breakdown_by: List[str] = field(default_factory=list)
-    entity_math: List[str] = field(default_factory=list)
+    filter_by_type: list[str] = field(default_factory=list)
+    breakdown_by: list[str] = field(default_factory=list)
+    entity_math: list[str] = field(default_factory=list)
     filter: str = ""
     ProfileEvents: dict = field(default_factory=dict)
-    tables: List[str] = field(default_factory=list)
-    columns: List[str] = field(default_factory=list)
+    tables: list[str] = field(default_factory=list)
+    columns: list[str] = field(default_factory=list)
     query: str = ""
     log_comment = ""
 
 
-def insert(table: str, rows: List):
+def insert(table: str, rows: list):
     columns = asdict(rows[0]).keys()
 
     all_values, params = [], {}

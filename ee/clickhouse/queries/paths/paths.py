@@ -1,5 +1,5 @@
 from re import escape
-from typing import Dict, Literal, Optional, Tuple, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from jsonschema import ValidationError
 
@@ -34,8 +34,8 @@ class ClickhousePaths(Paths):
         ):
             raise ValidationError("Max Edge weight can't be lower than min edge weight")
 
-    def get_edge_weight_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, int] = {}
+    def get_edge_weight_clause(self) -> tuple[str, dict]:
+        params: dict[str, int] = {}
 
         conditions = []
 
@@ -60,8 +60,8 @@ class ClickhousePaths(Paths):
         else:
             return ""
 
-    def get_target_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, Union[str, None]] = {
+    def get_target_clause(self) -> tuple[str, dict]:
+        params: dict[str, Union[str, None]] = {
             "target_point": None,
             "secondary_target_point": None,
         }
@@ -152,7 +152,7 @@ class ClickhousePaths(Paths):
         else:
             return "arraySlice"
 
-    def get_filtered_path_ordering(self) -> Tuple[str, ...]:
+    def get_filtered_path_ordering(self) -> tuple[str, ...]:
         fields_to_include = ["filtered_path", "filtered_timings"] + [
             f"filtered_{field}s" for field in self.extra_event_fields_and_properties
         ]

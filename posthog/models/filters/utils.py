@@ -21,12 +21,14 @@ def earliest_timestamp_func(team_id: int):
     return get_earliest_timestamp(team_id)
 
 
-def get_filter(team, data: dict = {}, request: Optional[Request] = None):
+def get_filter(team, data: Optional[dict] = None, request: Optional[Request] = None):
     from .filter import Filter
     from .path_filter import PathFilter
     from .retention_filter import RetentionFilter
     from .stickiness_filter import StickinessFilter
 
+    if data is None:
+        data = {}
     insight = data.get("insight")
     if not insight and request:
         insight = request.GET.get("insight") or request.data.get("insight")

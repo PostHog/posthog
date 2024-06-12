@@ -224,7 +224,7 @@ def create_migration(
     exclude_events: list[str] | None = None,
 ):
     if interval not in VALID_INTERVALS:
-        raise CommandError("invalid interval, choices are: %s" % VALID_INTERVALS)
+        raise CommandError("invalid interval, choices are: {}".format(VALID_INTERVALS))
 
     if not dest_token.startswith("phc_"):
         raise CommandError("invalid destination token, must start with 'phc_'")
@@ -237,7 +237,7 @@ def create_migration(
     try:
         start_at_datetime = parse_to_utc(start_at)
     except ValueError as e:
-        raise CommandError("couldn't parse start_at: %s" % e)
+        raise CommandError("couldn't parse start_at: {}".format(e))
 
     display(
         "Creating migration",

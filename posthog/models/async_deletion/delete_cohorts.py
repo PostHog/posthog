@@ -1,14 +1,14 @@
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from posthog.client import sync_execute
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionType, MAX_QUERY_SIZE
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 
 
 class AsyncCohortDeletion(AsyncDeletionProcess):
     DELETION_TYPES = [DeletionType.Cohort_full, DeletionType.Cohort_stale]
 
-    def process(self, deletions: List[AsyncDeletion]):
+    def process(self, deletions: list[AsyncDeletion]):
         if len(deletions) == 0:
             logger.warn("No AsyncDeletion for cohorts to perform")
             return
@@ -17,7 +17,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
 
@@ -29,9 +29,10 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            settings={"max_query_size": MAX_QUERY_SIZE},
         )
 
-    def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
+    def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
         if deletion_type == DeletionType.Cohort_stale or deletion_type == DeletionType.Cohort_full:
             cohort_ids_with_data = self._verify_by_column("team_id, cohort_id", async_deletions)
             return [
@@ -40,7 +41,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
         else:
             return []
 
-    def _verify_by_column(self, distinct_columns: str, async_deletions: List[AsyncDeletion]) -> Set[Tuple[Any, ...]]:
+    def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
         clickhouse_result = sync_execute(
             f"""
@@ -49,8 +50,9 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            settings={"max_query_size": MAX_QUERY_SIZE},
         )
-        return set(tuple(row) for row in clickhouse_result)
+        return {tuple(row) for row in clickhouse_result}
 
     def _column_name(self, async_deletion: AsyncDeletion):
         assert async_deletion.deletion_type in (
@@ -59,7 +61,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
         )
         return "cohort_id"
 
-    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
+    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
         team_id_param = f"team_id{suffix}"
         key_param = f"key{suffix}"
         version_param = f"version{suffix}"

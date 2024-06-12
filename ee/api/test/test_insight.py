@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import cast, Optional, List, Dict
+from typing import cast, Optional
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -305,7 +305,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         dashboard.refresh_from_db()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
@@ -547,7 +547,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
         @snapshot_postgres_queries
         def test_listing_insights_does_not_nplus1(self) -> None:
-            query_counts: List[int] = []
+            query_counts: list[int] = []
             queries = []
 
             for i in range(5):
@@ -587,10 +587,10 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 f"received query counts\n\n{query_counts}",
             )
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: List[Dict]):
+    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
 
         self.maxDiff = None
         assert activity == expected

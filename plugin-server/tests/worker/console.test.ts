@@ -42,10 +42,10 @@ describe('console extension', () => {
                     await (console[typeMethod](...args) as unknown as Promise<void>)
 
                     expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(
-                        KAFKA_PLUGIN_LOG_ENTRIES,
-                        expect.any(String),
-                        {
+                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+                        topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                        key: expect.any(String),
+                        object: {
                             source: PluginLogEntrySource.Console,
                             type,
                             id: expect.any(String),
@@ -56,8 +56,8 @@ describe('console extension', () => {
                             message: expectedFinalMessage,
                             instance_id: hub.instanceId.toString(),
                         },
-                        false
-                    )
+                        waitForAck: false,
+                    })
                 })
             })
         })

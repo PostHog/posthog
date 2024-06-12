@@ -1210,9 +1210,6 @@ const meta: Meta = {
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
     },
@@ -1263,7 +1260,7 @@ export const RunningTrendExperiment: StoryFn = () => {
 }
 RunningTrendExperiment.parameters = {
     testOptions: {
-        waitForSelector: '.card-secondary',
+        waitForSelector: '.LemonBanner .LemonIcon',
     },
 }
 
@@ -1276,7 +1273,7 @@ export const RunningTrendExperimentManyVariants: StoryFn = () => {
 }
 RunningTrendExperimentManyVariants.parameters = {
     testOptions: {
-        waitForSelector: '.card-secondary',
+        waitForSelector: '.LemonBanner .LemonIcon',
     },
 }
 

@@ -6,7 +6,8 @@ This module contains unit tests covering activities, workflows, and helper funct
 
 BigQuery batch exports can be tested against a real BigQuery instance, but doing so requires additional setup. For this reason, these tests are skipped unless an environment variable pointing to a BigQuery credentials file (`GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json`) is set.
 
-> :warning: Since BigQuery batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect BigQuery batch exports.
+> [!WARNING]
+> Since BigQuery batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect BigQuery batch exports.
 
 To enable testing for BigQuery batch exports, we require:
 1. A BigQuery project and dataset
@@ -24,7 +25,8 @@ DEBUG=1 GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json pyte
 
 Redshift batch exports can be tested against a real Redshift (or Redshift Serverless) instance, with additional setup steps required. Due to this requirement, these tests are skipped unless Redshift credentials are specified in the environment.
 
-> :warning: Since Redshift batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect Redshift batch exports.
+> [!WARNING]
+> Since Redshift batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect Redshift batch exports.
 
 To enable testing for Redshift batch exports, we require:
 1. A Redshift (or Redshift Serverless) instance.
@@ -41,14 +43,15 @@ Replace the `REDSHIFT_*` environment variables with the values obtained from the
 
 ## Testing S3 batch exports
 
-S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket. Additional setup is required to run those specific tests:
+S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`). Additional setup is required to run those specific tests:
 
 1. Ensure you are logged in to an AWS account.
 2. Create or choose an existing S3 bucket from that AWS account to use as the test bucket.
 3. Create or choose an existing KMS key id from that AWS account to use in tests.
 4. Make sure the role/user you are logged in as has permissions to use the bucket and KMS key.
 
-For PostHog employees, check your password manager for these details.
+> [!NOTE]
+> For PostHog employees, your password manager contains a set of credentials for S3 batch exports development testing. You may populate your development environment with these credentials and use the provided test bucket and KMS key.
 
 With these setup steps done, we can run all tests (MinIO and S3 bucket) from the root of the `posthog` repo with:
 

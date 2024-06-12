@@ -23,7 +23,13 @@
     }
 
     .BridgePage__content-wrapper {
-        max-width: 100%;
+        width: 100%;
+        max-width: 380px;
+
+        @include screen($md) {
+            width: auto;
+            max-width: 100%;
+        }
     }
 
     .BridgePage__left-wrapper {

@@ -25,7 +25,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.11.2.11-alpine}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.5.81-alpine}
         restart: on-failure
 
     zookeeper:
@@ -51,7 +51,7 @@ services:
             KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
             DYNAMIC_CONFIG_ENABLED: 'true'
 
-    object_storage:
+    objectstorage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         environment:
@@ -74,7 +74,7 @@ services:
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
-        environment:
+        environment: &worker_env
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -103,7 +103,6 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
 
-
     plugins:
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
@@ -115,6 +114,13 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+
+    livestream:
+        image: 'ghcr.io/posthog/livestream:main'
+        restart: on-failure
+        depends_on:
+            kafka:
+                condition: service_started
 
     migrate:
         <<: *worker
@@ -134,6 +140,7 @@ services:
         deploy:
             replicas: 0
         environment:
+            <<: *worker_env
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
@@ -152,8 +159,7 @@ services:
         volumes:
             - /var/lib/elasticsearch/data
     temporal:
-
-
+        restart: on-failure
         environment:
             - DB=postgresql
             - DB_PORT=5432
@@ -171,6 +177,12 @@ services:
             kompose.volume.type: configMap
         volumes:
             - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+        depends_on:
+            db:
+                condition: service_healthy
+            elasticsearch:
+                condition: service_started
+
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
@@ -189,5 +201,5 @@ services:
         command: ./bin/temporal-django-worker
         restart: on-failure
         environment:
+            <<: *worker_env
             TEMPORAL_HOST: temporal
-

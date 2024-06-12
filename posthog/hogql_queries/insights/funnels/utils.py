@@ -1,4 +1,3 @@
-from typing import List
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -13,9 +12,9 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
         FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
-    elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
 
@@ -28,12 +27,12 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
         FunnelTrendsActors,
     )
 
-    if funnelsFilter.funnelVizType == FunnelVizType.trends:
+    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
         return FunnelTrendsActors
     else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+        elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
             return FunnelStrictActors
         else:
             return FunnelActors
@@ -57,27 +56,37 @@ def funnel_window_interval_unit_to_sql(
     elif funnelWindowIntervalUnit == "day":
         return "DAY"
     else:
-        raise ValidationError("{funnelWindowIntervalUnit} not supported")
+        raise ValidationError(f"{funnelWindowIntervalUnit} not supported")
 
 
 def get_breakdown_expr(
-    breakdown: List[str | int] | None, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
 ) -> ast.Expr:
-    if isinstance(breakdown, str) or isinstance(breakdown, int) or breakdown is None:
-        return parse_expr(f"ifNull({properties_column}.\"{breakdown}\", '')")
+    if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Constant(value=""),
+            ],
+        )
     else:
         exprs = []
-        for b in breakdown:
-            expr = parse_expr(normalize_url_breakdown(f"ifNull({properties_column}.\"{b}\", '')", normalize_url))
+        for breakdown in breakdowns:
+            expr: ast.Expr = ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Constant(value=""),
+                ],
+            )
+            if normalize_url:
+                regex = "[\\\\/?#]*$"
+                expr = parse_expr(
+                    f"if( empty( replaceRegexpOne({{breakdown_value}}, '{regex}', '') ), '/', replaceRegexpOne({{breakdown_value}}, '{regex}', ''))",
+                    {"breakdown_value": expr},
+                )
             exprs.append(expr)
         expression = ast.Array(exprs=exprs)
 
     return expression
-
-
-def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool | None):
-    if breakdown_normalize_url:
-        regex = "[\\\\/?#]*$"
-        return f"if( empty( replaceRegexpOne({breakdown_value}, '{regex}', '') ), '/', replaceRegexpOne({breakdown_value}, '{regex}', ''))"
-
-    return breakdown_value

@@ -83,7 +83,7 @@ describe('propertyFilterTypeToTaxonomicFilterType()', () => {
                 ...baseFilter,
                 type: PropertyFilterType.Session,
             } as SessionPropertyFilter)
-        ).toEqual(TaxonomicFilterGroupType.Sessions)
+        ).toEqual(TaxonomicFilterGroupType.SessionProperties)
         expect(propertyFilterTypeToTaxonomicFilterType({ ...baseFilter, type: PropertyFilterType.HogQL })).toEqual(
             TaxonomicFilterGroupType.HogQLExpression
         )
@@ -122,7 +122,7 @@ describe('breakdownFilterToTaxonomicFilterType()', () => {
             TaxonomicFilterGroupType.EventProperties
         )
         expect(breakdownFilterToTaxonomicFilterType({ ...baseFilter, breakdown_type: 'session' })).toEqual(
-            TaxonomicFilterGroupType.Sessions
+            TaxonomicFilterGroupType.SessionProperties
         )
         expect(breakdownFilterToTaxonomicFilterType({ ...baseFilter, breakdown_type: 'hogql' })).toEqual(
             TaxonomicFilterGroupType.HogQLExpression
@@ -186,7 +186,7 @@ describe('convertPropertiesToPropertyGroup', () => {
         })
     })
 
-    it('converts properties to one AND operator property group', () => {
+    it('converts undefined properties to one AND operator property group', () => {
         expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
             type: FilterLogicalOperator.And,
             values: [],

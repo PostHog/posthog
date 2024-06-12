@@ -2,6 +2,14 @@
     --lemon-calendar-row-gap: 2px;
     --lemon-calendar-day-width: 40px;
     --lemon-calendar-today-radius: 2px;
+    --lemon-calendar-time-column-width: 50px;
+
+    // Tricky: needs to match the equivalent height button from LemonButton.scss
+    --lemon-calendar-time-button-height: 2.3125rem;
+
+    .LemonCalendar__month {
+        width: 100%;
+    }
 
     .LemonCalendar__month > thead > tr:first-child > th,
     .LemonCalendar__month > tbody > tr > td {
@@ -49,5 +57,35 @@
 
     .LemonCalendar__range--boundary {
         background-color: var(--glass-border-3000);
+    }
+
+    &--hour {
+        --lemon-calendar-time-columns: 2;
+    }
+
+    &--minute {
+        --lemon-calendar-time-columns: 3;
+    }
+
+    &--hour,
+    &--minute {
+        padding-right: calc((var(--lemon-calendar-time-columns) * var(--lemon-calendar-time-column-width)) + 2px);
+
+        .LemonCalendar__time {
+            & > div {
+                width: var(--lemon-calendar-time-column-width);
+
+                &.ScrollableShadows {
+                    & .ScrollableShadows__inner {
+                        scrollbar-width: none;
+                        scroll-behavior: smooth;
+                    }
+                }
+            }
+
+            &--scroll-spacer {
+                height: calc(100% - var(--lemon-calendar-time-button-height));
+            }
+        }
     }
 }

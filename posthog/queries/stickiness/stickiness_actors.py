@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
@@ -22,7 +22,7 @@ class StickinessActors(ActorBaseQuery):
     def aggregation_group_type_index(self):
         return None
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         events_query, event_params = self.event_query_class(
             entity=self.entity,
             filter=self._filter,

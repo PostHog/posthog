@@ -12,7 +12,7 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
-MONTHLY_LIMIT = 5_000_000
+MONTHLY_LIMIT = 200_000_000
 
 
 def check_synced_row_limits() -> None:
@@ -45,7 +45,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
                 logger.exception("Could not cancel external data workflow", exc_info=e)
 
             try:
-                pause_external_data_schedule(job.pipeline)
+                pause_external_data_schedule(str(job.pipeline.id))
             except Exception as e:
                 logger.exception("Could not pause external data schedule", exc_info=e)
 
@@ -58,7 +58,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
         all_sources = ExternalDataSource.objects.filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED)
         for source in all_sources:
             try:
-                unpause_external_data_schedule(source)
+                unpause_external_data_schedule(str(source.id))
             except Exception as e:
                 logger.exception("Could not unpause external data schedule", exc_info=e)
 

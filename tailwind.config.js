@@ -7,6 +7,8 @@ const config = {
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
+
+            purple: '#B62AD9',
         },
         fontFamily: {
             sans: [
@@ -80,6 +82,9 @@ const config = {
                 // All whole number values divisible by 20 up to 200 ensured above
                 248: '62rem',
                 300: '75rem',
+            },
+            rotate: {
+                270: '270deg',
             },
             minWidth: {
                 '1/3': '33.333333%',

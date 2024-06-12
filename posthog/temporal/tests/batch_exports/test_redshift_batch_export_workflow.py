@@ -20,9 +20,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     remove_escaped_whitespace_recursive,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -135,8 +136,8 @@ async def assert_clickhouse_records_in_redshfit(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     inserted_records.sort(key=operator.itemgetter("event"))
     expected_records.sort(key=operator.itemgetter("event"))
@@ -412,9 +413,9 @@ async def test_redshift_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_redshift_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -433,6 +434,7 @@ async def test_redshift_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
@@ -487,9 +489,9 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_redshift_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -508,6 +510,8 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
@@ -538,9 +542,9 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_redshift_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -559,3 +563,5 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1

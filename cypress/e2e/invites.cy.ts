@@ -1,5 +1,7 @@
 import { randomString } from '../support/random'
 
+const VALID_PASSWORD = 'hedgE-hog-123%'
+
 describe('Invite Signup', () => {
     it('Authenticated user can invite user but cannot use invite for someone else', () => {
         const user = randomString('user-charlie-')
@@ -10,7 +12,7 @@ describe('Invite Signup', () => {
 
         cy.location('pathname').should('contain', '/settings/organization')
         cy.get('[id="invites"]').should('exist')
-        cy.contains('Pending Invites').should('exist')
+        cy.contains('Pending invites').should('exist')
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()
@@ -52,7 +54,7 @@ describe('Invite Signup', () => {
         cy.get('.error-view-container').should('not.exist')
         cy.get('.BridgePage__left').should('contain', "You've been invited to join")
         cy.get('input[type="email"]').should('have.value', target_email)
-        cy.get('[data-attr="password"]').type('12345678')
+        cy.get('[data-attr="password"]').type(VALID_PASSWORD)
         cy.get('.LemonProgress__track').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('[data-attr="first_name"]').type(randomString('Bob'))
         cy.get('[data-attr=signup-role-at-organization]').click()
@@ -83,7 +85,7 @@ describe('Invite Signup', () => {
                 cy.get('[data-attr=top-menu-item-logout]').click()
                 cy.visit(element.text())
             })
-        cy.get('[data-attr="password"]').type('12345678')
+        cy.get('[data-attr="password"]').type(VALID_PASSWORD)
         cy.get('[data-attr="first_name"]').type(user)
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
@@ -102,7 +104,7 @@ describe('Invite Signup', () => {
 
         // Change membership level
         cy.contains('[data-attr=org-members-table] tr', user).within(() => {
-            cy.get('[data-attr=membership-level]').last().should('contain', 'member')
+            cy.get('[data-attr=membership-level]').last().should('contain', 'Member')
             cy.get('[data-attr=more-button]').last().click()
         })
 
@@ -110,7 +112,7 @@ describe('Invite Signup', () => {
         cy.get('[data-test-level=8]').click()
 
         cy.contains('[data-attr=org-members-table] tr', user).within(() => {
-            cy.get('[data-attr=membership-level]').last().should('contain', 'admin')
+            cy.get('[data-attr=membership-level]').last().should('contain', 'Admin')
         })
 
         // Delete member

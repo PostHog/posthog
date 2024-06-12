@@ -1,25 +1,22 @@
 # In order to add, delete or modify a dependency, please update
 # the reference here and then run:
 #
-# - `pip-compile --rebuild requirements.in`
-# - `pip-compile --rebuild requirements-dev.in`
+# - `uv pip compile requirements.in -o requirements.txt`
+# - `uv pip compile requirements-dev.in -o requirements-dev.txt`
 #
 aiohttp>=3.9.0
 aioboto3==12.0.0
 aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
-amqp==5.1.1
 boto3==1.28.16
-boto3-stubs[s3]
 brotli==1.1.0
 celery==5.3.4
 celery-redbeat==2.1.1
-clickhouse-driver==0.2.4
+clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 cryptography==37.0.2
-defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==4.1.13
+Django~=4.2.11
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -36,36 +33,29 @@ djangorestframework==3.14.0
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt==0.4.3
+dlt==0.4.12
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
 drf-spectacular==0.27.1
-gevent==23.9.1
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
-google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
-idna==2.8
-importlib-metadata==6.8.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
-kafka-helper==0.2
 kombu==5.3.2
 lzstring==1.0.4
+natsort==8.4.0
+nanoid==2.0.0
 numpy==1.23.3
-openapi-spec-validator==0.7.1
 openpyxl==3.1.2
-orjson==3.9.15
+orjson==3.9.10
 pandas==2.2.0
-parso==0.8.1
-pexpect==4.7.0
-pickleshare==0.7.5
+paramiko==3.4.0
 Pillow==10.2.0
 posthoganalytics==3.5.0
-prance==23.06.21.0
 psycopg2-binary==2.9.7
-psycopg==3.1.13
+psycopg[binary]==3.1.18
 pyarrow==15.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
@@ -74,18 +64,20 @@ python3-saml==1.12.0
 pytz==2023.3
 redis==4.5.4
 retry==0.9.2
-requests~=2.31.0
-requests-oauthlib==1.3.0
+requests~=2.32.0
 s3fs==2023.10.0
 stripe==7.4.0
 selenium==4.1.5
-sentry-sdk==2.0.0rc2
+sentry-sdk[clickhouse-driver,celery,openai,django]==2.5.1
 semantic_version==2.8.5
 scikit-learn==1.4.0
 slack_sdk==3.17.1
 snowflake-connector-python==3.6.0
+snowflake-sqlalchemy==1.5.3
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
+sqlalchemy==1.4.52
+sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
@@ -101,5 +93,5 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.3
-urllib3[secure,socks]==1.26.18
+hogql-parser==1.0.12
+zxcvbn==4.4.28

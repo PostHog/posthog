@@ -1,6 +1,6 @@
 from datetime import datetime
 from dateutil.parser import isoparse
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parser
@@ -10,7 +10,7 @@ import posthoganalytics
 
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.datetime import start_of_day, start_of_hour, start_of_month, start_of_week
+from posthog.datetime import start_of_day, start_of_hour, start_of_month, start_of_week, start_of_minute
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -32,7 +32,7 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     return parser().parse(candidate)
 
 
-def active_teams() -> Set[int]:
+def active_teams() -> set[int]:
     """
     Teams are stored in a sorted set. [{team_id: score}, {team_id: score}].
     Their "score" is the number of seconds since last event.
@@ -43,8 +43,10 @@ def active_teams() -> Set[int]:
     This assumes that the list of active teams is small enough to reasonably load in one go.
     """
     redis = get_client()
-    all_teams: List[Tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
+    all_teams: list[tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
     if not all_teams:
+        # NOTE: `active_teams()` doesn't cooperate with freezegun (aka `freeze_time()`), because of
+        # the ClickHouse `now()` function being used below
         teams_by_recency = sync_execute(
             """
             SELECT team_id, date_diff('second', max(timestamp), now()) AS age
@@ -58,12 +60,12 @@ def active_teams() -> Set[int]:
             return set()
         redis.zadd(
             RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
-            {team: score for team, score in teams_by_recency},
+            dict(teams_by_recency),
         )
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
 
-    return set(int(team_id) for team_id, _ in all_teams)
+    return {int(team_id) for team_id, _ in all_teams}
 
 
 def stale_cache_invalidation_disabled(team: Team) -> bool:
@@ -96,7 +98,7 @@ def is_stale_filter(
 
 
 def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -> bool:
-    """Indicates wether a cache item is obviously outdated based on the last
+    """Indicates whether a cache item is obviously outdated based on the last
     requested date (date_to) and the granularity of the query (interval).
     It is considered outdated when the next time interval was entered since the
     last computation.
@@ -106,7 +108,7 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
         return False
 
     last_refresh = (
-        cached_result.get("last_refresh", None) if isinstance(cached_result, Dict) else cached_result.last_refresh
+        cached_result.get("last_refresh", None) if isinstance(cached_result, dict) else cached_result.last_refresh
     )
     date_to = min([date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
 
@@ -116,7 +118,9 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
     if isinstance(last_refresh, str):
         last_refresh = isoparse(last_refresh)
 
-    if interval == "hour":
+    if interval == "minute":
+        return start_of_minute(date_to) > start_of_minute(last_refresh)
+    elif interval == "hour":
         return start_of_hour(date_to) > start_of_hour(last_refresh)
     elif interval == "day":
         return start_of_day(date_to) > start_of_day(last_refresh)

@@ -10,11 +10,12 @@ import {
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
+import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
 
-import { billingJson } from './fixtures/_billing_v2'
+import { getAvailableProductFeatures } from './features'
+import { billingJson } from './fixtures/_billing'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -24,6 +25,19 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
     next: null,
     previous: null,
 })
+
+// this really returns MaybePromise<ResponseFunction<any>>
+// but MSW doesn't export MaybePromise 🤷
+function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: RestContext): any {
+    return res(
+        ctx.status(200),
+        ctx.json('ok'),
+        // some of our tests try to make requests via posthog-js e.g. userLogic calls identify
+        // they have to have CORS allowed, or they pass but print noise to the console
+        ctx.set('Access-Control-Allow-Origin', req.referrer.length ? req.referrer : 'http://localhost'),
+        ctx.set('Access-Control-Allow-Credentials', 'true')
+    )
+}
 
 export const defaultMocks: Mocks = {
     get: {
@@ -63,7 +77,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
-            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
+            { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
         ],
         '/api/organizations/@current/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/members/': toPaginatedResponse([
@@ -83,7 +97,10 @@ export const defaultMocks: Mocks = {
             200,
             {
                 ...MOCK_DEFAULT_USER,
-                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
+                organization: {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    available_product_features: getAvailableProductFeatures(),
+                },
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
@@ -103,17 +120,18 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
-        '/api/billing-v2/': {
+        '/api/billing/': {
             ...billingJson,
         },
     },
     post: {
-        'https://us.i.posthog.com/e/': (): MockSignature => [200, 'ok'],
-        '/e/': (): MockSignature => [200, 'ok'],
-        'https://us.i.posthog.com/decide/': (): MockSignature => [200, 'ok'],
-        '/decide/': (): MockSignature => [200, 'ok'],
-        'https://us.i.posthog.com/engage/': (): MockSignature => [200, 'ok'],
+        'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        'api/projects/:team_id/query': [200, { results: [] }],
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

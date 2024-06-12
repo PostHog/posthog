@@ -1,12 +1,12 @@
 import re
 from datetime import datetime, date
-from typing import Optional, Any, Literal, List, Tuple
+from typing import Optional, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import math
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.models.utils import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
@@ -27,7 +27,7 @@ backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
 
 # Copied from clickhouse_driver.util.escape_param
 def escape_param_clickhouse(value: str) -> str:
-    return "'%s'" % "".join(singlequote_escape_chars_map.get(c, c) for c in str(value))
+    return "'{}'".format("".join(singlequote_escape_chars_map.get(c, c) for c in str(value)))
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
@@ -35,22 +35,22 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
         return str(identifier)
     if "%" in identifier:
-        raise HogQLException(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
     ):  # Same regex as the frontend escapePropertyAsHogQlIdentifier
         return identifier
-    return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)
+    return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
-        raise HogQLException(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
-    return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)
+    return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
 def escape_hogql_string(
@@ -61,7 +61,7 @@ def escape_hogql_string(
 
 
 def escape_clickhouse_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    name: Optional[float | int | str | list | tuple | date | datetime | UUID | UUIDT],
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
@@ -81,7 +81,7 @@ class SQLValueEscaper:
         method_name = f"visit_{node.__class__.__name__.lower()}"
         if hasattr(self, method_name):
             return getattr(self, method_name)(node)
-        raise HogQLException(f"SQLValueEscaper has no method {method_name}")
+        raise ResolutionError(f"SQLValueEscaper has no method {method_name}")
 
     def visit_nonetype(self, value: None):
         return "NULL"
@@ -123,11 +123,14 @@ class SQLValueEscaper:
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
+    def visit_fakedate(self, value: date):
+        return self.visit_date(value)
+
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
 
-    def visit_list(self, value: List):
+    def visit_list(self, value: list):
         return f"[{', '.join(str(self.visit(x)) for x in value)}]"
 
-    def visit_tuple(self, value: Tuple):
+    def visit_tuple(self, value: tuple):
         return f"({', '.join(str(self.visit(x)) for x in value)})"

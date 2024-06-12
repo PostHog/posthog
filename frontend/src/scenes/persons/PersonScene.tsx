@@ -1,10 +1,5 @@
-import './PersonScene.scss'
-
-// eslint-disable-next-line no-restricted-imports
-import { DownOutlined } from '@ant-design/icons'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { Dropdown, Menu } from 'antd'
+import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -17,6 +12,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -50,38 +46,30 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div>
-                <span className="text-muted">IDs:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="person distinct ID"
-                    style={{ justifyContent: 'flex-end' }}
-                >
-                    {person.distinct_ids[0]}
-                </CopyToClipboardInline>
-                {person.distinct_ids.length > 1 && (
-                    <Dropdown
-                        overlay={
-                            <Menu>
-                                {person.distinct_ids.slice(1).map((distinct_id: string) => (
-                                    <Menu.Item key={distinct_id}>
-                                        <CopyToClipboardInline
-                                            description="person distinct ID"
-                                            iconStyle={{ color: 'var(--primary)' }}
-                                        >
-                                            {distinct_id}
-                                        </CopyToClipboardInline>
-                                    </Menu.Item>
-                                ))}
-                            </Menu>
-                        }
-                        trigger={['click']}
+            <div className="flex space-x-1">
+                <div>
+                    <span className="text-muted">IDs:</span>{' '}
+                    <CopyToClipboardInline
+                        tooltipMessage={null}
+                        description="person distinct ID"
+                        style={{ justifyContent: 'flex-end' }}
                     >
-                        <LemonTag className="extra-ids space-x-1">
-                            <div>+{person.distinct_ids.length - 1}</div>
-                            <DownOutlined />
+                        {person.distinct_ids[0]}
+                    </CopyToClipboardInline>
+                </div>
+                {person.distinct_ids.length > 1 && (
+                    <LemonMenu
+                        items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
+                            label: distinct_id,
+                            sideIcon: <IconCopy className="text-primary-3000" />,
+                            onClick: () => copyToClipboard(distinct_id, 'distinct id'),
+                        }))}
+                    >
+                        <LemonTag type="primary" className="inline-flex">
+                            <span>+{person.distinct_ids.length - 1}</span>
+                            <IconChevronDown className="w-4 h-4" />
                         </LemonTag>
-                    </Dropdown>
+                    </LemonMenu>
                 )}
             </div>
             <div>

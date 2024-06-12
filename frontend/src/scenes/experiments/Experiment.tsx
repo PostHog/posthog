@@ -442,7 +442,7 @@ export function Experiment(): JSX.Element {
                                                 sure you manually send feature flag information for server-side
                                                 libraries if necessary.{' '}
                                                 <Link
-                                                    to="https://posthog.com/docs/integrate/server/python#capture"
+                                                    to="https://posthog.com/docs/libraries/python#capture"
                                                     target="_blank"
                                                 >
                                                     {' '}
@@ -829,7 +829,7 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
+                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment results</h2>
                     <ExperimentResult />
                     <SecondaryMetricsResult />
                 </div>
@@ -840,7 +840,13 @@ export function Experiment(): JSX.Element {
     )
 }
 
-const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
     const onClickReset = (): void => {
         LemonDialog.open({
             title: 'Reset this experiment?',

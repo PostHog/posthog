@@ -226,40 +226,6 @@ input::-ms-clear {
 
 // Form & input styles
 
-.input-set {
-    padding-bottom: 1rem;
-    color: var(--default);
-
-    label {
-        font-size: 0.875rem;
-        font-weight: bold;
-        line-height: 1.25rem;
-    }
-
-    .caption {
-        font-size: 0.875rem;
-        line-height: 1.25rem;
-        color: var(--muted);
-    }
-
-    .ant-radio-button-wrapper {
-        // To properly handle label styles above
-        font-weight: normal !important;
-        line-height: 30px !important;
-    }
-
-    &.errored {
-        .caption {
-            color: var(--danger);
-        }
-
-        input[type='password'],
-        input[type='text'] {
-            border-color: var(--danger) !important;
-        }
-    }
-}
-
 .error-on-blur {
     &.errored:not(:focus) {
         border-color: var(--danger) !important;
@@ -267,10 +233,6 @@ input::-ms-clear {
 }
 
 // Button styles
-
-.btn-close {
-    color: var(--muted);
-}
 
 .info-indicator {
     margin-left: 4px;
@@ -287,16 +249,6 @@ input::-ms-clear {
     margin-left: 0.375rem;
     font-size: 1rem;
     line-height: 0;
-}
-
-.btn-lg-2x {
-    font-size: 1.5rem !important;
-    line-height: 1 !important;
-
-    svg {
-        width: 1.5rem !important;
-        height: 1.5rem !important;
-    }
 }
 
 // Graph series glyph
@@ -684,6 +636,17 @@ body {
 }
 
 .storybook-test-runner {
+    &.storybook-test-runner--fullscreen {
+        height: fit-content;
+    }
+
+    &.storybook-test-runner--padded {
+        #storybook-root {
+            // Make the root element (which is the default screenshot reference) hug the component
+            display: inline-block;
+        }
+    }
+
     // Only use this class in visual regression tests
     *,
     *::before,
@@ -700,6 +663,16 @@ body {
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
         display: none;
+    }
+
+    #storybook-root > .fixed:only-child {
+        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+        position: static !important;
+    }
+
+    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+        // Fix for stories of fixed modals - otherwise body would be zero-sized
+        position: static !important;
     }
 }
 

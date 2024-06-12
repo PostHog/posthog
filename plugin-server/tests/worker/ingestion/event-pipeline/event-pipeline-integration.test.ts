@@ -5,7 +5,7 @@ import fetch from 'node-fetch'
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
-import { convertToIngestionEvent } from '../../../../src/utils/event'
+import { convertToPostIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
@@ -32,7 +32,7 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        const postIngestionEvent = convertToIngestionEvent(result.args[0])
+        const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
             processOnEventStep(runner.hub, postIngestionEvent),
             processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
@@ -45,9 +45,9 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
@@ -159,7 +159,7 @@ describe('Event Pipeline integration test', () => {
         await ingestEvent(event)
 
         const expectedPayload = {
-            text: '[Test Action](https://example.com/action/69) was triggered by [abc](https://example.com/person/abc)',
+            text: '[Test Action](https://example.com/project/2/action/69) was triggered by [abc](https://example.com/project/2/person/abc)',
         }
 
         expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
@@ -176,7 +176,7 @@ describe('Event Pipeline integration test', () => {
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_organization
-             SET available_features = '{"zapier"}'`,
+                SET available_product_features = array ['{"key": "zapier", "name": "zapier"}'::jsonb]`,
             [],
             'testTag'
         )
@@ -221,7 +221,6 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                elementsList: [],
                 person: {
                     created_at: expect.any(String),
                     properties: {
@@ -229,6 +228,7 @@ describe('Event Pipeline integration test', () => {
                     },
                     uuid: expect.any(String),
                 },
+                elementsList: [],
             },
         }
 

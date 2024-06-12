@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -15,7 +15,7 @@ from posthog.models.property import Property, PropertyGroup
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def old_properties(self) -> List[Property]:
+    def old_properties(self) -> list[Property]:
         _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
@@ -64,7 +64,7 @@ class PropertyMixin(BaseParamMixin):
         # old properties
         return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties)
 
-    def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
+    def _parse_properties(self, properties: Optional[Any]) -> list[Property]:
         if isinstance(properties, list):
             _properties = []
             for prop_params in properties:
@@ -94,19 +94,19 @@ class PropertyMixin(BaseParamMixin):
             )
         return ret
 
-    def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
+    def _parse_property_group(self, group: Optional[dict]) -> PropertyGroup:
         if group and "type" in group and "values" in group:
             return PropertyGroup(
                 PropertyOperatorType(group["type"].upper()),
                 self._parse_property_group_list(group["values"]),
             )
 
-        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+        return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
-    def _parse_property_group_list(self, prop_list: Optional[List]) -> Union[List[Property], List[PropertyGroup]]:
+    def _parse_property_group_list(self, prop_list: Optional[list]) -> Union[list[Property], list[PropertyGroup]]:
         if not prop_list:
             # empty prop list
-            return cast(List[Property], [])
+            return cast(list[Property], [])
         has_property_groups = False
         has_simple_properties = False
 
@@ -134,9 +134,9 @@ class PropertyMixin(BaseParamMixin):
 
     @include_query_tags
     def properties_query_tags(self):
-        filter_by_type = set(prop.type for prop in self.property_groups.flat)
+        filter_by_type = {prop.type for prop in self.property_groups.flat}
         for entity in getattr(self, "entities", []):
-            filter_by_type |= set(prop.type for prop in entity.property_groups.flat)
+            filter_by_type |= {prop.type for prop in entity.property_groups.flat}
 
         return {"filter_by_type": list(filter_by_type)}
 

@@ -163,8 +163,11 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
                 value: message.value,
             })
             await producer.queueMessage({
-                topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                messages: [{ value: message.value, key: message.key }],
+                kafkaMessage: {
+                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                },
+                waitForAck: true,
             })
             continue
         }
@@ -181,8 +184,11 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
                 error: error.stack ?? error,
             })
             await producer.queueMessage({
-                topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                messages: [{ value: message.value, key: message.key }],
+                kafkaMessage: {
+                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                },
+                waitForAck: true,
             })
             continue
         }
@@ -190,8 +196,11 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
         if (!taskTypes.includes(task.taskType) || isNaN(task.pluginConfigId)) {
             status.warn('⚠️', `Invalid schema for partition ${batch.partition} offset ${message.offset}.`, task)
             await producer.queueMessage({
-                topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                messages: [{ value: message.value, key: message.key }],
+                kafkaMessage: {
+                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                },
+                waitForAck: true,
             })
             continue
         }

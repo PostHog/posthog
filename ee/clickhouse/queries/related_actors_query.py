@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from django.utils.timezone import now
 
@@ -38,8 +38,8 @@ class RelatedActorsQuery:
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id
 
-    def run(self) -> List[SerializedActor]:
-        results: List[SerializedActor] = []
+    def run(self) -> list[SerializedActor]:
+        results: list[SerializedActor] = []
         results.extend(self._query_related_people())
         for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team.pk):
             results.extend(self._query_related_groups(group_type_mapping.group_type_index))
@@ -49,7 +49,7 @@ class RelatedActorsQuery:
     def is_aggregating_by_groups(self) -> bool:
         return self.group_type_index is not None
 
-    def _query_related_people(self) -> List[SerializedPerson]:
+    def _query_related_people(self) -> list[SerializedPerson]:
         if not self.is_aggregating_by_groups:
             return []
 
@@ -72,7 +72,7 @@ class RelatedActorsQuery:
         _, serialized_people = get_people(self.team, person_ids)
         return serialized_people
 
-    def _query_related_groups(self, group_type_index: GroupTypeIndex) -> List[SerializedGroup]:
+    def _query_related_groups(self, group_type_index: GroupTypeIndex) -> list[SerializedGroup]:
         if group_type_index == self.group_type_index:
             return []
 
@@ -102,7 +102,7 @@ class RelatedActorsQuery:
         _, serialize_groups = get_groups(self.team.pk, group_type_index, group_ids)
         return serialize_groups
 
-    def _take_first(self, rows: List) -> List:
+    def _take_first(self, rows: list) -> list:
         return [row[0] for row in rows]
 
     @property

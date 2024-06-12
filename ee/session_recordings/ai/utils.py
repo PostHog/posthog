@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 
-from typing import List, Dict, Any
+from typing import Any
 
 from posthog.models.element import chain_to_elements
 from hashlib import shake_256
@@ -12,11 +12,11 @@ class SessionSummaryPromptData:
     # we may allow customisation of columns included in the future,
     # and we alter the columns present as we process the data
     # so want to stay as loose as possible here
-    columns: List[str] = dataclasses.field(default_factory=list)
-    results: List[List[Any]] = dataclasses.field(default_factory=list)
+    columns: list[str] = dataclasses.field(default_factory=list)
+    results: list[list[Any]] = dataclasses.field(default_factory=list)
     # in order to reduce the number of tokens in the prompt
     # we replace URLs with a placeholder and then pass this mapping of placeholder to URL into the prompt
-    url_mapping: Dict[str, str] = dataclasses.field(default_factory=dict)
+    url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return not self.columns or not self.results
@@ -63,7 +63,7 @@ def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSumma
     # find window_id column index
     window_id_index = session_events.column_index("$window_id")
 
-    window_id_mapping: Dict[str, int] = {}
+    window_id_mapping: dict[str, int] = {}
     simplified_results = []
     for result in session_events.results:
         if window_id_index is None:
@@ -128,7 +128,7 @@ def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummary
     # find url column index
     url_index = session_events.column_index("$current_url")
 
-    url_mapping: Dict[str, str] = {}
+    url_mapping: dict[str, str] = {}
     deduplicated_results = []
     for result in session_events.results:
         if url_index is None:

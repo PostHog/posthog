@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Optional
 import openai
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from .database.database import create_hogql_database, serialize_database
@@ -63,7 +63,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"
-            + "\n".join((f'- {field["key"]} ({field["type"]})' for field in table_fields))
+            + "\n".join(f'- {field["key"]} ({field["type"]})' for field in table_fields)
             for table_name, table_fields in serialized_database.items()
         )
     )
@@ -119,7 +119,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         candidate_sql = content
         try:
             print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
-        except HogQLException as e:
+        except ExposedHogQLError as e:
             messages.append({"role": "assistant", "content": candidate_sql})
             messages.append(
                 {

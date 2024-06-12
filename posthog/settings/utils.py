@@ -1,5 +1,6 @@
 import os
-from typing import Any, Callable, List, Optional, Set
+from typing import Any, Optional
+from collections.abc import Callable
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -28,13 +29,13 @@ def get_from_env(
     return value
 
 
-def get_list(text: str) -> List[str]:
+def get_list(text: str) -> list[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
 
 
-def get_set(text: str) -> Set[str]:
+def get_set(text: str) -> set[str]:
     if not text:
         return set()
     return {item.strip() for item in text.split(",")}

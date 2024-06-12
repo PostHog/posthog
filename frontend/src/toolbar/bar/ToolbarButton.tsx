@@ -10,17 +10,18 @@ import React from 'react'
 import { MenuState, toolbarLogic } from './toolbarLogic'
 
 export type ToolbarButtonProps = {
-    icon: React.ReactElement | null
+    children: React.ReactNode
     onClick?: () => void
     title?: string
     titleMinimized?: JSX.Element | string
     menuId?: MenuState
+    flex?: boolean
 }
 
 export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwardRef<
     HTMLDivElement,
     ToolbarButtonProps
->(({ icon, title, onClick, titleMinimized, menuId, ...props }, ref): JSX.Element => {
+>(({ children, title, onClick, titleMinimized, menuId, flex, ...props }, ref): JSX.Element => {
     const { visibleMenu, minimized, isDragging } = useValues(toolbarLogic)
     const { setVisibleMenu } = useActions(toolbarLogic)
 
@@ -54,9 +55,13 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
     }
 
     const theButton = (
-        <div className={clsx('ToolbarButton', active && 'ToolbarButton--active')} aria-label={theTitle} ref={ref}>
+        <div
+            className={clsx('ToolbarButton', active && 'ToolbarButton--active', flex && 'ToolbarButton--flex')}
+            aria-label={theTitle}
+            ref={ref}
+        >
             <button className="ToolbarButton__button" {...props} onClick={_onClick}>
-                {icon}
+                {children}
             </button>
         </div>
     )

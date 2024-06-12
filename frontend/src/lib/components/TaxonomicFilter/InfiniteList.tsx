@@ -1,8 +1,8 @@
 import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
 
+import { IconArchive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -106,6 +106,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType === TaxonomicFilterGroupType.Metadata ||
+        listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -152,6 +153,8 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Elements,
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.DataWarehouse,
+            TaxonomicFilterGroupType.DataWarehouseProperties,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -160,6 +163,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             TaxonomicFilterGroupType.Metadata,
+            TaxonomicFilterGroupType.SessionProperties,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
@@ -173,7 +177,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
-
     const {
         isLoading,
         results,
@@ -223,7 +226,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             <div
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)}
+                onClick={() => {
+                    return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
+                }}
             >
                 {renderItemContents({
                     item,
@@ -261,20 +266,17 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     return (
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
-                <div className="no-infinite-results">
-                    <Empty
-                        description={
+                <div className="no-infinite-results flex flex-col space-y-1 items-center">
+                    <IconArchive className="text-5xl text-secondary-3000" />
+                    <span>
+                        {searchQuery ? (
                             <>
-                                {searchQuery ? (
-                                    <>
-                                        No results for "<strong>{searchQuery}</strong>"
-                                    </>
-                                ) : (
-                                    'No results'
-                                )}
+                                No results for "<strong>{searchQuery}</strong>"
                             </>
-                        }
-                    />
+                        ) : (
+                            'No results'
+                        )}
+                    </span>
                 </div>
             ) : (
                 <AutoSizer>

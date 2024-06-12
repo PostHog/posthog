@@ -1,13 +1,10 @@
-import { IconCalendar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
+import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -17,7 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
-import { groupsModel } from '../../models/groupsModel'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -45,19 +41,9 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const {
-        placement,
-        dashboard,
-        canEditDashboard,
-        tiles,
-        itemsLoading,
-        filters: dashboardFilters,
-        dashboardMode,
-        receivedErrorsFromAPI,
-    } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
-        useActions(dashboardLogic)
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
+        useValues(dashboardLogic)
+    const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -96,7 +82,7 @@ function DashboardScene(): JSX.Element {
         [setDashboardMode, dashboardMode, placement]
     )
 
-    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
+    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
         return <NotFound object="dashboard" />
     }
 
@@ -104,48 +90,19 @@ function DashboardScene(): JSX.Element {
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
-            {receivedErrorsFromAPI ? (
+            {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-center justify-between flex-wrap">
+                    <div className="flex gap-2 items-start justify-between flex-wrap">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
-                        ].includes(placement) && (
-                            <div className="flex space-x-4 items-center">
-                                <DateFilter
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from ?? undefined}
-                                    dateTo={dashboardFilters?.date_to ?? undefined}
-                                    onChange={setDates}
-                                    disabled={!canEditDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <IconCalendar />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
-                                />
-                                <PropertyFilters
-                                    onChange={setProperties}
-                                    pageKey={'dashboard_' + dashboard?.id}
-                                    propertyFilters={dashboard?.filters.properties}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventFeatureFlags,
-                                        ...groupsTaxonomicTypes,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                        TaxonomicFilterGroupType.HogQLExpression,
-                                    ]}
-                                />
-                            </div>
-                        )}
+                        ].includes(placement) &&
+                            dashboard && <DashboardEditBar />}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
                             <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
                                 Edit dashboard

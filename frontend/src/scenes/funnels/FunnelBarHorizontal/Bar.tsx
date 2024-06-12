@@ -42,7 +42,7 @@ export function Bar({
     breakdownFilter,
     aggregationTargetLabel,
     wrapperWidth,
-}: BarProps): JSX.Element {
+}: BarProps): JSX.Element | null {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
@@ -83,6 +83,10 @@ export function Bar({
     useEffect(() => {
         decideLabelPosition()
     }, [wrapperWidth])
+
+    if (!conversionPercentage) {
+        return null
+    }
 
     return (
         <LemonDropdown

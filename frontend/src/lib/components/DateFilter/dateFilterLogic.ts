@@ -130,7 +130,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             if (values.rangeDateFrom) {
                 actions.setDate(
                     dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
-                    values.rangeDateTo ? dayjs(values.rangeDateTo).format() : null
+                    // Treat as naive time. Project timezone will be applied on backend.
+                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DDTHH:mm:ss') : null
                 )
             }
         },

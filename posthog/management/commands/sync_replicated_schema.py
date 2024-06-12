@@ -1,7 +1,6 @@
 import logging
 import re
 from collections import defaultdict
-from typing import Dict, Set
 
 import structlog
 from django.conf import settings
@@ -65,8 +64,8 @@ class Command(BaseCommand):
             },
         )
 
-        host_tables: Dict[HostName, Set[TableName]] = defaultdict(set)
-        create_table_queries: Dict[TableName, Query] = {}
+        host_tables: dict[HostName, set[TableName]] = defaultdict(set)
+        create_table_queries: dict[TableName, Query] = {}
 
         for host, table_name, create_table_query in rows:
             host_tables[host].add(table_name)
@@ -74,7 +73,7 @@ class Command(BaseCommand):
 
         return host_tables, create_table_queries, self.get_out_of_sync_hosts(host_tables)
 
-    def get_out_of_sync_hosts(self, host_tables: Dict[HostName, Set[TableName]]) -> Dict[HostName, Set[TableName]]:
+    def get_out_of_sync_hosts(self, host_tables: dict[HostName, set[TableName]]) -> dict[HostName, set[TableName]]:
         table_names = list(map(get_table_name, CREATE_TABLE_QUERIES))
         out_of_sync = {}
 
@@ -87,10 +86,10 @@ class Command(BaseCommand):
 
     def create_missing_tables(
         self,
-        out_of_sync_hosts: Dict[HostName, Set[TableName]],
-        create_table_queries: Dict[TableName, Query],
+        out_of_sync_hosts: dict[HostName, set[TableName]],
+        create_table_queries: dict[TableName, Query],
     ):
-        missing_tables = set(table for tables in out_of_sync_hosts.values() for table in tables)
+        missing_tables = {table for tables in out_of_sync_hosts.values() for table in tables}
 
         logger.info("Creating missing tables", missing_tables=missing_tables)
         for table in missing_tables:

@@ -23,6 +23,7 @@ jobs:
                       echo is_revert=false >> $GITHUB_ENV
                   fi
             - name: Capture PR age to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

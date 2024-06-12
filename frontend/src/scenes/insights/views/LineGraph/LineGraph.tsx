@@ -1,5 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
+import { LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -62,9 +64,8 @@ export function ensureTooltip(): [Root, HTMLElement] {
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
         return str.slice(0, num) + ' ...'
-    } else {
-        return str
     }
+    return str
 }
 
 export function onChartClick(
@@ -230,12 +231,13 @@ export interface LineGraphProps {
     trendsFilter?: TrendsFilter | null
     formula?: string | null
     compare?: boolean | null
-    showValueOnSeries?: boolean | null
+    showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
+    legend?: _DeepPartialObject<LegendOptions<ChartType>>
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -263,12 +265,13 @@ export function LineGraph_({
     labelGroupType,
     trendsFilter,
     formula,
-    showValueOnSeries,
+    showValuesOnSeries,
     showPercentStackView,
     supportsPercentStackView,
     hideAnnotations,
     hideXAxis,
     hideYAxis,
+    legend = { display: false },
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -422,10 +425,10 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
-                        if (showValueOnSeries && inSurveyView) {
+                        if (showValuesOnSeries && inSurveyView) {
                             return true
                         }
-                        return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
+                        return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
                         const data = context.chart.data as ExtendedChartData
@@ -437,9 +440,7 @@ export function LineGraph_({
                     borderRadius: 4,
                     borderColor: 'white',
                 },
-                legend: {
-                    display: false,
-                },
+                legend: legend,
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
@@ -519,7 +520,7 @@ export function LineGraph_({
                                             )} (${percentageLabel}%)`
                                         })
                                     }
-                                    entitiesAsColumnsOverride={formula ? false : undefined}
+                                    formula={!!formula}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
@@ -583,6 +584,8 @@ export function LineGraph_({
                 onChartClick(event, chart, datasets, onClick)
             },
         }
+
+        const truncateRows = !inSurveyView && !!insightProps.dashboardId
 
         if (type === GraphType.Bar) {
             if (hideXAxis || hideYAxis) {
@@ -674,21 +677,22 @@ export function LineGraph_({
                 y: {
                     display: true,
                     beforeFit: (scale) => {
-                        if (inSurveyView) {
-                            scale.ticks = scale.ticks.map((tick) => {
-                                if (typeof tick.label === 'string') {
-                                    return { ...tick, label: truncateString(tick.label, 50) }
-                                }
-                                return tick
-                            })
+                        scale.ticks = scale.ticks.map((tick) => {
+                            if (typeof tick.label === 'string') {
+                                return { ...tick, label: truncateString(tick.label, 50) }
+                            }
+                            return tick
+                        })
 
-                            const ROW_HEIGHT = 60
-                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
-                            const height = dynamicHeight
-                            const parentNode: any = scale.chart?.canvas?.parentNode
-                            parentNode.style.height = `${height}px`
-                        } else {
-                            // display only as many bars, as we can fit labels
+                        const ROW_HEIGHT = 20
+                        const height = scale.ticks.length * ROW_HEIGHT
+                        const parentNode: any = scale.chart?.canvas?.parentNode
+                        parentNode.style.height = `${height}px`
+
+                        if (truncateRows) {
+                            // Display only as many bars, as we can fit labels
+                            // Important: Make sure the query result does not deliver more data than we can display
+                            // See apply_dashboard_filters function in query runners
                             scale.max = scale.ticks.length
                         }
                     },
@@ -696,7 +700,8 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         precision,
-                        autoSkip: true,
+                        stepSize: !truncateRows ? 1 : undefined,
+                        autoSkip: !truncateRows ? false : undefined,
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
@@ -707,13 +712,15 @@ export function LineGraph_({
                             if (d.actions?.[i]?.custom_name) {
                                 labelDescriptors = [
                                     d.actions?.[i]?.custom_name,
-                                    d.breakdownValues?.[i],
+                                    d.breakdownLabels?.[i],
                                     d.compareLabels?.[i],
                                 ]
+                            } else if (d.breakdownLabels?.[i]) {
+                                labelDescriptors = [d.breakdownLabels[i], d.compareLabels?.[i]]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownValues?.[i], d.compareLabels?.[i]]
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels?.[i], d.compareLabels?.[i]]
                             }
                             return labelDescriptors.filter((l) => !!l).join(' - ')
                         },
@@ -735,13 +742,10 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
 
     return (
-        <div
-            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
-            data-attr={dataAttr}
-        >
+        <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

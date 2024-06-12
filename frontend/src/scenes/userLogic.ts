@@ -39,7 +39,7 @@ export const userLogic = kea<userLogicType>([
                     : null,
                 email: !email
                     ? 'You need to have an email.'
-                    : first_name.length > 254
+                    : email.length > 254
                     ? 'This email is too long. Please keep it under 255 characters.'
                     : null,
             }),
@@ -98,10 +98,12 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
             },
@@ -149,7 +151,7 @@ export const userLogic = kea<userLogicType>([
                             name: user.organization.name,
                             slug: user.organization.slug,
                             created_at: user.organization.created_at,
-                            available_features: user.organization.available_features,
+                            available_product_features: user.organization.available_product_features,
                             ...user.organization.metadata,
                         })
 
@@ -212,8 +214,7 @@ export const userLogic = kea<userLogicType>([
                                 : true
                             : false
                     }
-                    // if we don't have the new available_product_features obj, fallback to old available_features
-                    return !!user?.organization?.available_features.includes(feature)
+                    return false
                 }
             },
         ],

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import requests
 from django.http import HttpRequest, JsonResponse
@@ -9,8 +9,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.instance_setting import get_instance_settings
 
 
-def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
-    sentry_config: Dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
+def get_sentry_stats(start_time: str, end_time: str) -> tuple[dict, int]:
+    sentry_config: dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
 
     org_slug = sentry_config.get("SENTRY_ORGANIZATION")
     token = sentry_config.get("SENTRY_AUTH_TOKEN")
@@ -41,9 +41,9 @@ def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
 
 
 def get_tagged_issues_stats(
-    start_time: str, end_time: str, tags: Dict[str, str], target_issues: List[str]
-) -> Dict[str, Any]:
-    sentry_config: Dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
+    start_time: str, end_time: str, tags: dict[str, str], target_issues: list[str]
+) -> dict[str, Any]:
+    sentry_config: dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
 
     org_slug = sentry_config.get("SENTRY_ORGANIZATION")
     token = sentry_config.get("SENTRY_AUTH_TOKEN")
@@ -58,7 +58,7 @@ def get_tagged_issues_stats(
     for tag, value in tags.items():
         query += f" {tag}:{value}"
 
-    params: Dict[str, Union[list, str]] = {
+    params: dict[str, Union[list, str]] = {
         "start": start_time,
         "end": end_time,
         "sort": "freq",
@@ -89,8 +89,8 @@ def get_stats_for_timerange(
     base_end_time: str,
     target_start_time: str,
     target_end_time: str,
-    tags: Optional[Dict[str, str]] = None,
-) -> Tuple[int, int]:
+    tags: Optional[dict[str, str]] = None,
+) -> tuple[int, int]:
     base_counts, base_total_count = get_sentry_stats(base_start_time, base_end_time)
     target_counts, target_total_count = get_sentry_stats(target_start_time, target_end_time)
 

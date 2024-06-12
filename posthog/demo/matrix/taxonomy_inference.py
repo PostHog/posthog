@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from django.utils import timezone
 
@@ -9,7 +9,7 @@ from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property_definition import PropertyType
 
 
-def infer_taxonomy_for_team(team_id: int) -> Tuple[int, int, int]:
+def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
     """Infer event and property definitions based on ClickHouse data.
 
     In production, the plugin server is responsible for this - but in demo data we insert directly to ClickHouse.
@@ -55,13 +55,13 @@ def infer_taxonomy_for_team(team_id: int) -> Tuple[int, int, int]:
     return len(event_definitions), len(property_definitions), len(event_properties)
 
 
-def _get_events_last_seen_at(team_id: int) -> Dict[str, timezone.datetime]:
+def _get_events_last_seen_at(team_id: int) -> dict[str, timezone.datetime]:
     from posthog.client import sync_execute
 
-    return {event: last_seen_at for event, last_seen_at in sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id})}
+    return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))
 
 
-def _get_property_types(team_id: int) -> Dict[str, Optional[PropertyType]]:
+def _get_property_types(team_id: int) -> dict[str, Optional[PropertyType]]:
     """Determine property types based on ClickHouse data."""
     from posthog.client import sync_execute
 
@@ -87,14 +87,14 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     parsed_value = json.loads(sample_json_value)
     if isinstance(parsed_value, bool):
         return PropertyType.Boolean
-    if isinstance(parsed_value, (float, int)):
+    if isinstance(parsed_value, float | int):
         return PropertyType.Numeric
     if isinstance(parsed_value, str):
         return PropertyType.String
     return None
 
 
-def _get_event_property_pairs(team_id: int) -> List[Tuple[str, str]]:
+def _get_event_property_pairs(team_id: int) -> list[tuple[str, str]]:
     """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.client import sync_execute
 

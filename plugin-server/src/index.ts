@@ -1,4 +1,3 @@
-import { startBackfill } from './backfill'
 import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
 import { initApp } from './init'
@@ -50,9 +49,6 @@ switch (alternativeMode) {
                 process.exit(1)
             }
         })()
-        break
-    case AlternativeMode.Backfill:
-        void startBackfill()
         break
     default:
         // void the returned promise

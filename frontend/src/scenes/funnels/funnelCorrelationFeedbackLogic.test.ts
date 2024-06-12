@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { initKeaTests } from '~/test/init'
@@ -14,6 +15,7 @@ describe('funnelCorrelationFeedbackLogic', () => {
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS])
         initKeaTests(false)
+        teamLogic.mount()
     })
 
     const defaultProps: InsightLogicProps = {
@@ -81,7 +83,7 @@ describe('funnelCorrelationFeedbackLogic', () => {
             })
             .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisFeedback'])
 
-        expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1 })
+        expect(posthog.capture).toHaveBeenCalledWith('correlation analysis feedback', { rating: 1 })
     })
 
     it('goes away on sending feedback, capturing it properly', async () => {
@@ -102,8 +104,8 @@ describe('funnelCorrelationFeedbackLogic', () => {
 
         await expectLogic(eventUsageLogic).toFinishListeners()
 
-        expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 2 })
-        expect(posthog.capture).toBeCalledWith('correlation analysis detailed feedback', {
+        expect(posthog.capture).toHaveBeenCalledWith('correlation analysis feedback', { rating: 2 })
+        expect(posthog.capture).toHaveBeenCalledWith('correlation analysis detailed feedback', {
             rating: 2,
             comments: 'tests',
         })

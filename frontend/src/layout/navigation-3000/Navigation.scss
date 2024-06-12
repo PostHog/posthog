@@ -12,6 +12,10 @@
     overflow: hidden;
     background: var(--bg-3000);
 
+    .storybook-test-runner & {
+        height: auto;
+    }
+
     > main {
         flex: 1;
         min-width: 0;
@@ -56,6 +60,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    max-height: 100vh;
     border-right-width: 1px;
 
     // This terrible hack makes it so that the .Navbar3000__overlay background is rendered also _underneath_ .Navbar3000
@@ -158,6 +163,7 @@
     position: relative;
     box-sizing: content-box;
     flex: 0 0 var(--sidebar-width);
+    height: 100vh;
 
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed

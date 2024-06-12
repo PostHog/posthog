@@ -1,13 +1,15 @@
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import Any, Optional, TYPE_CHECKING
+from collections.abc import Callable
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import HogQLException, NotImplementedException
-from posthog.schema import HogQLQueryModifiers
+from posthog.hogql.errors import ResolutionError, NotImplementedError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.base import ConstantType
 
 
 class FieldOrTable(BaseModel):
@@ -24,38 +26,71 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
+    hidden: bool = False
+
+    def is_nullable(self) -> bool:
+        return not not self.nullable
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType()
 
 
 class IntegerDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import IntegerType
+
+        return IntegerType(nullable=self.is_nullable())
 
 
 class FloatDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import FloatType
+
+        return FloatType(nullable=self.is_nullable())
 
 
 class StringDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class StringJSONDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DateType
+
+        return DateType(nullable=self.is_nullable())
 
 
 class DateTimeDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DateTimeType
+
+        return DateTimeType(nullable=self.is_nullable())
 
 
 class BooleanDatabaseField(DatabaseField):
-    pass
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import BooleanType
+
+        return BooleanType(nullable=self.is_nullable())
 
 
 class ExpressionField(DatabaseField):
@@ -65,77 +100,93 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str]
+    chain: list[str | int]
 
 
 class Table(FieldOrTable):
-    fields: Dict[str, FieldOrTable]
+    fields: dict[str, FieldOrTable]
     model_config = ConfigDict(extra="forbid")
 
-    def has_field(self, name: str) -> bool:
-        return name in self.fields
+    def has_field(self, name: str | int) -> bool:
+        return str(name) in self.fields
 
-    def get_field(self, name: str) -> FieldOrTable:
+    def get_field(self, name: str | int) -> FieldOrTable:
+        name = str(name)
         if self.has_field(name):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        raise NotImplementedException("Table.to_printed_clickhouse not overridden")
+        raise NotImplementedError("Table.to_printed_clickhouse not overridden")
 
     def to_printed_hogql(self) -> str:
-        raise NotImplementedException("Table.to_printed_hogql not overridden")
+        raise NotImplementedError("Table.to_printed_hogql not overridden")
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
-        asterisk: Dict[str, FieldOrTable] = {}
-        for key, field in self.fields.items():
+        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+        asterisk: dict[str, FieldOrTable] = {}
+        for key, field_ in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if (
-                isinstance(field, Table)
-                or isinstance(field, LazyJoin)
-                or isinstance(field, FieldTraverser)
-                or isinstance(field, ExpressionField)
-            ):
+            if isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
-            elif isinstance(field, DatabaseField):
-                asterisk[key] = field
+            elif isinstance(field_, DatabaseField):
+                if not field_.hidden:  # Skip over hidden field
+                    asterisk[key] = field_
             else:
-                raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
+                raise ResolutionError(f"Unknown field type {type(field_).__name__} for asterisk")
         return asterisk
 
 
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
+    join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
     join_table: Table | str
-    from_field: List[str | int]
-    to_field: Optional[List[str | int]] = None
+    from_field: list[str | int]
+    to_field: Optional[list[str | int]] = None
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
             return self.join_table
 
         if context.database is None:
-            raise HogQLException("Database is not set")
+            raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
 
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers, node: SelectQuery)`
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
-        raise NotImplementedException("LazyTable.lazy_select not overridden")
+    def lazy_select(
+        self,
+        table_to_add: "LazyTableToAdd",
+        context: "HogQLContext",
+        node: "SelectQuery",
+    ) -> Any:
+        raise NotImplementedError("LazyTable.lazy_select not overridden")
+
+
+@dataclass
+class LazyTableToAdd:
+    lazy_table: LazyTable
+    fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+
+
+@dataclass
+class LazyJoinToAdd:
+    from_table: str
+    to_table: str
+    lazy_join: LazyJoin
+    fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 
 class VirtualTable(Table):

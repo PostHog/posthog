@@ -21,6 +21,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
                 '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
                 '/api/projects/:team_id/dashboards/1/collaborators/': [],
+                '/api/projects/:team_id/dashboards/2/': [500, { detail: 'Server error' }],
                 '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
                 '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
                 '/api/projects/:team_id/dashboards/:dash_id/sharing/': {
@@ -33,9 +34,6 @@ const meta: Meta = {
     ],
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },
@@ -130,5 +128,19 @@ export const Edit = (): JSX.Element => {
         dashboardLogic({ id: 1 }).mount()
         dashboardLogic({ id: 1 }).actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.Browser)
     }, [])
+    return <App />
+}
+
+export const NotFound = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.dashboard(1000))
+    }, [])
+    return <App />
+}
+
+export const Erroring = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.dashboard(2))
+    })
     return <App />
 }

@@ -1,9 +1,8 @@
 import './Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
+import { IconArchive, IconInfo } from '@posthog/icons'
 import { LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -16,10 +15,9 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightTyp
 
 import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
+import { NoResultsEmptyState } from './ExperimentView/components'
+import { getExperimentInsightColour } from './utils'
 
-export function getExperimentInsightColour(variantIndex: number | null): string {
-    return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
-}
 interface ExperimentResultProps {
     secondaryMetricId?: number
 }
@@ -35,7 +33,6 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         conversionRateForVariant,
         getIndexForVariant,
         areTrendResultsConfusing,
-        experimentResultCalculationError,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
@@ -243,27 +240,21 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                     />
                 </div>
             ) : (
-                experiment.start_date && (
+                experiment.start_date &&
+                !targetResultsLoading && (
                     <>
-                        <div className="no-experiment-results p-4">
-                            {!targetResultsLoading && (
-                                <div className="text-center">
-                                    <div className="mb-4">
-                                        <b>
-                                            There are no results for this{' '}
-                                            {isSecondaryMetric ? 'secondary metric' : 'experiment'} yet.
-                                        </b>
-                                    </div>
-                                    {!!experimentResultCalculationError && (
-                                        <div className="text-sm mb-2">{experimentResultCalculationError}</div>
-                                    )}
-                                    <div className="text-sm ">
-                                        Wait a bit longer for your users to be exposed to the experiment. Double check
-                                        your feature flag implementation if you're still not seeing results.
-                                    </div>
+                        {isSecondaryMetric ? (
+                            <div className="bg-bg-light pt-6 pb-8 text-muted">
+                                <div className="flex flex-col items-center mx-auto space-y-2">
+                                    <IconArchive className="text-secondary-3000 text-4xl" />
+                                    <h2 className="text-xl font-semibold leading-tight">
+                                        There are no results for this metric yet
+                                    </h2>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        ) : (
+                            <NoResultsEmptyState />
+                        )}
                     </>
                 )
             )}

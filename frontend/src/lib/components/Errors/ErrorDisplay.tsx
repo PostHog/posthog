@@ -5,7 +5,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import posthog from 'posthog-js'
 
-import { EventType, RecordingEventType } from '~/types'
+import { EventType } from '~/types'
 
 interface StackFrame {
     filename: string
@@ -124,6 +124,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $active_feature_flags,
         $sentry_url,
         $sentry_exception,
+        $level,
     } = eventProperties
 
     let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
@@ -151,14 +152,11 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
+        $level,
     }
 }
 
-export function ErrorDisplay({ event }: { event: EventType | RecordingEventType }): JSX.Element {
-    if (event.event !== '$exception') {
-        return <>Unknown type of error</>
-    }
-
+export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const {
         $exception_type,
         $exception_message,
@@ -172,13 +170,14 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
-    } = getExceptionPropertiesFrom(event.properties)
+        $level,
+    } = getExceptionPropertiesFrom(eventProperties)
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
             <h1 className="mb-0">{$exception_message}</h1>
             <div className="flex flex-row gap-2 flex-wrap">
-                <LemonTag type="danger">{$exception_type}</LemonTag>
+                <LemonTag type="danger">{$exception_type || $level}</LemonTag>
                 <TitledSnack
                     type="success"
                     title="captured by"

@@ -13,6 +13,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
     FeaturePropertyFilter,
     FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
@@ -22,7 +23,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     InsightActorsQuery,
     PersonPropertyFilter,
-    RecordingDurationFilter,
+    RecordingPropertyFilter,
     SessionPropertyFilter,
     TrendsQuery,
     FunnelsQuery,
@@ -52,12 +53,13 @@ AnyPropertyFilter: TypeAlias = Union[
     ElementPropertyFilter,
     SessionPropertyFilter,
     CohortPropertyFilter,
-    RecordingDurationFilter,
+    RecordingPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
 ]
 
 EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]

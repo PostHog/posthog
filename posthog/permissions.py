@@ -1,15 +1,21 @@
+import time
 from typing import cast
 
-from django.db.models import Model
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.exceptions import NotFound
+from django.db.models import Model
+from django.views import View
+import posthoganalytics
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -19,7 +25,15 @@ from posthog.utils import get_can_create_org
 CREATE_METHODS = ["POST", "PUT"]
 
 
-def extract_organization(object: Model) -> Organization:
+def extract_organization(object: Model, view: View) -> Organization:
+    # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
+    organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
+    if organization_id_rewrite:
+        for part in organization_id_rewrite.split("__"):
+            if part == "organization_id":
+                break
+            object = getattr(object, part)
+
     if isinstance(object, Organization):
         return object
     try:
@@ -89,8 +103,8 @@ class OrganizationMemberPermissions(BasePermission):
 
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object)
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+        organization = extract_organization(object, view)
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
 
@@ -119,12 +133,12 @@ class OrganizationAdminWritePermissions(BasePermission):
             >= OrganizationMembership.Level.ADMIN
         )
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
-        organization = extract_organization(object)
+        organization = extract_organization(object, view)
 
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
@@ -214,7 +228,10 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+        if view.premium_feature not in [
+            feature["key"]
+            for feature in request.user.organization.available_product_features  # type: ignore
+        ]:
             raise EnterpriseFeatureException()
 
         return True
@@ -248,6 +265,36 @@ class SharingTokenPermission(BasePermission):
         return False
 
 
+class TimeSensitiveActionPermission(BasePermission):
+    """
+    Validates that the authenticated session is not older than the allowed time for the action.
+    """
+
+    message = "This action requires you to be recently authenticated."
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        if allow_safe_methods and request.method in SAFE_METHODS:
+            return True
+
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return False
+
+        session_age_seconds = time.time() - session_created_at
+
+        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+            return False
+
+        return True
+
+
 class APIScopePermission(BasePermission):
     """
     The request is via an API key and the user has the appropriate scopes.
@@ -259,10 +306,18 @@ class APIScopePermission(BasePermission):
 
     """
 
-    write_actions: list[str] = ["create", "update", "partial_update", "destroy"]
+    write_actions: list[str] = ["create", "update", "partial_update", "patch", "destroy"]
     read_actions: list[str] = ["list", "retrieve"]
     scope_object_read_actions: list[str] = []
     scope_object_write_actions: list[str] = []
+
+    def _get_action(self, request, view) -> str:
+        # TRICKY: DRF doesn't have an action for non-detail level "patch" calls which we use sometimes
+
+        if not view.action:
+            if request.method == "PATCH" and not view.detail:
+                return "patch"
+        return view.action
 
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
@@ -332,12 +387,13 @@ class APIScopePermission(BasePermission):
         if scope_object == "INTERNAL":
             raise PermissionDenied(f"This action does not support Personal API Key access")
 
+        action = self._get_action(request, view)
         read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
         write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
 
-        if view.action in write_actions:
+        if action in write_actions:
             return [f"{scope_object}:write"]
-        elif view.action in read_actions or request.method == "OPTIONS":
+        elif action in read_actions or request.method == "OPTIONS":
             return [f"{scope_object}:read"]
 
         # If we get here this typically means an action was called without a required scope
@@ -349,3 +405,39 @@ class APIScopePermission(BasePermission):
             raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
 
         return view.scope_object
+
+
+class PostHogFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        flag = getattr(view, "posthog_feature_flag", None)
+
+        config = {}
+
+        if not flag:
+            raise ImproperlyConfigured(
+                "PostHogFeatureFlagPermission requires the view to define the posthog_feature_flag attribute."
+            )
+
+        if isinstance(flag, str):
+            config[flag] = ["*"]
+        else:
+            config = flag
+
+        for required_flag, actions in config.items():
+            if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
+
+                enabled = posthoganalytics.feature_enabled(
+                    required_flag,
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+
+                return enabled or False
+
+        return True

@@ -8,12 +8,13 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import WebTopClicksQuery, WebTopClicksQueryResponse
+from posthog.schema import CachedWebTopClicksQueryResponse, WebTopClicksQuery, WebTopClicksQueryResponse
 
 
 class WebTopClicksQueryRunner(WebAnalyticsQueryRunner):
     query: WebTopClicksQuery
-    query_type = WebTopClicksQuery
+    response: WebTopClicksQueryResponse
+    cached_response: CachedWebTopClicksQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("top_clicks_query"):
@@ -51,6 +52,7 @@ LIMIT 10
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         return WebTopClicksQueryResponse(
@@ -58,6 +60,7 @@ LIMIT 10
             results=response.results,
             timings=response.timings,
             types=response.types,
+            modifiers=self.modifiers,
         )
 
     @cached_property

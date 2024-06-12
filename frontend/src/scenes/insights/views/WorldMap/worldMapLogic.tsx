@@ -11,7 +11,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'trendsFilter', 'series']],
+        values: [insightVizDataLogic(props), ['insightData', 'trendsFilter', 'series', 'querySource']],
     })),
     actions({
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),

@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict
+from typing import Any
 from urllib.parse import urlparse
 
 import structlog
@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 SHARED_LINK_REGEX = r"\/(?:shared_dashboard|shared|embedded)\/(.+)"
 
 
-def _block_for_asset(asset: ExportedAsset) -> Dict:
+def _block_for_asset(asset: ExportedAsset) -> dict:
     image_url = asset.get_public_content_url()
     alt_text = None
     if asset.insight:

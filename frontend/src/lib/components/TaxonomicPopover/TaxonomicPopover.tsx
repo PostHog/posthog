@@ -4,8 +4,9 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { useEffect, useState } from 'react'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
@@ -13,12 +14,14 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
+    filter?: LocalFilter
     groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element | null
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
     dropdownMatchSelectWidth?: boolean
+    schemaColumns?: DatabaseSchemaField[]
     allowClear?: boolean
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
@@ -40,6 +43,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
 export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
+    filter,
     onChange,
     renderValue,
     groupTypes,
@@ -49,6 +53,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     allowClear = false,
     excludedProperties,
     metadataSource,
+    schemaColumns,
     ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
@@ -79,17 +84,19 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                 <TaxonomicFilter
                     groupType={groupType}
                     value={value}
+                    filter={filter}
                     onChange={({ type }, payload, item) => {
                         onChange?.(payload as ValueType, type, item)
                         setVisible(false)
                     }}
                     taxonomicGroupTypes={groupTypes ?? [groupType]}
                     eventNames={eventNames}
+                    schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
                 />
             }
-            sameWidth={false}
+            matchWidth={false}
             actionable
             visible={visible}
             onClickOutside={() => {

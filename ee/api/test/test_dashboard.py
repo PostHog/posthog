@@ -4,10 +4,8 @@ from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.license import License
-from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.dashboard import Dashboard
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -108,7 +106,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -180,7 +178,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
@@ -213,7 +211,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         License.objects.all().delete()
-        self.organization.update_available_features()
+        self.organization.update_available_product_features()
         self.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
@@ -264,15 +262,19 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
 
-    def test_cannot_edit_dashboard_description_when_collaboration_not_available(self):
+    def test_can_edit_dashboard_description_when_collaboration_not_available(self):
+        """
+        Team collaboration feature is only available on some plans, but if the feature is
+        not available, the user should still be able to read/write for migration purposes.
+        The access to the feature is blocked in the UI, so this is unlikely to be truly abused.
+        """
         self.client.logout()
 
-        self.organization.available_features = []
         self.organization.available_product_features = []
         self.organization.save()
         self.team.access_control = True
@@ -291,41 +293,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
             {
-                "description": "i should not be allowed to edit this",
-                "name": "even though I am allowed to edit this",
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        dashboard.refresh_from_db()
-        self.assertEqual(dashboard.description, "")
-        self.assertEqual(dashboard.name, "example dashboard")
-
-    def test_can_edit_dashboard_description_when_collaboration_is_available(self):
-        self.client.logout()
-
-        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
-        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-        self.organization.save()
-        self.team.access_control = True
-        self.team.save()
-
-        user_with_collaboration = User.objects.create_and_join(
-            self.organization, "no-collaboration-feature@posthog.com", None
-        )
-        self.client.force_login(user_with_collaboration)
-
-        dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="example dashboard",
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {
                 "description": "i should be allowed to edit this",
-                "name": "and so also to edit this",
+                "name": "as well as this",
             },
         )
 
@@ -333,4 +302,4 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.description, "i should be allowed to edit this")
-        self.assertEqual(dashboard.name, "and so also to edit this")
+        self.assertEqual(dashboard.name, "as well as this")

@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -34,7 +33,7 @@ def _escape(input: str) -> str:
     return input.replace('"', r"\"")
 
 
-def elements_to_string(elements: List[Element]) -> str:
+def elements_to_string(elements: list[Element]) -> str:
     ret = []
     for element in elements:
         el_string = ""
@@ -58,7 +57,7 @@ def elements_to_string(elements: List[Element]) -> str:
     return ";".join(ret)
 
 
-def chain_to_elements(chain: str) -> List[Element]:
+def chain_to_elements(chain: str) -> list[Element]:
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
         el_string_split = re.findall(split_class_attributes, el_string)[0]

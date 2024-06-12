@@ -1,5 +1,4 @@
 import {
-    IconApps,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -7,6 +6,7 @@ import {
     IconDashboard,
     IconDatabase,
     IconDay,
+    IconDecisionTree,
     IconExternal,
     IconEye,
     IconFunnels,
@@ -38,6 +38,7 @@ import {
     IconTrends,
     IconUnlock,
     IconUserPaths,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
@@ -498,7 +499,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL(Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ]))[InsightType.SQL])
+                            push(insightTypeURL[InsightType.SQL])
                         },
                     },
                     {
@@ -581,6 +582,17 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                               },
                           ]
                         : []),
+                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                        ? [
+                              {
+                                  icon: IconWarning,
+                                  display: 'Go to Error tracking',
+                                  executor: () => {
+                                      push(urls.errorTracking())
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         display: 'Go to Session replay',
                         icon: IconRewindPlay,
@@ -617,8 +629,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconApps,
-                        display: 'Go to Apps',
+                        icon: IconDecisionTree,
+                        display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
                             push(urls.projectApps())
@@ -680,7 +692,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: IconDatabase,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug ClickHouse queries',
                               executor: () => openCHQueriesDebugModal(),
                           }
                         : [],

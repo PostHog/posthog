@@ -1,7 +1,14 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsArgMaxVersion
-from posthog.utils import PersonOnEventsMode
+
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    BounceRatePageViewMode,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -15,23 +22,38 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
-    if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonOnEventsMode.DISABLED
+    if isinstance(team.modifiers, dict):
+        for key, value in team.modifiers.items():
+            if getattr(modifiers, key) is None:
+                setattr(modifiers, key, value)
 
-    if modifiers.personsArgMaxVersion is None:
-        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto
-
-    if modifiers.inCohortVia is None:
-        modifiers.inCohortVia = InCohortVia.auto
-
-    if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
-        modifiers.materializationMode = MaterializationMode.legacy_null_as_null
+    set_default_modifier_values(modifiers, team)
 
     return modifiers
 
 
+def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
+    if modifiers.personsOnEventsMode is None:
+        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.DISABLED
+
+    if modifiers.personsArgMaxVersion is None:
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
+
+    if modifiers.inCohortVia is None:
+        modifiers.inCohortVia = InCohortVia.AUTO
+
+    if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.AUTO:
+        modifiers.materializationMode = MaterializationMode.LEGACY_NULL_AS_NULL
+
+    if modifiers.optimizeJoinedFilters is None:
+        modifiers.optimizeJoinedFilters = False
+
+    if modifiers.bounceRatePageViewMode is None:
+        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
+
+
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
-    if modifiers.inCohortVia == InCohortVia.auto:
-        modifiers.inCohortVia = InCohortVia.subquery
+    if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:
+        modifiers.inCohortVia = InCohortVia.SUBQUERY
 
     return modifiers

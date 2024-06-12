@@ -1,31 +1,54 @@
-import './TreeRow.scss'
-
 import { IconChevronDown } from '@posthog/icons'
-import clsx from 'clsx'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useCallback, useState } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
-import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf } from './DatabaseTableTree'
+import { DatabaseSchemaTable } from '~/queries/schema'
+
+import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 
 export interface TreeRowProps {
     item: TreeItemLeaf
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
+    onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
 }
 
-export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element {
+export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
+    return (
+        <li>
+            <LemonButton size="xsmall" fullWidth active={selected} icon={item.icon ? <>{item.icon}</> : null}>
+                <span className="flex-1 flex justify-between">
+                    <span className="truncate">{item.name}</span>
+                    <span className="whitespace-nowrap">{item.type}</span>
+                </span>
+            </LemonButton>
+        </li>
+    )
+}
+
+export interface TreeTableRowProps {
+    item: TreeTableItemLeaf
+    depth: number
+    onClick?: (row: DatabaseSchemaTable) => void
+    selected?: boolean
+}
+
+export function TreeTableRow({ item, onClick, selected }: TreeTableRowProps): JSX.Element {
     const _onClick = useCallback(() => {
         onClick && onClick(item.table)
-    }, [])
+    }, [onClick, item])
 
     return (
         <li>
-            <div className={clsx('TreeRow', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
-                <span className="mr-2">{item.icon}</span>
-                {item.table.name}
-            </div>
+            <LemonButton
+                size="xsmall"
+                fullWidth
+                onClick={_onClick}
+                active={selected}
+                icon={item.icon ? <>{item.icon}</> : null}
+            >
+                <span className="truncate">{item.table.name}</span>
+            </LemonButton>
         </li>
     )
 }
@@ -33,24 +56,31 @@ export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element 
 export interface TreeFolderRowProps {
     item: TreeItemFolder
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
-    selectedRow?: DataWarehouseTableType | null
+    onClick?: (row: DatabaseSchemaTable) => void
+    selectedRow?: DatabaseSchemaTable | null
 }
 
 export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {
-    const [collapsed, setCollapsed] = useState(false)
     const { name, items, emptyLabel } = item
+
+    const isColumnType = items.length > 0 && 'type' in items[0]
+
+    const [collapsed, setCollapsed] = useState(isColumnType)
 
     const _onClick = useCallback(() => {
         setCollapsed(!collapsed)
     }, [collapsed])
 
     return (
-        <li>
-            <div className={clsx('TreeRow', 'font-bold')} onClick={_onClick}>
-                <span className="mr-2">{collapsed ? <IconChevronRight /> : <IconChevronDown />}</span>
+        <li className="overflow-hidden">
+            <LemonButton
+                size="small"
+                fullWidth
+                onClick={_onClick}
+                icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
+            >
                 {name}
-            </div>
+            </LemonButton>
             {!collapsed &&
                 (items.length > 0 ? (
                     <DatabaseTableTree
@@ -58,16 +88,22 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `${2 * depth}rem`, padding: 0 }}
+                        className="ml-4"
                     />
                 ) : (
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${2 * depth}rem`,
+                            marginLeft: `${depth * 2}rem`,
                         }}
                     >
-                        {emptyLabel ? emptyLabel : <span className="text-muted">No tables found</span>}
+                        {item.isLoading ? (
+                            <Spinner className="mt-2" />
+                        ) : emptyLabel ? (
+                            emptyLabel
+                        ) : (
+                            <span className="text-muted">No tables found</span>
+                        )}
                     </div>
                 ))}
         </li>

@@ -6,8 +6,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.models.property.util import get_property_string_expr
-from posthog.settings import TEST
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -101,24 +99,12 @@ SETTINGS index_granularity=512
 
 
 def source_column(column_name: str) -> str:
-    # use the materialized version if it exists, and use the properties json if not
-    try:
-        return get_property_string_expr(
-            "events", property_name=column_name, var=f"'{column_name}'", column="properties"
-        )[0]
-    except Exception as e:
-        # in test code we don't have a Clickhouse instance running when this code runs
-        if TEST:
-            return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
-        else:
-            raise e
+    return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
-SESSIONS_TABLE_MV_SQL = (
+SESSION_TABLE_MV_SELECT_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
-TO {database}.{target_table}
-AS SELECT
+SELECT
 
 `$session_id` as session_id,
 team_id,
@@ -161,9 +147,6 @@ FROM {database}.sharded_events
 WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
 GROUP BY `$session_id`, team_id
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
         current_url_property=source_column("$current_url"),
         referring_domain_property=source_column("$referring_domain"),
@@ -188,6 +171,30 @@ GROUP BY `$session_id`, team_id
     )
 )
 
+SESSIONS_TABLE_MV_SQL = (
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        table_name=f"{TABLE_BASE_NAME}_mv",
+        target_table=f"writable_{TABLE_BASE_NAME}",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+    )
+)
+
+SESSION_TABLE_UPDATE_SQL = (
+    lambda: """
+ALTER TABLE {table_name} MODIFY QUERY
+{select_sql}
+""".format(
+        table_name=f"{TABLE_BASE_NAME}_mv",
+        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+    )
+)
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
@@ -253,3 +260,44 @@ FROM sessions
 GROUP BY session_id, team_id
 """
 )
+
+SELECT_SESSION_PROP_STRING_VALUES_SQL = """
+SELECT
+    value,
+    count(value)
+FROM (
+    SELECT
+        {property_expr} as value
+    FROM
+        sessions
+    WHERE
+        team_id = %(team_id)s AND
+        {property_expr} IS NOT NULL AND
+        {property_expr} != ''
+    ORDER BY session_id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
+
+SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER = """
+SELECT
+    value,
+    count(value)
+FROM (
+    SELECT
+        {property_expr} as value
+    FROM
+        sessions
+    WHERE
+        team_id = %(team_id)s AND
+        {property_expr} ILIKE %(value)s
+    ORDER BY session_id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""

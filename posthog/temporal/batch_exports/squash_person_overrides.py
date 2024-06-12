@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -227,37 +228,6 @@ def parse_mutation_command(mutation_query: str) -> str:
     return query_command
 
 
-def no_details() -> tuple:
-    """No heartbeat details."""
-    return ()
-
-
-@contextlib.asynccontextmanager
-async def heartbeat_every(
-    factor: int = 2,
-    details_callable: collections.abc.Callable[[], tuple[typing.Any]] = no_details,
-) -> collections.abc.AsyncIterator[None]:
-    """Heartbeat every Activity heartbeat timeout / factor seconds while in context."""
-    heartbeat_timeout = activity.info().heartbeat_timeout
-    heartbeat_task = None
-
-    async def heartbeat_forever(delay: float) -> None:
-        """Heartbeat forever every delay seconds."""
-        while True:
-            await asyncio.sleep(delay)
-            activity.heartbeat(*details_callable())
-
-    if heartbeat_timeout:
-        heartbeat_task = asyncio.create_task(heartbeat_forever(heartbeat_timeout.total_seconds() / factor))
-
-    try:
-        yield
-    finally:
-        if heartbeat_task:
-            heartbeat_task.cancel()
-            await asyncio.wait([heartbeat_task])
-
-
 @activity.defn
 async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
     """Prepare the person_distinct_id_overrides table to be used in a squash.
@@ -273,7 +243,7 @@ async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
         activity.logger.debug("Optimize query: %s", optimize_query)
         return
 
-    async with heartbeat_every():
+    async with Heartbeater():
         async with get_client(mutations_sync=2) as clickhouse_client:
             await clickhouse_client.execute_query(
                 optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
@@ -322,7 +292,7 @@ async def create_table(inputs: TableActivityInputs) -> None:
         activity.logger.debug("Query: %s", create_table_query)
         return
 
-    async with heartbeat_every():
+    async with Heartbeater():
         async with get_client() as clickhouse_client:
             await clickhouse_client.execute_query(create_table_query, query_parameters=inputs.query_parameters)
 
@@ -351,7 +321,7 @@ async def drop_table(inputs: TableActivityInputs) -> None:
         activity.logger.debug("Query: %s", drop_table_query)
         return
 
-    async with heartbeat_every():
+    async with Heartbeater():
         async with get_client() as clickhouse_client:
             await clickhouse_client.execute_query(drop_table_query)
 
@@ -584,49 +554,48 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
         database=settings.CLICKHOUSE_DATABASE,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    async with get_client() as clickhouse_client:
-        prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
-        query_command = parse_mutation_command(prepared_submit_query)
+    async with Heartbeater():
+        async with get_client() as clickhouse_client:
+            prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
+            query_command = parse_mutation_command(prepared_submit_query)
 
-        try:
-            while True:
-                activity.heartbeat()
+            try:
+                while True:
+                    response = await clickhouse_client.read_query(
+                        MUTATIONS_IN_PROGRESS_IN_CLUSTER.format(
+                            database=settings.CLICKHOUSE_DATABASE,
+                            cluster=settings.CLICKHOUSE_CLUSTER,
+                        ),
+                        query_parameters={"query": query_command, "table": mutation.table},
+                    )
 
-                response = await clickhouse_client.read_query(
-                    MUTATIONS_IN_PROGRESS_IN_CLUSTER.format(
+                    mutations_in_progress, _ = parse_mutation_counts(response)
+
+                    if mutations_in_progress == 0:
+                        break
+
+                    activity.logger.info("Still waiting for mutation %s", inputs.name)
+
+                    await asyncio.sleep(5)
+
+            except asyncio.CancelledError:
+                activity.logger.warning(
+                    "Activity has been cancelled, attempting to kill in progress mutation %s",
+                    inputs.name,
+                )
+
+                await clickhouse_client.execute_query(
+                    KILL_MUTATION_IN_PROGRESS_ON_CLUSTER.format(
                         database=settings.CLICKHOUSE_DATABASE,
                         cluster=settings.CLICKHOUSE_CLUSTER,
+                        table=mutation.table,
                     ),
                     query_parameters={"query": query_command, "table": mutation.table},
                 )
+                raise
 
-                mutations_in_progress, total_mutations = parse_mutation_counts(response)
-
-                if mutations_in_progress == 0 and total_mutations > 0:
-                    break
-
-                activity.logger.info("Still waiting for mutatio %s", inputs.name)
-
-                await asyncio.sleep(5)
-
-        except asyncio.CancelledError:
-            activity.logger.warning(
-                "Activity has been cancelled, attempting to kill in progress mutation %s",
-                inputs.name,
-            )
-
-            await clickhouse_client.execute_query(
-                KILL_MUTATION_IN_PROGRESS_ON_CLUSTER.format(
-                    database=settings.CLICKHOUSE_DATABASE,
-                    cluster=settings.CLICKHOUSE_CLUSTER,
-                    table=mutation.table,
-                ),
-                query_parameters={"query": query_command, "table": mutation.table},
-            )
-            raise
-
-        else:
-            activity.logger.info("Mutation finished %s", inputs.name)
+            else:
+                activity.logger.info("Mutation finished %s", inputs.name)
 
 
 async def submit_and_wait_for_mutation(

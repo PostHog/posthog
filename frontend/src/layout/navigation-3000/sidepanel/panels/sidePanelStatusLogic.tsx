@@ -1,7 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
@@ -95,7 +93,6 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
 
@@ -147,10 +144,8 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
-            actions.loadStatusPage()
-        }
+    afterMount(({ actions }) => {
+        actions.loadStatusPage()
     }),
 
     beforeUnmount(({ cache }) => {

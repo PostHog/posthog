@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
@@ -10,6 +11,11 @@ describe('playerInspectorLogic', () => {
     let logic: ReturnType<typeof playerInspectorLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                'api/projects/:team_id/session_recordings/1/': {},
+            },
+        })
         initKeaTests()
         featureFlagLogic.mount()
         logic = playerInspectorLogic(playerLogicProps)

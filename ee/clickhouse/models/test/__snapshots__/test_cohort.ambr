@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestCohort.test_cohortpeople_basic
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -37,7 +37,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -71,7 +71,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -84,7 +84,8 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_15_level_level_0_level_0_level_0_0
+                       AND event = '$pageview'
+                       AND 1=1) > 0 AS performed_event_condition_X_level_level_0_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -114,7 +115,7 @@
            HAVING max(is_deleted) = 0
            AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
-       AND ((((performed_event_condition_15_level_level_0_level_0_level_0_0)))) ) as person
+       AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -149,7 +150,8 @@
                    (SELECT pdi.person_id AS person_id,
                            countIf(timestamp > now() - INTERVAL 2 year
                                    AND timestamp < now()
-                                   AND event = '$pageview') > 0 AS performed_event_condition_17_level_level_0_level_0_level_0_0
+                                   AND event = '$pageview'
+                                   AND 1=1) > 0 AS performed_event_condition_X_level_level_0_level_0_level_0_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -179,12 +181,12 @@
                        HAVING max(is_deleted) = 0
                        AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
                  WHERE 1 = 1
-                   AND ((((performed_event_condition_17_level_level_0_level_0_level_0_0)))) ) ))
+                   AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) ) ))
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -196,7 +198,7 @@
      FROM
        (SELECT pdi.person_id AS person_id,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
-        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_18_level_level_0_level_0_0
+        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_X_level_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -209,7 +211,7 @@
           AND event IN ['signup']
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
-       AND (((first_time_condition_18_level_level_0_level_0_0))) ) as person
+       AND (((first_time_condition_X_level_level_0_level_0_0))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -225,7 +227,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -238,9 +240,10 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_19_level_level_0_level_0_level_0_0,
+                       AND event = '$pageview'
+                       AND 1=1) > 0 AS performed_event_condition_X_level_level_0_level_0_level_0_0,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
-        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_19_level_level_0_level_1_level_0_level_0_level_0_0
+        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_X_level_level_0_level_1_level_0_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -253,8 +256,8 @@
           AND event IN ['$pageview', 'signup']
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
-       AND ((((performed_event_condition_19_level_level_0_level_0_level_0_0))
-             AND ((((NOT first_time_condition_19_level_level_0_level_1_level_0_level_0_level_0_0)))))) ) as person
+       AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0))
+             AND ((((NOT first_time_condition_X_level_level_0_level_1_level_0_level_0_level_0_0)))))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,

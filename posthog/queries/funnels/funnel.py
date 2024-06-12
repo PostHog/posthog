@@ -1,4 +1,4 @@
-from typing import List, cast
+from typing import cast
 
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 
@@ -74,7 +74,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         """
 
     def _get_comparison_at_step(self, index: int, level_index: int):
-        or_statements: List[str] = []
+        or_statements: list[str] = []
 
         for i in range(level_index, index + 1):
             or_statements.append(f"latest_{i} < latest_{level_index - 1}")
@@ -86,7 +86,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         level_index: The current smallest comparison step. Everything before
         level index is already at the minimum ordered timestamps.
         """
-        cols: List[str] = []
+        cols: list[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:

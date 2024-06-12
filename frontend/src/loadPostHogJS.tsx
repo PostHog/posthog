@@ -27,6 +27,7 @@ export function loadPostHogJS(): void {
                 persistence: 'localStorage+cookie',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
+                api_transport: 'fetch',
                 loaded: (posthog) => {
                     if (posthog.sessionRecording) {
                         posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -42,6 +43,8 @@ export function loadPostHogJS(): void {
                 autocapture: {
                     capture_copied_text: true,
                 },
+                person_profiles: 'always',
+
                 // Helper to capture events for assertions in Cypress
                 _onCapture: (window as any)._cypress_posthog_captures
                     ? (_, event) => (window as any)._cypress_posthog_captures.push(event)
@@ -82,7 +85,7 @@ export function loadPostHogJS(): void {
             dsn: window.SENTRY_DSN,
             environment: window.SENTRY_ENVIRONMENT,
             ...(location.host.includes('posthog.com') && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813, undefined, '*')],
             }),
         })
     }

@@ -9,9 +9,8 @@ export const summarizeUsage = (usage: number | null): string => {
         return `${usage}`
     } else if (Math.round(usage / 1000) < 1000) {
         return `${Math.round(usage / 1000)} thousand`
-    } else {
-        return `${Math.round(usage / 1000000)} million`
     }
+    return `${Math.round(usage / 1000000)} million`
 }
 
 export const projectUsage = (
@@ -165,11 +164,15 @@ export const getUpgradeProductLink = (
     redirectPath?: string,
     includeAddons: boolean = true
 ): string => {
-    let url = '/api/billing-v2/activation?products='
+    let url = '/api/billing/activate?products='
     url += `${product.type}:${upgradeToPlanKey},`
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
-            if (addon.plans?.[0]?.plan_key) {
+            if (
+                // TODO: this breaks if we support multiple plans per addon due to just grabbing the first plan
+                addon.plans?.[0]?.plan_key &&
+                !addon.inclusion_only
+            ) {
                 url += `${addon.type}:${addon.plans[0].plan_key},`
             }
         }
@@ -218,4 +221,33 @@ export const convertLargeNumberToWords = (
     ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
         !previousNum && multipleTiers ? ` ${productType}s/mo` : ''
     }`
+}
+
+export const getProration = ({
+    timeRemainingInSeconds,
+    timeTotalInSeconds,
+    amountUsd,
+    hasActiveSubscription,
+}: {
+    timeRemainingInSeconds: number
+    timeTotalInSeconds: number
+    amountUsd?: string | null
+    hasActiveSubscription?: boolean
+}): {
+    isProrated: boolean
+    prorationAmount: string
+} => {
+    if (timeTotalInSeconds === 0) {
+        return {
+            isProrated: false,
+            prorationAmount: '0.00',
+        }
+    }
+
+    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemainingInSeconds / timeTotalInSeconds) : 0
+
+    return {
+        isProrated: hasActiveSubscription && amountUsd ? prorationAmount !== parseInt(amountUsd || '') : false,
+        prorationAmount: prorationAmount.toFixed(2),
+    }
 }

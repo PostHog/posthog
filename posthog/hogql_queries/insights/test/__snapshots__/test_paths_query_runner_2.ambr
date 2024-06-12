@@ -1109,12 +1109,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1213,7 +1207,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(path_dropoff_key, '2_step two'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                          and isNull(path_key)))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1225,12 +1225,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1328,7 +1322,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE ifNull(equals(path_key, '2_step two'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1340,12 +1340,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1443,7 +1437,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '2_step two'), 0), 1)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1455,12 +1455,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1559,7 +1553,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(path_dropoff_key, '3_step three'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                            and isNull(path_key)))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1571,12 +1571,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1674,7 +1668,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE ifNull(equals(path_key, '3_step three'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1686,12 +1686,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1789,7 +1783,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '3_step three'), 0), 1)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1801,12 +1801,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -1905,7 +1899,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(path_dropoff_key, '4_step four'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                           and isNull(path_key)))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1917,12 +1917,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2020,7 +2014,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE ifNull(equals(path_key, '4_step four'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2032,12 +2032,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2135,101 +2129,16 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '4_step four'), 0), 1)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1
-  '''
-# ---
-# name: TestClickhousePaths.test_person_on_events_v2
-  '''
-  
-  SELECT distinct_id,
-         person_id
-  FROM events
-  WHERE team_id = 2
-    AND distinct_id IN ('poev2_p1',
-                        'poev2_p2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'poev2_p1', -1, 0)
-  '''
-# ---
-# name: TestClickhousePaths.test_person_on_events_v2.1
-  '''
-  SELECT last_path_key AS source_event,
-         path_key AS target_event,
-         count(*) AS event_count,
-         avg(conversion_time) AS average_conversion_time
-  FROM
-    (SELECT person_id AS person_id,
-            path AS path,
-                    conversion_time AS conversion_time,
-                    event_in_session_index AS event_in_session_index,
-                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                    path_dropoff_key AS path_dropoff_key
-     FROM
-       (SELECT person_id AS person_id,
-               joined_path_tuple.1 AS path,
-               joined_path_tuple.2 AS conversion_time,
-               joined_path_tuple.3 AS prev_path,
-               event_in_session_index,
-               session_index AS session_index,
-               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
-               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
-                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
-               arrayFilter((x, y) -> y, time, mapping) AS timings,
-               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
-               indexOf(compact_path, NULL) AS target_index,
-               if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path,
-               arraySlice(filtered_path, 1, 4) AS limited_path,
-               if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings,
-               arraySlice(filtered_timings, 1, 4) AS limited_timings,
-               arrayDifference(limited_timings) AS timings_diff,
-               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
-               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
-        FROM
-          (SELECT person_id AS person_id,
-                  path_time_tuple.1 AS path_basic,
-                  path_time_tuple.2 AS time,
-                  session_index,
-                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
-           FROM
-             (SELECT person_id AS person_id,
-                     groupArray(timestamp) AS timing_list,
-                     groupArray(path_item) AS path_list
-              FROM
-                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS person_id,
-                        ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
-                        NULL AS groupings,
-                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
-                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
-                 FROM events
-                 LEFT OUTER JOIN
-                   (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                           person_overrides.old_person_id AS old_person_id
-                    FROM person_overrides
-                    WHERE equals(person_overrides.team_id, 2)
-                    GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
-                 ORDER BY ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
-              GROUP BY person_id) ARRAY
-           JOIN session_paths AS path_time_tuple,
-                arrayEnumerate(session_paths) AS session_index) ARRAY
-        JOIN limited_path_timings AS joined_path_tuple,
-             arrayEnumerate(limited_path_timings) AS event_in_session_index))
-  WHERE isNotNull(source_event)
-  GROUP BY source_event,
-           target_event
-  ORDER BY event_count DESC,
-           source_event ASC,
-           target_event ASC
-  LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
   '''
@@ -2241,13 +2150,6 @@
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2345,7 +2247,14 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE ifNull(equals(path_key, '2_/2'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT argMax(person.created_at, person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2374,13 +2283,6 @@
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2479,7 +2381,14 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                    and isNull(path_key)))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT argMax(person.created_at, person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2508,13 +2417,6 @@
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2613,7 +2515,14 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                    and isNull(path_key)))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT argMax(person.created_at, person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2642,13 +2551,6 @@
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2746,7 +2648,14 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE ifNull(equals(path_key, '2_/2'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT argMax(person.created_at, person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2775,13 +2684,6 @@
          source.event_count AS event_count,
          source.matching_events AS matching_events
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -2888,7 +2790,14 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
      WHERE ifNull(equals(path_key, '2_/2'), 0)
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT argMax(person.created_at, person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3075,12 +2984,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -3187,7 +3090,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
      WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3282,12 +3191,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -3394,7 +3297,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
      WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3489,12 +3398,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -3601,7 +3504,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
      WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3696,12 +3605,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -3808,7 +3711,13 @@
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
      WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4055,12 +3964,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4158,7 +4061,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4170,12 +4079,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4273,7 +4176,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4363,12 +4272,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4466,7 +4369,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4556,12 +4465,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4659,7 +4562,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4671,12 +4580,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4774,7 +4677,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4786,12 +4695,6 @@
   '''
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT person_id AS actor_id,
             groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
             count(*) AS event_count
@@ -4889,7 +4792,13 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
      WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
-     GROUP BY person_id) AS source ON equals(persons.id, source.actor_id)
+     GROUP BY person_id) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

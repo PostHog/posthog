@@ -13,6 +13,7 @@ import {
     SidePanelExports,
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
@@ -37,7 +38,7 @@ export const SIDE_PANEL_TABS: Record<
         noModalSupport: true,
     },
     [SidePanelTab.Support]: {
-        label: 'Support',
+        label: 'Help',
         Icon: IconSupport,
         Content: SidePanelSupport,
     },
@@ -91,6 +92,7 @@ export const SIDE_PANEL_TABS: Record<
 const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
+    const { theme } = useValues(themeLogic)
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
@@ -112,7 +114,7 @@ export function SidePanel(): JSX.Element | null {
         },
     }
 
-    const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -169,7 +171,8 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
+                ...(theme?.sidebarStyle ?? {}),
             }}
         >
             <Resizer {...resizerLogicProps} />

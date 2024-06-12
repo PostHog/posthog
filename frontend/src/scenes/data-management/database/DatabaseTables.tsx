@@ -6,12 +6,11 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaTable, DataTableNode, NodeKind } from '~/queries/schema'
 
 import { DatabaseTable } from './DatabaseTable'
 
@@ -25,12 +24,12 @@ export function DatabaseTablesContainer(): JSX.Element {
             <DatabaseTables
                 tables={filteredTables}
                 loading={databaseLoading}
-                renderRow={(row: DatabaseTableListRow) => {
+                renderRow={(row: DatabaseSchemaTable) => {
                     return (
                         <div className="px-4 py-3">
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
-                                <DatabaseTable table={row.name} tables={filteredTables} />
+                                <DatabaseTable table={row.name} tables={filteredTables} inEditSchemaMode={false} />
                                 {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                                     <div className="w-full flex justify-end">
                                         <LemonButton
@@ -63,7 +62,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables<T extends DatabaseTableListRow>({
+export function DatabaseTables<T extends DatabaseSchemaTable>({
     tables,
     loading,
     renderRow,
@@ -90,9 +89,12 @@ export function DatabaseTables<T extends DatabaseTableListRow>({
                                           source: {
                                               kind: NodeKind.HogQLQuery,
                                               // TODO: Use `hogql` tag?
-                                              query: `SELECT ${obj.columns
-                                                  .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                                  .map(({ key }) => key)} FROM ${
+                                              query: `SELECT ${Object.values(obj.fields)
+                                                  .filter(
+                                                      ({ table, fields, chain, schema_valid }) =>
+                                                          !table && !fields && !chain && schema_valid
+                                                  )
+                                                  .map(({ name }) => name)} FROM ${
                                                   table === 'numbers' ? 'numbers(0, 10)' : table
                                               } LIMIT 100`,
                                           },
@@ -119,21 +121,23 @@ export function DatabaseTables<T extends DatabaseTableListRow>({
                                               overlay={
                                                   <span>
                                                       Last synced:{' '}
-                                                      {obj.external_schema?.last_synced_at
-                                                          ? humanFriendlyDetailedTime(
-                                                                obj.external_schema?.last_synced_at
-                                                            )
+                                                      {obj.type === 'data_warehouse' && obj.schema?.last_synced_at
+                                                          ? humanFriendlyDetailedTime(obj.schema?.last_synced_at)
                                                           : 'Pending'}
                                                   </span>
                                               }
                                           >
                                               <span>
                                                   <LemonTag
-                                                      type={obj.external_schema?.should_sync ? 'primary' : 'default'}
+                                                      type={
+                                                          obj.type === 'data_warehouse' && obj.schema?.should_sync
+                                                              ? 'primary'
+                                                              : 'default'
+                                                      }
                                                       className="uppercase"
                                                   >
-                                                      {obj.external_data_source
-                                                          ? obj.external_data_source.source_type
+                                                      {obj.type === 'data_warehouse' && obj.source
+                                                          ? obj.source.source_type
                                                           : 'PostHog'}
                                                   </LemonTag>
                                               </span>

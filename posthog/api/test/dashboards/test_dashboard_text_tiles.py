@@ -1,5 +1,5 @@
 import datetime
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 from unittest import mock
 
 from freezegun import freeze_time
@@ -16,7 +16,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @staticmethod
-    def _serialised_user(user: Optional[User]) -> Optional[Dict[str, Optional[Union[int, str]]]]:
+    def _serialised_user(user: Optional[User]) -> Optional[dict[str, Optional[Union[int, str]]]]:
         if user is None:
             return None
 
@@ -28,6 +28,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "id": user.id,
             "uuid": str(user.uuid),
             "is_email_verified": None,
+            "hedgehog_config": None,
         }
 
     def _expected_text(
@@ -37,7 +38,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         last_modified_by: Optional[User] = None,
         text_id: Optional[int] = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
-    ) -> Dict:
+    ) -> dict:
         if not created_by:
             created_by = self.user
 
@@ -62,7 +63,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         text_id: Optional[int] = None,
         color: Optional[str] = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
-    ) -> Dict:
+    ) -> dict:
         if not tile_id:
             tile_id = mock.ANY
         return {
@@ -82,7 +83,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @staticmethod
-    def _tile_layout(lg: Optional[Dict] = None) -> Dict:
+    def _tile_layout(lg: Optional[dict] = None) -> dict:
         if lg is None:
             lg = {"x": "0", "y": "0", "w": "6", "h": "5"}
 
@@ -164,7 +165,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
-        assert set((t["id"], t["color"]) for t in dashboard_json["tiles"]) == {
+        assert {(t["id"], t["color"]) for t in dashboard_json["tiles"]} == {
             (tile_ids[0], "purple"),
             (tile_ids[1], None),
         }

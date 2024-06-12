@@ -2,11 +2,8 @@ import json
 from enum import Enum
 from typing import (
     Any,
-    Dict,
-    List,
     Literal,
     Optional,
-    Tuple,
     Union,
     cast,
 )
@@ -27,7 +24,7 @@ class BehavioralPropertyType(str, Enum):
     RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
 
 
-ValueT = Union[str, int, List[str]]
+ValueT = Union[str, int, list[str]]
 PropertyType = Literal[
     "event",
     "feature",
@@ -42,6 +39,7 @@ PropertyType = Literal[
     "session",
     "hogql",
     "data_warehouse",
+    "data_warehouse_person_property",
 ]
 
 PropertyName = str
@@ -77,7 +75,7 @@ OperatorType = Literal[
 
 OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str
-PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
+PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
@@ -91,6 +89,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
+    "data_warehouse_person_property": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
@@ -102,20 +101,28 @@ VALIDATE_PROP_TYPES = {
     "hogql": ["key"],
 }
 
+VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
+    BehavioralPropertyType.PERFORMED_EVENT: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
+    BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
+}
+
+
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
         "operator_value",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
@@ -174,8 +181,11 @@ class Property:
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
 
+    # All these property keys are used in cohorts.
     # Type of `key`
     event_type: Optional[Literal["events", "actions"]]
+    # Any extra filters on the event
+    event_filters: Optional[list["Property"]]
     # Query people who did event '$pageview' 20 times in the last 30 days
     # translates into:
     # key = '$pageview', value = 'performed_event_multiple'
@@ -184,6 +194,8 @@ class Property:
     operator_value: Optional[int]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
+    # Alternative to time_value & time_interval, for explicit date bound rather than relative
+    explicit_datetime: Optional[str]
     # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
     # key = '$pageview', value = 'restarted_performing_event'
@@ -202,8 +214,7 @@ class Property:
     total_periods: Optional[int]
     min_periods: Optional[int]
     negation: Optional[bool] = False
-    table: Optional[str]
-    _data: Dict
+    _data: dict
 
     def __init__(
         self,
@@ -218,6 +229,7 @@ class Property:
         operator_value: Optional[int] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
+        explicit_datetime: Optional[str] = None,
         total_periods: Optional[int] = None,
         min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
@@ -225,7 +237,7 @@ class Property:
         seq_time_value: Optional[int] = None,
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
-        table: Optional[str] = None,
+        event_filters: Optional[list["Property"]] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -236,6 +248,7 @@ class Property:
         self.operator_value = operator_value
         self.time_value = time_value
         self.time_interval = time_interval
+        self.explicit_datetime = explicit_datetime
         self.total_periods = total_periods
         self.min_periods = min_periods
         self.seq_event_type = seq_event_type
@@ -243,7 +256,7 @@ class Property:
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
-        self.table = table
+        self.event_filters = event_filters
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
@@ -266,11 +279,24 @@ class Property:
                 if getattr(self, attr, None) is None:
                     raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
 
+            if cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
+                matches_attr_list = False
+                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]
+                for attr_list in condition_list:
+                    if all(getattr(self, attr, None) is not None for attr in attr_list):
+                        matches_attr_list = True
+                        break
+
+                if not matches_attr_list:
+                    raise ValueError(
+                        f"Missing required parameters, atleast one of values ({'), ('.join([' & '.join(condition) for condition in condition_list])}) for property type {self.type}::{self.value}"
+                    )
+
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
         return f"Property({params_repr})"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
@@ -303,17 +329,17 @@ class Property:
 
 class PropertyGroup:
     type: PropertyOperatorType
-    values: Union[List[Property], List["PropertyGroup"]]
+    values: Union[list[Property], list["PropertyGroup"]]
 
     def __init__(
         self,
         type: PropertyOperatorType,
-        values: Union[List[Property], List["PropertyGroup"]],
+        values: Union[list[Property], list["PropertyGroup"]],
     ) -> None:
         self.type = type
         self.values = values
 
-    def combine_properties(self, operator: PropertyOperatorType, properties: List[Property]) -> "PropertyGroup":
+    def combine_properties(self, operator: PropertyOperatorType, properties: list[Property]) -> "PropertyGroup":
         if not properties:
             return self
 
@@ -347,7 +373,7 @@ class PropertyGroup:
         return f"PropertyGroup(type={self.type}-{params_repr})"
 
     @cached_property
-    def flat(self) -> List[Property]:
+    def flat(self) -> list[Property]:
         return list(self._property_groups_flat(self))
 
     def _property_groups_flat(self, prop_group: "PropertyGroup"):

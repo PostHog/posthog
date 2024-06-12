@@ -1,18 +1,17 @@
 import json
-import posthoganalytics
+from posthog.clickhouse.client.connection import Workload
+from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import (
+from typing import (  # noqa: UP035
     Any,
-    Callable,
-    Dict,
     List,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
+    Union,
     cast,
 )
+from collections.abc import Callable
 
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
@@ -32,13 +31,13 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
@@ -60,7 +59,6 @@ from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
     get_people,
-    serialize_people,
 )
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -176,10 +174,20 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         team = self.context["get_team"]()
         return get_person_name(team, person)
 
-    def to_representation(self, instance: Person) -> Dict[str, Any]:
-        representation = super().to_representation(instance)
-        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
-        return representation
+    def to_representation(self, instance: Union[Person, MissingPerson]) -> dict[str, Any]:
+        if isinstance(instance, Person):
+            representation = super().to_representation(instance)
+            representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            return representation
+        elif isinstance(instance, MissingPerson):
+            return {
+                "id": None,
+                "name": None,
+                "distinct_ids": [instance.distinct_id],
+                "properties": instance.properties,
+                "created_at": None,
+                "uuid": instance.uuid,
+            }
 
 
 # person distinct ids can grow to be a very large list
@@ -192,7 +200,7 @@ class MinimalPersonSerializer(PersonSerializer):
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: Type[ActorBaseQuery]
+    funnel_actor_class: type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
         if EE_AVAILABLE:
@@ -220,11 +228,11 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
     """
 
     scope_object = "person"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
@@ -233,14 +241,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
-    def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset):
         person_id = self.kwargs[self.lookup_field]
 
         try:
@@ -250,12 +256,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
             )
 
-        obj = get_object_or_404(queryset)
-
-        # May raise a permission denied
-        self.check_object_permissions(self.request, obj)
-
-        return obj
+        return get_object_or_404(queryset)
 
     @extend_schema(
         parameters=[
@@ -290,56 +291,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        if posthoganalytics.feature_enabled(
-            "load-person-fields-from-clickhouse",
-            request.user.distinct_id,
-            person_properties={"email": request.user.email},
-        ):
-            person_query = PersonQuery(
-                filter,
-                team.pk,
-                extra_fields=[
-                    "created_at",
-                    "properties",
-                    "is_identified",
-                ],
-                include_distinct_ids=True,
-            )
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-            actors = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            persons = []
-            for p in actors:
-                person = Person(
-                    uuid=p[0],
-                    created_at=p[1],
-                    is_identified=p[2],
-                    properties=json.loads(p[3]),
-                )
-                person._distinct_ids = p[4]
-                persons.append(person)
+        person_query = PersonQuery(filter, team.pk)
+        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
 
-            serialized_actors = serialize_people(team, data=persons)
-            _should_paginate = len(serialized_actors) >= filter.limit
-        else:
-            person_query = PersonQuery(filter, team.pk)
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-
-            raw_paginated_result = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            actor_ids = [row[0] for row in raw_paginated_result]
-            _, serialized_actors = get_people(team, actor_ids)
-            _should_paginate = len(actor_ids) >= filter.limit
+        raw_paginated_result = insight_sync_execute(
+            paginated_query,
+            {**paginated_params, **filter.hogql_context.values},
+            filter=filter,
+            query_type="person_list",
+            team_id=team.pk,
+            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        )
+        actor_ids = [row[0] for row in raw_paginated_result]
+        _, serialized_actors = get_people(team, actor_ids)
+        _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
@@ -646,7 +611,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, *args, **kwargs):
         raise MethodNotAllowed(
             method="POST",
-            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/product-analytics/identify for details.",
         )
 
     def _set_properties(self, properties, user):
@@ -678,7 +643,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):
+    def _respond_with_cached_results(self, results_package: dict[str, tuple[List, Optional[str], Optional[str], int]]):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
 
@@ -705,7 +670,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -734,7 +699,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
 
@@ -769,7 +734,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)
@@ -932,21 +897,11 @@ def prepare_actor_query_filter(filter: T) -> T:
     new_group = {
         "type": "OR",
         "values": [
-            {
-                "key": "email",
-                "type": "person",
-                "value": search,
-                "operator": "icontains",
-            },
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {
-                "key": "distinct_id",
-                "type": "event",
-                "value": search,
-                "operator": "icontains",
-            },
-        ]
-        + group_properties_filter_group,
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            *group_properties_filter_group,
+        ],
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}

@@ -37,9 +37,8 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>([
                     return GroupsAccessStatus.HasAccess
                 } else if (hasGroups) {
                     return GroupsAccessStatus.HasGroupTypes
-                } else {
-                    return GroupsAccessStatus.NoAccess
                 }
+                return GroupsAccessStatus.NoAccess
             },
         ],
         needsUpgradeForGroups: [

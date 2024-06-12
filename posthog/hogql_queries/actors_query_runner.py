@@ -1,6 +1,6 @@
 import itertools
-from datetime import timedelta
-from typing import List, Generator, Sequence, Iterator, Optional
+from typing import Optional
+from collections.abc import Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -8,12 +8,13 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse
+from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
 
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
-    query_type = ActorsQuery
+    response: ActorsQueryResponse
+    cached_response: CachedActorsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -39,21 +40,24 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
-        return (
+    @staticmethod
+    def _get_recordings(event_results: list, recordings_lookup: dict) -> list[dict]:
+        return [
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in (event[2] for event in event_results)
+            for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
-        )
+        ]
 
-    def enrich_with_actors(
+    def _enrich_with_actors(
         self,
         results,
         actor_column_index,
         actors_lookup,
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
-    ) -> Generator[List, None, None]:
+    ) -> list:
+        enriched = []
+
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
@@ -61,18 +65,21 @@ class ActorsQueryRunner(QueryRunner):
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
-                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
+                    self._get_recordings(result[recordings_column_index], recordings_lookup) or []
                 )
-            yield new_row
 
-    def prepare_recordings(self, column_name, input_columns):
-        if column_name != "person" or "matched_recordings" not in input_columns:
+            enriched.append(new_row)
+
+        return enriched
+
+    def prepare_recordings(
+        self, column_name: str, input_columns: list[str]
+    ) -> tuple[int | None, dict[str, list[dict]] | None]:
+        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
-        matching_events_list = itertools.chain.from_iterable(
-            (row[column_index_events] for row in self.paginator.results)
-        )
+        matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
@@ -85,17 +92,18 @@ class ActorsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         missing_actors_count = None
-        results: Sequence[List] | Iterator[List] = self.paginator.results
+        results: Sequence[list] | Iterator[list] = self.paginator.results
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
+
             recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(
+            results = self._enrich_with_actors(
                 results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
             )
 
@@ -105,18 +113,19 @@ class ActorsQueryRunner(QueryRunner):
             types=[t for _, t in response.types] if response.types else None,
             columns=input_columns,
             hogql=response.hogql,
+            modifiers=self.modifiers,
             missing_actors_count=missing_actors_count,
             **self.paginator.response_params(),
         )
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         if self.query.select:
             return self.query.select
 
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> List[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
@@ -142,17 +151,18 @@ class ActorsQueryRunner(QueryRunner):
         source_alias = "source"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=[self.strategy.origin]),
+            table=source_query,
+            alias=source_alias,
             next_join=ast.JoinExpr(
-                table=source_query,
+                table=ast.Field(chain=[self.strategy.origin]),
                 join_type="INNER JOIN",
-                alias=source_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
                         right=ast.Field(chain=[source_alias, *source_id_chain]),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             ),
         )
@@ -170,7 +180,10 @@ class ActorsQueryRunner(QueryRunner):
                 elif expr == self.strategy.field or expr == "actor":
                     column = ast.Field(chain=[self.strategy.origin_id])
                 elif expr == "matched_recordings":
-                    column = ast.Field(chain=["matching_events"])  # TODO: Hmm?
+                    # the underlying query used to match recordings compares to a selection of "matched events"
+                    # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
+                    # we look up valid session ids and match them against the session ids in matching events
+                    column = ast.Field(chain=["matching_events"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -236,11 +249,9 @@ class ActorsQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
 
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        if self.source_query_runner:
+            self.source_query_runner.apply_dashboard_filters(dashboard_filter)
 
     def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Alias):

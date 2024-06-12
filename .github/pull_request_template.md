@@ -7,7 +7,11 @@
 <!-- If there are frontend changes, please include screenshots. -->
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
-👉 *Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
+👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
+
+## Does this work well for both Cloud and self-hosted?
+
+<!-- Yes / no / it doesn't have an impact. -->
 
 ## How did you test this code?
 

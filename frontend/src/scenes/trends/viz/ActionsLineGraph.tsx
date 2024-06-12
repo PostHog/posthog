@@ -1,21 +1,17 @@
+import { ChartType, defaults, LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import { useValues } from 'kea'
+import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -25,10 +21,6 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { cohorts } = useValues(cohortsModel)
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -37,14 +29,15 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        showValueOnSeries,
+        showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isTrends,
         isDataWarehouseSeries,
+        showLegend,
+        querySource,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -54,30 +47,32 @@ export function ActionsLineGraph({
         (indexedResults[0] && indexedResults[0].labels) ||
         []
 
-    const isLifecycleQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
-        isLifecycle &&
-        query &&
-        isInsightVizNode(query) &&
-        isLifecycleQuery(query.source)
+    const shortenLifecycleLabels = (s: string | undefined): string =>
+        capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
-    const isStickinessQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] &&
-        isStickiness &&
-        query &&
-        isInsightVizNode(query) &&
-        isStickinessQuery(query.source)
+    const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
+        display: false,
+    }
+    if (isLifecycle && !!showLegend) {
+        legend.display = true
+        legend.labels = {
+            generateLabels: (chart: Chart) => {
+                const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
+                labelElements.forEach((elt) => {
+                    elt.text = shortenLifecycleLabels(elt.text)
+                })
+                return labelElements
+            },
+        }
+    }
 
-    const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
+    if (
+        !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
+    ) {
+        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+    }
 
-    return indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result) => result.count !== 0).length > 0 ? (
+    return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
@@ -89,7 +84,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
-            showValueOnSeries={showValueOnSeries}
+            showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             tooltip={
@@ -100,7 +95,7 @@ export function ActionsLineGraph({
                               return date
                           },
                           renderSeries: (_, datum) => {
-                              return capitalizeFirstLetter(datum.label?.split(' - ')?.[1] ?? datum.label ?? 'None')
+                              return shortenLifecycleLabels(datum.label)
                           },
                       }
                     : undefined
@@ -109,11 +104,12 @@ export function ActionsLineGraph({
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
+            legend={legend}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
                     : (payload) => {
-                          const { index, points, crossDataset } = payload
+                          const { index, points } = payload
 
                           const dataset = points.referencePoint.dataset
                           if (!dataset) {
@@ -136,42 +132,20 @@ export function ActionsLineGraph({
                               )
                           )
 
-                          if (
-                              isLifecycleQueryWithFeatureFlagOn ||
-                              isStickinessQueryWithFeatureFlagOn ||
-                              isTrendsQueryWithFeatureFlagOn
-                          ) {
-                              openPersonsModal({
-                                  title,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: query.source,
-                                      day,
-                                      status: dataset.status,
-                                      series: dataset.action?.order ?? 0,
-                                      breakdown: dataset.breakdown_value,
-                                      compare: dataset.compare_label,
-                                  },
-                              })
-                          } else {
-                              const datasetUrls = urlsForDatasets(
-                                  crossDataset,
-                                  index,
-                                  cohorts,
-                                  formatPropertyValueForDisplay
-                              )
-                              if (datasetUrls?.length) {
-                                  openPersonsModal({
-                                      urls: datasetUrls,
-                                      urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
-                                      title,
-                                  })
-                              }
-                          }
+                          openPersonsModal({
+                              title,
+                              query: datasetToActorsQuery({ dataset, query: querySource!, day }),
+                              additionalSelect:
+                                  isLifecycle || isStickiness
+                                      ? {}
+                                      : {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
+                              orderBy: isLifecycle || isStickiness ? undefined : ['event_count DESC, actor_id DESC'],
+                          })
                       }
             }
         />
-    ) : (
-        <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     )
 }

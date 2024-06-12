@@ -78,7 +78,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     : undefined,
                 memberOfSlackChannel:
                     target_type == 'slack'
-                        ? !values.isMemberOfSlackChannel(target_value)
+                        ? target_value && !values.isMemberOfSlackChannel(target_value)
                             ? 'Please add the PostHog Slack App to the selected channel'
                             : undefined
                         : undefined,

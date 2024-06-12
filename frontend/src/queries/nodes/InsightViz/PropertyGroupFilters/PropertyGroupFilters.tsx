@@ -12,7 +12,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
-import { TestAccountFilter } from '../filters/TestAccountFilter'
+import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
@@ -47,12 +47,14 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isDataWarehouseSeries ? 'Cannot add filter groups to data warehouse series' : undefined
+    const disabledReason = isDataWarehouseSeries
+        ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
+        : undefined
     return (
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <TestAccountFilter
+                    <InsightTestAccountFilter
                         disabledReason={disabledReason}
                         query={query}
                         setQuery={setQuery as (node: InsightQueryNode) => void}

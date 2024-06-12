@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 from rest_framework import mixins, permissions, serializers, viewsets
 
@@ -65,7 +65,7 @@ class DeadLetterQueueMetric:
     key: str = ""
     metric: str = ""
     value: Union[str, bool, int, None] = None
-    subrows: Optional[List[Any]] = None
+    subrows: Optional[list[Any]] = None
 
     def __init__(self, **kwargs):
         for field in ("key", "metric", "value", "subrows"):
@@ -138,7 +138,7 @@ def get_dead_letter_queue_events_last_24h() -> int:
     )[0][0]
 
 
-def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Union[str, int]]:
+def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> list[Union[str, int]]:
     return sync_execute(
         f"""
         SELECT error, count(*) AS c
@@ -151,7 +151,7 @@ def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Un
     )
 
 
-def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List[Union[str, int]]:
+def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> list[Union[str, int]]:
     return sync_execute(
         f"""
         SELECT error_location, count(*) AS c
@@ -164,7 +164,7 @@ def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List
     )
 
 
-def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Union[str, int]]:
+def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> list[Union[str, int]]:
     return sync_execute(
         f"""
         SELECT toDate(error_timestamp) as day, count(*) AS c
@@ -177,7 +177,7 @@ def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Unio
     )
 
 
-def get_dead_letter_queue_events_per_tag(offset: Optional[int] = 0) -> List[Union[str, int]]:
+def get_dead_letter_queue_events_per_tag(offset: Optional[int] = 0) -> list[Union[str, int]]:
     return sync_execute(
         f"""
         SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue

@@ -1,6 +1,6 @@
 from typing import cast
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.test.base import BaseTest
@@ -25,13 +25,13 @@ class TestParser(BaseTest):
 
     def test_replace_placeholders_error(self):
         expr = ast.Placeholder(field="foo")
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {})
         self.assertEqual(
             "Placeholders, such as {foo}, are not supported in this context",
             str(context.exception),
         )
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
         self.assertEqual(
             "Placeholder {foo} is not available in this context. You can use the following: bar",
@@ -64,7 +64,7 @@ class TestParser(BaseTest):
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(field="foo")
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, None)
         self.assertEqual(
             "Placeholders, such as {foo}, are not supported in this context",

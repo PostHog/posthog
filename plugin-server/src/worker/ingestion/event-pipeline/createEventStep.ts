@@ -4,7 +4,8 @@ import { EventPipelineRunner } from './runner'
 export async function createEventStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent,
-    person: Person
+    person: Person,
+    processPerson: boolean
 ): Promise<[RawClickHouseEvent, Promise<void>]> {
-    return await runner.hub.eventsProcessor.createEvent(event, person)
+    return await runner.hub.eventsProcessor.createEvent(event, person, processPerson)
 }

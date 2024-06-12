@@ -44,7 +44,7 @@ export function ExperimentPreview({
     const {
         experimentInsightType,
         editingExistingExperiment,
-        minimumDetectableChange,
+        minimumDetectableEffect,
         expectedRunningTime,
         aggregationLabel,
         experiment,
@@ -114,7 +114,7 @@ export function ExperimentPreview({
                         </div>
                         <div className="flex gap-2">
                             <LemonSlider
-                                value={minimumDetectableChange ?? 5}
+                                value={experiment.parameters.minimum_detectable_effect ?? 5}
                                 min={1}
                                 max={sliderMaxValue}
                                 step={1}
@@ -135,7 +135,7 @@ export function ExperimentPreview({
                                 max={sliderMaxValue}
                                 defaultValue={5}
                                 suffix={<span>%</span>}
-                                value={minimumDetectableChange}
+                                value={experiment.parameters.minimum_detectable_effect || 5}
                                 onChange={(value) => {
                                     setExperiment({
                                         parameters: {
@@ -161,8 +161,8 @@ export function ExperimentPreview({
                                         <div className="card-secondary">Minimum Acceptable Count</div>
                                         <div className="l4">
                                             {humanFriendlyNumber(
-                                                trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100)) ||
-                                                    0
+                                                trendCount +
+                                                    Math.ceil(trendCount * ((minimumDetectableEffect || 5) / 100)) || 0
                                             )}
                                         </div>
                                     </div>
@@ -186,7 +186,7 @@ export function ExperimentPreview({
                                     <div className="w-1/2">
                                         <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
                                         <div className="l4">
-                                            {(funnelConversionRate + minimumDetectableChange).toFixed(1)}%
+                                            {(funnelConversionRate + (minimumDetectableEffect || 5)).toFixed(1)}%
                                         </div>
                                     </div>
                                 </>
@@ -426,6 +426,7 @@ export function ExperimentPreview({
                         <MetricSelector
                             dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
                             setPreviewInsight={setExperimentExposureInsight}
+                            forceTrendExposureMetric
                         />
                     </Field>
                 </Form>
@@ -444,7 +445,7 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            <div className="preview-conversion-goal-num">
+                            <div className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt bg-light border rounded">
                                 {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
                             </div>
                             <b>

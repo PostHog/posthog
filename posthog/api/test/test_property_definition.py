@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Union
+import json
+from typing import Optional, Union
 from unittest.mock import ANY, patch
 
 from rest_framework import status
@@ -16,7 +17,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
-    EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Union[str, Optional[int], bool]]] = [
+    EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
         {"name": "$lib", "is_numerical": False},
@@ -68,7 +69,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
-            response_item: Dict = next(
+            response_item: dict = next(
                 (_i for _i in response.json()["results"] if _i["name"] == item["name"]),
                 {},
             )
@@ -318,6 +319,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["name"] for row in response.json()["results"]], ["event property"])
 
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=latest")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=late")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
     def test_group_property_filter(self):
         PropertyDefinition.objects.create(
             team=self.team,
@@ -404,6 +413,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.item_id == str(property_definition.id)
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
+
+    def test_event_name_filter_json_contains_int(self):
+        event_name_json = json.dumps([1])
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?event_names={event_name_json}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")

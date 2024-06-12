@@ -9,6 +9,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
+import { InsightQueryNode, NodeKind } from '~/queries/schema'
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
@@ -108,6 +109,7 @@ interface WorldMapSVGProps extends ChartParams {
         countryCode: string,
         countrySeries: TrendResult | undefined
     ) => Omit<HTMLProps<SVGElement>, 'key'>
+    querySource: InsightQueryNode | null
 }
 
 const WorldMapSVG = React.memo(
@@ -121,6 +123,7 @@ const WorldMapSVG = React.memo(
                 hideTooltip,
                 updateTooltipCoordinates,
                 worldMapCountryProps,
+                querySource,
             },
             ref
         ) => {
@@ -162,23 +165,19 @@ const WorldMapSVG = React.memo(
                         } else if (showPersonsModal && countrySeries) {
                             onClick = () => {
                                 if (showPersonsModal && countrySeries) {
-                                    if (countrySeries.persons?.url) {
-                                        openPersonsModal({
-                                            url: countrySeries.persons?.url,
-                                            title: (
-                                                <>
-                                                    Persons
-                                                    {countrySeries.breakdown_value
-                                                        ? ` in ${countryCodeToFlag(
-                                                              countrySeries.breakdown_value as string
-                                                          )} ${
-                                                              countryCodeToName[countrySeries.breakdown_value as string]
-                                                          }`
-                                                        : ''}
-                                                </>
-                                            ),
-                                        })
-                                    }
+                                    openPersonsModal({
+                                        title: countrySeries.label,
+                                        query: {
+                                            kind: NodeKind.InsightActorsQuery,
+                                            source: querySource!,
+                                            includeRecordings: true,
+                                        },
+                                        additionalSelect: {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
+                                        orderBy: ['event_count DESC, actor_id DESC'],
+                                    })
                                 }
                             }
                         }
@@ -203,7 +202,7 @@ const WorldMapSVG = React.memo(
 
 export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
+    const { countryCodeToSeries, maxAggregatedValue, querySource } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
@@ -219,6 +218,7 @@ export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX
             updateTooltipCoordinates={updateTooltipCoordinates}
             ref={svgRef}
             worldMapCountryProps={renderingMetadata?.countryProps}
+            querySource={querySource}
         />
     )
 }

@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Optional
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
@@ -26,9 +27,10 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
-    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
 )
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, _create_person
+from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
 TEST_PREFIX = "Test-Exports"
@@ -95,7 +97,7 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
             yield patched_request
 
-    def _create_asset(self, extra_context: Optional[Dict] = None) -> ExportedAsset:
+    def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
         if extra_context is None:
             extra_context = {}
 
@@ -273,7 +275,7 @@ class TestCSVExporter(APIBaseTest):
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
             ws = wb.active
-            data = [row for row in ws.iter_rows(values_only=True)]
+            data = list(ws.iter_rows(values_only=True))
             assert data == [
                 ("distinct_id", "properties.$browser", "event", "tomato"),
                 ("2", "Safari", "event_name", None),
@@ -497,7 +499,97 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[1], "$pageview")
             self.assertEqual(first_row[4], str(self.team.pk))
 
-    def _split_to_dict(self, url: str) -> Dict[str, Any]:
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_funnels_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10) -> None:
+        _create_person(
+            distinct_ids=[f"user_1"],
+            team=self.team,
+        )
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 22, 13, 46),
+                    "properties": {"utm_medium": "test''123"},
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 22, 13, 47),
+                    "properties": {"utm_medium": "test''123"},
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                    ],
+                    "interval": "day",
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+                    "$pageview,test'123,$pageview,1,,",
+                    "$pageview,test'123,$pageview,1,60.0,60.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_empty_result(self, mocked_uuidt: Any) -> None:
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                    ],
+                    "interval": "day",
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with patch("posthog.tasks.exports.csv_exporter.get_from_hogql_query") as mocked_get_from_hogql_query:
+            mocked_get_from_hogql_query.return_value = iter([])
+
+            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+                csv_exporter.export_tabular(exported_asset)
+                content = object_storage.read(exported_asset.content_location)
+                lines = (content or "").split("\r\n")
+                self.assertEqual(lines[0], "error")
+                self.assertEqual(lines[1], "No data available or unable to format for export.")
+
+    def _split_to_dict(self, url: str) -> dict[str, Any]:
         first_split_parts = url.split("?")
         assert len(first_split_parts) == 2
         return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}

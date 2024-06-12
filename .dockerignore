@@ -33,7 +33,7 @@
 !plugin-server/.prettierrc
 !share/GeoLite2-City.mmdb
 !hogvm/python
-!unit.json
+!unit.json.tpl
 !plugin-transpiler/src
 !plugin-transpiler/*.*
 !test-runner-jest.config.js

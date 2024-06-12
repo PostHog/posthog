@@ -161,7 +161,7 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     except ValueError as e:
         assert str(e) == "You must specify a different topic and cluster to migrate data to"
     else:
-        assert False, "Expected ValueError to be raised"
+        raise AssertionError("Expected ValueError to be raised")
 
 
 def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist():
@@ -199,7 +199,7 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
     except ValueError as e:
         assert str(e) == "Consumer group nonexistent-consumer-group has no committed offsets"
     else:
-        assert False, "Expected ValueError to be raised"
+        raise AssertionError("Expected ValueError to be raised")
 
 
 def test_that_we_error_if_the_target_topic_doesnt_exist():
@@ -238,7 +238,7 @@ def test_that_we_error_if_the_target_topic_doesnt_exist():
     except ValueError as e:
         assert str(e) == f"Topic {new_topic} does not exist"
     else:
-        assert False, "Expected ValueError to be raised"
+        raise AssertionError("Expected ValueError to be raised")
 
 
 def test_we_fail_on_send_errors_to_new_topic():
@@ -293,7 +293,7 @@ def test_we_fail_on_send_errors_to_new_topic():
         except KafkaError as e:
             assert str(e) == "KafkaError: Failed to produce"
         else:
-            assert False, "Expected KafkaError to be raised"
+            raise AssertionError("Expected KafkaError to be raised")
 
     # Ensure that if we run the command again, it will not fail
     # and will re-consume and produce the message to the new topic.

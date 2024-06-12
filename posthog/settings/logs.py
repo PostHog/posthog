@@ -1,7 +1,6 @@
 import logging
 import os
 import threading
-from typing import List
 
 import structlog
 
@@ -27,7 +26,7 @@ def add_pid_and_tid(
 
 # To enable standard library logs to be formatted via structlog, we add this
 # `foreign_pre_chain` to both formatters.
-foreign_pre_chain: List[structlog.types.Processor] = [
+foreign_pre_chain: list[structlog.types.Processor] = [
     structlog.contextvars.merge_contextvars,
     structlog.processors.TimeStamper(fmt="iso"),
     structlog.stdlib.add_logger_name,

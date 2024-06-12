@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import structlog
 from semantic_version.base import SimpleSpec
@@ -281,7 +281,7 @@ def run_next_migration(candidate: str):
         trigger_migration(migration_instance)
 
 
-def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
+def is_migration_dependency_fulfilled(migration_name: str) -> tuple[bool, str]:
     dependency = get_async_migration_dependency(migration_name)
 
     dependency_ok: bool = (
@@ -292,8 +292,8 @@ def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
 
 
 def check_service_version_requirements(
-    service_version_requirements: List[ServiceVersionRequirement],
-) -> Tuple[bool, str]:
+    service_version_requirements: list[ServiceVersionRequirement],
+) -> tuple[bool, str]:
     for service_version_requirement in service_version_requirements:
         in_range, version = service_version_requirement.is_service_in_accepted_version()
         if not in_range:

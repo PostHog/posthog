@@ -68,7 +68,8 @@ describe('EventsProcessor#createEvent()', () => {
     })
 
     it('emits event with person columns, re-using event properties', async () => {
-        await eventsProcessor.createEvent(preIngestionEvent, person)
+        const processPerson = true
+        await eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -96,6 +97,7 @@ describe('EventsProcessor#createEvent()', () => {
                 $group_2: '',
                 $group_3: '',
                 $group_4: '',
+                person_mode: 'full',
             })
         )
     })
@@ -112,7 +114,12 @@ describe('EventsProcessor#createEvent()', () => {
             1
         )
 
-        await eventsProcessor.createEvent({ ...preIngestionEvent, properties: { $group_0: 'group_key' } }, person)
+        const processPerson = true
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            person,
+            processPerson
+        )
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
         expect(events.length).toEqual(1)
@@ -130,6 +137,66 @@ describe('EventsProcessor#createEvent()', () => {
                 group2_properties: {},
                 group3_properties: {},
                 group4_properties: {},
+                person_mode: 'full',
+            })
+        )
+    })
+
+    it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
+        const processPerson = false
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            person,
+            processPerson
+        )
+
+        await eventsProcessor.kafkaProducer.flush()
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                uuid: eventUuid,
+                event: '$pageview',
+                properties: {}, // $group_0 is removed
+                timestamp: expect.any(DateTime),
+                team_id: 2,
+                distinct_id: 'my_id',
+                elements_chain: null,
+                created_at: expect.any(DateTime),
+                person_id: personUuid,
+                person_properties: {},
+                person_mode: 'propertyless',
+            })
+        )
+    })
+
+    it('force_upgrade persons are recorded as such', async () => {
+        const processPerson = false
+        person.force_upgrade = true
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            person,
+            processPerson
+        )
+
+        await eventsProcessor.kafkaProducer.flush()
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                uuid: eventUuid,
+                event: '$pageview',
+                properties: {}, // $group_0 is removed
+                timestamp: expect.any(DateTime),
+                team_id: 2,
+                distinct_id: 'my_id',
+                elements_chain: null,
+                created_at: expect.any(DateTime),
+                person_id: personUuid,
+                person_properties: {},
+                person_mode: 'force_upgrade',
             })
         )
     })
@@ -149,7 +216,12 @@ describe('EventsProcessor#createEvent()', () => {
             properties_last_updated_at: {},
             properties_last_operation: {},
         }
-        await eventsProcessor.createEvent({ ...preIngestionEvent, distinctId: 'no-such-person' }, nonExistingPerson)
+        const processPerson = true
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, distinctId: 'no-such-person' },
+            nonExistingPerson,
+            processPerson
+        )
         await eventsProcessor.kafkaProducer.flush()
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())

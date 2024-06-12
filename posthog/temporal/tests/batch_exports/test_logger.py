@@ -82,7 +82,7 @@ class CaptureKafkaProducer:
     def producer(self) -> aiokafka.AIOKafkaProducer:
         if self._producer is None:
             self._producer = aiokafka.AIOKafkaProducer(
-                bootstrap_servers=settings.KAFKA_HOSTS + ["localhost:9092"],
+                bootstrap_servers=[*settings.KAFKA_HOSTS, "localhost:9092"],
                 security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
                 request_timeout_ms=1000000,

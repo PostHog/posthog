@@ -300,10 +300,10 @@ def test_can_patch_hogql_query(client: HttpClient):
                 },
                 {
                     "alias": "n",
-                    "expression": "toInt64OrNull(plus(1, 1))",
+                    "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
                 },
             ],
-            "values": {"hogql_val_0": "test"},
+            "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         }
 
@@ -327,10 +327,10 @@ def test_can_patch_hogql_query(client: HttpClient):
                 },
                 {
                     "alias": "n",
-                    "expression": "toInt64OrNull(plus(1, 1))",
+                    "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
                 },
             ],
-            "values": {"hogql_val_0": "test"},
+            "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         }
 

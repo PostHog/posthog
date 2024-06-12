@@ -2,7 +2,7 @@ import copy
 import datetime
 import re
 from collections import defaultdict
-from typing import Dict, List, Optional, Union
+from typing import Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db import models
@@ -13,10 +13,10 @@ from posthog.models.team import Team
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
 
-LAST_UPDATED_TEAM_ACTION: Dict[int, datetime.datetime] = {}
-TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int, Dict[str, tuple]] = defaultdict(dict)
+LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
+TEAM_EVENT_ACTION_QUERY_CACHE: dict[int, dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
-TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
+TEAM_ACTION_QUERY_CACHE: dict[int, str] = {}
 DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
@@ -26,8 +26,8 @@ class SelectorPart:
 
     def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool):
         self.direct_descendant = direct_descendant
-        self.data: Dict[str, Union[str, List]] = {}
-        self.ch_attributes: Dict[str, Union[str, List]] = {}  # attributes for CH
+        self.data: dict[str, Union[str, list]] = {}
+        self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
         result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
         if result and "[id=" in tag:
@@ -58,9 +58,9 @@ class SelectorPart:
             self.data["tag_name"] = tag
 
     @property
-    def extra_query(self) -> Dict[str, List[Union[str, List[str]]]]:
-        where: List[Union[str, List[str]]] = []
-        params: List[Union[str, List[str]]] = []
+    def extra_query(self) -> dict[str, list[Union[str, list[str]]]]:
+        where: list[Union[str, list[str]]] = []
+        params: list[Union[str, list[str]]] = []
         for key, value in self.data.items():
             if "attr__" in key:
                 where.append(f"(attributes ->> 'attr__{key.split('attr__')[1]}') = %s")
@@ -78,7 +78,7 @@ class SelectorPart:
 
 
 class Selector:
-    parts: List[SelectorPart] = []
+    parts: list[SelectorPart] = []
 
     def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
@@ -98,7 +98,7 @@ class Selector:
     def _split(self, selector):
         in_attribute_selector = False
         in_quotes: Optional[str] = None
-        part: List[str] = []
+        part: list[str] = []
         for char in selector:
             if char == "[" and in_quotes is None:
                 in_attribute_selector = True

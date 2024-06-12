@@ -71,6 +71,12 @@ FLAGS+=("-n node@%h")
 # On Heroku $WEB_CONCURRENCY contains suggested number of forks per dyno type
 # https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
 [[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
+# Restart worker process after it processes this many tasks (to mitigate memory leaks)
+[[ -n "${CELERY_MAX_TASKS_PER_CHILD}" ]]    && FLAGS+=" --max-tasks-per-child $CELERY_MAX_TASKS_PER_CHILD"
+# Restart worker process after it exceeds this much memory usage (to mitigate memory leaks)
+[[ -n "${CELERY_MAX_MEMORY_PER_CHILD}" ]]    && FLAGS+=" --max-memory-per-child $CELERY_MAX_MEMORY_PER_CHILD"
+
+[[ -n "${CELERY_WORKER_PREFETCH_MULTIPLIER}" ]] && FLAGS+=" --prefetch-multiplier $CELERY_WORKER_PREFETCH_MULTIPLIER"
 
 if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
   source ./bin/celery-queues.env

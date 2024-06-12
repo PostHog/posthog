@@ -77,8 +77,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_uuid = "team-uuid"
         other_team_uuid = "other-team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
-            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
                 # 10 requests in first bucket
@@ -299,8 +300,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         other_team_id = 1243
         team_uuid = "team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
-            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
                 # 10 requests in first bucket
@@ -400,8 +402,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_uuid = "team-uuid"
         other_team_uuid = "other-team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
-            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
                 # 10 requests in first bucket
@@ -489,8 +492,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         other_team_id = 1243
         team_uuid = "team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
-            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
                 # 10 requests in first bucket

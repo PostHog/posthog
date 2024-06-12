@@ -13,7 +13,7 @@ from posthog.test.base import APIBaseTest
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@freeze_time("2022-02-02T08:30:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard

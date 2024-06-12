@@ -34,7 +34,6 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
-                        - 'hogvm/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -59,7 +58,6 @@ jobs:
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
-
         steps:
             - name: Check out
               uses: actions/checkout@v3
@@ -115,9 +113,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -219,7 +215,7 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.1.0
+              uses: iFaxity/wait-on-action@v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true
@@ -276,3 +272,39 @@ jobs:
                   name: logs-${{ strategy.job-index }}
                   path: /tmp/logs
               if: ${{ failure() }}
+
+    calculate-running-time:
+        name: Calculate running time
+        runs-on: ubuntu-latest
+        needs: [cypress]
+        if: needs.changes.outputs.shouldTriggerCypress == 'true'
+        steps:
+            - name: Calculate running time
+              run: |
+                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+                  run_id=${GITHUB_RUN_ID}
+                  repo=${GITHUB_REPOSITORY}
+                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
+                  echo run_info: ${run_info}
+                  # name is the name of the workflow file
+                  # run_started_at is the start time of the workflow
+                  # we want to get the number of seconds between the start time and now
+                  name=$(echo ${run_info} | jq -r '.name')
+                  run_url=$(echo ${run_info} | jq -r '.url')
+                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
+                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
+                  start_seconds=$(date -d "${run_started_at}" +%s)
+                  now_seconds=$(date +%s)
+                  duration=$((now_seconds-start_seconds))
+                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
+                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
+                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
+                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
+                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
+            - name: Capture running time to PostHog
+              if: github.repository == 'PostHog/posthog'
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-running-time'
+                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'

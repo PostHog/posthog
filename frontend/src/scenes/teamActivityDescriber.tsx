@@ -9,7 +9,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
+import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamType } from '~/types'
@@ -92,18 +92,38 @@ const teamActionsMapping: Record<
         return { description: descriptions }
     },
     session_recording_linked_flag(change: ActivityChange | undefined): ChangeMapping | null {
+        const key = (change?.after as any)?.key ?? (change?.before as any)?.key ?? String(change?.after)
         return {
             description: [
                 <>
-                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {change?.after}
+                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {key}
                 </>,
             ],
         }
     },
     session_recording_network_payload_capture_config(change: ActivityChange | undefined): ChangeMapping | null {
-        return {
-            description: [<>{change?.after ? 'enabled' : 'disabled'} network payload capture in session replay</>],
+        const payloadBefore = isObject(change?.before) ? change?.before.recordBody : !!change?.before
+        const payloadAfter = isObject(change?.after) ? change?.after.recordBody : !!change?.after
+        const payloadChanged = payloadBefore !== payloadAfter
+
+        const headersBefore = isObject(change?.before) ? change?.before.recordHeaders : !!change?.before
+        const headersAfter = isObject(change?.after) ? change?.after.recordHeaders : !!change?.after
+        const headersChanged = headersBefore !== headersAfter
+
+        const descriptions = []
+        if (payloadChanged) {
+            descriptions.push(<>{payloadAfter ? 'enabled' : 'disabled'} network body capture in session replay</>)
         }
+
+        if (headersChanged) {
+            descriptions.push(<>{headersAfter ? 'enabled' : 'disabled'} network headers capture in session replay</>)
+        }
+
+        return descriptions.length
+            ? {
+                  description: descriptions,
+              }
+            : null
     },
     session_recording_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} session recording</>] }
@@ -131,7 +151,10 @@ const teamActionsMapping: Record<
     autocapture_exceptions_errors_to_ignore: () => null,
     autocapture_exceptions_opt_in: () => null,
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'enabled' : 'disabled'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+    },
+    heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
     },
     // and.... many more
     name(change: ActivityChange | undefined): ChangeMapping | null {
@@ -168,7 +191,35 @@ const teamActionsMapping: Record<
     timezone: () => null,
     surveys_opt_in: () => null,
     week_start_day: () => null,
-    extra_settings: () => null,
+    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            if (key === 'poe_v2_enabled') {
+                descriptions.push(<>{after[key] ? 'enabled' : 'disabled'} Person on Events (v2)</>)
+            }
+        }
+        return { description: descriptions }
+    },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,
@@ -176,6 +227,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    live_events_token: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

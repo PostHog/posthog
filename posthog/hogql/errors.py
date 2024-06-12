@@ -1,12 +1,13 @@
 from typing import Optional, TYPE_CHECKING
+from abc import ABC
 
 if TYPE_CHECKING:
     from .ast import Expr
 
+# Base
 
-class HogQLException(Exception):
-    """Base exception for HogQL. These are exposed to the user."""
 
+class BaseHogQLError(Exception, ABC):
     start: Optional[int]
     end: Optional[int]
 
@@ -27,31 +28,55 @@ class HogQLException(Exception):
             self.end = end
 
 
-class SyntaxException(HogQLException):
+# Exposed vs. internal
+
+
+class ExposedHogQLError(BaseHogQLError):
+    """An exception that can be exposed to the user."""
+
+    pass
+
+
+class InternalHogQLError(BaseHogQLError):
+    """An internal exception in the HogQL engine."""
+
+    pass
+
+
+# Specific exceptions
+
+
+class SyntaxError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
     pass
 
 
-class QueryException(HogQLException):
-    """The query invalid (though correct syntactically)."""
+class QueryError(ExposedHogQLError):
+    """The query is invalid, though correct syntactically."""
 
     pass
 
 
-class NotImplementedException(HogQLException):
+class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 
     pass
 
 
-class ParsingException(HogQLException):
-    """An internal problem in the parser layer."""
+class ParsingError(InternalHogQLError):
+    """Parsing failed."""
 
     pass
 
 
-class ResolverException(HogQLException):
-    """An internal problem in the resolver layer."""
+class ImpossibleASTError(InternalHogQLError):
+    """Parsing or resolution resulted in an impossible AST."""
+
+    pass
+
+
+class ResolutionError(InternalHogQLError):
+    """Resolution of a table/field/expression failed."""
 
     pass

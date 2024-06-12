@@ -126,7 +126,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
             }
 
             Object.entries(params).forEach(([key, value]) => {
-                it(key, async () => {
+                it(`can filter by ${key}`, async () => {
                     await expectLogic(logic, () => {
                         logic.actions.setSavedPlaylistsFilters({
                             [key]: value,

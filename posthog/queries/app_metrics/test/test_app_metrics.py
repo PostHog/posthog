@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Optional
 
 from freezegun.api import freeze_time
 
@@ -34,7 +34,7 @@ def create_app_metric(
     failures=0,
     error_uuid: Optional[str] = None,
     error_type: Optional[str] = None,
-    error_details: Optional[Dict] = None,
+    error_details: Optional[dict] = None,
 ):
     timestamp = cast_timestamp_or_now(timestamp)
     data = {

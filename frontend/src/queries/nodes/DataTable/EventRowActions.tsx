@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
+import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,7 +48,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             data-attr="events-table-event-link"
                             onClick={() =>
                                 void copyToClipboard(
-                                    `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
+                                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
                                     'link to event'
                                 )
                             }

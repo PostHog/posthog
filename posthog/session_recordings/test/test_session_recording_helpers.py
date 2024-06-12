@@ -3,7 +3,7 @@ import math
 import random
 import string
 from datetime import datetime
-from typing import Any, List, Tuple
+from typing import Any
 
 import pytest
 from pytest_mock import MockerFixture
@@ -23,11 +23,11 @@ def create_activity_data(timestamp: datetime, is_active: bool):
     return SessionRecordingEventSummary(
         timestamp=round(timestamp.timestamp() * 1000),
         type=3,
-        data=dict(source=1 if is_active else -1),
+        data={"source": 1 if is_active else -1},
     )
 
 
-def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> Tuple[List[dict], List[dict]]:
+def mock_capture_flow(events: list[dict], max_size_bytes=512 * 1024) -> tuple[list[dict], list[dict]]:
     """
     Returns the legacy events and the new flow ones
     """
@@ -280,7 +280,6 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                 "distinct_id": "abc123",
             },
         },
-    ] + [
         {
             "event": "$snapshot",
             "properties": {
@@ -423,7 +422,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
         "something": "small",
     }
 
-    events: List[Any] = [
+    events: list[Any] = [
         {
             "event": "$snapshot",
             "properties": {

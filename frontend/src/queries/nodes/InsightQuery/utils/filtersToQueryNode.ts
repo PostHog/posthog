@@ -13,12 +13,15 @@ import {
 
 import {
     ActionsNode,
+    AnalyticsQueryResponseBase,
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
+    FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
@@ -41,10 +44,8 @@ import {
 } from '~/queries/utils'
 import {
     ActionFilter,
-    AnyPropertyFilter,
     BaseMathType,
     DataWarehouseFilter,
-    FilterLogicalOperator,
     FilterType,
     FunnelExclusionLegacy,
     FunnelsFilterType,
@@ -53,15 +54,17 @@ import {
     InsightType,
     isDataWarehouseFilter,
     PathsFilterType,
-    PropertyFilterType,
-    PropertyGroupFilterValue,
-    PropertyOperator,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
 } from '~/types'
 
-const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
+import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
+
+const reverseInsightMap: Record<
+    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
+    InsightNodeKind
+> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
@@ -93,9 +96,6 @@ export const legacyEntityToNode = (
     let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
-        id_field: 'id_field' in entity ? entity.id_field : undefined,
-        timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
-        table_name: 'table_name' in entity ? entity.table_name : undefined,
     }
 
     if (isDataWarehouseFilter(entity)) {
@@ -103,12 +103,13 @@ export const legacyEntityToNode = (
             ...shared,
             id_field: entity.id_field || undefined,
             timestamp_field: entity.timestamp_field || undefined,
+            distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
-        }
+        } as DataWarehouseNode
     }
 
     if (includeProperties) {
-        shared = { ...shared, properties: cleanProperties(entity.properties) } as any
+        shared = { ...shared, properties: cleanEntityProperties(entity.properties) } as any
     }
 
     if (mathAvailability !== MathAvailability.None) {
@@ -142,13 +143,12 @@ export const legacyEntityToNode = (
             id: entity.id,
             ...shared,
         }) as any
-    } else {
-        return objectCleanWithEmpty({
-            kind: NodeKind.EventsNode,
-            event: entity.id,
-            ...shared,
-        }) as any
     }
+    return objectCleanWithEmpty({
+        kind: NodeKind.EventsNode,
+        event: entity.id,
+        ...shared,
+    }) as any
 }
 
 export const exlusionEntityToNode = (
@@ -211,95 +211,22 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     return record
 }
 
-const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
-    if (!parentProperties || !parentProperties.values) {
-        return parentProperties
+const processBool = (value: string | boolean | null | undefined): boolean | undefined => {
+    if (value == null) {
+        return undefined
+    } else if (typeof value === 'boolean') {
+        return value
+    } else if (typeof value == 'string') {
+        return strToBool(value)
     }
+    return false
+}
 
-    const processAnyPropertyFilter = (filter: AnyPropertyFilter): AnyPropertyFilter => {
-        if (
-            filter.type === PropertyFilterType.Event ||
-            filter.type === PropertyFilterType.Person ||
-            filter.type === PropertyFilterType.Element ||
-            filter.type === PropertyFilterType.Session ||
-            filter.type === PropertyFilterType.Group ||
-            filter.type === PropertyFilterType.Feature ||
-            filter.type === PropertyFilterType.Recording
-        ) {
-            return {
-                ...filter,
-                operator: filter.operator ?? PropertyOperator.Exact,
-            }
-        }
-
-        // Some saved insights have `"operator": null` defined in the properties, this
-        // breaks HogQL trends and Pydantic validation
-        if (filter.type === PropertyFilterType.Cohort) {
-            if ('operator' in filter) {
-                delete filter.operator
-            }
-        }
-
-        return filter
+const strToBool = (value: any): boolean | undefined => {
+    if (value == null) {
+        return undefined
     }
-
-    const processPropertyGroupFilterValue = (
-        propertyGroupFilterValue: PropertyGroupFilterValue
-    ): PropertyGroupFilterValue => {
-        if (propertyGroupFilterValue.values?.length === 0 || !propertyGroupFilterValue.values) {
-            return propertyGroupFilterValue
-        }
-
-        // Check whether the first values type is an AND or OR
-        const firstValueType = propertyGroupFilterValue.values[0].type
-
-        if (firstValueType === FilterLogicalOperator.And || firstValueType === FilterLogicalOperator.Or) {
-            // propertyGroupFilterValue.values is PropertyGroupFilterValue[]
-            const values = (propertyGroupFilterValue.values as PropertyGroupFilterValue[]).map(
-                processPropertyGroupFilterValue
-            )
-
-            return {
-                ...propertyGroupFilterValue,
-                values,
-            }
-        }
-
-        // propertyGroupFilterValue.values is AnyPropertyFilter[]
-        const values = (propertyGroupFilterValue.values as AnyPropertyFilter[]).map(processAnyPropertyFilter)
-
-        return {
-            ...propertyGroupFilterValue,
-            values,
-        }
-    }
-
-    if (Array.isArray(parentProperties)) {
-        // parentProperties is AnyPropertyFilter[]
-        return parentProperties.map(processAnyPropertyFilter)
-    }
-
-    if (
-        (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
-        Array.isArray(parentProperties.values) &&
-        parentProperties.values.some(
-            (value) =>
-                typeof value !== 'object' ||
-                (value.type !== FilterLogicalOperator.And && value.type !== FilterLogicalOperator.Or)
-        )
-    ) {
-        return {
-            type: FilterLogicalOperator.And,
-            values: [processPropertyGroupFilterValue(parentProperties)],
-        }
-    }
-
-    // parentProperties is PropertyGroupFilter
-    const values = parentProperties.values.map(processPropertyGroupFilterValue)
-    return {
-        ...parentProperties,
-        values,
-    }
+    return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
@@ -314,9 +241,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
         kind: reverseInsightMap[filters.insight],
-        properties: cleanProperties(filters.properties),
+        properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
     if (filters.sampling_factor) {
@@ -327,6 +254,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     query.dateRange = objectCleanWithEmpty({
         date_to: filters.date_to,
         date_from: filters.date_from,
+        explicitDate: processBool(filters.explicit_date),
     })
 
     // series + interval
@@ -395,6 +323,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = pathsFilterToQuery(filters)
+        query.funnelPathsFilter = filtersToFunnelPathsQuery(filters)
     }
 
     // stickiness filter
@@ -459,6 +388,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
+        showMean: filters.show_mean,
     })
     // TODO: query.aggregation_group_type_index
 }
@@ -470,8 +400,6 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         startPoint: filters.start_point,
         endPoint: filters.end_point,
         pathGroupings: filters.path_groupings,
-        funnelPaths: filters.funnel_paths,
-        funnelFilter: filters.funnel_filter,
         excludeEvents: filters.exclude_events,
         stepLimit: filters.step_limit,
         pathReplacements: filters.path_replacements,
@@ -480,6 +408,18 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         minEdgeWeight: filters.min_edge_weight,
         maxEdgeWeight: filters.max_edge_weight,
     })
+}
+
+export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): FunnelPathsFilter | undefined => {
+    if (filters.funnel_paths === undefined || filters.funnel_filter === undefined) {
+        return undefined
+    }
+
+    return {
+        funnelPathType: filters.funnel_paths,
+        funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
+        funnelStep: filters.funnel_filter?.funnel_step,
+    }
 }
 
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
@@ -494,6 +434,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
 
 export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
+        showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
         showValuesOnSeries: filters.show_values_on_series,
     })
@@ -506,6 +447,7 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
         breakdown_normalize_url: filters.breakdown_normalize_url,
         breakdowns: filters.breakdowns,
         breakdown_group_type_index: filters.breakdown_group_type_index,
+        breakdown_limit: filters.breakdown_limit,
         ...(isTrends
             ? {
                   breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,

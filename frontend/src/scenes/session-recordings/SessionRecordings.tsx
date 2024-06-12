@@ -1,18 +1,17 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,35 +21,22 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
 import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
-import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 
-export function SessionsRecordings(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { tab } = useValues(sessionRecordingsLogic)
-    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+function Header(): JSX.Element {
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
+    const { tab } = useValues(sessionRecordingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-    const hasErrorClustering = useFeatureFlag('REPLAY_ERROR_CLUSTERING')
-
-    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        actionId: null,
-        type: AuthorizedUrlListType.RECORDING_DOMAINS,
-    })
-    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
-    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
-
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({}, true)
-        reportRecordingPlaylistCreated('new')
-    })
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
@@ -59,131 +45,181 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('filters')
     })
 
-    return (
-        <div>
-            <PageHeader
-                buttons={
-                    <>
-                        {tab === ReplayTabs.Recent && !recordingsDisabled && (
-                            <>
-                                <NotebookSelectButton
-                                    resource={{
-                                        type: NotebookNodeType.RecordingPlaylist,
-                                        attrs: { filters: filters },
-                                    }}
-                                    type="secondary"
-                                />
-                                <LemonButton
-                                    fullWidth={false}
-                                    data-attr="session-recordings-filters-save-as-playlist"
-                                    type="primary"
-                                    onClick={(e) =>
-                                        guardAvailableFeature(
-                                            AvailableFeature.RECORDINGS_PLAYLISTS,
-                                            () => {
-                                                // choose the type of playlist handler so that analytics correctly report
-                                                // whether filters have been changed before saving
-                                                totalFiltersCount === 0
-                                                    ? newPlaylistHandler.onEvent?.(e)
-                                                    : saveFiltersPlaylistHandler.onEvent?.(e)
-                                            },
-                                            undefined,
-                                            playlists.count
-                                        )
-                                    }
-                                >
-                                    Save as playlist
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconGear />}
-                                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
-                                >
-                                    Configure
-                                </LemonButton>
-                            </>
-                        )}
+    const newPlaylistHandler = useAsyncHandler(async () => {
+        await createPlaylist({}, true)
+        reportRecordingPlaylistCreated('new')
+    })
 
-                        {tab === ReplayTabs.Playlists && (
+    return (
+        <PageHeader
+            buttons={
+                <>
+                    {tab === ReplayTabs.Recent && !recordingsDisabled && (
+                        <>
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Playback from file',
+                                        to: urls.replayFilePlayback(),
+                                    },
+                                ]}
+                            >
+                                <LemonButton icon={<IconEllipsis />} />
+                            </LemonMenu>
+                            <NotebookSelectButton
+                                resource={{
+                                    type: NotebookNodeType.RecordingPlaylist,
+                                    attrs: { filters: filters },
+                                }}
+                                type="secondary"
+                            />
                             <LemonButton
+                                fullWidth={false}
+                                data-attr="session-recordings-filters-save-as-playlist"
                                 type="primary"
                                 onClick={(e) =>
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        () => newPlaylistHandler.onEvent?.(e),
-                                        undefined,
-                                        playlists.count
+                                        () => {
+                                            // choose the type of playlist handler so that analytics correctly report
+                                            // whether filters have been changed before saving
+                                            totalFiltersCount === 0
+                                                ? newPlaylistHandler.onEvent?.(e)
+                                                : saveFiltersPlaylistHandler.onEvent?.(e)
+                                        },
+                                        { currentUsage: playlists.count }
                                     )
                                 }
-                                data-attr="save-recordings-playlist-button"
-                                loading={newPlaylistHandler.loading}
                             >
-                                New playlist
+                                Save as playlist
                             </LemonButton>
-                        )}
-                    </>
-                }
-            />
-            <LemonTabs
-                activeKey={tab}
-                onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-                tabs={Object.values(ReplayTabs)
-                    .filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
-                    .map((replayTab) => {
-                        return {
-                            label: humanFriendlyTabName(replayTab),
-                            key: replayTab,
-                        }
-                    })}
-            />
-            <div className="space-y-2">
-                <VersionCheckerBanner />
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconGear />}
+                                onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                            >
+                                Configure
+                            </LemonButton>
+                        </>
+                    )}
 
-                {recordingsDisabled ? (
-                    <LemonBanner
-                        type="info"
-                        action={{
-                            type: 'secondary',
-                            icon: <IconGear />,
-                            onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
-                            children: 'Configure',
-                        }}
-                    >
-                        Session recordings are currently disabled for this project.
-                    </LemonBanner>
-                ) : null}
+                    {tab === ReplayTabs.Playlists && (
+                        <LemonButton
+                            type="primary"
+                            onClick={(e) =>
+                                guardAvailableFeature(
+                                    AvailableFeature.RECORDINGS_PLAYLISTS,
+                                    () => newPlaylistHandler.onEvent?.(e),
+                                    { currentUsage: playlists.count }
+                                )
+                            }
+                            data-attr="save-recordings-playlist-button"
+                            loading={newPlaylistHandler.loading}
+                        >
+                            New playlist
+                        </LemonButton>
+                    )}
+                </>
+            }
+        />
+    )
+}
 
-                {!recordingsDisabled && mightBeRefusingRecordings ? (
-                    <LemonBanner
-                        type="warning"
-                        action={{
-                            type: 'secondary',
-                            icon: <IconGear />,
-                            onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
-                            children: 'Configure',
-                        }}
-                        dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
-                    >
-                        You have unauthorized domains trying to send recordings. To accept recordings from these
-                        domains, please check your config.
-                    </LemonBanner>
-                ) : null}
+function Warnings(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-                {!tab ? (
-                    <Spinner />
-                ) : tab === ReplayTabs.Recent ? (
-                    <div className="SessionRecordingPlaylistHeightWrapper">
-                        <SessionRecordingsPlaylist updateSearchParams />
-                    </div>
-                ) : tab === ReplayTabs.Playlists ? (
-                    <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-                ) : tab === ReplayTabs.FilePlayback ? (
-                    <SessionRecordingFilePlayback />
-                ) : tab === ReplayTabs.Errors ? (
-                    <SessionRecordingErrors />
-                ) : null}
-            </div>
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
+        actionId: null,
+        type: AuthorizedUrlListType.RECORDING_DOMAINS,
+    })
+    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
+    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
+
+    return (
+        <>
+            <VersionCheckerBanner />
+
+            {recordingsDisabled ? (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        type: 'primary',
+                        icon: <IconGear />,
+                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
+                        children: 'Configure',
+                    }}
+                >
+                    Session recordings are currently disabled for this project.
+                </LemonBanner>
+            ) : null}
+
+            {!recordingsDisabled && mightBeRefusingRecordings ? (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        type: 'secondary',
+                        icon: <IconGear />,
+                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
+                        children: 'Configure',
+                    }}
+                    dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
+                >
+                    You have unauthorized domains trying to send recordings. To accept recordings from these domains,
+                    please check your config.
+                </LemonBanner>
+            ) : null}
+        </>
+    )
+}
+
+function MainPanel(): JSX.Element {
+    const { tab } = useValues(sessionRecordingsLogic)
+
+    return (
+        <div className="space-y-2">
+            <Warnings />
+
+            {!tab ? (
+                <Spinner />
+            ) : tab === ReplayTabs.Recent ? (
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist updateSearchParams />
+                </div>
+            ) : tab === ReplayTabs.Playlists ? (
+                <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
+            ) : tab === ReplayTabs.Errors ? (
+                <SessionRecordingErrors />
+            ) : null}
         </div>
+    )
+}
+
+function PageTabs(): JSX.Element {
+    const { tab, tabs } = useValues(sessionRecordingsLogic)
+
+    return (
+        <LemonTabs
+            activeKey={tab}
+            onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
+            tabs={tabs.map((replayTab) => {
+                return {
+                    label: humanFriendlyTabName(replayTab),
+                    key: replayTab,
+                }
+            })}
+        />
+    )
+}
+export function SessionsRecordings(): JSX.Element {
+    return (
+        <>
+            <Header />
+            <PageTabs />
+            <MainPanel />
+        </>
     )
 }
 

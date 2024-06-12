@@ -97,6 +97,9 @@ const ActivationTask = ({
     if (url) {
         params.to = url
         params.targetBlank = true
+        params.onClick = () => {
+            reportActivationSideBarTaskClicked(id)
+        }
     } else {
         params.onClick = () => {
             runTask(id)

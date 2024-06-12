@@ -440,15 +440,15 @@ class TestQuotaLimiting(BaseTest):
         }
         self.organization.save()
 
-        new_usage = dict(
-            events={"usage": 100, "limit": 100},
-            recordings={"usage": 2, "limit": 100},
-            rows_synced={"usage": 6, "limit": 100},
-            period=[
+        new_usage = {
+            "events": {"usage": 100, "limit": 100},
+            "recordings": {"usage": 2, "limit": 100},
+            "rows_synced": {"usage": 6, "limit": 100},
+            "period": [
                 "2021-01-01T00:00:00Z",
                 "2021-01-31T23:59:59Z",
             ],
-        )
+        }
 
         assert set_org_usage_summary(self.organization, new_usage=new_usage)
 
@@ -468,15 +468,15 @@ class TestQuotaLimiting(BaseTest):
         }
         self.organization.save()
 
-        new_usage = dict(
-            events={"usage": 99, "limit": 100},
-            recordings={"usage": 1, "limit": 100},
-            rows_synced={"usage": 5, "limit": 100},
-            period=[
+        new_usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "rows_synced": {"usage": 5, "limit": 100},
+            "period": [
                 "2021-01-01T00:00:00Z",
                 "2021-01-31T23:59:59Z",
             ],
-        )
+        }
 
         assert not set_org_usage_summary(self.organization, new_usage=new_usage)
 
@@ -620,6 +620,17 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_until": 1612137599,
                 "quota_limiting_suspended_until": None,
             }
+
+        self.organization.customer_trust_scores = {"events": 7, "rows_synced": 10}
+        self.organization.save()
+        assert org_quota_limited_until(
+            self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_rows_synced
+        ) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+        self.organization.refresh_from_db()
+        assert self.organization.customer_trust_scores == {"events": 7, "recordings": 0, "rows_synced": 10}
 
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None

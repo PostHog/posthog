@@ -57,17 +57,15 @@ ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
+SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(
         """
-            You are using the default SECRET_KEY in a production environment!
-            For the safety of your instance, you must generate and set a unique key.,
-            More information on
-            https://posthog.com/docs/self-host/configure/securing-posthog,
-        """
+You are using the default SECRET_KEY in a production environment!
+For the safety of your instance, you must generate and set a unique key.
+"""
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 

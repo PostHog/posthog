@@ -22,6 +22,7 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     create_table,
     drop_table,
     optimize_person_distinct_id_overrides,
+    parse_mutation_counts,
     submit_mutation,
     wait_for_mutation,
     wait_for_table,
@@ -171,6 +172,19 @@ async def optimized_person_overrides(activity_environment, person_overrides_data
     await activity_environment.run(optimize_person_distinct_id_overrides, False)
 
     yield
+
+
+@pytest.mark.django_db
+async def test_parse_empty_mutation_counts(clickhouse_client):
+    query = f"""
+    SELECT mutation_id, is_done
+    FROM clusterAllReplicas('posthog', 'system', mutations)
+    """
+
+    response = await clickhouse_client.read_query(query)
+    mutations_in_progress, total_mutations = parse_mutation_counts(response)
+    assert mutations_in_progress == 0
+    assert total_mutations == 0
 
 
 @pytest.mark.django_db
@@ -461,7 +475,7 @@ async def assert_events_have_been_overriden(overriden_events, person_overrides):
                 query_parameters={"uuid": event["uuid"]},
             )
             row = response.decode("utf-8").splitlines()[0]
-            values = [value for value in row.split("\t")]
+            values = list(row.split("\t"))
             new_event = {
                 "uuid": UUID(values[0]),
                 "event": values[1],
@@ -598,7 +612,7 @@ SETTINGS
             query_parameters={"uuid": event["uuid"]},
         )
         row = response.decode("utf-8").splitlines()[0]
-        values = [value for value in row.split("\t")]
+        values = list(row.split("\t"))
         new_event = {
             "uuid": UUID(values[0]),
             "event": values[1],

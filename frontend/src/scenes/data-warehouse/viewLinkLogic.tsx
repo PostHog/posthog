@@ -7,8 +7,6 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
-import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
-import { DataWarehouseRowType, DataWarehouseTableType } from './types'
 import type { viewLinkLogicType } from './viewLinkLogicType'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
 
@@ -27,12 +25,7 @@ export interface KeySelectOption {
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
-        values: [
-            dataWarehouseSavedQueriesLogic,
-            ['savedQueries'],
-            databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse'],
-        ],
+        values: [databaseTableListLogic, ['allTables']],
         actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
     }),
     actions(({ values }) => ({
@@ -146,7 +139,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -163,7 +157,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -177,40 +172,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
     selectors({
-        tables: [
-            (s) => [s.dataWarehouse, s.filteredTables],
-            (warehouseTables, posthogTables): DataWarehouseTableType[] => {
-                const mappedWarehouseTables = (warehouseTables?.results ?? []).map(
-                    (table) =>
-                        ({
-                            id: table.id,
-                            name: table.name,
-                            columns: table.columns,
-                            payload: table,
-                            type: DataWarehouseRowType.ExternalTable,
-                        } as DataWarehouseTableType)
-                )
-
-                const mappedPosthogTables = posthogTables.map(
-                    (table) =>
-                        ({
-                            id: table.name,
-                            name: table.name,
-                            columns: table.columns,
-                            payload: table,
-                            type: DataWarehouseRowType.PostHogTable,
-                        } as DataWarehouseTableType)
-                )
-
-                return mappedPosthogTables.concat(mappedWarehouseTables)
-            },
-        ],
         selectedSourceTable: [
-            (s) => [s.selectedSourceTableName, s.tables],
+            (s) => [s.selectedSourceTableName, s.allTables],
             (selectedSourceTableName, tables) => tables.find((row) => row.name === selectedSourceTableName),
         ],
         selectedJoiningTable: [
-            (s) => [s.selectedJoiningTableName, s.tables],
+            (s) => [s.selectedJoiningTableName, s.allTables],
             (selectedJoiningTableName, tables) => tables.find((row) => row.name === selectedJoiningTableName),
         ],
         sourceIsUsingHogQLExpression: [
@@ -219,7 +186,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (sourceKey === null) {
                     return false
                 }
-                const column = sourceTable?.columns.find((n) => n.key == sourceKey)
+                const column = Object.values(sourceTable?.fields ?? {}).find((n) => n.name == sourceKey)
                 return !column
             },
         ],
@@ -229,12 +196,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (joiningKey === null) {
                     return false
                 }
-                const column = joiningTable?.columns.find((n) => n.key == joiningKey)
+                const column = Object.values(joiningTable?.fields ?? {}).find((n) => n.name == joiningKey)
                 return !column
             },
         ],
         tableOptions: [
-            (s) => [s.tables],
+            (s) => [s.allTables],
             (tables) =>
                 tables.map((table) => ({
                     value: table.name,
@@ -247,10 +214,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (!selectedSourceTable) {
                     return []
                 }
-                return selectedSourceTable.columns
+                return Object.values(selectedSourceTable.fields)
                     .filter((column) => column.type !== 'view')
                     .map((column) => ({
-                        value: column.key,
+                        value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
                     }))
             },
@@ -261,10 +228,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (!selectedJoiningTable) {
                     return []
                 }
-                return selectedJoiningTable.columns
+                return Object.values(selectedJoiningTable.fields)
                     .filter((column) => column.type !== 'view')
                     .map((column) => ({
-                        value: column.key,
+                        value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
                     }))
             },

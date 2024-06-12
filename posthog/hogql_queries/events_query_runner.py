@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
@@ -8,7 +8,6 @@ from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
@@ -19,7 +18,7 @@ from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.schema import EventsQuery, EventsQueryResponse
+from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -37,7 +36,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
-    query_type = EventsQuery
+    response: EventsQueryResponse
+    cached_response: CachedEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -53,8 +53,8 @@ class EventsQueryRunner(QueryRunner):
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
-                select_input: List[str] = []
-                person_indices: List[int] = []
+                select_input: list[str] = []
+                person_indices: list[int] = []
                 for index, col in enumerate(self.select_input_raw()):
                     # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
                     # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
@@ -66,11 +66,11 @@ class EventsQueryRunner(QueryRunner):
                         person_indices.append(index)
                     else:
                         select_input.append(col)
-                select: List[ast.Expr] = [parse_expr(column, timings=self.timings) for column in select_input]
+                select: list[ast.Expr] = [parse_expr(column, timings=self.timings) for column in select_input]
 
             with self.timings.measure("aggregations"):
-                group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
-                aggregations: List[ast.Expr] = [column for column in select if has_aggregation(column)]
+                group_by: list[ast.Expr] = [column for column in select if not has_aggregation(column)]
+                aggregations: list[ast.Expr] = [column for column in select if has_aggregation(column)]
                 has_any_aggregation = len(aggregations) > 0
 
             # filters
@@ -101,7 +101,7 @@ class EventsQueryRunner(QueryRunner):
                             action = Action.objects.get(pk=self.query.actionId, team_id=self.team.pk)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
-                        if action.steps.count() == 0:
+                        if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
@@ -188,7 +188,6 @@ class EventsQueryRunner(QueryRunner):
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
-            workload=Workload.ONLINE,
             query_type="EventsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
@@ -210,7 +209,7 @@ class EventsQueryRunner(QueryRunner):
                         ).data
                     self.paginator.results[index][star_idx] = new_result
 
-        person_indices: List[int] = []
+        person_indices: list[int] = []
         for index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
                 person_indices.append(index)
@@ -219,10 +218,10 @@ class EventsQueryRunner(QueryRunner):
             with self.timings.measure("person_column_extra_query"):
                 # Make a query into postgres to fetch person
                 person_idx = person_indices[0]
-                distinct_ids = list(set(event[person_idx] for event in self.paginator.results))
+                distinct_ids = list({event[person_idx] for event in self.paginator.results})
                 persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
                 persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-                distinct_to_person: Dict[str, Person] = {}
+                distinct_to_person: dict[str, Person] = {}
                 for person in persons:
                     if person:
                         for person_distinct_id in person.distinct_ids:
@@ -252,14 +251,17 @@ class EventsQueryRunner(QueryRunner):
             types=[t for _, t in query_result.types] if query_result.types else None,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
+            modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
 
-    def select_input_raw(self) -> List[str]:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        if dashboard_filter.date_to or dashboard_filter.date_from:
+            self.query.before = dashboard_filter.date_to
+            self.query.after = dashboard_filter.date_from
+
+        if dashboard_filter.properties:
+            self.query.properties = (self.query.properties or []) + dashboard_filter.properties
+
+    def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
-
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)

@@ -1,7 +1,8 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from zoneinfo import ZoneInfo
 
 import posthoganalytics
 import pydantic
@@ -9,14 +10,14 @@ import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import (
-    MinLengthValidator,
     MaxValueValidator,
+    MinLengthValidator,
     MinValueValidator,
 )
-from django.db import models, connection
+from django.db import connection, models, transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
-from django.db import transaction
-from zoneinfo import ZoneInfo
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -32,10 +33,14 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails, PersonOnEventsMode
+from posthog.utils import GenericEmails
 
+from ...hogql.modifiers import set_default_modifier_values
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
-from ...schema import PathCleaningFilter
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -53,14 +58,14 @@ DEPRECATED_ATTRS = (
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
-    poe_v2_enabled = "poe_v2_enabled"
+    pass
 
 
 class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization: Optional[Any]) -> List:
+    def set_test_account_filters(self, organization: Optional[Any]) -> list:
         filters = [
             {
                 "key": "$host",
@@ -77,13 +82,9 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {
-                            "key": "email",
-                            "operator": "not_icontains",
-                            "value": example_email.group(),
-                            "type": "person",
-                        }
-                    ] + filters
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        *filters,
+                    ]
         return filters
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
@@ -150,7 +151,7 @@ class TeamManager(models.Manager):
         return result[0]
 
 
-def get_default_data_attributes() -> List[str]:
+def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
 
 
@@ -164,6 +165,10 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        verbose_name = "team (soon to be environment)"
+        verbose_name_plural = "teams (soon to be environments)"
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -218,6 +223,7 @@ class Team(UUIDClassicModel):
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    heatmaps_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_version: models.CharField = models.CharField(null=True, blank=True, max_length=24)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
@@ -250,6 +256,9 @@ class Team(UUIDClassicModel):
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings: models.JSONField = models.JSONField(null=True, blank=True)
+
+    # Project level default HogQL query modifiers
+    modifiers: models.JSONField = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
@@ -285,48 +294,52 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     @property
-    def person_on_events_mode(self) -> PersonOnEventsMode:
-        # Persons on Events V2 always takes priority over Persons on Events V1
-        if self._person_on_events_v2_querying_enabled:
-            tag_queries(person_on_events_mode=PersonOnEventsMode.V2_ENABLED)
-            return PersonOnEventsMode.V2_ENABLED
+    def default_modifiers(self) -> dict:
+        modifiers = HogQLQueryModifiers()
+        set_default_modifier_values(modifiers, self)
+        return modifiers.model_dump()
 
-        if self._person_on_events_querying_enabled:
+    @property
+    def person_on_events_mode(self) -> PersonsOnEventsMode:
+        if self._person_on_events_person_id_override_properties_on_events:
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+
+        if self._person_on_events_person_id_no_override_properties_on_events:
             # also tag person_on_events_enabled for legacy compatibility
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonOnEventsMode.V1_ENABLED,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             )
-            return PersonOnEventsMode.V1_ENABLED
+            return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        return PersonOnEventsMode.DISABLED
+        if self._person_on_events_person_id_override_properties_joined:
+            tag_queries(
+                person_on_events_enabled=True,
+                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            )
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+
+        return PersonsOnEventsMode.DISABLED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonOnEventsMode.DISABLED
+        return self.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
     @property
-    def _person_on_events_querying_enabled(self) -> bool:
+    def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            # users can override our feature flag via extra_settings
-            if self.extra_settings and AvailableExtraSettings.poe_v2_enabled in self.extra_settings:
-                return self.extra_settings["poe_v2_enabled"]
             return posthoganalytics.feature_enabled(
-                "person-on-events-enabled",
+                "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                    }
-                },
+                groups={"project": str(self.id)},
+                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -335,7 +348,7 @@ class Team(UUIDClassicModel):
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 
     @property
-    def _person_on_events_v2_querying_enabled(self) -> bool:
+    def _person_on_events_person_id_override_properties_on_events(self) -> bool:
         if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_V2_OVERRIDE
 
@@ -356,6 +369,26 @@ class Team(UUIDClassicModel):
             )
 
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
+
+    @property
+    def _person_on_events_person_id_override_properties_joined(self) -> bool:
+        # on PostHog Cloud, use the feature flag
+        if is_cloud():
+            return posthoganalytics.feature_enabled(
+                "persons-on-events-person-id-override-properties-joined",
+                str(self.uuid),
+                groups={"organization": str(self.organization_id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization_id),
+                        "created_at": self.organization.created_at,
+                    }
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        return False
 
     @property
     def strict_caching_enabled(self) -> bool:
@@ -406,6 +439,29 @@ class Team(UUIDClassicModel):
                 continue
         return filters
 
+    def all_users_with_access(self) -> QuerySet["User"]:
+        from ee.models.explicit_team_membership import ExplicitTeamMembership
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.user import User
+
+        if not self.access_control:
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+        else:
+            user_ids_queryset = (
+                OrganizationMembership.objects.filter(
+                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                )
+                .values_list("user_id", flat=True)
+                .union(
+                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
+                        "parent_membership__user_id", flat=True
+                    )
+                )
+            )
+        return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+
     def __str__(self):
         if self.name:
             return self.name
@@ -436,7 +492,7 @@ def groups_on_events_querying_enabled():
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
-    available_product_features: Optional[List[Dict[str, str]]] = (
+    available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")
         .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)

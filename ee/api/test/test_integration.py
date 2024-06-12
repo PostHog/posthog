@@ -25,7 +25,7 @@ class TestIntegration(APILicensedTest):
         signature = (
             "v0="
             + hmac.new(
-                "not-so-secret".encode("utf-8"),
+                b"not-so-secret",
                 sig_basestring.encode("utf-8"),
                 digestmod=hashlib.sha256,
             ).hexdigest()

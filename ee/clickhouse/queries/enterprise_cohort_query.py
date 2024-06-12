@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
@@ -12,21 +12,21 @@ from posthog.queries.foss_cohort_query import (
     validate_seq_date_more_recent_than_date,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
-def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
+def check_negation_clause(prop: PropertyGroup) -> tuple[bool, bool]:
     has_negation_clause = False
     has_primary_clase = False
     if len(prop.values):
         if isinstance(prop.values[0], PropertyGroup):
-            for p in cast(List[PropertyGroup], prop.values):
+            for p in cast(list[PropertyGroup], prop.values):
                 has_neg, has_primary = check_negation_clause(p)
                 has_negation_clause = has_negation_clause or has_neg
                 has_primary_clase = has_primary_clase or has_primary
 
         else:
-            for property in cast(List[Property], prop.values):
+            for property in cast(list[Property], prop.values):
                 if property.negation:
                     has_negation_clause = True
                 else:
@@ -42,7 +42,7 @@ def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
 
 
 class EnterpriseCohortQuery(FOSSCohortQuery):
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
@@ -87,9 +87,9 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         return final_query, self.params
 
-    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         res: str = ""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
 
         if prop.type == "behavioral":
             if prop.value == "performed_event":
@@ -117,7 +117,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         return res, params
 
-    def get_stopped_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_stopped_performing_event(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         column_name = f"stopped_event_condition_{prepend}_{idx}"
 
@@ -152,7 +152,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             },
         )
 
-    def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         column_name = f"restarted_event_condition_{prepend}_{idx}"
 
@@ -191,7 +191,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             },
         )
 
-    def get_performed_event_first_time(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_first_time(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         entity_query, entity_params = self._get_entity(event, prepend, idx)
 
@@ -212,7 +212,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             {f"{date_param}": date_value, **entity_params},
         )
 
-    def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         entity_query, entity_params = self._get_entity(event, prepend, idx)
 
@@ -266,7 +266,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         )
 
     @cached_property
-    def sequence_filters_to_query(self) -> List[Property]:
+    def sequence_filters_to_query(self) -> list[Property]:
         props = []
         for prop in self._filter.property_groups.flat:
             if prop.value == "performed_event_sequence":
@@ -274,13 +274,13 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         return props
 
     @cached_property
-    def sequence_filters_lookup(self) -> Dict[str, str]:
+    def sequence_filters_lookup(self) -> dict[str, str]:
         lookup = {}
         for idx, prop in enumerate(self.sequence_filters_to_query):
             lookup[str(prop.to_dict())] = f"{idx}"
         return lookup
 
-    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_sequence_query(self) -> tuple[str, dict[str, Any], str]:
         params = {}
 
         materialized_columns = list(self._column_optimizer.event_columns_to_query)
@@ -319,7 +319,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -356,7 +356,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             self.FUNNEL_QUERY_ALIAS,
         )
 
-    def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
+    def _get_sequence_filter(self, prop: Property, idx: int) -> tuple[list[str], list[str], list[str], dict[str, Any]]:
         event = validate_entity((prop.event_type, prop.key))
         entity_query, entity_params = self._get_entity(event, f"event_sequence_{self._cohort_pk}", idx)
         seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
@@ -405,7 +405,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             },
         )
 
-    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         return (
             f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}",
             {},

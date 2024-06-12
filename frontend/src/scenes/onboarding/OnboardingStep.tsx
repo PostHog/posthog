@@ -16,6 +16,7 @@ export const OnboardingStep = ({
     showHelpButton = false,
     onSkip,
     continueAction,
+    continueText,
     continueOverride,
     hideHeader,
 }: {
@@ -27,6 +28,7 @@ export const OnboardingStep = ({
     showHelpButton?: boolean
     onSkip?: () => void
     continueAction?: () => void
+    continueText?: string
     continueOverride?: JSX.Element
     hideHeader?: boolean
 }): JSX.Element => {
@@ -96,6 +98,7 @@ export const OnboardingStep = ({
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
+                            data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
@@ -106,13 +109,14 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="primary"
                             status="alt"
+                            data-attr="onboarding-continue"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {!hasNextStep ? 'Finish' : 'Next'}
+                            {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>
                     )}
                 </div>

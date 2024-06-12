@@ -1,9 +1,11 @@
 .LemonInput {
+    --lemon-input-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
+
     display: flex;
     gap: 0.25rem;
     align-items: center;
-    justify-content: center;
-    height: calc(2.125rem + 3px); // Medium size button height + button shadow height
+    justify-content: left;
+    height: var(--lemon-input-height);
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -33,6 +35,7 @@
     }
 
     .LemonInput__input {
+        flex: 1;
         align-self: stretch; // Improves selectability
         width: 100%;
         text-overflow: ellipsis;
@@ -55,8 +58,19 @@
         transition: color 200ms ease;
     }
 
+    &.LemonInput--xsmall {
+        --lemon-input-height: 1.5rem;
+
+        padding: 0.125rem 0.25rem;
+
+        .LemonIcon {
+            font-size: 1rem;
+        }
+    }
+
     &.LemonInput--small {
-        height: 2rem;
+        --lemon-input-height: 2rem;
+
         padding: 0.125rem 0.25rem;
 
         .LemonIcon {
@@ -84,5 +98,11 @@
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;
+    }
+
+    .LemonInputSelect & {
+        flex-wrap: wrap;
+        height: auto;
+        min-height: var(--lemon-input-height);
     }
 }

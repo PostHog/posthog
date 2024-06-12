@@ -16,6 +16,11 @@ export function getDefaultEventName(): string {
     return getAppContext()?.default_event_name || PathType.PageView
 }
 
+export function getDefaultEventLabel(): string {
+    const name = getDefaultEventName()
+    return name === PathType.PageView ? 'Pageview' : name === PathType.Screen ? 'Screen' : name
+}
+
 // NOTE: Any changes to the teamId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentTeamId(): TeamType['id'] {

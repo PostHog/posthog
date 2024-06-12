@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from rest_framework import request, response
 from rest_framework.decorators import action
@@ -28,7 +28,7 @@ class EnterprisePersonViewSet(PersonViewSet):
     @cached_by_filters
     def calculate_funnel_correlation_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[list, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
             filter = filter.shallow_clone({FUNNEL_CORRELATION_PERSON_LIMIT: 100})

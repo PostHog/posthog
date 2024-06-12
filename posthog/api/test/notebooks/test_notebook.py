@@ -1,4 +1,3 @@
-from typing import List, Dict
 from unittest import mock
 
 from freezegun import freeze_time
@@ -11,7 +10,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 
 
 class TestNotebooks(APIBaseTest, QueryMatchingTest):
-    def created_activity(self, item_id: str, short_id: str) -> Dict:
+    def created_activity(self, item_id: str, short_id: str) -> dict:
         return {
             "activity": "created",
             "created_at": mock.ANY,
@@ -30,11 +29,11 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             },
         }
 
-    def assert_notebook_activity(self, expected: List[Dict]) -> None:
+    def assert_notebook_activity(self, expected: list[dict]) -> None:
         activity_response = self.client.get(f"/api/projects/{self.team.id}/notebooks/activity")
         assert activity_response.status_code == status.HTTP_200_OK
 
-        activity: List[Dict] = activity_response.json()["results"]
+        activity: list[dict] = activity_response.json()["results"]
 
         self.maxDiff = None
         assert activity == expected
@@ -78,7 +77,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_create_a_notebook(self, _, content: Dict | None, text_content: str | None) -> None:
+    def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": content, "text_content": text_content},

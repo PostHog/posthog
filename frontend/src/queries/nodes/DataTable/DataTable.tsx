@@ -4,11 +4,13 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useState } from 'react'
-import { EventDetails } from 'scenes/events/EventDetails'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -38,6 +40,7 @@ import {
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -61,7 +64,7 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
-import { EventType } from '~/types'
+import { EventType, InsightLogicProps } from '~/types'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -86,23 +89,20 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({
-    uniqueKey,
-    query,
-    setQuery,
-    context,
-    cachedResults,
-    dataNodeLogicKey,
-}: DataTableProps): JSX.Element {
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
-
+    const insightProps: InsightLogicProps = context?.insightProps || {
+        dashboardItemId: `new-AdHoc.${dataKey}`,
+        dataNodeCollectionId: dataKey,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataNodeLogicKey ?? dataKey,
+        key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
+        alwaysRefresh: context?.alwaysRefresh,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -122,12 +122,13 @@ export function DataTable({
         query,
         vizKey: vizKey,
         dataKey: dataKey,
-        dataNodeLogicKey,
+        dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         showActions,
@@ -171,9 +172,8 @@ export function DataTable({
                             children: label,
                             props: { colSpan: columnsInLemonTable.length + (eventActionsColumnShown ? 1 : 0) },
                         }
-                    } else {
-                        return { props: { colSpan: 0 } }
                     }
+                    return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
@@ -402,7 +402,7 @@ export function DataTable({
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
+            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
@@ -431,9 +431,10 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    const isAutoReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
+        showReload && canLoadNewData && isAutoReloadAvailable ? <AutoLoad key="auto-load" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
@@ -510,6 +511,7 @@ export function DataTable({
                                 responseError ? (
                                     sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                         <InsightErrorState
+                                            query={query}
                                             excludeDetail
                                             title={
                                                 queryCancelled
@@ -520,7 +522,7 @@ export function DataTable({
                                             }
                                         />
                                     ) : (
-                                        <InsightErrorState />
+                                        <InsightErrorState query={query} />
                                     )
                                 ) : (
                                     <InsightEmptyState

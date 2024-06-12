@@ -25,9 +25,9 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
                                 )}
                             </code>
                         </pre>
-                        {isSentryInitialized
+                        {isSentryInitialized && eventId?.match(/[^0]/)
                             ? `We've registered this event for analysis (ID ${eventId}), but feel free to contact us directly too.`
-                            : 'Please send over a screenshot of this message, so that we can resolve the issue.'}
+                            : 'Please help us resolve the issue by sending a screenshot of this message.'}
                         <HelpButton
                             customComponent={
                                 <LemonButton type="primary" sideIcon={<IconChevronDown />}>

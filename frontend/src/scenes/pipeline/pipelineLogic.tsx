@@ -1,6 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { canConfigurePlugins } from 'scenes/plugins/access'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -17,6 +16,8 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
             return 'Transformations'
         case PipelineTab.Destinations:
             return 'Destinations'
+        case PipelineTab.DataImport:
+            return 'Data Import'
         case PipelineTab.SiteApps:
             return 'Site Apps'
         case PipelineTab.ImportApps:
@@ -29,7 +30,7 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
 export const pipelineLogic = kea<pipelineLogicType>([
     path(['scenes', 'pipeline', 'pipelineLogic']),
     connect({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user', 'hasAvailableFeature']],
     }),
     actions({
         setCurrentTab: (tab: PipelineTab = PipelineTab.Destinations) => ({ tab }),
@@ -55,9 +56,6 @@ export const pipelineLogic = kea<pipelineLogicType>([
                 ]
             },
         ],
-        // This is currently an organization level setting but might in the future be user level
-        // it's better to add the permission checks everywhere now
-        canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
     })),
     actionToUrl(({ values }) => {
         return {

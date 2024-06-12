@@ -1,8 +1,14 @@
+from typing import Optional, Union
+from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 from parameterized import parameterized
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -36,14 +42,26 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_overview_query(self, date_from, date_to, use_sessions_table=False, compare=True):
+    def _run_web_overview_query(
+        self,
+        date_from: str,
+        date_to: str,
+        use_sessions_table: bool = False,
+        compare: bool = True,
+        limit_context: Optional[LimitContext] = None,
+    ):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
             compare=compare,
             useSessionsTable=use_sessions_table,
         )
-        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        if use_sessions_table:
+            runner: Union[WebOverviewQueryRunner, LegacyWebOverviewQueryRunner] = WebOverviewQueryRunner(
+                team=self.team, query=query, limit_context=limit_context
+            )
+        else:
+            runner = LegacyWebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
     @parameterized.expand([(True,), (False,)])
@@ -185,3 +203,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         sessions = results[2]
         self.assertEqual(1, sessions.value)
+
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
+        self._run_web_overview_query("2023-12-01", "2023-12-03", limit_context=LimitContext.QUERY_ASYNC)
+
+        mock_sync_execute.assert_called_once()
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

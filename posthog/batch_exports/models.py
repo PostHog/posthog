@@ -111,6 +111,9 @@ class BatchExportRun(UUIDModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportRun was last updated.",
     )
+    records_total_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="The total count of records that should be exported in this BatchExportRun."
+    )
 
 
 BATCH_EXPORT_INTERVALS = [
@@ -227,9 +230,11 @@ def fetch_batch_export_log_entries(
     before: dt.datetime | None = None,
     search: str | None = None,
     limit: int | None = None,
-    level_filter: list[BatchExportLogEntryLevel] = [],
+    level_filter: typing.Optional[list[BatchExportLogEntryLevel]] = None,
 ) -> list[BatchExportLogEntry]:
     """Fetch a list of batch export log entries from ClickHouse."""
+    if level_filter is None:
+        level_filter = []
     clickhouse_where_parts: list[str] = []
     clickhouse_kwargs: dict[str, typing.Any] = {}
 
@@ -305,6 +310,5 @@ class BatchExportBackfill(UUIDModel):
     @property
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
-        start_at = self.start_at.strftime("%Y-%m-%dT%H:%M:%S")
-        end_at = self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
-        return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
+        end_at = self.end_at and self.end_at.isoformat()
+        return f"{self.batch_export.id}-Backfill-{self.start_at.isoformat()}-{end_at}"

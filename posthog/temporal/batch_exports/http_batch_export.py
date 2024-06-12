@@ -9,23 +9,30 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportSchema, HttpBatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportSchema,
+    HttpBatchExportInputs,
+)
 from posthog.models import BatchExportRun
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportTemporaryFile,
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
+    FinishBatchExportRunInputs,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
-    json_dumps_bytes,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
+)
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+    json_dumps_bytes,
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -97,7 +104,9 @@ class HttpInsertInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    run_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
@@ -152,37 +161,19 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
 
 @activity.defn
-async def insert_into_http_activity(inputs: HttpInsertInputs):
+async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to HTTP endpoint: %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        inputs.url,
     )
 
     async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-            )
-            return
-
-        logger.info("BatchExporting %s rows", count)
 
         if inputs.batch_export_schema is not None:
             raise NotImplementedError("Batch export schema is not supported for HTTP export")
@@ -201,6 +192,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
+            is_backfill=inputs.is_backfill,
         )
 
         last_uploaded_timestamp: str | None = None
@@ -238,7 +230,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
         #
         # Why write to a file at all? Because we need to serialize the data anyway, and it's the
         # safest way to stay within batch endpoint payload limits and not waste process memory.
-        posthog_batch_header = """{"api_key": "%s","historical_migration":true,"batch": [""" % inputs.token
+        posthog_batch_header = """{{"api_key": "{}","historical_migration":true,"batch": [""".format(inputs.token)
         posthog_batch_footer = "]}"
 
         with BatchExportTemporaryFile() as batch_file:
@@ -303,6 +295,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                     last_uploaded_timestamp = str(inserted_at)
                     await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
 
+            return batch_file.records_total
+
 
 @workflow.defn(name="http-export")
 class HttpBatchExportWorkflow(PostHogWorkflow):
@@ -325,15 +319,18 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to an HTTP Endpoint."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -343,11 +340,26 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
+            batch_export_id=inputs.batch_export_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = HttpInsertInputs(
             team_id=inputs.team_id,
@@ -358,15 +370,18 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
+            run_id=run_id,
+            is_backfill=inputs.is_backfill,
         )
 
         await execute_batch_export_insert_activity(
             insert_into_http_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 "NonRetryableResponseError",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
         )

@@ -5,12 +5,6 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id,
             array() AS matching_events
      FROM
@@ -45,10 +39,10 @@
                      `$session_id_2` AS `$session_id_2`,
                      `$window_id_2` AS `$window_id_2`,
                      arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                     arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                     arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                      arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                     if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                     if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -122,10 +116,10 @@
                                `$session_id_2` AS `$session_id_2`,
                                `$window_id_2` AS `$window_id_2`,
                                arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                                arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -199,10 +193,10 @@
                                `$session_id_2` AS `$session_id_2`,
                                `$window_id_2` AS `$window_id_2`,
                                arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                                arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -263,25 +257,21 @@
         HAVING ifNull(equals(steps, max_steps), isNull(steps)
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
-  '''
-# ---
-# name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings.1
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, []), 0)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---

@@ -1229,23 +1229,6 @@ export function IconFullScreen(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconSkipInactivity({ enabled, ...props }: LemonIconProps & { enabled?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                d="M10.025 17.5L5.75 13.225L4.5 17L1.5 7L11.5 10L7.725 11.25L12 15.525L10.025 17.5Z"
-                fill="currentColor"
-            />
-            <path
-                d="M14 12.375L22.25 12.375M14 15.625L17.5 15.625M14 8.875L17.5 8.875"
-                stroke="currentColor"
-                strokeOpacity={enabled ? '1' : '0.3'}
-                strokeWidth="1.25"
-            />
-        </LemonIconBase>
-    )
-}
-
 export function IconPlayCircle(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
@@ -1253,14 +1236,6 @@ export function IconPlayCircle(props: LemonIconProps): JSX.Element {
                 d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM9.5 16.5L16.5 12L9.5 7.5V16.5Z"
                 fill="currentColor"
             />
-        </LemonIconBase>
-    )
-}
-
-export function IconPause(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path d="M6 19H10V5H6V19ZM14 5V19H18V5H14Z" fill="currentColor" />
         </LemonIconBase>
     )
 }
@@ -1356,6 +1331,19 @@ export function IconAdsClick(props: LemonIconProps): JSX.Element {
             <path
                 d="M11.71,17.99C8.53,17.84,6,15.22,6,12c0-3.31,2.69-6,6-6c3.22,0,5.84,2.53,5.99,5.71l-2.1-0.63C15.48,9.31,13.89,8,12,8 c-2.21,0-4,1.79-4,4c0,1.89,1.31,3.48,3.08,3.89L11.71,17.99z M22,12c0,0.3-0.01,0.6-0.04,0.9l-1.97-0.59C20,12.21,20,12.1,20,12 c0-4.42-3.58-8-8-8s-8,3.58-8,8s3.58,8,8,8c0.1,0,0.21,0,0.31-0.01l0.59,1.97C12.6,21.99,12.3,22,12,22C6.48,22,2,17.52,2,12 C2,6.48,6.48,2,12,2S22,6.48,22,12z M18.23,16.26L22,15l-10-3l3,10l1.26-3.77l4.27,4.27l1.98-1.98L18.23,16.26z"
                 fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconSquare(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 256 256" {...props}>
+            <path
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth={6}
+                d="M208,220H48a12.01367,12.01367,0,0,1-12-12V48A12.01359,12.01359,0,0,1,48,36H208a12.01359,12.01359,0,0,1,12,12V208A12.01367,12.01367,0,0,1,208,220ZM48,44a4.00458,4.00458,0,0,0-4,4V208a4.00458,4.00458,0,0,0,4,4H208a4.00458,4.00458,0,0,0,4-4V48a4.00458,4.00458,0,0,0-4-4Z"
             />
         </LemonIconBase>
     )

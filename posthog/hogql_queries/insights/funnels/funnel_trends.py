@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import groupby
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
@@ -58,7 +58,7 @@ class FunnelTrends(FunnelBase):
         self.just_summarize = just_summarize
         self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
 
-    def _format_results(self, results) -> List[Dict[str, Any]]:
+    def _format_results(self, results) -> list[dict[str, Any]]:
         query = self.context.query
 
         breakdown_clause = self._get_breakdown_prop()
@@ -75,7 +75,7 @@ class FunnelTrends(FunnelBase):
 
             if breakdown_clause:
                 if isinstance(period_row[-1], str) or (
-                    isinstance(period_row[-1], List) and all(isinstance(item, str) for item in period_row[-1])
+                    isinstance(period_row[-1], list) and all(isinstance(item, str) for item in period_row[-1])
                 ):
                     serialized_result.update({"breakdown_value": (period_row[-1])})
                 else:
@@ -145,7 +145,7 @@ class FunnelTrends(FunnelBase):
 
         breakdown_clause = self._get_breakdown_prop_expr()
 
-        data_select: List[ast.Expr] = [
+        data_select: list[ast.Expr] = [
             ast.Field(chain=["entrance_period_start"]),
             parse_expr(f"countIf({reached_from_step_count_condition}) AS reached_from_step_count"),
             parse_expr(f"countIf({reached_to_step_count_condition}) AS reached_to_step_count"),
@@ -163,10 +163,10 @@ class FunnelTrends(FunnelBase):
             args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_to))])],
         )
         data_select_from = ast.JoinExpr(table=step_counts)
-        data_group_by: List[ast.Expr] = [ast.Field(chain=["entrance_period_start"]), *breakdown_clause]
+        data_group_by: list[ast.Expr] = [ast.Field(chain=["entrance_period_start"]), *breakdown_clause]
         data_query = ast.SelectQuery(select=data_select, select_from=data_select_from, group_by=data_group_by)
 
-        fill_select: List[ast.Expr] = [
+        fill_select: list[ast.Expr] = [
             ast.Alias(
                 alias="entrance_period_start",
                 expr=ast.ArithmeticOperation(
@@ -175,7 +175,6 @@ class FunnelTrends(FunnelBase):
                     op=ast.ArithmeticOperationOp.Add,
                 ),
             ),
-            *([parse_expr("breakdown_value as prop")] if len(breakdown_clause) > 0 else []),
         ]
         fill_select_from = ast.JoinExpr(
             table=ast.Field(chain=["numbers"]),
@@ -198,34 +197,11 @@ class FunnelTrends(FunnelBase):
         fill_query = ast.SelectQuery(
             select=fill_select,
             select_from=fill_select_from,
-            array_join_op="ARRAY JOIN" if len(breakdown_clause) > 0 else None,
-            array_join_list=(
-                [
-                    ast.Alias(
-                        alias="breakdown_value",
-                        expr=ast.Array(exprs=[parse_expr(str(value)) for value in self.breakdown_values]),
-                        hidden=False,
-                    )
-                ]
-                if len(breakdown_clause) > 0
-                else None
-            ),
         )
-        fill_breakdown_join_constraint = []
-        if len(breakdown_clause) > 0:
-            # can only be a field here, since group_remaining is false
-            breakdown_field: ast.Field = breakdown_clause[0]  # type: ignore
-            fill_breakdown_join_constraint = [
-                ast.CompareOperation(
-                    left=ast.Field(chain=["data", *breakdown_field.chain]),
-                    right=ast.Field(chain=["fill", *breakdown_field.chain]),
-                    op=ast.CompareOperationOp.Eq,
-                )
-            ]
         fill_join = ast.JoinExpr(
-            table=fill_query,
-            alias="fill",
-            join_type="RIGHT OUTER JOIN",
+            table=data_query,
+            alias="data",
+            join_type="LEFT OUTER JOIN",
             constraint=ast.JoinConstraint(
                 expr=ast.And(
                     exprs=[
@@ -234,35 +210,68 @@ class FunnelTrends(FunnelBase):
                             right=ast.Field(chain=["fill", "entrance_period_start"]),
                             op=ast.CompareOperationOp.Eq,
                         ),
-                        *fill_breakdown_join_constraint,
                     ]
-                )
+                ),
+                constraint_type="ON",
             ),
         )
 
-        select: List[ast.Expr] = [
-            ast.Field(chain=["fill", "entrance_period_start"]),
-            ast.Field(chain=["reached_from_step_count"]),
-            ast.Field(chain=["reached_to_step_count"]),
-            parse_expr(
-                "if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate"
-            ),
-            *([ast.Field(chain=["fill", *breakdown_field.chain])] if len(breakdown_clause) > 0 else []),
+        conversion_rate_expr = parse_expr(
+            "if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate"
+        )
+        order_by: list[ast.OrderExpr] = [
+            ast.OrderExpr(expr=ast.Field(chain=["fill", "entrance_period_start"]), order="ASC"),
         ]
+        group_by: list[ast.Expr] = []
+        limit = 1_000
+        if len(breakdown_clause) > 0:
+            if_statement = parse_expr("fill.entrance_period_start = data.entrance_period_start")
+            select: list[ast.Expr] = [
+                ast.Field(chain=["fill", "entrance_period_start"]),
+                parse_expr(
+                    "sumIf(reached_from_step_count, {if_statement}) as reached_from_step_count",
+                    {"if_statement": if_statement},
+                ),
+                parse_expr(
+                    "sumIf(reached_to_step_count, {if_statement}) as reached_to_step_count",
+                    {"if_statement": if_statement},
+                ),
+                conversion_rate_expr,
+                breakdown_clause[0],  # can only be a field here, since group_remaining is false
+            ]
+            group_by = [ast.Field(chain=["fill", "entrance_period_start"]), breakdown_clause[0]]
+            order_by = [
+                ast.OrderExpr(expr=parse_expr("sum(reached_from_step_count) OVER (partition by prop)"), order="DESC"),
+                ast.OrderExpr(expr=ast.Field(chain=["prop"]), order="DESC"),
+                *order_by,
+            ]
+            fill_join = ast.JoinExpr(
+                table=data_query,
+                alias="data",
+                join_type="CROSS JOIN",
+            )
+            breakdown_limit = self.get_breakdown_limit()
+            if breakdown_limit:
+                limit = min(breakdown_limit * len(date_range.all_values()), limit)
+        else:
+            select = [
+                ast.Field(chain=["fill", "entrance_period_start"]),
+                ast.Field(chain=["reached_from_step_count"]),
+                ast.Field(chain=["reached_to_step_count"]),
+                conversion_rate_expr,
+            ]
         select_from = ast.JoinExpr(
-            table=data_query,
-            alias="data",
+            table=fill_query,
+            alias="fill",
             next_join=fill_join,
         )
-        order_by: List[ast.OrderExpr] = [
-            ast.OrderExpr(expr=ast.Field(chain=["fill", "entrance_period_start"]), order="ASC")
-        ]
 
         return ast.SelectQuery(
             select=select,
             select_from=select_from,
+            group_by=group_by,
             order_by=order_by,
-            limit=ast.Constant(value=1_000),  # increased limit (default 100) for hourly breakdown
+            limit=ast.Constant(value=limit),  # increased limit (default 100) for hourly breakdown
         )
 
     def get_step_counts_without_aggregation_query(
@@ -272,7 +281,7 @@ class FunnelTrends(FunnelBase):
 
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
-        event_select_clause: List[ast.Expr] = []
+        event_select_clause: list[ast.Expr] = []
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
@@ -282,7 +291,7 @@ class FunnelTrends(FunnelBase):
 
         breakdown_clause = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Alias(alias="entrance_period_start", expr=get_start_of_interval_hogql(interval.value, team=team)),
             parse_expr("max(steps) AS steps_completed"),
@@ -300,7 +309,7 @@ class FunnelTrends(FunnelBase):
             if specific_entrance_period_start
             else None
         )
-        group_by: List[ast.Expr] = [
+        group_by: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["entrance_period_start"]),
             *breakdown_clause,
@@ -308,7 +317,7 @@ class FunnelTrends(FunnelBase):
 
         return ast.SelectQuery(select=select, select_from=select_from, where=where, group_by=group_by)
 
-    def get_steps_reached_conditions(self) -> Tuple[str, str, str]:
+    def get_steps_reached_conditions(self) -> tuple[str, str, str]:
         funnelsFilter, max_steps = self.context.funnelsFilter, self.context.max_steps
 
         # How many steps must have been done to count for the denominator of a funnel trends data point

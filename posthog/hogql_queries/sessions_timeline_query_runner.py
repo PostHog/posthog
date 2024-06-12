@@ -1,17 +1,21 @@
-from datetime import timedelta
 import json
-from typing import Dict, cast
+from typing import cast
 from posthog.api.element import ElementSerializer
 
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.element.element import chain_to_elements
-from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
+from posthog.schema import (
+    EventType,
+    SessionsTimelineQuery,
+    SessionsTimelineQueryResponse,
+    CachedSessionsTimelineQueryResponse,
+    TimelineEntry,
+)
 from posthog.utils import relative_date_parse
 
 
@@ -34,7 +38,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    query_type = SessionsTimelineQuery
+    response: SessionsTimelineQueryResponse
+    cached_response: CachedSessionsTimelineQueryResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
@@ -131,13 +136,13 @@ class SessionsTimelineQueryRunner(QueryRunner):
         query_result = execute_hogql_query(
             query=self.to_query(),
             team=self.team,
-            workload=Workload.ONLINE,
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert query_result.results is not None
-        timeline_entries_map: Dict[str, TimelineEntry] = {}
+        timeline_entries_map: dict[str, TimelineEntry] = {}
         for (
             uuid,
             timestamp_parsed,
@@ -175,9 +180,3 @@ class SessionsTimelineQueryRunner(QueryRunner):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
         )
-
-    def _is_stale(self, cached_result_package):
-        return True  # TODO: Make sure this is cached
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)  # TODO: Make sure this is cached

@@ -1,45 +1,67 @@
 import uuid
 from typing import Any
 
+from psycopg2 import OperationalError
+from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import User
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
-    trigger_external_data_workflow,
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
     is_any_external_data_job_paused,
+    trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_access_token_from_code,
 )
-from posthog.warehouse.models.external_data_schema import get_postgres_schemas
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas, get_snowflake_schemas
 
 import temporalio
 
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from sshtunnel import BaseSSHTunnelForwarderError
+from snowflake.connector.errors import ProgrammingError, DatabaseError, ForbiddenError
 
 logger = structlog.get_logger(__name__)
+
+GenericPostgresError = "Could not connect to Postgres. Please check all connection details are valid."
+GenericSnowflakeError = "Could not connect to Snowflake. Please check all connection details are valid."
+PostgresErrors = {
+    "password authentication failed for user": "Invalid user or password",
+    "could not translate host name": "Could not connect to the host",
+    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    'database "': "Database does not exist",
+    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+}
+SnowflakeErrors = {
+    "No active warehouse selected in the current session": "No warehouse found for selected role",
+    "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
+    "Incorrect username or password was specified": "Incorrect username or password was specified",
+    "This session does not have a current database": "Database specified not found",
+    "Verify the account name is correct": "Can't find an account with the specified account ID",
+}
 
 
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -55,8 +77,18 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
+            "sync_frequency",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "status", "source_type", "last_run_at", "schemas"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "status",
+            "source_type",
+            "last_run_at",
+            "schemas",
+            "prefix",
+        ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = (
@@ -67,9 +99,37 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         return latest_completed_run.created_at if latest_completed_run else None
 
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
+        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.ERROR
+        elif any_cancelled:
+            return ExternalDataSchema.Status.CANCELLED
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
+
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+
+    def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        updated_source.update_schemas()
+
+        return updated_source
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -97,20 +157,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["source_id"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .prefetch_related("created_by", "schemas")
-                .order_by(self.ordering)
-            )
-
-        return (
-            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
-        )
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -136,32 +189,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.ZENDESK:
+            new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
             try:
-                new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
+                new_source_model, postgres_schemas = self._handle_postgres_source(request, *args, **kwargs)
             except InternalPostgresError:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST, data={"message": "Cannot use internal Postgres database"}
                 )
             except Exception:
                 raise
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            new_source_model, snowflake_schemas = self._handle_snowflake_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
+        payload = request.data["payload"]
+        enabled_schemas = payload.get("schemas", None)
         if source_type == ExternalDataSource.Type.POSTGRES:
-            schemas = tuple(table_names)
+            default_schemas = postgres_schemas
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            default_schemas = snowflake_schemas
         else:
-            schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+            default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
-        for schema in schemas:
-            ExternalDataSchema.objects.create(
-                name=schema,
-                team=self.team,
-                source=new_source_model,
+        # Fallback to defaults if schemas is missing
+        if enabled_schemas is None:
+            enabled_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+
+        disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
+
+        active_schemas: list[ExternalDataSchema] = []
+
+        for schema in enabled_schemas:
+            active_schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=schema, team=self.team, source=new_source_model, should_sync=True
+                )
             )
+        for schema in disabled_schemas:
+            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
-            sync_external_data_job_workflow(new_source_model, create=True)
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -171,6 +243,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         client_secret = payload.get("client_secret")
+        account_id = payload.get("account_id")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        api_key = payload.get("api_key")
+        subdomain = payload.get("subdomain")
+        email_address = payload.get("email_address")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -183,7 +278,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "stripe_secret_key": client_secret,
+                "zendesk_login_method": "api_key",  # We should support the Zendesk OAuth flow in the future, and so with this we can do backwards compatibility
+                "zendesk_api_key": api_key,
+                "zendesk_subdomain": subdomain,
+                "zendesk_email_address": email_address,
             },
             prefix=prefix,
         )
@@ -216,7 +314,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
-    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list]:
+    def _handle_postgres_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -228,7 +328,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = payload.get("user")
         password = payload.get("password")
         schema = payload.get("schema")
-        table_names = payload.get("schemas")
+
+        ssh_tunnel_obj = payload.get("ssh-tunnel", {})
+        using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+        ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+        ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+        ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+        ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+        ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+        ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+        ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+        ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
         if not self._validate_postgres_host(host, self.team_id):
             raise InternalPostgresError()
@@ -247,11 +357,70 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "user": user,
                 "password": password,
                 "schema": schema,
+                "ssh_tunnel_enabled": using_ssh_tunnel,
+                "ssh_tunnel_host": ssh_tunnel_host,
+                "ssh_tunnel_port": ssh_tunnel_port,
+                "ssh_tunnel_auth_type": ssh_tunnel_auth_type,
+                "ssh_tunnel_auth_type_username": ssh_tunnel_auth_type_username,
+                "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
+                "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
+                "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        return new_source_model, table_names
+        ssh_tunnel = SSHTunnel(
+            enabled=using_ssh_tunnel,
+            host=ssh_tunnel_host,
+            port=ssh_tunnel_port,
+            auth_type=ssh_tunnel_auth_type,
+            username=ssh_tunnel_auth_type_username,
+            password=ssh_tunnel_auth_type_password,
+            passphrase=ssh_tunnel_auth_type_passphrase,
+            private_key=ssh_tunnel_auth_type_private_key,
+        )
+
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+
+        return new_source_model, schemas
+
+    def _handle_snowflake_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        account_id = payload.get("account_id")
+        database = payload.get("database")
+        warehouse = payload.get("warehouse")
+        role = payload.get("role")
+        user = payload.get("user")
+        password = payload.get("password")
+        schema = payload.get("schema")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "account_id": account_id,
+                "database": database,
+                "warehouse": warehouse,
+                "role": role,
+                "user": user,
+                "password": password,
+                "schema": schema,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+
+        return new_source_model, schemas
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
@@ -274,26 +443,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        latest_completed_job = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id, status="Completed")
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_completed_job:
+        all_jobs = ExternalDataJob.objects.filter(
+            pipeline_id=instance.pk, team_id=instance.team_id, status="Completed"
+        ).all()
+        for job in all_jobs:
             try:
-                delete_data_import_folder(latest_completed_job.folder_path)
+                delete_data_import_folder(job.folder_path)
             except Exception as e:
-                logger.exception(
-                    f"Could not clean up data import folder: {latest_completed_job.folder_path}", exc_info=e
-                )
+                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
                 pass
 
-        delete_external_data_schedule(instance)
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=self.team_id, source_id=instance.id, should_sync=True
+        ).all():
+            delete_external_data_schedule(str(schema.id))
+
+        delete_external_data_schedule(str(instance.id))
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         if is_any_external_data_job_paused(self.team_id):
             return Response(
@@ -302,12 +472,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            trigger_external_data_source_workflow(instance)
 
-        except temporalio.service.RPCError as e:
-            # schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
+        except temporalio.service.RPCError:
+            # if the source schedule has been removed - trigger the schema schedules
+            instance.reload_schemas()
+
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
@@ -318,38 +488,201 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
-        host = request.data.get("host", None)
-        port = request.data.get("port", None)
-        database = request.data.get("dbname", None)
+        source_type = request.data.get("source_type", None)
 
-        user = request.data.get("user", None)
-        password = request.data.get("password", None)
-        schema = request.data.get("schema", None)
-
-        if not host or not port or not database or not user or not password or not schema:
+        if source_type is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+                data={"message": "Missing required parameter: source_type"},
             )
 
-        # Validate internal postgres
-        if not self._validate_postgres_host(host, self.team_id):
+        if source_type == ExternalDataSource.Type.POSTGRES:
+            host = request.data.get("host", None)
+            port = request.data.get("port", None)
+            database = request.data.get("dbname", None)
+
+            user = request.data.get("user", None)
+            password = request.data.get("password", None)
+            schema = request.data.get("schema", None)
+
+            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
+            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+            ssh_tunnel = SSHTunnel(
+                enabled=using_ssh_tunnel,
+                host=ssh_tunnel_host,
+                port=ssh_tunnel_port,
+                auth_type=ssh_tunnel_auth_type,
+                username=ssh_tunnel_auth_type_username,
+                password=ssh_tunnel_auth_type_password,
+                passphrase=ssh_tunnel_auth_type_passphrase,
+                private_key=ssh_tunnel_auth_type_private_key,
+            )
+
+            if not host or not port or not database or not user or not password or not schema:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+                )
+
+            if using_ssh_tunnel:
+                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
+                if not auth_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": auth_error_message
+                            if len(auth_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
+
+                port_valid, port_error_message = ssh_tunnel.has_valid_port()
+                if not port_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": port_error_message
+                            if len(port_error_message) > 0
+                            else "Invalid SSH tunnel auth settings"
+                        },
+                    )
+
+            # Validate internal postgres
+            if not self._validate_postgres_host(host, self.team_id):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Cannot use internal Postgres database"},
+                )
+
+            try:
+                result = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+                if len(result) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Postgres schema doesn't exist"},
+                    )
+            except OperationalError as e:
+                exposed_error = self._expose_postgres_error(e)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or GenericPostgresError},
+                )
+            except BaseSSHTunnelForwarderError as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": e.value or GenericPostgresError},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericPostgresError},
+                )
+
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
+            account_id = request.data.get("account_id")
+            database = request.data.get("database")
+            warehouse = request.data.get("warehouse")
+            role = request.data.get("role")
+            user = request.data.get("user")
+            password = request.data.get("password")
+            schema = request.data.get("schema")
+
+            if not account_id or not warehouse or not database or not user or not password or not schema:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": "Missing required parameters: account id, warehouse, database, user, password, schema"
+                    },
+                )
+
+            try:
+                result = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+                if len(result) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Snowflake schema doesn't exist"},
+                    )
+            except (ProgrammingError, DatabaseError, ForbiddenError) as e:
+                exposed_error = self._expose_snowflake_error(e)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or GenericSnowflakeError},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch Snowflake schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericSnowflakeError},
+                )
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+
+        # Return the possible endpoints for all other source types
+        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
+        if schemas is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Cannot use internal Postgres database"},
+                data={"message": "Invalid parameter: source_type"},
             )
 
-        try:
-            result = get_postgres_schemas(host, port, database, user, password, schema)
-        except Exception as e:
-            logger.exception("Could not fetch Postgres schemas", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Could not fetch Postgres schemas. Please check all connection details are valid."},
-            )
+        options = [{"table": row, "should_sync": True} for row in schemas]
+        return Response(status=status.HTTP_200_OK, data=options)
 
-        result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
-        return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+    @action(methods=["POST"], detail=False)
+    def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        if self.prefix_required(source_type):
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Source type already exists. Prefix is required"},
+                )
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        return Response(status=status.HTTP_200_OK)
+
+    def _expose_postgres_error(self, error: OperationalError) -> str | None:
+        error_msg = " ".join(str(n) for n in error.args)
+
+        for key, value in PostgresErrors.items():
+            if key in error_msg:
+                return value
+        return None
+
+    def _expose_snowflake_error(self, error: ProgrammingError | DatabaseError | ForbiddenError) -> str | None:
+        error_msg = error.msg or error.raw_msg or ""
+
+        for key, value in SnowflakeErrors.items():
+            if key in error_msg:
+                return value
+        return None
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):

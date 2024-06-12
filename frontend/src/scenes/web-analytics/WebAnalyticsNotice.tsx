@@ -23,14 +23,14 @@ export const WebAnalyticsNotice = (): JSX.Element => {
                         <LemonButton
                             type="secondary"
                             icon={<IconBug />}
-                            onClick={() => openSupportForm({ kind: 'bug' })}
+                            onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
                         >
                             Report a bug
                         </LemonButton>
                         <LemonButton
                             type="secondary"
                             icon={<IconFeedback />}
-                            onClick={() => openSupportForm({ kind: 'feedback' })}
+                            onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
                         >
                             Give feedback
                         </LemonButton>

@@ -2,10 +2,8 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 
@@ -34,7 +32,6 @@ export const exportsLogic = kea<exportsLogicType>([
     }),
 
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     }),
 
@@ -55,7 +52,7 @@ export const exportsLogic = kea<exportsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
@@ -73,10 +70,8 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: ({ pollingExports }) => {
-            if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
-                actions.openSidePanel(SidePanelTab.Exports)
-                actions.loadExports()
-            }
+            actions.openSidePanel(SidePanelTab.Exports)
+            actions.loadExports()
             actions.pollExportStatus(pollingExports[0])
         },
         pollExportStatus: async ({ exportedAsset }, breakpoint) => {
@@ -101,17 +96,12 @@ export const exportsLogic = kea<exportsLogicType>([
                         attempts++
 
                         if (updatedAsset.has_content) {
-                            if (!values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
+                            actions.loadExports()
+                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
                                 void downloadExportedAsset(updatedAsset)
                             } else {
-                                actions.loadExports()
-                                if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
-                                    void downloadExportedAsset(updatedAsset)
-                                } else {
-                                    actions.addFresh(updatedAsset)
-                                }
+                                actions.addFresh(updatedAsset)
                             }
-
                             trackingProperties.total_time_ms = performance.now() - startTime
                             posthog.capture('export succeeded', trackingProperties)
 

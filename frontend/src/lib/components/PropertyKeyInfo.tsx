@@ -34,9 +34,15 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
 
     value = value?.toString() ?? '' // convert to string
 
-    const data = getCoreFilterDefinition(value, type)
-    const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
+    const coreDefinition = getCoreFilterDefinition(value, type)
+    const valueDisplayText = (coreDefinition ? coreDefinition.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
+
+    const recognizedSource: 'posthog' | 'langfuse' | null = coreDefinition
+        ? 'posthog'
+        : value.startsWith('langfuse ')
+        ? 'langfuse'
+        : null
 
     const innerContent = (
         <span
@@ -45,14 +51,16 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             title={ellipsis && disablePopover ? valueDisplayText : undefined}
             ref={ref}
         >
-            {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
+            {recognizedSource && !disableIcon && (
+                <span className={`PropertyKeyInfo__logo PropertyKeyInfo__logo--${recognizedSource}`} />
+            )}
             <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>
         </span>
     )
 
-    return !data || disablePopover ? (
+    return !coreDefinition || disablePopover ? (
         innerContent
     ) : (
         <Popover
@@ -60,18 +68,18 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             overlay={
                 <div className="PropertyKeyInfo__overlay">
                     <div className="PropertyKeyInfo__header">
-                        {!!data && <span className="PropertyKeyInfo__logo" />}
-                        {data.label}
+                        {!!coreDefinition && <span className="PropertyKeyInfo__logo" />}
+                        {coreDefinition.label}
                     </div>
-                    {data.description || data.examples ? (
+                    {coreDefinition.description || coreDefinition.examples ? (
                         <>
                             <LemonDivider className="my-3" />
                             <div>
-                                {data.description ? <p>{data.description}</p> : null}
-                                {data.examples ? (
+                                {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
+                                {coreDefinition.examples ? (
                                     <p>
-                                        <i>Example value{data.examples.length === 1 ? '' : 's'}: </i>
-                                        {data.examples.join(', ')}
+                                        <i>Example value{coreDefinition.examples.length === 1 ? '' : 's'}: </i>
+                                        {coreDefinition.examples.join(', ')}
                                     </p>
                                 ) : null}
                             </div>

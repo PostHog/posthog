@@ -2,7 +2,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.utils.html import format_html
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
-from posthog.admin.inlines.organization_team_inline import OrganizationTeamInline
+from posthog.admin.inlines.project_inline import ProjectInline
+from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 
 from posthog.models.organization import Organization
@@ -12,6 +13,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     fields = [
+        "id",
         "name",
         "created_at",
         "updated_at",
@@ -22,8 +24,16 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "is_hipaa",
     ]
-    inlines = [OrganizationTeamInline, OrganizationMemberInline]
-    readonly_fields = ["created_at", "updated_at", "billing_link_v2", "usage_posthog", "usage", "customer_trust_scores"]
+    inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "billing_link_v2",
+        "usage_posthog",
+        "usage",
+        "customer_trust_scores",
+    ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "id",

@@ -2,7 +2,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.entity import Entity
@@ -282,11 +282,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
-        action = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="event_name",
-            action=action,
-            properties=[{"key": "name", "type": "person", "value": "John"}],
+        action = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[{"event": "event_name", "properties": [{"key": "name", "type": "person", "value": "John"}]}],
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "type": "actions", "order": 0}]})

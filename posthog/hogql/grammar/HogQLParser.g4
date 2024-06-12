@@ -5,6 +5,37 @@ options {
 }
 
 
+program: declaration* EOF;
+
+declaration: varDecl | statement ;
+
+expression: columnExpr;
+
+varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
+identifierList: identifier (COMMA identifier)*;
+
+statement      : returnStmt
+               | ifStmt
+               | whileStmt
+               | funcStmt
+               | varAssignment
+               | exprStmt
+               | emptyStmt
+               | block ;
+
+returnStmt     : RETURN expression? SEMICOLON?;
+ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
+funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+varAssignment  : expression COLON EQ_SINGLE expression ;
+exprStmt       : expression SEMICOLON?;
+emptyStmt      : SEMICOLON ;
+block          : LBRACE declaration* RBRACE ;
+
+kvPair: expression ':' expression ;
+kvPairList: kvPair (COMMA kvPair)* ;
+
+
 // SELECT statement
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
@@ -87,8 +118,6 @@ winFrameExtend
 winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | numberLiteral PRECEDING | numberLiteral FOLLOWING);
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
 
-
-
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
@@ -103,15 +132,16 @@ columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
-    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract
+//    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
-    | TRIM LPAREN (BOTH | LEADING | TRAILING) STRING_LITERAL FROM columnExpr RPAREN       # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
+    | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -151,14 +181,14 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
+    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 columnArgList: columnArgExpr (COMMA columnArgExpr)*;
@@ -176,7 +206,7 @@ hogqlxTagElement
     | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' STRING_LITERAL
+    :   identifier '=' string
     |   identifier '=' LBRACE columnExpr RBRACE
     |   identifier
     ;
@@ -227,23 +257,32 @@ literal
 interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
-    : AFTER | ALIAS | ALL | ALTER | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | AST | ASYNC | ATTACH | BETWEEN | BOTH | BY | CASE
-    | CAST | CHECK | CLEAR | CLUSTER | CODEC | COLLATE | COLUMN | COMMENT | CONSTRAINT | CREATE | CROSS | CUBE | CURRENT | DATABASE
-    | DATABASES | DATE | DEDUPLICATE | DEFAULT | DELAY | DELETE | DESCRIBE | DESC | DESCENDING | DETACH | DICTIONARIES | DICTIONARY | DISK
-    | DISTINCT | DISTRIBUTED | DROP | ELSE | END | ENGINE | EVENTS | EXISTS | EXPLAIN | EXPRESSION | EXTRACT | FETCHES | FINAL | FIRST
-    | FLUSH | FOR | FOLLOWING | FOR | FORMAT | FREEZE | FROM | FULL | FUNCTION | GLOBAL | GRANULARITY | GROUP | HAVING | HIERARCHICAL | ID
-    | IF | ILIKE | IN | INDEX | INJECTIVE | INNER | INSERT | INTERVAL | INTO | IS | IS_OBJECT_ID | JOIN | JSON_FALSE | JSON_TRUE | KEY
-    | KILL | LAST | LAYOUT | LEADING | LEFT | LIFETIME | LIKE | LIMIT | LIVE | LOCAL | LOGS | MATERIALIZE | MATERIALIZED | MAX | MERGES
-    | MIN | MODIFY | MOVE | MUTATION | NO | NOT | NULLS | OFFSET | ON | OPTIMIZE | OR | ORDER | OUTER | OUTFILE | OVER | PARTITION
-    | POPULATE | PRECEDING | PREWHERE | PRIMARY | RANGE | RELOAD | REMOVE | RENAME | REPLACE | REPLICA | REPLICATED | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SENDS | SET | SETTINGS | SHOW | SOURCE | START | STOP | SUBSTRING | SYNC | SYNTAX | SYSTEM | TABLE
-    | TABLES | TEMPORARY | TEST | THEN | TIES | TIMEOUT | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP | TTL | TYPE
-    | UNBOUNDED | UNION | UPDATE | USE | USING | UUID | VALUES | VIEW | VOLUME | WATCH | WHEN | WHERE | WINDOW | WITH
+    : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
+    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT
+    | DATE | DESC | DESCENDING
+    | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
+    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID
+    | IF | ILIKE | IN | INNER | INTERVAL | IS | JOIN | KEY
+    | LAST | LEADING | LEFT | LIKE | LIMIT
+    | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
+    | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
+    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
+    | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
+enumValue: string EQ_SINGLE numberLiteral;
 placeholder: LBRACE identifier RBRACE;
+
+string: STRING_LITERAL | templateString;
+templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
+stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
+
+// These are magic "full template strings", which are used to parse "full text field" templates without the surrounding SQL.
+// We will need to add F' to the start of the string to change the lexer's mode.
+fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
+stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;

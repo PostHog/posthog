@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Optional, cast
 
 import structlog
 from django.db.models import Prefetch, QuerySet
@@ -7,7 +7,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,14 +21,12 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
@@ -158,20 +155,13 @@ class DashboardSerializer(DashboardBasicSerializer):
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
-    def validate_description(self, value: str) -> str:
-        if value and not check_is_feature_available_for_team(
-            self.context["team_id"], AvailableFeature.TEAM_COLLABORATION
-        ):
-            raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
-        return value
-
-    def validate_filters(self, value) -> Dict:
+    def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
 
         return value
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team_id = self.context["team_id"]
@@ -270,7 +260,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 color=existing_tile.color,
             )
 
-    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
+    def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
@@ -302,11 +292,11 @@ class DashboardSerializer(DashboardBasicSerializer):
         return instance
 
     @staticmethod
-    def _update_tiles(instance: Dashboard, tile_data: Dict, user: User) -> None:
+    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> None:
         tile_data.pop("is_cached", None)  # read only field
 
         if tile_data.get("text", None):
-            text_json: Dict = tile_data.get("text", {})
+            text_json: dict = tile_data.get("text", {})
             created_by_json = text_json.get("created_by", None)
             if created_by_json:
                 last_modified_by = user
@@ -358,7 +348,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
-    def get_tiles(self, dashboard: Dashboard) -> Optional[List[ReturnDict]]:
+    def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
         if self.context["view"].action == "list":
             return None
 
@@ -408,23 +398,23 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
-    queryset = Dashboard.objects.order_by("name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("name")
     permission_classes = [CanEditDashboard]
 
-    def get_serializer_class(self) -> Type[BaseSerializer]:
+    def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def get_queryset(self) -> QuerySet:
-        if (
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
             and not self.request.data.get("deleted")
             and len(self.request.data) == 1
-        ):
+        )
+
+        if not include_deleted:
             # a dashboard can be un-deleted by patching {"deleted": False}
-            queryset = Dashboard.objects_including_soft_deleted
-        else:
-            queryset = super().get_queryset()
+            queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
@@ -520,7 +510,7 @@ class DashboardsViewSet(
 class LegacyDashboardsViewSet(DashboardsViewSet):
     derive_current_team_from_user_only = True
 
-    def get_parents_query_dict(self) -> Dict[str, Any]:
+    def get_parents_query_dict(self) -> dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
         return {"team_id": self.team_id}

@@ -24,17 +24,17 @@ export function useAnnotationsPositioning(
             const points = chart._metasets[0].data as Point[]
             const firstTickPointIndex = chart.scales.x.ticks[0].value
             const lastTickPointIndex = chart.scales.x.ticks[tickCount - 1].value
-            const firstTickLeftPx = points[firstTickPointIndex].x
-            const lastTickLeftPx = points[lastTickPointIndex].x
+            // Fall back to zero for resiliency against temporary chart inconsistencies during loading
+            const firstTickLeftPx = points[firstTickPointIndex]?.x ?? 0
+            const lastTickLeftPx = points[lastTickPointIndex]?.x ?? 0
             return {
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
             }
-        } else {
-            return {
-                tickIntervalPx: 0,
-                firstTickLeftPx: 0,
-            }
+        }
+        return {
+            tickIntervalPx: 0,
+            firstTickLeftPx: 0,
         }
     }, [chart, chartWidth, chartHeight])
 }

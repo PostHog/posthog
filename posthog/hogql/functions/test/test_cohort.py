@@ -2,7 +2,7 @@ import pytest
 from django.test import override_settings
 
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
@@ -44,7 +44,7 @@ class TestCohort(BaseTest):
             team=self.team,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
-        recalculate_cohortpeople(cohort, pending_version=0)
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
@@ -88,11 +88,11 @@ class TestCohort(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT true", self.team)
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
 
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,

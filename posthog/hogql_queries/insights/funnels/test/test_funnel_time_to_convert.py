@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.case import skip
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
@@ -310,6 +311,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    @skip("Compatibility issue CH 23.12 (see #21318)")
     def test_auto_bin_count_total(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)

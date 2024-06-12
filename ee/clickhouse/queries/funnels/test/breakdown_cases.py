@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -51,8 +51,8 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 properties={"industry": "random"},
             )
 
-        def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
-            def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+        def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
+            def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
                 return {
                     "action_id": step.name if step.type == "events" else step.action_id,
                     "name": step.name,

@@ -119,10 +119,7 @@ async function getProfileByType(req: Request, res: Response) {
 
         const type = req.params.type
         const durationSeconds = typeof req.query.seconds === 'string' ? parseInt(req.query.seconds) : 30
-        // Additional params for sampling heap profile, higher precision means bigger profile.
-        // Defaults are taken from https://v8.github.io/api/head/classv8_1_1HeapProfiler.html
-        const interval = typeof req.query.interval === 'string' ? parseInt(req.query.interval) : 512 * 1024
-        const depth = typeof req.query.depth === 'string' ? parseInt(req.query.depth) : 16
+        const interval = typeof req.query.interval === 'string' ? parseInt(req.query.interval) : undefined
 
         const sendHeaders = function (extension: string) {
             const fileName = `${type}-${DateTime.now().toUTC().toFormat('yyyyMMdd-HHmmss')}.${extension}`
@@ -141,10 +138,15 @@ async function getProfileByType(req: Request, res: Response) {
 
         switch (type) {
             case 'cpu':
-                v8Profiler.startProfiling('cpu', true)
+                // See https://v8docs.nodesource.com/node-18.16/d2/d34/classv8_1_1_cpu_profiler.html
+                const mode = req.query.mode === '0' ? 0 : 1 // Default to 1 = kCallerLineNumbers
+                v8Profiler.setSamplingInterval(interval ?? 1000) // in microseconds
+                v8Profiler.startProfiling('cpu', true, mode)
                 finishProfile = () => v8Profiler.stopProfiling('cpu')
             case 'heap':
-                v8Profiler.startSamplingHeapProfiling(interval, depth)
+                // See https://v8docs.nodesource.com/node-18.16/d7/d76/classv8_1_1_heap_profiler.html
+                const depth = typeof req.query.depth === 'string' ? parseInt(req.query.depth) : 16
+                v8Profiler.startSamplingHeapProfiling(interval ?? 512 * 1024, depth)
                 finishProfile = () => v8Profiler.stopSamplingHeapProfiling()
         }
 

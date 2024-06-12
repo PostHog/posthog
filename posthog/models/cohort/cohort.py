@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 import structlog
 from django.conf import settings
@@ -37,7 +37,7 @@ ON CONFLICT DO NOTHING
 class Group:
     def __init__(
         self,
-        properties: Optional[Dict[str, Any]] = None,
+        properties: Optional[dict[str, Any]] = None,
         action_id: Optional[int] = None,
         event_id: Optional[str] = None,
         days: Optional[int] = None,
@@ -59,7 +59,7 @@ class Group:
         self.start_date = start_date
         self.end_date = end_date
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         dup = self.__dict__.copy()
         dup["start_date"] = self.start_date.isoformat() if self.start_date else self.start_date
         dup["end_date"] = self.end_date.isoformat() if self.end_date else self.end_date
@@ -159,11 +159,11 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+                    return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+        return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     @property
     def has_complex_behavioral_filter(self) -> bool:
@@ -194,7 +194,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people_ch(self, pending_version):
+    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
@@ -207,7 +207,7 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self, pending_version)
+            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
 
             self.last_calculation = timezone.now()
@@ -241,7 +241,7 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
-    def insert_users_by_list(self, items: List[str]) -> None:
+    def insert_users_by_list(self, items: list[str]) -> None:
         """
         Items is a list of distinct_ids
         """
@@ -273,7 +273,7 @@ class Cohort(models.Model):
                     .exclude(cohort__id=self.id)
                 )
                 insert_static_cohort(
-                    [p for p in persons_query.values_list("uuid", flat=True)],
+                    list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
                     self.team,
                 )
@@ -303,7 +303,7 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: List[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+    def insert_users_list_by_uuid(self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
@@ -315,7 +315,7 @@ class Cohort(models.Model):
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
-                        [p for p in persons_query.values_list("uuid", flat=True)],
+                        list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
                         self.team,
                     )

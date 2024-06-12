@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -16,6 +18,7 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { isTrends, querySource, isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -24,8 +27,9 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? [TaxonomicFilterGroupType.DataWarehousePersonProperties] : []),
     ]
 
     return (

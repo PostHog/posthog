@@ -1,9 +1,8 @@
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Optional, cast
 
 from django.db import connection
-from django.db.models import Prefetch
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,7 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventProperty, PropertyDefinition, TaggedItem, User
+from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 
@@ -35,7 +34,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group"],
+        choices=["event", "person", "group", "session"],
         help_text="What property definitions to return",
         default="event",
     )
@@ -125,14 +124,14 @@ class QueryContext:
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
-    params: Dict = dataclasses.field(default_factory=dict)
+    params: dict = dataclasses.field(default_factory=dict)
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> "QueryContext":
         if properties_to_filter:
             return dataclasses.replace(
                 self,
-                name_filter="AND name IN %(names)s",
-                params={**self.params, "names": tuple(properties_to_filter.split(","))},
+                name_filter="AND name = ANY(%(names)s)",
+                params={**self.params, "names": properties_to_filter.split(",")},
             )
         else:
             return self
@@ -141,7 +140,7 @@ class QueryContext:
         if is_numerical:
             return dataclasses.replace(
                 self,
-                numerical_filter="AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')",
+                numerical_filter="AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp'])",
             )
         else:
             return self
@@ -192,6 +191,16 @@ class QueryContext:
                     "group_type_index": group_type_index,
                 },
             )
+        elif type == "session":
+            return dataclasses.replace(
+                self,
+                should_join_event_property=False,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.SESSION,
+                    "group_type_index": -1,
+                },
+            )
 
     def with_event_property_filter(
         self, event_names: Optional[str], filter_by_event_names: Optional[bool]
@@ -206,8 +215,8 @@ class QueryContext:
             event_names = json.loads(event_names)
 
         if event_names and len(event_names) > 0:
-            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
-            event_name_join_filter = "AND event in %(event_names)s"
+            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
+            event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(
             self,
@@ -216,10 +225,10 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": tuple(event_names or [])},
+            params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
+    def with_search(self, search_query: str, search_kwargs: dict) -> "QueryContext":
         return dataclasses.replace(
             self,
             search_query=search_query,
@@ -230,7 +239,7 @@ class QueryContext:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
-        excluded_list = tuple(
+        excluded_list = list(
             set.union(
                 set(excluded_properties or []),
                 EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [],
@@ -239,7 +248,7 @@ class QueryContext:
         return dataclasses.replace(
             self,
             excluded_properties_filter=(
-                f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
+                f"AND NOT {self.property_definition_table}.name = ANY(%(excluded_properties)s)"
                 if len(excluded_list) > 0
                 else ""
             ),
@@ -300,7 +309,11 @@ class QueryContext:
 # frontend/scripts/print_property_name_aliases.ts for how to regenerate
 PROPERTY_NAME_ALIASES = {
     "$autocapture_disabled_server_side": "Autocapture Disabled Server-Side",
+    "$client_session_initial_referring_host": "Referrer Host",
+    "$client_session_initial_utm_content": "Initial UTM Source",
+    "$client_session_initial_utm_term": "Initial UTM Source",
     "$console_log_recording_enabled_server_side": "Console Log Recording Enabled Server-Side",
+    "$el_text": "Element Text",
     "$exception_colno": "Exception source column number",
     "$exception_handled": "Exception was handled",
     "$exception_lineno": "Exception source line number",
@@ -313,13 +326,21 @@ PROPERTY_NAME_ALIASES = {
     "$group_4": "Group 5",
     "$ip": "IP Address",
     "$lib": "Library",
+    "$lib_custom_api_host": "Library Custom API Host",
     "$lib_version": "Library Version",
     "$lib_version__major": "Library Version (Major)",
     "$lib_version__minor": "Library Version (Minor)",
     "$lib_version__patch": "Library Version (Patch)",
     "$performance_raw": "Browser Performance",
     "$referrer": "Referrer URL",
+    "$selected_content": "Copied content",
     "$session_recording_recorder_version_server_side": "Session Recording Recorder Version Server-Side",
+    "$user_agent": "Raw User Agent",
+    "build": "App Build",
+    "previous_build": "App Previous Build",
+    "previous_version": "App Previous Version",
+    "referring_application": "Referrer Application",
+    "version": "App Version",
 }
 
 
@@ -338,7 +359,23 @@ def add_name_alias_to_search_query(search_term: str):
 
     if not entries:
         return ""
-    return f"""OR name IN ({", ".join(entries)})"""
+    return f"""OR name = ANY(ARRAY[{", ".join(entries)}])"""
+
+
+def add_latest_means_not_initial(search_term: str):
+    trigger_word = "latest"
+    opposite_word = "initial"
+
+    if not search_term:
+        return ""
+
+    normalised_search_term = search_term.lower()
+    search_words = normalised_search_term.split()
+
+    if any(word in trigger_word for word in search_words):
+        return f" OR NOT name ilike '%%{opposite_word}%%'"
+
+    return ""
 
 
 # Event properties generated by ingestion we don't want to show to users
@@ -415,7 +452,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
         return self.count
 
-    def paginate_queryset(self, queryset, request, view=None) -> Optional[List[Any]]:
+    def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
         """
         Assumes the queryset has already had pagination applied
         """
@@ -449,10 +486,10 @@ class PropertyDefinitionViewSet(
     ordering = "name"
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator
+    queryset = PropertyDefinition.objects.all()
 
-    def get_queryset(self):
-        queryset = PropertyDefinition.objects
-
+    def dangerously_get_queryset(self):
+        queryset = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [
                 f'posthog_propertydefinition."{f.column}"'
@@ -478,13 +515,8 @@ class PropertyDefinitionViewSet(
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects.prefetch_related(
-                    Prefetch(
-                        "tagged_items",
-                        queryset=TaggedItem.objects.select_related("tag"),
-                        to_attr="prefetched_tags",
-                    )
-                )
+                queryset = EnterprisePropertyDefinition.objects
+
                 order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False
@@ -497,6 +529,10 @@ class PropertyDefinitionViewSet(
 
         search = query.validated_data.get("search")
         search_extra = add_name_alias_to_search_query(search)
+
+        if query.validated_data.get("type") == "person":
+            search_extra += add_latest_means_not_initial(search)
+
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
 
         query_context = (
@@ -538,7 +574,7 @@ class PropertyDefinitionViewSet(
 
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
-    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
+    def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
@@ -551,7 +587,7 @@ class PropertyDefinitionViewSet(
                 serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
-    def get_object(self):
+    def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:

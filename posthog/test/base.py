@@ -5,9 +5,10 @@ import resource
 import threading
 import time
 import uuid
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple, Union, Generator
+from typing import Any, Optional, Union
 from unittest.mock import patch
 
 import freezegun
@@ -25,20 +26,18 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
-from posthog import rate_limit
+from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import (
-    TEST_clear_instance_license_cache,
-)
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
-    CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-    CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_DATA_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
@@ -57,17 +56,18 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.sessions.sql import (
-    DROP_SESSION_TABLE_SQL,
-    DROP_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_SESSION_VIEW_SQL,
-    SESSIONS_TABLE_SQL,
-    SESSIONS_TABLE_MV_SQL,
-    SESSIONS_VIEW_SQL,
     DISTRIBUTED_SESSIONS_TABLE_SQL,
+    DROP_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_SESSION_TABLE_SQL,
+    DROP_SESSION_VIEW_SQL,
+    SESSIONS_TABLE_MV_SQL,
+    SESSIONS_TABLE_SQL,
+    SESSIONS_VIEW_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -83,11 +83,11 @@ from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 
-persons_cache_tests: List[Dict[str, Any]] = []
-events_cache_tests: List[Dict[str, Any]] = []
+persons_cache_tests: list[dict[str, Any]] = []
+events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 1
 
 
@@ -95,9 +95,9 @@ def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        team_fields=dict(
-            api_token=klass.CONFIG_API_TOKEN,
-            test_account_filters=[
+        team_fields={
+            "api_token": klass.CONFIG_API_TOKEN,
+            "test_account_filters": [
                 {
                     "key": "email",
                     "value": "@posthog.com",
@@ -105,8 +105,8 @@ def _setup_test_data(klass):
                     "type": "person",
                 }
             ],
-            has_completed_onboarding_for={"product_analytics": True},
-        ),
+            "has_completed_onboarding_for": {"product_analytics": True},
+        },
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -124,7 +124,7 @@ class FuzzyInt(int):
     highest: int
 
     def __new__(cls, lowest, highest):
-        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj = super().__new__(cls, highest)
         obj.lowest = lowest
         obj.highest = highest
         return obj
@@ -144,7 +144,7 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
+    def not_found_response(self, message: str = "Not found.") -> dict[str, Optional[str]]:
         return {
             "type": "invalid_request",
             "code": "not_found",
@@ -154,7 +154,7 @@ class ErrorResponsesMixin:
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action."
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
             "code": "permission_denied",
@@ -162,7 +162,7 @@ class ErrorResponsesMixin:
             "attr": None,
         }
 
-    def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
+    def method_not_allowed_response(self, method: str) -> dict[str, Optional[str]]:
         return {
             "type": "invalid_request",
             "code": "method_not_allowed",
@@ -174,7 +174,7 @@ class ErrorResponsesMixin:
         self,
         message: str = "Authentication credentials were not provided.",
         code: str = "not_authenticated",
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
             "code": code,
@@ -187,7 +187,7 @@ class ErrorResponsesMixin:
         message: str = "Malformed request",
         code: str = "invalid_input",
         attr: Optional[str] = None,
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "validation_error",
             "code": code,
@@ -208,11 +208,11 @@ class PostHogTestCase(SimpleTestCase):
     CLASS_DATA_LEVEL_SETUP = True
 
     # Test data definition stubs
-    organization: Organization = None  # type: ignore
-    project: Project = None  # type: ignore
-    team: Team = None  # type: ignore
-    user: User = None  # type: ignore
-    organization_membership: OrganizationMembership = None  # type: ignore
+    organization: Organization = None
+    project: Project = None
+    team: Team = None
+    user: User = None
+    organization_membership: OrganizationMembership = None
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
@@ -223,6 +223,8 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
+        get_instance_setting.cache_clear()
+
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
@@ -243,6 +245,8 @@ class PostHogTestCase(SimpleTestCase):
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
+        # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
+        redis.get_client().flushdb()
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()
@@ -300,12 +304,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
@@ -345,13 +349,27 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         cache.clear()
         TEST_clear_instance_license_cache()
 
-        # Sets the cloud mode to stabilise things tests, especially num query counts
-        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        # Sets the cloud mode to stabilize things tests, especially num query counts
+        # Clear the is_rate_limit lru_Caches so that they do not flap in test snapshots
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+
+    def create_organization_with_features(self, features):
+        organization = Organization.objects.create(name="Test Organization")
+        organization.available_product_features = [{"name": feature, "key": feature} for feature in features]
+        organization.save()
+        return organization
+
+    def create_team_with_organization(self, organization):
+        return Team.objects.create(organization=organization, name="Test Team")
+
+    def create_user_with_organization(self, organization):
+        user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
+        organization.members.add(user)
+        return user
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
@@ -398,20 +416,27 @@ def cleanup_materialized_columns():
         # EE not available? Skip
         return
 
+    def optionally_drop(table, filter=None):
+        drops = ",".join(
+            [
+                f"DROP COLUMN {column_name}"
+                for column_name in get_materialized_columns(table).values()
+                if filter is None or filter(column_name)
+            ]
+        )
+        if drops:
+            sync_execute(f"ALTER TABLE {table} {drops}")
+
     default_columns = default_materialised_columns()
-    for column_name in get_materialized_columns("events").values():
-        if column_name not in default_columns:
-            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("person").values():
-        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
-    for column_name in get_materialized_columns("groups").values():
-        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+    optionally_drop("events", lambda name: name not in default_columns)
+    optionally_drop("person")
+    optionally_drop("groups")
 
 
 def also_test_with_materialized_columns(
-    event_properties=[],
-    person_properties=[],
-    group_properties=[],
+    event_properties=None,
+    person_properties=None,
+    group_properties=None,
     verify_no_jsonextract=True,
     # :TODO: Remove this when groups-on-events is released
     materialize_only_with_person_on_events=False,
@@ -422,6 +447,12 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
+    if group_properties is None:
+        group_properties = []
+    if person_properties is None:
+        person_properties = []
+    if event_properties is None:
+        event_properties = []
     try:
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
@@ -450,7 +481,7 @@ def also_test_with_materialized_columns(
                 materialize(
                     "events",
                     prop,
-                    table_column=f"group{group_type_index}_properties",  # type: ignore
+                    table_column=f"group{group_type_index}_properties",
                 )
 
             try:
@@ -464,7 +495,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+        frame_locals: Any = inspect.currentframe().f_back.f_locals
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -481,7 +512,8 @@ class QueryMatchingTest:
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
             # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
             query = re.sub(
                 r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -506,6 +538,40 @@ class QueryMatchingTest:
             r"equals(\1\2, 2)",
             query,
         )
+
+        # replace survey uuids
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        # replace session uuids
+        # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
+        query = re.sub(
+            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        #### Cohort replacements
+        # replace cohort id lists in queries too
+        query = re.sub(
+            r"in((.*)?cohort_id, \[\d+(, ?\d+)*\])",
+            r"in(\1cohort_id, [1, 2, 3, 4, 5 /* ... */])",
+            query,
+        )
+        # replace explicit timestamps in cohort queries
+        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+
+        # replace cohort generated conditions
+        query = re.sub(
+            r"_condition_\d+_level",
+            r"_condition_X_level",
+            query,
+        )
+        #### Cohort replacements end
 
         # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
@@ -534,6 +600,15 @@ class QueryMatchingTest:
             flags=re.IGNORECASE,
         )
 
+        # HogQL person id in session recording queries
+        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
+        query = re.sub(
+            r"ifNull\(equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            query,
+        )
+
         query = re.sub(
             "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
             r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
@@ -551,6 +626,11 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
             r"""user_id:0 request:_snapshot_""",
+            query,
+        )
+        query = re.sub(
+            rf"""user_id:([0-9]+)""",
+            r"""user_id:0""",
             query,
         )
 
@@ -596,6 +676,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -628,9 +709,18 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if capture_all_queries:
+        if custom_query_matcher:
+            if query and custom_query_matcher(query):
+                testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
-        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        elif (
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
+        ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -660,7 +750,7 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
+        return apps.get_containing_app_config(type(self).__module__).name
 
     migrate_from: str
     migrate_to: str
@@ -677,7 +767,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(migrate_from)  # type: ignore
+        executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
 
@@ -688,7 +778,7 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(migrate_to)  # type: ignore
+            executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
 
@@ -790,7 +880,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
         return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
+    def capture_queries(self, query_prefixes: Union[str, tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -833,7 +923,7 @@ def failhard_threadhook_context():
         threading.excepthook = old_hook
 
 
-def run_clickhouse_statement_in_parallel(statements: List[str]):
+def run_clickhouse_statement_in_parallel(statements: list[str]):
     jobs = []
     with failhard_threadhook_context():
         for item in statements:
@@ -863,6 +953,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
@@ -907,6 +998,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
@@ -974,7 +1066,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 
@@ -1013,7 +1105,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1026,15 +1118,15 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
 
 
 def _create_insight(
-    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
-) -> Tuple[Insight, Dashboard, DashboardTile]:
+    team: Team, insight_filters: dict[str, Any], dashboard_filters: dict[str, Any]
+) -> tuple[Insight, Dashboard, DashboardTile]:
     dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
     insight = Insight.objects.create(team=team, filters=insight_filters)
     dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
@@ -1048,21 +1140,21 @@ def _create_insight(
 def create_person_id_override_by_distinct_id(
     distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
 ):
+    # XXX: No guarantees that data has been written to ``person_distinct_id2``
+    # in tests, so just assume that the data in ``events`` is up-to-date.
     person_ids_result = sync_execute(
         f"""
-        SELECT distinct_id, person_id
+        SELECT DISTINCT person_id
         FROM events
-        WHERE team_id = {team_id} AND distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
-        GROUP BY distinct_id, person_id
-        ORDER BY if(distinct_id = '{distinct_id_from}', -1, 0)
-    """
+        WHERE team_id = {team_id} AND distinct_id = '{distinct_id_to}'
+        """
     )
 
-    person_id_from, person_id_to = [row[1] for row in person_ids_result]
+    [person_id_to] = person_ids_result[0]
 
     sync_execute(
         f"""
-        INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version)
-        VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
+        INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version)
+        VALUES ({team_id}, '{distinct_id_from}', '{person_id_to}', {version})
     """
     )

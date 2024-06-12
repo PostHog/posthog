@@ -1,6 +1,5 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
-import { EventType, IncrementalSource, Replayer } from 'rrweb'
-import { canvasMutation } from 'rrweb/es/rrweb/packages/rrweb/src/replay/canvas'
+import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
@@ -75,8 +74,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     return
                 }
 
-                target.width = source.width
-                target.height = source.height
+                target.width = source.clientWidth
+                target.height = source.clientHeight
 
                 await canvasMutation({
                     event: e,
@@ -84,11 +83,22 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     target: target,
                     imageMap,
                     canvasEventMap,
+                    errorHandler: () => {},
                 })
 
                 const img = containers.get(e.data.id)
                 if (img) {
-                    img.src = target.toDataURL()
+                    target.toBlob((blob) => {
+                        if (blob) {
+                            img.style.width = 'initial'
+                            img.style.height = 'initial'
+
+                            const url = URL.createObjectURL(blob)
+                            // no longer need to read the blob so it's revoked
+                            img.onload = () => URL.revokeObjectURL(url)
+                            img.src = url
+                        }
+                    })
                 }
             }
         },

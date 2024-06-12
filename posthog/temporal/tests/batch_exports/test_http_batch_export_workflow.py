@@ -16,9 +16,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.http_batch_export import (
     HeartbeatDetails,
@@ -31,6 +31,7 @@ from posthog.temporal.batch_exports.http_batch_export import (
     insert_into_http_activity,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -111,8 +112,8 @@ async def assert_clickhouse_records_in_mock_server(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in posted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(posted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
     assert posted_records[0] == expected_records[0]
@@ -189,8 +190,9 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
     mock_server = MockServer()
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)
@@ -238,22 +240,25 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         **http_config,
     )
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=400, repeat=True)
         with pytest.raises(NonRetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=429, repeat=True)
         with pytest.raises(RetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=500, repeat=True)
         with pytest.raises(RetryableResponseError):
@@ -345,14 +350,15 @@ async def test_http_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HttpBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_http_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-                BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+            with (
+                aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+                override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
             ):
                 m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
 
@@ -370,6 +376,7 @@ async def test_http_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_mock_server(
         mock_server=mock_server,
@@ -404,9 +411,9 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HttpBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_http_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -425,6 +432,8 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_insert_activity_non_retryable_errors(ateam, http_batch_export, interval):
@@ -453,9 +462,9 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HttpBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_http_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -474,6 +483,8 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "NonRetryableResponseError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_cancellation(ateam, http_batch_export, interval):
@@ -501,9 +512,9 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HttpBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -583,8 +594,9 @@ async def test_insert_into_http_activity_heartbeats(
     )
 
     mock_server = MockServer()
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)

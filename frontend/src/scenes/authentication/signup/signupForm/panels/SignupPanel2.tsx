@@ -1,5 +1,5 @@
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
@@ -12,15 +12,16 @@ const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { setSignupPanel2ManualErrors } = useActions(signupLogic)
     const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
         <div className="space-y-4 Signup__panel__2">
             <Form logic={signupLogic} formKey="signupPanel2" className="space-y-4" enableFormOnSubmit>
-                <LemonField name="first_name" label="Your name">
+                <LemonField name="name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
-                        data-attr="signup-first-name"
+                        data-attr="signup-name"
                         placeholder="Jane Doe"
                         disabled={isSignupPanel2Submitting}
                     />
@@ -43,6 +44,7 @@ export function SignupPanel2(): JSX.Element | null {
                     center
                     htmlType="submit"
                     data-attr="signup-submit"
+                    onClick={() => setSignupPanel2ManualErrors({})}
                     loading={isSignupPanel2Submitting}
                     disabled={isSignupPanel2Submitting}
                     status="alt"

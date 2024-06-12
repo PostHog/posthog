@@ -1,7 +1,7 @@
 import urllib.parse
 import uuid
 from abc import ABC
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -32,8 +32,9 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
-from posthog.utils import PersonOnEventsMode, relative_date_parse, generate_short_id
+from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import relative_date_parse, generate_short_id
 
 
 class ClickhouseFunnelBase(ABC):
@@ -43,9 +44,9 @@ class ClickhouseFunnelBase(ABC):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
-    _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
-    _include_properties: List[str]
+    _extra_event_fields: list[ColumnName]
+    _extra_event_properties: list[PropertyName]
+    _include_properties: list[str]
 
     def __init__(
         self,
@@ -54,7 +55,7 @@ class ClickhouseFunnelBase(ABC):
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         base_uri: str = "/",
-        include_properties: Optional[List[str]] = None,
+        include_properties: Optional[list[str]] = None,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -91,8 +92,8 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({OFFSET: self._filter.offset})
 
-        self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
+        self._extra_event_fields: list[ColumnName] = []
+        self._extra_event_properties: list[PropertyName] = []
         if self._filter.include_recordings:
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
@@ -110,9 +111,9 @@ class ClickhouseFunnelBase(ABC):
         self,
         step: Entity,
         count: int,
-        people: Optional[List[uuid.UUID]] = None,
+        people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action().name
         else:
@@ -134,7 +135,7 @@ class ClickhouseFunnelBase(ABC):
 
     def _update_filters(self):
         # format default dates
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d", self._team.timezone_info)})
 
@@ -152,7 +153,7 @@ class ClickhouseFunnelBase(ABC):
         #
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
-        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in [
+        if isinstance(self._filter.breakdowns, list) and self._filter.breakdown_type in [
             "person",
             "event",
             "hogql",
@@ -166,7 +167,7 @@ class ClickhouseFunnelBase(ABC):
             "hogql",
             None,
         ]:
-            boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
+            boxed_breakdown: list[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
 
         for exclusion in self._filter.exclusions:
@@ -227,9 +228,11 @@ class ClickhouseFunnelBase(ABC):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": get_breakdown_cohort_name(breakdown_value)
-                        if self._filter.breakdown_type == "cohort"
-                        else breakdown_value,
+                        "breakdown": (
+                            get_breakdown_cohort_name(breakdown_value)
+                            if self._filter.breakdown_type == "cohort"
+                            else breakdown_value
+                        ),
                         "breakdown_value": breakdown_value,
                     }
                 )
@@ -269,7 +272,7 @@ class ClickhouseFunnelBase(ABC):
         else:
             return self._format_single_funnel(results[0])
 
-    def _exec_query(self) -> List[Tuple]:
+    def _exec_query(self) -> list[tuple]:
         self._filter.team = self._team
         query = self.get_query()
         return insight_sync_execute(
@@ -288,7 +291,7 @@ class ClickhouseFunnelBase(ABC):
         else:
             return ""
 
-    def _get_timestamp_selects(self) -> Tuple[str, str]:
+    def _get_timestamp_selects(self) -> tuple[str, str]:
         """
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
@@ -327,7 +330,7 @@ class ClickhouseFunnelBase(ABC):
             return "", ""
 
     def _get_step_times(self, max_steps: int):
-        conditions: List[str] = []
+        conditions: list[str] = []
         for i in range(1, max_steps):
             conditions.append(
                 f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
@@ -338,7 +341,7 @@ class ClickhouseFunnelBase(ABC):
         return f", {formatted}" if formatted else ""
 
     def _get_partition_cols(self, level_index: int, max_steps: int):
-        cols: List[str] = []
+        cols: list[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:
@@ -396,7 +399,7 @@ class ClickhouseFunnelBase(ABC):
         if curr_index == 1:
             return "1"
 
-        conditions: List[str] = []
+        conditions: list[str] = []
         for i in range(1, curr_index):
             duplicate_event = (
                 True
@@ -443,7 +446,7 @@ class ClickhouseFunnelBase(ABC):
         else:
             steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
 
-        all_step_cols: List[str] = []
+        all_step_cols: list[str] = []
         for index, entity in enumerate(entities_to_use):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
@@ -520,7 +523,7 @@ class ClickhouseFunnelBase(ABC):
         """
 
     def _get_steps_conditions(self, length: int) -> str:
-        step_conditions: List[str] = []
+        step_conditions: list[str] = []
 
         for index in range(length):
             step_conditions.append(f"step_{index} = 1")
@@ -530,10 +533,10 @@ class ClickhouseFunnelBase(ABC):
 
         return " OR ".join(step_conditions)
 
-    def _get_step_col(self, entity: Entity, index: int, entity_name: str, step_prefix: str = "") -> List[str]:
+    def _get_step_col(self, entity: Entity, index: int, entity_name: str, step_prefix: str = "") -> list[str]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
-        step_cols: List[str] = []
+        step_cols: list[str] = []
         condition = self._build_step_query(entity, index, entity_name, step_prefix)
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
@@ -600,7 +603,7 @@ class ClickhouseFunnelBase(ABC):
             conditions.append("steps IN %(custom_step_num)s")
         elif step_num is not None:
             if step_num >= 0:
-                self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
+                self.params.update({"step_num": list(range(step_num, max_steps + 1))})
                 conditions.append("steps IN %(step_num)s")
             else:
                 self.params.update({"step_num": abs(step_num) - 1})
@@ -636,7 +639,7 @@ class ClickhouseFunnelBase(ABC):
         return ""
 
     def _get_count_columns(self, max_steps: int):
-        cols: List[str] = []
+        cols: list[str] = []
 
         for i in range(max_steps):
             cols.append(f"countIf(steps = {i + 1}) step_{i + 1}")
@@ -666,7 +669,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(event_clause)
@@ -679,7 +682,7 @@ class ClickhouseFunnelBase(ABC):
         return ""
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
-        conditions: List[str] = []
+        conditions: list[str] = []
         for i in range(1, max_steps):
             conditions.append(
                 f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner"
@@ -691,7 +694,7 @@ class ClickhouseFunnelBase(ABC):
         return f", {formatted}" if formatted else ""
 
     def _get_step_time_median(self, max_steps: int, inner_query: bool = False):
-        conditions: List[str] = []
+        conditions: list[str] = []
         for i in range(1, max_steps):
             conditions.append(
                 f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner"
@@ -719,15 +722,15 @@ class ClickhouseFunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> str:
         raise NotImplementedError()
 
-    def _get_breakdown_select_prop(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_breakdown_select_prop(self) -> tuple[str, dict[str, Any]]:
         basic_prop_selector = ""
-        basic_prop_params: Dict[str, Any] = {}
+        basic_prop_params: dict[str, Any] = {}
         if not self._filter.breakdown:
             return basic_prop_selector, basic_prop_params
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
-            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED:
                 basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -757,7 +760,10 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+            if (
+                alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+                and groups_on_events_querying_enabled()
+            ):
                 properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                 expression, _ = get_property_string_expr(
                     table="events",
@@ -836,7 +842,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[List[str]]:
+    def _get_breakdown_conditions(self) -> Optional[list[str]]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.

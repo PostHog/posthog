@@ -1,17 +1,15 @@
 import re
 from collections import Counter
-from typing import Any, Callable
-from typing import Counter as TCounter
+from typing import Any
+from collections.abc import Callable
+from collections import Counter as TCounter
 from typing import (
-    Dict,
-    Iterable,
-    List,
     Literal,
     Optional,
-    Tuple,
     Union,
     cast,
 )
+from collections.abc import Iterable
 
 from rest_framework import exceptions
 
@@ -88,7 +86,7 @@ def parse_prop_grouped_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     _top_level: bool = True,
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     """Translate the given property filter group into an SQL condition clause (+ SQL params)."""
     if not property_group or len(property_group.values) == 0:
         return "", {}
@@ -119,7 +117,7 @@ def parse_prop_grouped_clauses(
         _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], property_group.values),
+            filters=cast(list[Property], property_group.values),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -151,7 +149,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 def parse_prop_clauses(
     team_id: int,
-    filters: List[Property],
+    filters: list[Property],
     *,
     hogql_context: Optional[HogQLContext],
     prepend: str = "global",
@@ -162,10 +160,10 @@ def parse_prop_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     """Translate the given property filter into an SQL condition clause (+ SQL params)."""
     final = []
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
 
     table_formatted = table_name
     if table_formatted != "":
@@ -411,7 +409,7 @@ def prop_filter_json_extract(
     property_operator: str = PropertyOperatorType.AND,
     table_name: Optional[str] = None,
     use_event_column: Optional[str] = None,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
@@ -433,7 +431,7 @@ def prop_filter_json_extract(
     if prop.negation:
         operator = negate_operator(operator or "exact")
 
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
 
     if operator == "is_not":
         params = {
@@ -649,7 +647,7 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """
     When querying for breakdown properties:
      * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
@@ -663,7 +661,7 @@ def get_single_or_multi_property_string_expr(
         no alias will be appended.
 
     """
-    breakdown_params: Dict[str, Any] = {}
+    breakdown_params: dict[str, Any] = {}
     if isinstance(breakdown, str) or isinstance(breakdown, int):
         breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
         breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
@@ -719,7 +717,7 @@ def get_property_string_expr(
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
-) -> Tuple[str, bool]:
+) -> tuple[str, bool]:
     """
 
     :param table:
@@ -752,8 +750,8 @@ def get_property_string_expr(
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
-def box_value(value: Any, remove_spaces=False) -> List[Any]:
-    if not isinstance(value, List):
+def box_value(value: Any, remove_spaces=False) -> list[Any]:
+    if not isinstance(value, list):
         value = [value]
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
 
@@ -764,19 +762,19 @@ def filter_element(
     *,
     operator: Optional[OperatorType] = None,
     prepend: str = "",
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     if operator is None:
         operator = "exact"
 
     params = {}
-    combination_conditions: List[str] = []
+    combination_conditions: list[str] = []
 
     if key == "selector":
         if operator not in ("exact", "is_not"):
             raise exceptions.ValidationError(
                 'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        selectors = cast(List[str | int], value) if isinstance(value, list) else [value]
+        selectors = cast(list[str | int], value) if isinstance(value, list) else [value]
         for idx, query in enumerate(selectors):
             if not query:  # Skip empty selectors
                 continue
@@ -792,7 +790,7 @@ def filter_element(
             raise exceptions.ValidationError(
                 'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        tag_names = cast(List[str | int], value) if isinstance(value, list) else [value]
+        tag_names = cast(list[str | int], value) if isinstance(value, list) else [value]
         for idx, tag_name in enumerate(tag_names):
             if not tag_name:  # Skip empty tags
                 continue
@@ -824,12 +822,12 @@ def filter_element(
         return "0 = 191" if operator not in NEGATED_OPERATORS else "", {}
 
 
-def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
+def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
     if operator.endswith("_set"):
         return [r'[^"]+']
     else:
         # Make sure ok_values is a list
-        ok_values = cast(List[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
+        ok_values = cast(list[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
         # Escape double quote characters, since e.g. text 'foo="bar"' is represented as text="foo=\"bar\""
         # in the elements chain
         ok_values = [text.replace('"', r"\"") for text in ok_values]
@@ -847,27 +845,30 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
-        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
-            if tag.data["tag_name"] == "*":
-                regex += ".+"
-            else:
-                regex += re.escape(tag.data["tag_name"])
+        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
+            # The elements in the elements_chain are separated by the semicolon
+            regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\.{}".format(r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])]))
+            regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
         if tag.ch_attributes:
-            regex += ".*?"
+            regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += '{}="{}".*?'.format(re.escape(key), re.escape(str(value)))
+                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
         regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
-            regex += ".*"
-    return regex
+            regex += r".*"
+    if regex:
+        # Always start matching at the beginning of an element in the chain string
+        # This is to avoid issues like matching elements with class "foo" when looking for elements with tag name "foo"
+        return r"(^|;)" + regex
+    else:
+        return r""
 
 
 class HogQLPropertyChecker(TraversingVisitor):
     def __init__(self):
-        self.event_properties: List[str] = []
-        self.person_properties: List[str] = []
+        self.event_properties: list[str] = []
+        self.person_properties: list[str] = []
 
     def visit_field(self, node: ast.Field):
         if len(node.chain) > 1 and node.chain[0] == "properties":
@@ -885,8 +886,8 @@ class HogQLPropertyChecker(TraversingVisitor):
             self.person_properties.append(node.chain[3])
 
 
-def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
-    counters: List[tuple] = []
+def extract_tables_and_properties(props: list[Property]) -> TCounter[PropertyIdentifier]:
+    counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
@@ -914,7 +915,7 @@ def count_hogql_properties(
     return counter
 
 
-def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
+def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
     if prop.key == "$session_duration":
         try:
             duration = float(prop.value)  # type: ignore
@@ -929,7 +930,7 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
         )
 
     else:
-        raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")
+        raise exceptions.ValidationError(f"Session property '{prop.key}' is only valid in HogQL queries.")
 
 
 def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):

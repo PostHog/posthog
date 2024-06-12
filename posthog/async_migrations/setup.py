@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
@@ -19,12 +19,12 @@ def reload_migration_definitions():
         ALL_ASYNC_MIGRATIONS[name] = module.Migration(name)
 
 
-ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
+ALL_ASYNC_MIGRATIONS: dict[str, AsyncMigrationDefinition] = {}
 
-ASYNC_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
+ASYNC_MIGRATION_TO_DEPENDENCY: dict[str, Optional[str]] = {}
 
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
-DEPENDENCY_TO_ASYNC_MIGRATION: Dict[Optional[str], str] = {}
+DEPENDENCY_TO_ASYNC_MIGRATION: dict[Optional[str], str] = {}
 
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
@@ -42,7 +42,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     4. Populate a dependencies map and in-memory record of migration definitions
     """
 
-    applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
+    applied_migrations = {instance.name for instance in get_all_completed_async_migrations()}
     unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
 
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():

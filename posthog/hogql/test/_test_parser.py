@@ -1,10 +1,10 @@
-from typing import Literal, cast, Optional, Dict
+from typing import Literal, cast, Optional
 
 import math
 
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException, SyntaxException
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.errors import ExposedHogQLError, SyntaxError
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -20,11 +20,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+            return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
+
+        def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
-        def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-            return clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
+        def _select(
+            self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
+        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+            return cast(
+                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
+            )
 
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))
@@ -790,7 +798,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -804,7 +812,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                         ),
                     ),
                 ),
@@ -818,12 +826,26 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         next_join=ast.JoinExpr(
                             join_type="LEFT OUTER JOIN",
                             table=ast.Field(chain=["events2"]),
-                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
                             next_join=ast.JoinExpr(
                                 join_type="RIGHT ANY JOIN",
                                 table=ast.Field(chain=["events3"]),
-                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2)),
+                                constraint=ast.JoinConstraint(expr=ast.Constant(value=2), constraint_type="ON"),
                             ),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events JOIN events2 USING 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events2"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
                         ),
                     ),
                 ),
@@ -863,7 +885,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["pdi", "distinct_id"]),
                                     right=ast.Field(chain=["e", "distinct_id"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                             next_join=ast.JoinExpr(
                                 join_type="LEFT JOIN",
@@ -874,7 +897,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                                         op=ast.CompareOperationOp.Eq,
                                         left=ast.Field(chain=["p", "id"]),
                                         right=ast.Field(chain=["pdi", "person_id"]),
-                                    )
+                                    ),
+                                    constraint_type="ON",
                                 ),
                             ),
                         ),
@@ -933,7 +957,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_select_array_join(self):
             self.assertEqual(
-                self._select("select a from events ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -953,7 +977,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select a from events INNER ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events INNER ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -973,7 +997,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] a, [4,5,6] AS b"),
+                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1), ast.Field(chain=["b"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -1004,13 +1028,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def test_select_array_join_errors(self):
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select("select a from events ARRAY JOIN [1,2,3]")
             self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
             self.assertEqual(e.exception.start, 32)
             self.assertEqual(e.exception.end, 39)
 
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select("select a ARRAY JOIN [1,2,3]")
             self.assertEqual(
                 str(e.exception),
@@ -1385,7 +1409,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_expr=ast.WindowExpr(
                                 partition_by=[ast.Field(chain=["person", "id"])],
                                 order_by=[
@@ -1405,6 +1429,32 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(expr, expected)
 
+        def test_window_functions_call_arg(self):
+            query = "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
+            expr = self._select(query)
+            expected = ast.SelectQuery(
+                select=[
+                    ast.Alias(
+                        alias="values",
+                        expr=ast.WindowFunction(
+                            name="quantiles",
+                            args=[ast.Field(chain=["distinct_id"])],
+                            exprs=[
+                                ast.Constant(value=0.0),
+                                ast.Constant(value=0.25),
+                                ast.Constant(value=0.5),
+                                ast.Constant(value=0.75),
+                                ast.Constant(value=1.0),
+                            ],
+                            over_expr=ast.WindowExpr(),
+                        ),
+                        hidden=False,
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+            self.assertEqual(expr, expected)
+
         def test_window_functions_with_window(self):
             query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             expr = self._select(query)
@@ -1415,7 +1465,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_identifier="win1",
                         ),
                     ),
@@ -1436,7 +1486,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_arrays_zero_index_error(self):
             query = f"SELECT properties.something[0] FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1446,7 +1496,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_tuples_zero_index_error(self):
             query = f"SELECT properties.something.0 FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1456,7 +1506,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
@@ -1466,7 +1516,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_malformed_sql(self):
             query = "SELEC 2"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)
@@ -1532,14 +1582,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             # With mismatched closing tag
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
                 )
             assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
 
             # With mismatched closing tag
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
@@ -1591,6 +1641,145 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             ],
                         ),
                     ),
+                ],
+            )
+
+        def test_select_extract_as_function(self):
+            node = self._select("select extract('string', 'other string') from events")
+
+            assert node == ast.SelectQuery(
+                select=[
+                    ast.Call(
+                        name="extract",
+                        args=[ast.Constant(value="string"), ast.Constant(value="other string")],
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+
+        def test_trim_leading_trailing_both(self):
+            node1 = self._select(
+                "select trim(LEADING 'fish' FROM event), trim(TRAILING 'fish' FROM event), trim(BOTH 'fish' FROM event) from events"
+            )
+            node2 = self._select(
+                "select trimLeft(event, 'fish'), trimRight(event, 'fish'), trim(event, 'fish') from events"
+            )
+            assert node1 == node2
+
+            node3 = self._select(
+                "select TRIM (LEADING 'fish' FROM event), TRIM (TRAILING 'fish' FROM event), TRIM (BOTH 'fish' FROM event) from events"
+            )
+            assert node3 == node1
+
+            node4 = self._select("select TRIM (LEADING f'fi{'a'}sh' FROM event) from events")
+            assert isinstance(node4, ast.SelectQuery)
+            assert node4.select[0] == ast.Call(
+                name="trimLeft",
+                args=[
+                    ast.Field(chain=["event"]),
+                    ast.Call(
+                        name="concat",
+                        args=[
+                            ast.Constant(value="fi"),
+                            ast.Constant(value="a"),
+                            ast.Constant(value="sh"),
+                        ],
+                    ),
+                ],
+            )
+
+        def test_template_strings(self):
+            node = self._expr("f'hello {event}'")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            select = self._select("select f'hello {event}' from events")
+            assert isinstance(select, ast.SelectQuery)
+            assert select.select[0] == node
+
+        def test_template_strings_nested_strings(self):
+            node = self._expr("a = f'aa {1 + call('string')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(name="call", args=[ast.Constant(value="string")]),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
+
+        def test_template_strings_multiple_levels(self):
+            node = self._expr("a = f'aa {1 + call(f'fi{one(more, time, 'stringy')}sh')}aa'")
+            assert node == ast.CompareOperation(
+                left=ast.Field(chain=["a"]),
+                right=ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Constant(value="aa "),
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Call(
+                                name="call",
+                                args=[
+                                    ast.Call(
+                                        name="concat",
+                                        args=[
+                                            ast.Constant(value="fi"),
+                                            ast.Call(
+                                                name="one",
+                                                args=[
+                                                    ast.Field(chain=["more"]),
+                                                    ast.Field(chain=["time"]),
+                                                    ast.Constant(value="stringy"),
+                                                ],
+                                            ),
+                                            ast.Constant(value="sh"),
+                                        ],
+                                    )
+                                ],
+                            ),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        ast.Constant(value="aa"),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+            )
+
+        def test_template_strings_full(self):
+            node = self._string_template("hello {event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to open {person.properties.email}")
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="we're ready to open "), ast.Field(chain=["person", "properties", "email"])],
+            )
+
+            node = self._string_template("strings' to {'strings'}")
+            assert node == ast.Call(
+                name="concat", args=[ast.Constant(value="strings' to "), ast.Constant(value="strings")]
+            )
+            node2 = self._expr("f'strings\\' to {'strings'}'")
+            assert node2 == node
+
+        def test_template_strings_full_multiline(self):
+            node = self._string_template("hello \n{event}")
+            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])
+
+            node = self._string_template("we're ready to \n\nopen {\nperson.properties.email\n}")
+            assert node == ast.Call(
+                name="concat",
+                args=[
+                    ast.Constant(value="we're ready to \n\nopen "),
+                    ast.Field(chain=["person", "properties", "email"]),
                 ],
             )
 

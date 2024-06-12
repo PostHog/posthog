@@ -40,7 +40,7 @@ if (experimentFlagValue === '${variant}' ) {
 
 export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
-        <>
+        <div>
             <CodeSnippet language={Language.JavaScript} wrap>
                 {`if (posthog.getFeatureFlag('${flagKey}') === '${variant}') {
     // Do something differently for this user
@@ -49,11 +49,13 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     // so if something goes wrong with flag evaluation, you don't break your app.
 }`}
             </CodeSnippet>
-            <b>Test that it works</b>
+            <div className="mt-4 mb-1">
+                <b>Test that it works</b>
+            </div>
             <CodeSnippet language={Language.JavaScript} wrap>
                 {`posthog.featureFlags.override({'${flagKey}': '${variant}'})`}
             </CodeSnippet>
-        </>
+        </div>
     )
 }
 

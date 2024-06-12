@@ -1,6 +1,5 @@
 import dataclasses
-from datetime import timedelta
-from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, cast
+from typing import Literal, Optional, Any, TypedDict, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
@@ -33,6 +32,7 @@ from posthog.schema import (
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
+    CachedFunnelCorrelationResponse,
     FunnelCorrelationResult,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
@@ -86,7 +86,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
-    query_type = FunnelCorrelationQuery
+    response: FunnelCorrelationResponse
+    cached_response: CachedFunnelCorrelationResponse
+
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
@@ -95,7 +97,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def __init__(
         self,
-        query: FunnelCorrelationQuery | Dict[str, Any],
+        query: FunnelCorrelationQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -132,15 +134,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         # Used for generating the funnel persons cte
         funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
         assert isinstance(
-            funnel_order_actor_class, (FunnelActors, FunnelStrictActors, FunnelUnorderedActors)
+            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
-
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
 
     def calculate(self) -> FunnelCorrelationResponse:
         """
@@ -207,7 +203,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for us to calculate the odds ratio.
         """
         if not self.funnels_query.series:
-            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
+            return FunnelCorrelationResponse(
+                results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
+            )
 
         events, skewed_totals, hogql, response = self._calculate()
 
@@ -223,9 +221,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hasMore=response.hasMore,
             limit=response.limit,
             offset=response.offset,
+            modifiers=self.modifiers,
         )
 
-    def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
@@ -236,14 +235,15 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [result for result in response.results if result[0] == self.TOTAL_IDENTIFIER][
-            0
-        ]
+        _, success_total, failure_total = next(
+            result for result in response.results if result[0] == self.TOTAL_IDENTIFIER
+        )
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -299,7 +299,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             failure_count=odds_ratio["failure_count"],
             odds_ratio=odds_ratio["odds_ratio"],
             correlation_type=(
-                CorrelationType.success if odds_ratio["correlation_type"] == "success" else CorrelationType.failure
+                CorrelationType.SUCCESS if odds_ratio["correlation_type"] == "success" else CorrelationType.FAILURE
             ),
             event=event_definition,
         )
@@ -330,10 +330,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             return self.get_properties_query()
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES:
             return self.get_event_property_query()
 
         return self.get_event_query()
@@ -341,7 +341,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         assert self.correlation_actors_query is not None
 
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             # Filtering on persons / groups properties can be pushed down to funnel events query
             if (
                 self.correlation_actors_query.funnelCorrelationPropertyValues
@@ -761,7 +761,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') > funnel_actors.first_timestamp
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') < coalesce(
                     funnel_actors.final_timestamp,
-                    funnel_actors.first_timestamp + INTERVAL {windowInterval} {windowIntervalUnit},
+                    toTimeZone(funnel_actors.first_timestamp, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit},
                     date_to)
                     -- Ensure that the event is not outside the bounds of the funnel conversion window
 
@@ -819,25 +819,25 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             props_str = ", ".join(props)
             return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
 
-    def _get_funnel_step_names(self) -> List[str]:
-        events: Set[str] = set()
+    def _get_funnel_step_names(self) -> list[str]:
+        events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
                 action = Action.objects.get(pk=int(entity.id), team=self.context.team)
-                events.update(action.get_step_events())
+                events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:
                     events.add(entity.event)
             else:
                 raise ValidationError("Data warehouse nodes are not supported here")
 
-        return sorted(list(events))
+        return sorted(events)
 
     @property
-    def properties_to_include(self) -> List[str]:
-        props_to_include: List[str] = []
+    def properties_to_include(self) -> list[str]:
+        props_to_include: list[str] = []
         # TODO: implement or remove
-        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
         #     assert self.query.funnelCorrelationNames is not None
 
         #     # When dealing with properties, make sure funnel response comes with properties
@@ -855,7 +855,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def support_autocapture_elements(self) -> bool:
         if (
-            self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties
+            self.query.funnelCorrelationType == FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES
             and AUTOCAPTURE_EVENT in (self.query.funnelCorrelationEventNames or [])
         ):
             return True

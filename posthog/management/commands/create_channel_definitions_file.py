@@ -4,7 +4,7 @@ import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional
 
 from django.core.management.base import BaseCommand
 
@@ -40,7 +40,7 @@ class Command(BaseCommand):
         input_arg = options.get("ga_sources")
         if not input_arg:
             raise ValueError("No input file specified")
-        with open(input_arg, "r", encoding="utf-8-sig") as input_file:
+        with open(input_arg, encoding="utf-8-sig") as input_file:
             input_str = input_file.read()
         split_items = re.findall(r"\S+\s+SOURCE_CATEGORY_\S+", input_str)
 
@@ -59,11 +59,11 @@ class Command(BaseCommand):
             base_type, type_if_paid, type_if_organic = types[raw_type]
             return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
 
-        entries: OrderedDict[Tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
+        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
-        for google_domain in (
-            ".google.com .google.ad .google.ae .google.com.af .google.com.ag .google.al .google.am .google.co.ao "
+        for google_domain in [
+            *".google.com .google.ad .google.ae .google.com.af .google.com.ag .google.al .google.am .google.co.ao "
             ".google.com.ar .google.as .google.at .google.com.au .google.az .google.ba .google.com.bd .google.be "
             ".google.bf .google.bg .google.com.bh .google.bi .google.bj .google.com.bn .google.com.bo "
             ".google.com.br .google.bs .google.bt .google.co.bw .google.by .google.com.bz .google.ca .google.cd "
@@ -87,8 +87,9 @@ class Command(BaseCommand):
             ".google.co.th .google.com.tj .google.tl .google.tm .google.tn .google.to .google.com.tr .google.tt "
             ".google.com.tw .google.co.tz .google.com.ua .google.co.ug .google.co.uk .google.com.uy .google.co.uz "
             ".google.com.vc .google.co.ve .google.co.vi .google.com.vn .google.vu .google.ws .google.rs "
-            ".google.co.za .google.co.zm .google.co.zw .google.cat"
-        ).split(" ") + ["google"]:
+            ".google.co.za .google.co.zm .google.co.zw .google.cat".split(" "),
+            "google",
+        ]:
             google_domain = google_domain.strip()
             if google_domain[0] == ".":
                 google_domain = google_domain[1:]

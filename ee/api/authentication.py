@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -91,8 +91,8 @@ class MultitenantSAMLAuth(SAMLAuth):
 
     def _get_attr(
         self,
-        response_attributes: Dict[str, Any],
-        attribute_names: List[str],
+        response_attributes: dict[str, Any],
+        attribute_names: list[str],
         optional: bool = False,
     ) -> str:
         """

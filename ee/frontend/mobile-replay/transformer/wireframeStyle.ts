@@ -130,9 +130,24 @@ function makeLayoutStyles(wireframe: wireframe, styleOverride?: StyleOverride): 
             }`
         )
     }
+
     if (styleParts.length) {
         styleParts.push(`display: flex`)
     }
+
+    if (isUnitLike(combinedStyles.paddingLeft)) {
+        styleParts.push(`padding-left: ${ensureUnit(combinedStyles.paddingLeft)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingRight)) {
+        styleParts.push(`padding-right: ${ensureUnit(combinedStyles.paddingRight)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingTop)) {
+        styleParts.push(`padding-top: ${ensureUnit(combinedStyles.paddingTop)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingBottom)) {
+        styleParts.push(`padding-bottom: ${ensureUnit(combinedStyles.paddingBottom)}`)
+    }
+
     return asStyleString(styleParts)
 }
 
@@ -214,10 +229,13 @@ export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: Style
     }
 
     if (combinedStyles.backgroundImage) {
+        const backgroundImageURL = combinedStyles.backgroundImage.startsWith('url(')
+            ? combinedStyles.backgroundImage
+            : `url('${dataURIOrPNG(combinedStyles.backgroundImage)}')`
         styleParts = styleParts.concat([
-            `background-image: url('${dataURIOrPNG(combinedStyles.backgroundImage)}')`,
+            `background-image: ${backgroundImageURL}`,
             `background-size: ${combinedStyles.backgroundSize || 'contain'}`,
-            'background-repeat: no-repeat',
+            `background-repeat: ${combinedStyles.backgroundRepeat || 'no-repeat'}`,
         ])
     }
 

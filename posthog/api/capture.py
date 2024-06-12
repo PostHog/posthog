@@ -1,37 +1,40 @@
-import hashlib
 import json
 import re
-import time
-from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional, Tuple
-
 import structlog
+import time
+from collections.abc import Iterator
+from datetime import datetime, timedelta
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
+from typing import Any, Optional
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
+from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -56,10 +59,13 @@ LOG_RATE_LIMITER = Limiter(
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
-SESSION_RECORDING_EVENT_NAMES = (
-    "$snapshot",
-    "$performance_event",
-) + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
+
+# TODO we should eventually be able to remove the code path this is counting
+LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER = Counter(
+    "capture_legacy_snapshot_events_received_total",
+    "Legacy snapshot events received by capture, we should receive zero of these.",
+)
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -83,6 +89,12 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "capture_token_shape_invalid_total",
     "Events dropped due to an invalid token shape, per reason.",
     labelnames=["reason"],
+)
+
+OVERFLOWING_KEYS_LOADED_GAUGE = Gauge(
+    "capture_overflowing_keys_loaded",
+    "Number of keys loaded for the overflow redirection, per resource_type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -111,17 +123,24 @@ LIKELY_ANONYMOUS_IDS = {
     "undefined",
 }
 
+OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
+
+
+class InputType(Enum):
+    EVENTS = "events"
+    REPLAY = "replay"
+
 
 def build_kafka_event_data(
     distinct_id: str,
     ip: Optional[str],
     site_url: str,
-    data: Dict,
+    data: dict,
     now: datetime,
     sent_at: Optional[datetime],
     event_uuid: UUIDT,
     token: str,
-) -> Dict:
+) -> dict:
     logger.debug("build_kafka_event_data", token=token)
     return {
         "uuid": str(event_uuid),
@@ -135,14 +154,17 @@ def build_kafka_event_data(
     }
 
 
-def _kafka_topic(event_name: str, data: Dict, historical: bool = False) -> str:
+def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
     # To allow for different quality of service on session recordings
     # and other events, we push to a different topic.
 
     match event_name:
         case "$snapshot":
+            LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER.inc()
             return KAFKA_SESSION_RECORDING_EVENTS
         case "$snapshot_items":
+            if overflowing:
+                return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
@@ -153,13 +175,14 @@ def _kafka_topic(event_name: str, data: Dict, historical: bool = False) -> str:
 
 
 def log_event(
-    data: Dict,
+    data: dict,
     event_name: str,
     partition_key: Optional[str],
-    headers: Optional[List] = None,
+    headers: Optional[list] = None,
     historical: bool = False,
+    overflowing: bool = False,
 ) -> FutureRecordMetadata:
-    kafka_topic = _kafka_topic(event_name, data, historical=historical)
+    kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
@@ -189,7 +212,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
-def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
+def _get_sent_at(data, request) -> tuple[Optional[datetime], Any]:
     try:
         if request.GET.get("_"):  # posthog-js
             sent_at = request.GET["_"]
@@ -237,7 +260,7 @@ def _check_token_shape(token: Any) -> Optional[str]:
     return None
 
 
-def get_distinct_id(data: Dict[str, Any]) -> str:
+def get_distinct_id(data: dict[str, Any]) -> str:
     raw_value: Any = ""
     try:
         raw_value = data["$distinct_id"]
@@ -258,12 +281,12 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def drop_performance_events(events: List[Any]) -> List[Any]:
+def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
 
 
-def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
+def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
     if not settings.EE_AVAILABLE:
         return events
 
@@ -295,6 +318,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
         results.append(event)
 
     return results
+
+
+def lib_version_from_query_params(request) -> str:
+    # url has a ver parameter from posthog-js
+    return request.GET.get("ver", "unknown")
 
 
 @csrf_exempt
@@ -360,7 +388,7 @@ def get_event(request):
 
     structlog.contextvars.bind_contextvars(token=token)
 
-    replay_events: List[Any] = []
+    replay_events: list[Any] = []
 
     historical = token in settings.TOKENS_HISTORICAL_DATA
     with start_span(op="request.process"):
@@ -381,6 +409,14 @@ def get_event(request):
             events = data
         else:
             events = [data]
+
+        if not all(data):  # Check that all items are truthy (not null, not empty dict)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
+                ),
+            )
 
         try:
             events = drop_performance_events(events)
@@ -416,7 +452,7 @@ def get_event(request):
                 generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
 
-    futures: List[FutureRecordMetadata] = []
+    futures: list[FutureRecordMetadata] = []
 
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
@@ -475,6 +511,8 @@ def get_event(request):
 
     try:
         if replay_events:
+            lib_version = lib_version_from_query_params(request)
+
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
@@ -496,6 +534,7 @@ def get_event(request):
                             sent_at,
                             event_uuid,
                             token,
+                            extra_headers=[("lib_version", lib_version)],
                         )
                     )
 
@@ -512,7 +551,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def preprocess_events(events: List[Dict[str, Any]]) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
+def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
@@ -546,9 +585,23 @@ def parse_event(event):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=None, token=None, historical=False):
+def capture_internal(
+    event,
+    distinct_id,
+    ip,
+    site_url,
+    now,
+    sent_at,
+    event_uuid=None,
+    token=None,
+    historical=False,
+    extra_headers: list[tuple[str, str]] | None = None,
+):
     if event_uuid is None:
         event_uuid = UUIDT()
+
+    if extra_headers is None:
+        extra_headers = []
 
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
@@ -561,26 +614,32 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
         token=token,
     )
 
+    if event["event"] in SESSION_RECORDING_EVENT_NAMES:
+        session_id = event["properties"]["$session_id"]
+        headers = [("token", token), *extra_headers]
+
+        overflowing = False
+        if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
+            overflowing = True
+        elif settings.REPLAY_OVERFLOW_SESSIONS_ENABLED:
+            overflowing = session_id in _list_overflowing_keys(InputType.REPLAY)
+
+        return log_event(
+            parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
+        )
+
     # We aim to always partition by {team_id}:{distinct_id} but allow
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
-    kafka_partition_key = None
-
-    if event["event"] in SESSION_RECORDING_EVENT_NAMES:
-        kafka_partition_key = event["properties"]["$session_id"]
-        headers = [
-            ("token", token),
-        ]
-        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
-
     candidate_partition_key = f"{token}:{distinct_id}"
-
     if (
-        distinct_id.lower() not in LIKELY_ANONYMOUS_IDS
-        and is_randomly_partitioned(candidate_partition_key) is False
-        or historical
+        not historical
+        and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
+        and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
     ):
-        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+        kafka_partition_key = None
+    else:
+        kafka_partition_key = candidate_partition_key
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
 
@@ -613,7 +672,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
         has_capacity = LIMITER.consume(candidate_partition_key)
 
-        if has_capacity is False:
+        if not has_capacity:
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True
@@ -633,3 +692,19 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
 
     return candidate_partition_key in keys_to_override
+
+
+@cache_for(timedelta(seconds=30), background_refresh=True)
+def _list_overflowing_keys(input_type: InputType) -> set[str]:
+    """Retrieve the active overflows from Redis with caching and pre-fetching
+
+    cache_for will keep the old value if Redis is temporarily unavailable.
+    In case of a prolonged Redis outage, new pods would fail to retrieve anything and fail
+    to ingest, but Django is currently unable to start if the common Redis is unhealthy.
+    Setting REPLAY_OVERFLOW_SESSIONS_ENABLED back to false neutralizes this code path.
+    """
+    now = timezone.now()
+    redis_client = get_client()
+    results = redis_client.zrangebyscore(f"{OVERFLOWING_REDIS_KEY}{input_type.value}", min=now.timestamp(), max="+inf")
+    OVERFLOWING_KEYS_LOADED_GAUGE.labels(input_type.value).set(len(results))
+    return {x.decode("utf-8") for x in results}

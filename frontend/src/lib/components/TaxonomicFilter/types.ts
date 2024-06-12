@@ -1,8 +1,9 @@
 import Fuse from 'fuse.js'
-import { BuiltLogic, LogicWrapper } from 'kea'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { LogicWrapper } from 'kea'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -22,11 +23,12 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
+    filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     height?: number
     width?: number
     popoverEnabled?: boolean
@@ -45,7 +47,7 @@ export type TaxonomicFilterValue = string | number | null
 
 export type TaxonomicFilterRender = (props: {
     value?: TaxonomicFilterValue
-    onChange: (value: TaxonomicFilterValue) => void
+    onChange: (value: TaxonomicFilterValue, item: any) => void
 }) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
@@ -59,7 +61,7 @@ export interface TaxonomicFilterGroup {
     scopedEndpoint?: string
     expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
-    logic?: LogicWrapper | BuiltLogic
+    logic?: LogicWrapper
     value?: string
     searchAlias?: string
     valuesEndpoint?: (key: string) => string
@@ -83,6 +85,7 @@ export enum TaxonomicFilterGroupType {
     CohortsWithAllUsers = 'cohorts_with_all',
     DataWarehouse = 'data_warehouse',
     DataWarehouseProperties = 'data_warehouse_properties',
+    DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
@@ -102,9 +105,11 @@ export enum TaxonomicFilterGroupType {
     Plugins = 'plugins',
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
-    Sessions = 'sessions',
+    SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
+    // Misc
+    Replay = 'replay',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
@@ -136,4 +141,4 @@ export type TaxonomicDefinitionTypes =
     | CohortType
     | ActionType
     | PersonProperty
-    | DataWarehouseTableType
+    | DataWarehouseTableForInsight

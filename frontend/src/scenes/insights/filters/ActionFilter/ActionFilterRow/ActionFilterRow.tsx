@@ -3,7 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconFilter, IconPencil, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -20,7 +20,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -39,6 +39,7 @@ import {
     ActionFilter,
     ActionFilter as ActionFilterType,
     BaseMathType,
+    ChartDisplayCategory,
     CountPerActorMathType,
     EntityType,
     EntityTypes,
@@ -71,9 +72,8 @@ const getValue = (
         return 'All events'
     } else if (filter.type === 'actions') {
         return typeof value === 'string' ? parseInt(value) : value || undefined
-    } else {
-        return value === null ? null : value || undefined
     }
+    return value === null ? null : value || undefined
 }
 
 export interface ActionFilterRowProps {
@@ -115,6 +115,7 @@ export interface ActionFilterRowProps {
         renameRowButton,
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
+    trendsDisplayCategory: ChartDisplayCategory | null
 }
 
 export function ActionFilterRow({
@@ -142,6 +143,7 @@ export function ActionFilterRow({
     disabled = false,
     readOnly = false,
     renderRow,
+    trendsDisplayCategory,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -155,15 +157,13 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { externalTablesMap } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
-    const mathDisabledReason =
-        filter.type === EntityTypes.DATA_WAREHOUSE ? 'Data Warehouse Series only supports total counts' : ''
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -230,6 +230,7 @@ export function ActionFilterRow({
             fullWidth
             groupType={filter.type as TaxonomicFilterGroupType}
             value={getValue(value, filter)}
+            filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
@@ -239,6 +240,7 @@ export function ActionFilterRow({
                         name: item?.name ?? '',
                         id_field: item?.id_field,
                         timestamp_field: item?.timestamp_field,
+                        distinct_id_field: item?.distinct_id_field,
                         table_name: item?.name,
                         index,
                     })
@@ -375,9 +377,9 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         disabled={readOnly}
-                                        disabledReason={mathDisabledReason}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
+                                        trendsDisplayCategory={trendsDisplayCategory}
                                     />
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.PropertyValue && (
@@ -385,9 +387,17 @@ export function ActionFilterRow({
                                             <TaxonomicStringPopover
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
+                                                    TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    TaxonomicFilterGroupType.Sessions,
+                                                    TaxonomicFilterGroupType.SessionProperties,
                                                 ]}
+                                                schemaColumns={
+                                                    filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                                        ? Object.values(
+                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          )
+                                                        : []
+                                                }
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
@@ -491,7 +501,7 @@ export function ActionFilterRow({
                         }
                         schemaColumns={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? externalTablesMap[filter.name]?.columns
+                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
                     />
@@ -509,6 +519,7 @@ interface MathSelectorProps {
     disabled?: boolean
     disabledReason?: string
     onMathSelect: (index: number, value: any) => any
+    trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
 }
 
@@ -520,11 +531,14 @@ function isCountPerActorMath(math: string | undefined): math is CountPerActorMat
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
 
+const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
 function useMathSelectorOptions({
     math,
     index,
     mathAvailability,
     onMathSelect,
+    trendsDisplayCategory,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -545,19 +559,33 @@ function useMathSelectorOptions({
         mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
     )
         .filter(([key]) => {
-            if (!isStickiness) {
-                return true
+            if (isStickiness) {
+                // Remove WAU and MAU from stickiness insights
+                return !TRAILING_MATH_TYPES.has(key)
             }
-
-            // Remove WAU and MAU from stickiness insights
-            return key !== BaseMathType.WeeklyActiveUsers && key !== BaseMathType.MonthlyActiveUsers
+            return true
         })
-        .map(([key, definition]) => ({
-            value: key,
-            label: definition.name,
-            tooltip: definition.description,
-            'data-attr': `math-${key}-${index}`,
-        }))
+        .map(([key, definition]) => {
+            const shouldWarnAboutTrailingMath =
+                TRAILING_MATH_TYPES.has(key) && trendsDisplayCategory === ChartDisplayCategory.TotalValue
+            return {
+                value: key,
+                icon: shouldWarnAboutTrailingMath ? <IconWarning /> : undefined,
+                label: definition.name,
+                tooltip: !shouldWarnAboutTrailingMath ? (
+                    definition.description
+                ) : (
+                    <>
+                        <p>{definition.description}</p>
+                        <i>
+                            In total value insights, it's usually not clear what date range "{definition.name}" refers
+                            to. For full clarity, we recommend using "Unique users" here instead.
+                        </i>
+                    </>
+                ),
+                'data-attr': `math-${key}-${index}`,
+            }
+        })
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {
@@ -575,7 +603,6 @@ function useMathSelectorOptions({
                         options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
                             value: key,
                             label: definition.shortName,
-                            tooltip: definition.description,
                             'data-attr': `math-${key}-${index}`,
                         }))}
                         onClick={(e) => e.stopPropagation()}

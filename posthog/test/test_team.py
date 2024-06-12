@@ -15,7 +15,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 from .base import BaseTest
 
@@ -138,7 +138,9 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
+                self.assertEqual(
+                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                )
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
                     "persons-on-events-v2-reads-enabled",
@@ -159,13 +161,19 @@ class TestTeam(BaseTest):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
-                mock_feature_enabled.assert_not_called()
+                self.assertEqual(
+                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                )
+                for args_list in mock_feature_enabled.call_args_list:
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
+                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
-                mock_feature_enabled.assert_not_called()
+                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.DISABLED)
+                for args_list in mock_feature_enabled.call_args_list:
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
+                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):
         # Can be removed once environments are fully rolled out

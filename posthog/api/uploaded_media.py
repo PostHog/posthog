@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import Dict, Optional
+from typing import Optional
 
 import structlog
 from django.http import HttpResponse
@@ -149,7 +149,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 detail="Object storage must be available to allow media uploads.",
             )
 
-    def get_success_headers(self, location: str) -> Dict:
+    def get_success_headers(self, location: str) -> dict:
         try:
             return {"Location": location}
         except (TypeError, KeyError):

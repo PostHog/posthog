@@ -8,7 +8,7 @@ import { KAFKA_PERSON } from '../../config/kafka-topics'
 import {
     BasePerson,
     ClickHousePerson,
-    Person,
+    InternalPerson,
     PluginLogEntryType,
     PluginLogLevel,
     RawPerson,
@@ -17,7 +17,7 @@ import {
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 
-export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
+export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
 }
 
@@ -52,7 +52,7 @@ export function timeoutGuard(
 }
 
 // when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-const eventToPersonProperties = new Set([
+export const eventToPersonProperties = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -89,6 +89,9 @@ const eventToPersonProperties = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
 ])
+export const initialEventToPersonProperties = new Set(
+    Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
+)
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
@@ -108,15 +111,15 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     const maybeSet: [string, any][] = propertiesForPerson
 
     if (maybeSet.length > 0) {
-        propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
+        propertiesCopy.$set = { ...Object.fromEntries(maybeSet), ...(properties.$set || {}) }
     }
     if (maybeSetOnce.length > 0) {
-        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetOnce) }
+        propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
     }
     return propertiesCopy
 }
 
-export function generateKafkaPersonUpdateMessage(person: Person, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
     return {
         topic: KAFKA_PERSON,
         messages: [
@@ -182,6 +185,10 @@ export function sanitizeJsonbValue(value: any): any {
     } else {
         return value
     }
+}
+
+export function sanitizeString(value: string) {
+    return value.replace(/\u0000/g, '\uFFFD')
 }
 
 export const surrogatesSubstitutedCounter = new Counter({

@@ -28,9 +28,7 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: actions/setup-node@v4
@@ -107,9 +105,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: buildjet/setup-node@v3
@@ -146,7 +142,7 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual-regression:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  pnpm test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Archive failure screenshots
               if: ${{ failure() }}

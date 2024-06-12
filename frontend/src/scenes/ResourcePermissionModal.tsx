@@ -2,19 +2,12 @@ import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessLevel, Resource, RoleType } from '~/types'
 
-import {
-    FormattedResourceLevel,
-    permissionsLogic,
-    ResourcePermissionMapping,
-} from './settings/organization/Permissions/permissionsLogic'
+import { permissionsLogic } from './settings/organization/Permissions/permissionsLogic'
 import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
@@ -36,7 +29,7 @@ interface ResourcePermissionModalProps extends ResourcePermissionProps {
     onClose: () => void
 }
 
-export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
+export function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOption[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,
@@ -91,7 +84,7 @@ export function ResourcePermission({
     resourceType,
     canEdit,
 }: ResourcePermissionProps): JSX.Element {
-    const { allPermissions, shouldShowPermissionsTable } = useValues(permissionsLogic)
+    const { allPermissions } = useValues(permissionsLogic)
     const { roles: possibleRolesWithAccess } = useValues(rolesLogic)
     const resourceLevel = allPermissions.find((permission) => permission.resource === resourceType)
     // TODO: feature_flag_access_level should eventually be generic in this component
@@ -115,7 +108,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconGear />}
-                                        to={`${urls.settings('organization')}?tab=role_based_access`}
+                                        to={`${urls.settings('organization-rbac')}`}
                                         targetBlank
                                         size="small"
                                         noPadding
@@ -169,44 +162,17 @@ export function ResourcePermission({
 
     return (
         <>
-            {!shouldShowPermissionsTable && (
-                <>
-                    {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
-                    <OrganizationResourcePermissionRoles roles={rolesWithAccess} />
-                </>
-            )}
-            {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
-            {!shouldShowPermissionsTable && (
-                <>
-                    <h5 className="mt-4">Roles</h5>
-                    {roles.length > 0 ? (
-                        <div className="pb-2 rounded overflow-y-auto max-h-80">
-                            {roles.map((role) => {
-                                return (
-                                    <RoleRow
-                                        key={role.id}
-                                        role={role}
-                                        deleteRole={(roleId) => deleteAssociatedRole(roleId)}
-                                    />
-                                )
-                            })}
-                        </div>
-                    ) : (
-                        <div className="text-muted mb-2">No roles added yet</div>
-                    )}
-                </>
-            )}
+            <LemonTable dataSource={tableData} columns={columns} className="mt-4" />
             {canEdit && (
                 <>
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <LemonSelectMultiple
+                            <LemonInputSelect
                                 placeholder="Search for roles to add…"
                                 loading={addableRolesLoading}
                                 onChange={onChange}
                                 value={rolesToAdd}
-                                filterOption={true}
                                 mode="multiple"
                                 data-attr="resource-permissioning-select"
                                 options={roleLemonSelectOptions(addableRoles)}
@@ -219,63 +185,5 @@ export function ResourcePermission({
                 </>
             )}
         </>
-    )
-}
-
-function OrganizationResourcePermissionLabel({
-    resourceLevel,
-}: {
-    resourceLevel: FormattedResourceLevel
-}): JSX.Element {
-    return (
-        <>
-            <TitleWithIcon
-                icon={
-                    <LemonButton
-                        icon={<IconGear />}
-                        to={`${urls.settings('organization')}?tab=role_based_access`}
-                        targetBlank
-                        size="small"
-                        noPadding
-                        className="ml-1"
-                    />
-                }
-            >
-                <h5>Organization default</h5>
-            </TitleWithIcon>
-            <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
-        </>
-    )
-}
-
-function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): JSX.Element {
-    return (
-        <>
-            <h5 className="mt-4">Roles with edit access</h5>
-            <div className="flex">
-                {roles.map((role) => (
-                    <span key={role.id} className="simple-tag tag-light-blue text-primary-alt mr-2">
-                        <b>{role.name}</b>{' '}
-                    </span>
-                ))}
-            </div>
-        </>
-    )
-}
-
-function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: RoleType['id']) => void }): JSX.Element {
-    return (
-        <div className="flex items-center justify-between h-8">
-            <b>{role.name}</b>
-            {deleteRole && (
-                <LemonButton
-                    icon={<IconTrash />}
-                    onClick={() => deleteRole(role.id)}
-                    tooltip="Remove role from permission"
-                    tooltipPlacement="bottom-start"
-                    size="small"
-                />
-            )}
-        </div>
     )
 }

@@ -143,6 +143,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
             [`/api/projects/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
                 return [200, insight]
             },
+            '/api/users/@me/': [200, {}],
         },
     })
 }
@@ -162,6 +163,7 @@ function useAnnotationsMocks(): void {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ],
             },
+            '/api/users/@me/': [200, {}],
         },
     })
 }
@@ -171,6 +173,7 @@ describe('annotationsOverlayLogic', () => {
 
     beforeEach(() => {
         useAnnotationsMocks()
+        initKeaTests()
     })
 
     afterEach(() => {
@@ -178,8 +181,6 @@ describe('annotationsOverlayLogic', () => {
     })
 
     it('loads annotations on mount', async () => {
-        initKeaTests()
-
         useInsightMocks()
 
         logic = annotationsOverlayLogic({
@@ -193,8 +194,6 @@ describe('annotationsOverlayLogic', () => {
     })
 
     describe('relevantAnnotations', () => {
-        initKeaTests()
-
         it('returns annotations scoped to the insight for a saved insight', async () => {
             useInsightMocks()
 
@@ -224,8 +223,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it('returns annotations scoped to the project for a new insight', async () => {
-            initKeaTests()
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -250,8 +247,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it('excludes annotations that are outside of insight date range', async () => {
-            initKeaTests()
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -277,6 +272,27 @@ describe('annotationsOverlayLogic', () => {
             Record<IntervalType, Record<string, AnnotationType[]>> // All IntervalType variants should be covered
         > = {
             UTC: {
+                minute: {
+                    '2022-08-10 04:00:00+0000': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+                    '2022-08-10 04:01:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-08-10 05:00:00+0000': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-08-11 04:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-08-17 04:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-09-10 04:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                },
                 hour: {
                     '2022-08-10 04:00:00+0000': [
                         MOCK_ANNOTATION_ORG_SCOPED,
@@ -344,6 +360,27 @@ describe('annotationsOverlayLogic', () => {
             },
             'America/Phoenix': {
                 // Purposefully using Phoenix for test determinism - Arizona does NOT observe DST
+                minute: {
+                    '2022-08-09 21:00:00-0700': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
+                    '2022-08-09 21:01:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-08-09 22:00:00-0700': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-08-10 21:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-08-16 21:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-09-09 21:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                },
                 hour: {
                     '2022-08-09 21:00:00-0700': [
                         MOCK_ANNOTATION_ORG_SCOPED,
@@ -411,6 +448,27 @@ describe('annotationsOverlayLogic', () => {
             },
             'Europe/Moscow': {
                 // Purposefully using Moscow for test determinism - Russia does NOT observe DST
+                minute: {
+                    '2022-08-10 07:00:00+0300': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
+                    '2022-08-10 07:01:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-08-10 08:00:00+0300': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-08-11 07:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-08-17 07:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-09-10 07:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                },
                 hour: {
                     '2022-08-10 07:00:00+0300': [
                         MOCK_ANNOTATION_ORG_SCOPED,
@@ -506,8 +564,6 @@ describe('annotationsOverlayLogic', () => {
         }
 
         it(`merges groups when one tick covers more than one date (UTC)`, async () => {
-            initKeaTests(true, MOCK_DEFAULT_TEAM)
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -572,8 +628,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it(`merges groups when one tick covers more than one hour (UTC)`, async () => {
-            initKeaTests(true, MOCK_DEFAULT_TEAM)
-
             useInsightMocks('hour')
 
             logic = annotationsOverlayLogic({

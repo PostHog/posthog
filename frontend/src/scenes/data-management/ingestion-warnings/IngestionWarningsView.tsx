@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Sparkline } from 'lib/lemon-ui/Sparkline'
@@ -19,6 +21,8 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
     message_size_too_large: 'Discarded event exceeding 1MB limit',
+    replay_timestamp_invalid: 'Replay event timestamp is invalid',
+    replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -134,6 +138,68 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    replay_timestamp_invalid: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+        }
+        return (
+            <>
+                Session replay data dropped due to invalid timestamp:
+                <ul>
+                    <li>invalid timestamp: {details.timestamp}</li>
+                    <li>session_id: {details.session_id}</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        to={urls.replaySingle(details.session_id)}
+                        sideIcon={<IconPlayCircle />}
+                        data-attr="skewed-timestamp-view-recording"
+                    >
+                        View recording
+                    </LemonButton>
+                </div>
+            </>
+        )
+    },
+    replay_timestamp_too_far: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+            daysFromNow: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+            daysFromNow: warning.details.daysFromNow,
+        }
+        return (
+            <>
+                The session replay data timestamp was too different from the capture time, so the data was dropped.
+                Event values:
+                <ul>
+                    <li>invalid timestamp: {details.timestamp}</li>
+                    <li>session_id: {details.session_id}</li>
+                    <li>skew: {details.daysFromNow} days</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        to={urls.replaySingle(details.session_id)}
+                        sideIcon={<IconPlayCircle />}
+                        data-attr="skewed-timestamp-view-recording"
+                    >
+                        View recording
+                    </LemonButton>
+                </div>
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
@@ -240,6 +306,10 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
             ]}
             embedded
             showHeader={false}
+            pagination={{
+                // In production this list can be huge - we don't want to render all of them at once
+                pageSize: 20,
+            }}
         />
     )
 }

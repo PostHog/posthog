@@ -2,8 +2,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AccessLevel, OrganizationResourcePermissionType, Resource, RoleType } from '~/types'
@@ -34,7 +32,7 @@ const ResourceAccessLevelMapping: Record<Resource, string> = {
 export const permissionsLogic = kea<permissionsLogicType>([
     path(['scenes', 'organization', 'Settings', 'Permissions', 'permissionsLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], rolesLogic, ['roles']],
+        values: [rolesLogic, ['roles']],
         actions: [rolesLogic, ['updateRole']],
     }),
     actions({
@@ -122,10 +120,6 @@ export const permissionsLogic = kea<permissionsLogicType>([
                         } as FormattedResourceLevel)
                 )
             },
-        ],
-        shouldShowPermissionsTable: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] === 'control',
         ],
         resourceRolesAccess: [
             (s) => [s.allPermissions, s.roles],

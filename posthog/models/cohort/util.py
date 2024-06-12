@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 
 import structlog
 from dateutil import parser
@@ -8,10 +8,12 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -43,7 +45,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
 
@@ -71,16 +73,19 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
-    persons_query = cast(Dict, cohort.query)
+    persons_query = cast(dict, cohort.query)
     persons_query["select"] = ["id as actor_id"]
     query = get_query_runner(
         persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
+
     hogql_context.enable_select_queries = True
+    hogql_context.limit_top_select = False
+    create_default_modifiers_for_team(cohort.team, hogql_context.modifiers)
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
-def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
+def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
     cohort_id = cohort.pk
     return (
         f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
@@ -88,7 +93,7 @@ def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tupl
     )
 
 
-def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
+def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
     return (
         filter_query,
@@ -120,7 +125,7 @@ def get_entity_query(
     team_id: int,
     group_idx: Union[int, str],
     hogql_context: HogQLContext,
-) -> Tuple[str, Dict[str, str]]:
+) -> tuple[str, dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
@@ -138,9 +143,9 @@ def get_entity_query(
 
 def get_date_query(
     days: Optional[str], start_time: Optional[str], end_time: Optional[str]
-) -> Tuple[str, Dict[str, str]]:
+) -> tuple[str, dict[str, str]]:
     date_query: str = ""
-    date_params: Dict[str, str] = {}
+    date_params: dict[str, str] = {}
     if days:
         date_query, date_params = parse_entity_timestamps_in_days(int(days))
     elif start_time or end_time:
@@ -149,7 +154,7 @@ def get_date_query(
     return date_query, date_params
 
 
-def parse_entity_timestamps_in_days(days: int) -> Tuple[str, Dict[str, str]]:
+def parse_entity_timestamps_in_days(days: int) -> tuple[str, dict[str, str]]:
     curr_time = timezone.now()
     start_time = curr_time - timedelta(days=days)
 
@@ -162,9 +167,9 @@ def parse_entity_timestamps_in_days(days: int) -> Tuple[str, Dict[str, str]]:
     )
 
 
-def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> Tuple[str, Dict[str, str]]:
+def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, dict[str, str]]:
     clause = "AND "
-    params: Dict[str, str] = {}
+    params: dict[str, str] = {}
 
     if start_time:
         clause += "timestamp >= %(date_from)s"
@@ -198,7 +203,7 @@ def format_filter_query(
     hogql_context: HogQLContext,
     id_column: str = "distinct_id",
     custom_match_field="person_id",
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
@@ -214,7 +219,7 @@ def format_cohort_subquery(
     index: int,
     hogql_context: HogQLContext,
     custom_match_field="person_id",
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
         query, params = format_precalculated_cohort_query(cohort, index)
@@ -258,8 +263,8 @@ def get_person_ids_by_cohort_id(
     return [str(row[0]) for row in results]
 
 
-def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
-    persons = (
+def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, team: Team):
+    persons = [
         {
             "id": str(uuid.uuid4()),
             "person_id": str(person_uuid),
@@ -268,7 +273,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
             "_timestamp": datetime.now(),
         }
         for person_uuid in person_uuids
-    )
+    ]
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
@@ -287,7 +292,9 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
         return None
 
 
-def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
+def recalculate_cohortpeople(
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
@@ -302,6 +309,10 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+
+    tag_queries(kind="cohort_calculation", team_id=cohort.team_id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
 
     sync_execute(
         recalcluate_cohortpeople_sql,
@@ -435,17 +446,17 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
         return cohort.properties
 
 
-def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
-def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
-def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
@@ -454,8 +465,8 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
 def get_dependent_cohorts(
     cohort: Cohort,
     using_database: str = "default",
-    seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
-) -> List[Cohort]:
+    seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+) -> list[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
 
@@ -501,7 +512,7 @@ def get_dependent_cohorts(
     return cohorts
 
 
-def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, CohortOrEmpty]) -> List[int]:
+def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[int, CohortOrEmpty]) -> list[int]:
     """
     Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
     followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
@@ -511,7 +522,7 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[in
     if not cohort_ids:
         return []
 
-    dependency_graph: Dict[int, List[int]] = {}
+    dependency_graph: dict[int, list[int]] = {}
     seen = set()
 
     # build graph (adjacency list)
@@ -546,7 +557,7 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[in
         sorted_arr.append(int(node))
         seen.add(node)
 
-    sorted_cohort_ids: List[int] = []
+    sorted_cohort_ids: list[int] = []
     seen = set()
     for cohort_id in cohort_ids:
         if cohort_id not in seen:
