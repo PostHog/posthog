@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 from typing import Any
-
+from django.db.models import Q, Count
 from django.db.models.functions import TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
@@ -23,7 +23,6 @@ from posthog.queries.app_metrics.serializers import (
     AppMetricsRequestSerializer,
 )
 from posthog.utils import relative_date_parse
-from posthog.batch_exports.models import fetch_batch_export_run_count
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -106,6 +105,14 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
                 ),
             )
             .annotate(day=TruncDay("last_updated_at"))
+            .values("day")
+            .annotate(
+                successes=Count("data_interval_end", filter=Q(status=BatchExportRun.Status.COMPLETED)),
+                failures=Count(
+                    "data_interval_end",
+                    filter=(Q(status=BatchExportRun.Status.FAILED) | Q(status=BatchExportRun.Status.FAILED_RETRYABLE)),
+                ),
+            )
             .order_by("day")
             .all()
         )
@@ -113,33 +120,10 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         dates = []
         successes = []
         failures = []
-        current_day: dt.datetime | None = None
         for run in runs:
-            if current_day is None:
-                current_day = run.day
-                dates.append(run.day.strftime("%Y-%m-%d"))
-                successes.append(0)
-                failures.append(0)
-
-            elif current_day < run.day:
-                current_day = run.day
-                dates.append(run.day.strftime("%Y-%m-%d"))
-                successes.append(0)
-                failures.append(0)
-
-            count = fetch_batch_export_run_count(
-                team_id=run.batch_export.team_id,
-                include_events=run.batch_export.destination.config.get("include_events", None),
-                exclude_events=run.batch_export.destination.config.get("exclude_events", None),
-                data_interval_start=run.data_interval_start,
-                data_interval_end=run.data_interval_end,
-            )
-
-            if run.status == BatchExportRun.Status.COMPLETED:
-                successes[-1] += count
-
-            elif run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
-                failures[-1] += count
+            dates.append(run["day"].strftime("%Y-%m-%d"))
+            successes.append(run["successes"])
+            failures.append(run["failures"])
 
         return dates, successes, failures
 

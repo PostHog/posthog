@@ -137,11 +137,17 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
-                    for _ in range(3):
-                        insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
-
-                    insert_event(
-                        team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1), event="not-included"
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at,
+                        data_interval_start=last_updated_at - dt.timedelta(hours=1),
+                        status=BatchExportRun.Status.COMPLETED,
+                    )
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at,
+                        data_interval_start=last_updated_at - dt.timedelta(hours=1),
+                        status=BatchExportRun.Status.COMPLETED,
                     )
 
                     BatchExportRun.objects.create(
@@ -150,9 +156,12 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=3),
                         status=BatchExportRun.Status.FAILED,
                     )
-                    for _ in range(5):
-                        timestamp = last_updated_at - dt.timedelta(hours=2, minutes=1)
-                        insert_event(team_id=self.team.pk, timestamp=timestamp)
+                    BatchExportRun.objects.create(
+                        batch_export_id=batch_export_id,
+                        data_interval_end=last_updated_at - dt.timedelta(hours=2),
+                        data_interval_start=last_updated_at - dt.timedelta(hours=3),
+                        status=BatchExportRun.Status.FAILED_RETRYABLE,
+                    )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -171,8 +180,8 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "successes": [3, 3, 3, 3, 3, 3, 3],
                         "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                        "failures": [5, 5, 5, 5, 5, 5, 5],
-                        "totals": {"successes": 21, "successes_on_retry": 0, "failures": 35},
+                        "failures": [2, 2, 2, 2, 2, 2, 2],
+                        "totals": {"successes": 21, "successes_on_retry": 0, "failures": 14},
                     },
                     "errors": None,
                 },
@@ -220,10 +229,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_end=last_updated_at,
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
-                    )
-                    insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
-                    insert_event(
-                        team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1), event="exclude-me"
                     )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
