@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { queryForActors } from 'scenes/retention/queries'
@@ -20,7 +19,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
     path((key) => ['scenes', 'retention', 'retentionPeopleLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource', 'isHogQLInsight', 'isRetention']],
+        values: [insightVizDataLogic(props), ['querySource']],
         actions: [insightVizDataLogic(props), ['loadDataSuccess']],
     })),
     actions(() => ({
@@ -32,12 +31,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
         people: {
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (selectedInterval: number) => {
-                if (values.isHogQLInsight && values.isRetention) {
-                    return await queryForActors(values.querySource as RetentionQuery, selectedInterval)
-                }
-
-                const urlParams = toParams({ ...values.apiFilters, selected_interval: selectedInterval })
-                return api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
+                return await queryForActors(values.querySource as RetentionQuery, selectedInterval)
             },
         },
     })),
