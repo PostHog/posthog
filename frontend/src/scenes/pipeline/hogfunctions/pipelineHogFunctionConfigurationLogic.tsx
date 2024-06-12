@@ -141,10 +141,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         }
                     })
 
-                    const payload = {
+                    const payload: HogFunctionType = {
                         ...data,
                         filters: data.filters ? sanitizeFilters(data.filters) : null,
                         inputs: sanitizedInputs,
+                        icon_url: data.icon_url.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
                     }
 
                     if (!props.id) {
