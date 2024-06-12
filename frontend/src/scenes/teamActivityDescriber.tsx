@@ -139,9 +139,11 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    session_replay_config(_change: ActivityChange | undefined): ChangeMapping | null {
+    session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
         // TODO we'll eventually need a deeper mapping for this nested object
-        const recordCanvasAfter = typeof _change?.after === 'object' ? _change?.after?.record_canvas : null
+        const after = change?.after
+        const recordCanvasAfter =
+            after && typeof after === 'object' && !Array.isArray(after) ? after.record_canvas : null
 
         if (recordCanvasAfter === null) {
             return null
