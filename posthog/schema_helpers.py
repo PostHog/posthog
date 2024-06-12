@@ -76,7 +76,7 @@ def to_dict(query: BaseModel) -> dict:
                         # use a canonical value for each display category
                         if "display" in dumped[insightFilterKey]:
                             canonical_display = grouped_chart_display_types(dumped[insightFilterKey]["display"])
-                            if canonical_display == ChartDisplayType.ActionsLineGraph:
+                            if canonical_display == ChartDisplayType.ACTIONS_LINE_GRAPH:
                                 del dumped[insightFilterKey]["display"]  # default value, remove
                             else:
                                 dumped[insightFilterKey]["display"] = canonical_display
@@ -125,15 +125,15 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
 
 def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType | None:
     if display in [
-        ChartDisplayType.ActionsLineGraph,
-        ChartDisplayType.ActionsBar,
-        ChartDisplayType.ActionsAreaGraph,
+        ChartDisplayType.ACTIONS_LINE_GRAPH,
+        ChartDisplayType.ACTIONS_BAR,
+        ChartDisplayType.ACTIONS_AREA_GRAPH,
     ]:
         # time series
-        return ChartDisplayType.ActionsLineGraph
-    elif display in [ChartDisplayType.ActionsLineGraphCumulative]:
+        return ChartDisplayType.ACTIONS_LINE_GRAPH
+    elif display in [ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE]:
         # cumulative time series
-        return ChartDisplayType.ActionsLineGraphCumulative
+        return ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
     else:
         # total value
-        return ChartDisplayType.ActionsBarValue
+        return ChartDisplayType.ACTIONS_BAR_VALUE

@@ -153,7 +153,7 @@ function DebugCHQueries(): JSX.Element {
                                         language={Language.SQL}
                                         thing="query"
                                         maxLinesWithoutExpansion={10}
-                                        style={{ fontSize: 12, maxWidth: '60vw' }}
+                                        className="text-sm max-w-[60vw]"
                                     >
                                         {item.query}
                                     </CodeSnippet>
@@ -263,7 +263,7 @@ function DebugCHQueries(): JSX.Element {
                                             language={Language.JSON}
                                             maxLinesWithoutExpansion={0}
                                             key={item.query_id}
-                                            style={{ fontSize: 12, marginBottom: '0.25rem' }}
+                                            className="text-sm mb-2"
                                         >
                                             {JSON.stringify(event, null, 2)}
                                         </CodeSnippet>

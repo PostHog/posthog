@@ -957,7 +957,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_select_array_join(self):
             self.assertEqual(
-                self._select("select a from events ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -977,7 +977,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select a from events INNER ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events INNER ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -997,7 +997,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] a, [4,5,6] AS b"),
+                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1), ast.Field(chain=["b"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -1409,7 +1409,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_expr=ast.WindowExpr(
                                 partition_by=[ast.Field(chain=["person", "id"])],
                                 order_by=[
@@ -1429,6 +1429,32 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(expr, expected)
 
+        def test_window_functions_call_arg(self):
+            query = "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
+            expr = self._select(query)
+            expected = ast.SelectQuery(
+                select=[
+                    ast.Alias(
+                        alias="values",
+                        expr=ast.WindowFunction(
+                            name="quantiles",
+                            args=[ast.Field(chain=["distinct_id"])],
+                            exprs=[
+                                ast.Constant(value=0.0),
+                                ast.Constant(value=0.25),
+                                ast.Constant(value=0.5),
+                                ast.Constant(value=0.75),
+                                ast.Constant(value=1.0),
+                            ],
+                            over_expr=ast.WindowExpr(),
+                        ),
+                        hidden=False,
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+            self.assertEqual(expr, expected)
+
         def test_window_functions_with_window(self):
             query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             expr = self._select(query)
@@ -1439,7 +1465,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         alias="timestamp",
                         expr=ast.WindowFunction(
                             name="min",
-                            args=[ast.Field(chain=["timestamp"])],
+                            exprs=[ast.Field(chain=["timestamp"])],
                             over_identifier="win1",
                         ),
                     ),

@@ -40,6 +40,14 @@ class PersonPropertiesMode(Enum):
     """
 
 
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    return persons_on_events_mode
+
+
 EARLIEST_TIMESTAMP = "2015-01-01"
 
 GET_EARLIEST_TIMESTAMP_SQL = """
@@ -178,10 +186,13 @@ def correct_result_for_sampling(
 
 
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if team.person_on_events_mode == PersonsOnEventsMode.disabled:
+    if alias_poe_mode_for_legacy(team.person_on_events_mode) == PersonsOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
-    if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    if (
+        alias_poe_mode_for_legacy(team.person_on_events_mode)
+        == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    ):
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS

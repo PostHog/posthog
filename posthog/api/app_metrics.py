@@ -56,23 +56,30 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         except ValueError:
             pass
 
-        plugin_config = self.get_object()
-
         filter = AppMetricsRequestSerializer(data=request.query_params)
         filter.is_valid(raise_exception=True)
 
-        metric_results = AppMetricsQuery(self.team, plugin_config.pk, filter).run()
-        errors = AppMetricsErrorsQuery(self.team, plugin_config.pk, filter).run()
+        if "hog-" in kwargs["pk"]:
+            # TODO: Make app metrics work with string IDs
+            metric_results = {
+                "dates": [],
+                "successes": [],
+                "successes_on_retry": [],
+                "failures": [],
+                "totals": {"successes": 0, "successes_on_retry": 0, "failures": 0},
+            }
+            errors = []
+        else:
+            metric_results = AppMetricsQuery(self.team, kwargs["pk"], filter).run()
+            errors = AppMetricsErrorsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"metrics": metric_results, "errors": errors})
 
     @action(methods=["GET"], detail=True)
     def error_details(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        plugin_config = self.get_object()
-
         filter = AppMetricsErrorsRequestSerializer(data=request.query_params)
         filter.is_valid(raise_exception=True)
 
-        error_details = AppMetricsErrorDetailsQuery(self.team, plugin_config.pk, filter).run()
+        error_details = AppMetricsErrorDetailsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"result": error_details})
 
     def get_batch_export_runs_app_metrics_queryset(self, batch_export_id: str):

@@ -416,6 +416,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
 
+    def visit_tuple(self, node: ast.Tuple) -> bool:
+        return all(self.visit(arg) for arg in node.exprs)
+
 
 def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: str) -> bool:
     return IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
@@ -514,6 +517,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             )
 
         return self.visit(node.expr)
+
+    def visit_tuple(self, node: ast.Tuple) -> bool:
+        return all(self.visit(arg) for arg in node.exprs)
 
 
 def rewrite_timestamp_field(expr: ast.Expr, context: HogQLContext) -> ast.Expr:

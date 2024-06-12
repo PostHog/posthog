@@ -1,9 +1,9 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.10",
-    "description": "PostHog HogQL Virtual Machine",
-    "types": "dist/execute.d.ts",
-    "main": "dist/execute.js",
+    "version": "1.0.11",
+    "description": "PostHog Hog Virtual Machine",
+    "types": "dist/index.d.ts",
+    "main": "dist/index.js",
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",

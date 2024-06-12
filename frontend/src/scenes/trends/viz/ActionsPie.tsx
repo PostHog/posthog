@@ -3,7 +3,6 @@ import './ActionsPie.scss'
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,7 +14,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -44,7 +42,6 @@ export function ActionsPie({
         pieChartVizOptions,
         isDataWarehouseSeries,
         querySource,
-        isHogQLInsight,
         breakdownFilter,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -94,36 +91,19 @@ export function ActionsPie({
         (!showPersonsModal || formula
             ? undefined
             : (payload) => {
-                  const { points, index, crossDataset } = payload
+                  const { points, index } = payload
                   const dataset = points.referencePoint.dataset
                   const label = dataset.labels?.[index]
 
-                  const urls = urlsForDatasets(
-                      crossDataset,
-                      index,
-                      cohorts,
-                      breakdownFilter,
-                      formatPropertyValueForDisplay
-                  )
-                  const selectedUrl = urls[index]?.value
-
-                  if (isHogQLInsight) {
-                      openPersonsModal({
-                          title: label || '',
-                          query: datasetToActorsQuery({ dataset, query: querySource!, index }),
-                          additionalSelect: {
-                              value_at_data_point: 'event_count',
-                              matched_recordings: 'matched_recordings',
-                          },
-                          orderBy: ['event_count DESC, actor_id DESC'],
-                      })
-                  } else if (selectedUrl) {
-                      openPersonsModal({
-                          urls,
-                          urlsIndex: index,
-                          title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                      })
-                  }
+                  openPersonsModal({
+                      title: label || '',
+                      query: datasetToActorsQuery({ dataset, query: querySource!, index }),
+                      additionalSelect: {
+                          value_at_data_point: 'event_count',
+                          matched_recordings: 'matched_recordings',
+                      },
+                      orderBy: ['event_count DESC, actor_id DESC'],
+                  })
               })
 
     return data ? (

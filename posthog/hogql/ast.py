@@ -47,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -717,6 +717,7 @@ class WindowExpr(Expr):
 class WindowFunction(Expr):
     name: str
     args: Optional[list[Expr]] = None
+    exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 

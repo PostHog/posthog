@@ -638,7 +638,3 @@ def get_dlt_mapping_for_external_table(table):
         for _, field in external_tables[table].items()
         if type(field) != ast.ExpressionField
     }
-
-
-def get_imported_fields_for_table(table):
-    return [field.name for _, field in external_tables[table].items() if type(field) != ast.ExpressionField]

@@ -81,7 +81,7 @@ class Breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
         if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
                     alias="breakdown_value",
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
