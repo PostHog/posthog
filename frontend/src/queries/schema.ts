@@ -1456,7 +1456,6 @@ export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
     type: 'batch_export'
-    query: HogQLQuery
 }
 
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
