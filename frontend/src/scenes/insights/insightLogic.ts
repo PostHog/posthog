@@ -28,7 +28,6 @@ import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { InsightVizNode } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     ActionType,
     FilterType,
@@ -93,7 +92,6 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
@@ -416,7 +414,6 @@ export const insightLogic = kea<insightLogicType>([
         /** converts potentially legacy (i.e. containing filters) insight to a query based one */
         queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
-        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
@@ -470,9 +467,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values }) => ({
-        setFiltersMerge: ({ filters }) => {
-            actions.setFilters({ ...values.filters, ...filters })
-        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
