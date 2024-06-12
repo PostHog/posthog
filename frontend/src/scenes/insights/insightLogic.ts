@@ -7,21 +7,11 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import {
-    filterTrendsClientSideParams,
-    isFilterWithHiddenLegendKeys,
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-    keyForInsightLogicProps,
-} from 'scenes/insights/sharedUtils'
+import { isFilterWithHiddenLegendKeys, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -411,6 +401,17 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
+        exporterResourceParams: [
+            (s) => [s.currentTeamId, s.queryBasedInsight],
+            (currentTeamId, insight): TriggerExportProps['export_context'] | null => {
+                if (!currentTeamId || !insight.query) {
+                    return null
+                }
+
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+                return { ...queryExportContext(insight.query, undefined, undefined), filename }
+            },
+        ],
         // Selectors based on legacy filters below - will be converted one-by-one
         /** converts potentially legacy (i.e. containing filters) insight to a query based one */
         queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
@@ -442,54 +443,6 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
-        exporterResourceParams: [
-            (s) => [s.filters, s.currentTeamId, s.insight],
-            (
-                filters: Partial<FilterType>,
-                currentTeamId: number | null,
-                insight: Partial<InsightModel>
-            ): TriggerExportProps['export_context'] | null => {
-                if (!currentTeamId) {
-                    return null
-                }
-
-                const params = { ...filters }
-
-                const filename = ['export', insight.name || insight.derived_name].join('-')
-
-                if (insight.query) {
-                    return { ...queryExportContext(insight.query, undefined, undefined), filename }
-                }
-                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                    return {
-                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                            filterTrendsClientSideParams(params)
-                        )}`,
-                        filename,
-                    }
-                } else if (isRetentionFilter(filters)) {
-                    return {
-                        filename,
-                        path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                    }
-                } else if (isFunnelsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/funnel`,
-                        body: params,
-                    }
-                } else if (isPathsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/path`,
-                        body: params,
-                    }
-                }
-                return null
-            },
-        ],
         isUsingSessionAnalysis: [
             (s) => [s.filters],
             (filters: Partial<FilterType>): boolean => {
