@@ -31,6 +31,9 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - 'rust.yml'
+                        - 'rust-docker-build.yml'
+                        - 'rust-hook-migrator-docker.yml'
 
     build:
         name: Build rust services

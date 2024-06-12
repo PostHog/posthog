@@ -5,6 +5,7 @@ on:
     push:
         paths:
             - 'rust/**'
+            - 'rust-hook-migrator-docker.yml'
         branches:
             - 'master'
 
