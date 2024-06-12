@@ -175,7 +175,7 @@ input::-ms-clear {
     cursor: unset;
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--shadow-elevation-3000);
     opacity: 1 !important;
 }
 
@@ -521,7 +521,7 @@ body {
     }
 
     .ant-modal-content {
-        box-shadow: var(--shadow-elevation);
+        box-shadow: var(--shadow-elevation-3000);
     }
 
     .ant-modal-mask {
