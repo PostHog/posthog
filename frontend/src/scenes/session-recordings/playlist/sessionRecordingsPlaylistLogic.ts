@@ -19,6 +19,7 @@ import {
     AnyPropertyFilter,
     DurationType,
     FilterableLogLevel,
+    FilterLogicalOperator,
     FilterType,
     PropertyFilterType,
     PropertyOperator,
@@ -91,6 +92,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     date_to: null,
     console_logs: [],
     console_search_query: '',
+    operand: FilterLogicalOperator.And,
 }
 
 export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
@@ -161,6 +163,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         duration_type_filter: durationFilter.key,
         console_search_query,
         console_logs,
+        operand: nestedFilters.type,
     }
 }
 

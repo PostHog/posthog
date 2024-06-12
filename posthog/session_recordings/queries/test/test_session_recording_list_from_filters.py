@@ -1310,6 +1310,35 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
+    # @snapshot_clickhouse_queries
+    # def test_operand_or_filter(self):
+    #     user = "test_operand_or_filter-user"
+    #     Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+    #     produce_replay_summary(
+    #         distinct_id=user,
+    #         session_id="three days before base time",
+    #         first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
+    #         last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
+    #         team_id=self.team.id,
+    #     )
+    #     produce_replay_summary(
+    #         distinct_id=user,
+    #         session_id="two days before base time",
+    #         first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
+    #         last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
+    #         team_id=self.team.id,
+    #     )
+
+    #     (session_recordings, _, _) = self._filter_recordings_by({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")})
+    #     assert session_recordings == []
+
+    #     (session_recordings, _, _) = self._filter_recordings_by(
+    #         {"date_from": (self.an_hour_ago - relativedelta(days=2)).strftime("%Y-%m-%d")}
+    #     )
+    #     assert len(session_recordings) == 1
+    #     assert session_recordings[0]["session_id"] == "two days before base time"
+
     @snapshot_clickhouse_queries
     def test_date_from_filter(self):
         user = "test_date_from_filter-user"

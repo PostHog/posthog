@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import UniversalFilters, { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -71,15 +71,23 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                     <AndOrFilterSelect
                         value={universalFilters.filter_group.type}
                         onChange={(type) => {
+                            let values = universalFilters.filter_group.values
+
+                            // set the type on the nested child when only using a single filter group
+                            const hasSingleGroup = universalFilters.filter_group.values.length === 1
+                            if (hasSingleGroup) {
+                                const group = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+                                values = [{ ...group, type }]
+                            }
+
                             setUniversalFilters({
                                 ...universalFilters,
                                 filter_group: {
                                     type: type,
-                                    values: universalFilters.filter_group.values,
+                                    values: values,
                                 },
                             })
                         }}
-                        disabledReason="'Or' filtering is not supported yet"
                         topLevelFilter={true}
                         suffix={['filter', 'filters']}
                     />

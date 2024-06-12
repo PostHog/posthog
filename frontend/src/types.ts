@@ -976,6 +976,7 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
 }
 
 export interface RecordingUniversalFilters {

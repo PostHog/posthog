@@ -1,5 +1,5 @@
 import re
-from typing import Any, NamedTuple, cast, Optional
+from typing import Any, NamedTuple, cast, Optional, Union
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -136,14 +136,8 @@ class SessionRecordingListFromFilters:
         order = self._filter.target_entity_order or "start_time"
         return ast.Field(chain=[order])
 
-    def _where_predicates(self) -> ast.And:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["s", "min_first_timestamp"]),
-                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
-            )
-        ]
+    def _where_predicates(self) -> Union[ast.And, ast.Or]:
+        exprs: list[ast.Expr] = []
 
         if self._filter.date_from:
             exprs.append(
@@ -249,26 +243,31 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        return ast.And(exprs=exprs)
-
-    def _having_predicates(self) -> ast.And | Constant:
-        exprs: list[ast.Expr] = []
-
-        if self._filter.recording_duration_filter:
-            op = (
-                ast.CompareOperationOp.GtEq
-                if self._filter.recording_duration_filter.operator == "gt"
-                else ast.CompareOperationOp.LtEq
-            )
-            exprs.append(
+        return ast.And(
+            exprs=[
                 ast.CompareOperation(
-                    op=op,
-                    left=ast.Field(chain=[self._filter.duration_type_filter]),
-                    right=ast.Constant(value=self._filter.recording_duration_filter.value),
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
                 ),
-            )
+                self._filter.global_operand(exprs=exprs),
+            ]
+        )
 
-        return ast.And(exprs=exprs) if exprs else Constant(value=True)
+    def _having_predicates(self) -> ast.CompareOperation | Constant:
+        if not self._filter.recording_duration_filter:
+            return Constant(value=True)
+
+        op = (
+            ast.CompareOperationOp.GtEq
+            if self._filter.recording_duration_filter.operator == "gt"
+            else ast.CompareOperationOp.LtEq
+        )
+        return ast.CompareOperation(
+            op=op,
+            left=ast.Field(chain=[self._filter.duration_type_filter]),
+            right=ast.Constant(value=self._filter.recording_duration_filter.value),
+        )
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
