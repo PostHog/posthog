@@ -1059,9 +1059,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprAlias) {
     string alias;
-    if (ctx->alias()) {
-      alias = visitAsString(ctx->alias());
-    } else if (ctx->identifier()) {
+    if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
     } else if (ctx->STRING_LITERAL()) {
       alias = parse_string_literal_ctx(ctx->STRING_LITERAL());

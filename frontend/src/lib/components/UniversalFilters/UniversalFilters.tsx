@@ -26,8 +26,7 @@ type UniversalFiltersProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
-    taxonomicEntityFilterGroupTypes: TaxonomicFilterGroupType[]
-    taxonomicPropertyFilterGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     children?: React.ReactNode
 }
 
@@ -35,8 +34,7 @@ function UniversalFilters({
     rootKey,
     group = null,
     onChange,
-    taxonomicEntityFilterGroupTypes,
-    taxonomicPropertyFilterGroupTypes,
+    taxonomicGroupTypes,
     children,
 }: UniversalFiltersProps): JSX.Element {
     return (
@@ -46,8 +44,7 @@ function UniversalFilters({
                 rootKey,
                 group,
                 onChange,
-                taxonomicEntityFilterGroupTypes,
-                taxonomicPropertyFilterGroupTypes,
+                taxonomicGroupTypes,
             }}
         >
             {children}
@@ -64,8 +61,7 @@ function Group({
     index: number
     children: React.ReactNode
 }): JSX.Element {
-    const { rootKey, taxonomicEntityFilterGroupTypes, taxonomicPropertyFilterGroupTypes } =
-        useValues(universalFiltersLogic)
+    const { rootKey, taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { replaceGroupValue } = useActions(universalFiltersLogic)
 
     return (
@@ -74,8 +70,7 @@ function Group({
             rootKey={`${rootKey}.group_${index}`}
             group={group}
             onChange={(group) => replaceGroupValue(index, group)}
-            taxonomicEntityFilterGroupTypes={taxonomicEntityFilterGroupTypes}
-            taxonomicPropertyFilterGroupTypes={taxonomicPropertyFilterGroupTypes}
+            taxonomicGroupTypes={taxonomicGroupTypes}
         >
             {children}
         </UniversalFilters>

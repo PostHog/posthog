@@ -9,7 +9,7 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -32,6 +32,12 @@ export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+})
+
+export const personPropertyKeyUpdateCounter = new Counter({
+    name: 'person_property_key_update_total',
+    help: 'Number of person updates triggered by this property value changing.',
+    labelNames: ['key'],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -264,6 +270,21 @@ export class PersonState {
         return [person, Promise.resolve()]
     }
 
+    // For tracking what property keys cause us to update persons
+    // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
+    private getMetricKey(key: string): string {
+        if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
+            return 'geoIP'
+        }
+        if (eventToPersonProperties.has(key)) {
+            return key
+        }
+        if (initialEventToPersonProperties.has(key)) {
+            return key
+        }
+        return 'other'
+    }
+
     /**
      * @param personProperties Properties of the person to be updated, these are updated in place.
      * @returns true if the properties were changed, false if they were not
@@ -277,25 +298,30 @@ export class PersonState {
             : Object.keys(unsetProps || {}) || []
 
         let updated = false
+        // tracking as set because we only care about if other or geoip was the cause of the update, not how many properties got updated
+        const metricsKeys = new Set<string>()
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
                 updated = true
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
                 updated = true
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
                 updated = true
+                metricsKeys.add(this.getMetricKey(propertyKey))
                 delete personProperties[propertyKey]
             }
         })
-
+        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
         return updated
     }
 
@@ -545,6 +571,23 @@ export class PersonState {
                         created_at: createdAt,
                         properties: properties,
                         is_identified: true,
+
+                        // By using the max version between the two Persons, we ensure that if
+                        // this Person is later split, we can use `this_person.version + 1` for
+                        // any split-off Persons and know that *that* version will be higher than
+                        // any previously deleted Person, and so the new Person row will "win" and
+                        // "undelete" the Person.
+                        //
+                        // For example:
+                        //  - Merge Person_1(version:7) into Person_2(version:2)
+                        //      - Person_1 is deleted
+                        //      - Person_2 attains version 8 via this code below
+                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                        //    its `distinct_id` to generate the deterministic Person UUID.
+                        //    That new Person_1 will have a version _at least_ as high as 8, and
+                        //    so any previously existing rows in CH or otherwise from
+                        //    Person_1(version:7) will "lose" to this new Person_1.
+                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
                     },
                     tx
                 )

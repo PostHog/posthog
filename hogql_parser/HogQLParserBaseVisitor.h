@@ -31,10 +31,6 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -43,7 +39,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *ctx) override {
+  virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -55,11 +51,15 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *ctx) override {
+  virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *ctx) override {
+  virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 

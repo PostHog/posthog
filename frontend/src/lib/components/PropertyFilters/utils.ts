@@ -89,22 +89,21 @@ export function convertPropertyGroupToProperties(
     return properties
 }
 
-export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
-    Record<PropertyFilterType, TaxonomicFilterGroupType>,
-    PropertyFilterType.Recording // Recording filters are not part of the taxonomic filter, only Replay-specific UI
-> = {
-    [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
-    [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
-    [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
-    [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
-    [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
-    [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
-    [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
-    [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
-    [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
-    [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
-}
+export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<PropertyFilterType, TaxonomicFilterGroupType> =
+    {
+        [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
+        [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
+        [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+        [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
+        [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
+        [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
+        [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
+        [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+        [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
+        [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+    }
 
 export function formatPropertyLabel(
     item: Record<string, any>,
@@ -343,6 +342,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
         return PropertyFilterType.DataWarehousePersonProperty
+    }
+
+    if (filterType == TaxonomicFilterGroupType.Replay) {
+        return PropertyFilterType.Recording
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

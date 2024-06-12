@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
@@ -243,7 +243,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                 column: word.endColumn,
                                             })
 
-                                            const response = await query<HogQLAutocomplete>({
+                                            const response = await performQuery<HogQLAutocomplete>({
                                                 kind: NodeKind.HogQLAutocomplete,
                                                 select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
                                                 filters: props.query.filters,
