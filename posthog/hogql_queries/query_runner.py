@@ -511,7 +511,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if results is not None:
                 return results
 
-              
         fresh_response_dict = {
             **self.calculate().model_dump(by_alias=True),
             "is_cached": False,
