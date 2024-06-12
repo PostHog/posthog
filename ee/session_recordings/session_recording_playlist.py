@@ -5,6 +5,7 @@ import structlog
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
+from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -35,7 +36,6 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
-from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 

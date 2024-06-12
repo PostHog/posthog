@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
-from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode
+from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, BreakdownType
 from posthog.queries.util import correct_result_for_sampling
 
 
@@ -43,6 +43,13 @@ class FunnelUnordered(FunnelBase):
             if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
+        if self.context.breakdown and self.context.breakdownType in [
+            BreakdownType.PERSON,
+            BreakdownType.EVENT,
+            BreakdownType.GROUP,
+        ]:
+            return self._breakdown_other_subquery()
+
         breakdown_exprs = self._get_breakdown_prop_expr()
 
         select: list[ast.Expr] = [
@@ -59,50 +66,7 @@ class FunnelUnordered(FunnelBase):
         )
 
     def get_step_counts_query(self):
-        max_steps = self.context.max_steps
-        breakdown_exprs = self._get_breakdown_prop_expr()
-        inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
-
-        group_by_columns: list[ast.Expr] = [
-            ast.Field(chain=["aggregation_target"]),
-            ast.Field(chain=["steps"]),
-            *breakdown_exprs,
-        ]
-
-        outer_select: list[ast.Expr] = [
-            *group_by_columns,
-            *self._get_step_time_avgs(max_steps, inner_query=True),
-            *self._get_step_time_median(max_steps, inner_query=True),
-            *outer_timestamps,
-            *person_and_group_properties,
-        ]
-
-        max_steps_expr = parse_expr(
-            f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
-        )
-
-        inner_select: list[ast.Expr] = [
-            *group_by_columns,
-            max_steps_expr,
-            *self._get_step_time_names(max_steps),
-            *inner_timestamps,
-            *person_and_group_properties,
-        ]
-
-        return ast.SelectQuery(
-            select=outer_select,
-            select_from=ast.JoinExpr(
-                table=ast.SelectQuery(
-                    select=inner_select,
-                    select_from=ast.JoinExpr(table=self.get_step_counts_without_aggregation_query()),
-                )
-            ),
-            group_by=group_by_columns,
-            having=ast.CompareOperation(
-                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
-            ),
-        )
+        return self._get_step_counts_query(outer_select=[], inner_select=[])
 
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
@@ -168,7 +132,7 @@ class FunnelUnordered(FunnelBase):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) as step_{i}_conversion_time"
                 )
             )
             # array indices in ClickHouse are 1-based :shrug:

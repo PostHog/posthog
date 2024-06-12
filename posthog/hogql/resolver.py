@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import validate_function_args
+from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
@@ -31,27 +31,46 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
         return ast.UnknownType()
     if isinstance(constant, bool):
-        return ast.BooleanType()
+        return ast.BooleanType(nullable=False)
     if isinstance(constant, int):
-        return ast.IntegerType()
+        return ast.IntegerType(nullable=False)
     if isinstance(constant, float):
-        return ast.FloatType()
+        return ast.FloatType(nullable=False)
     if isinstance(constant, str):
-        return ast.StringType()
+        return ast.StringType(nullable=False)
     if isinstance(constant, list):
         unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()
+            nullable=False,
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType(),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
+        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
-        return ast.DateTimeType()
+        return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
-        return ast.DateType()
+        return ast.DateType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
-        return ast.UUIDType()
+        return ast.UUIDType(nullable=False)
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
+
+
+def resolve_types_from_table(
+    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+) -> ast.Expr:
+    if context.database is None:
+        raise QueryError("Database needs to be defined")
+
+    if not context.database.has_table(table_name):
+        raise QueryError(f'Table "{table_name}" does not exist')
+
+    select_node = ast.SelectQuery(
+        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+    )
+    select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
+    assert select_node_with_types.type is not None
+
+    return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
 def resolve_types(
@@ -91,7 +110,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr) -> ast.Expr:
+    def visit(self, node: ast.Expr | None) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -402,6 +421,33 @@ class Resolver(CloningVisitor):
             scope.aliases[node.alias] = node.type
         return node
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        node = super().visit_arithmetic_operation(node)
+
+        if node.left.type is None or node.right.type is None:
+            return node
+
+        left_type = node.left.type.resolve_constant_type(self.context)
+        right_type = node.right.type.resolve_constant_type(self.context)
+
+        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.IntegerType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+            node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
+            node.type = ast.UnknownType()
+        else:
+            node.type = ast.UnknownType()
+
+        node.type.nullable = left_type.nullable or right_type.nullable
+        return node
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -416,22 +462,51 @@ class Resolver(CloningVisitor):
         arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type(self.context))
             else:
                 arg_types.append(ast.UnknownType())
         param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
-            for param in node.params:
+            for i, param in enumerate(node.params):
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type(self.context))
                 else:
-                    param_types.append(ast.UnknownType())
+                    raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
+
+        return_type = None
+
+        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
+            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
+            if signatures:
+                for sig_arg_types, sig_return_type in signatures:
+                    if sig_arg_types is None:
+                        return_type = sig_return_type
+                        break
+
+                    if compare_types(arg_types, sig_arg_types):
+                        return_type = sig_return_type
+                        break
+
+        if return_type is None:
+            return_type = ast.UnknownType()
+
+            # Uncomment once all hogql mappings are complete with signatures
+            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
+            # raise ResolutionError(
+            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
+            # )
+
+        if node.name == "concat":
+            return_type.nullable = False
+        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
         node.type = ast.CallType(
             name=node.name,
             arg_types=arg_types,
             param_types=param_types,
-            return_type=ast.UnknownType(),
+            return_type=return_type,
         )
         return node
 
@@ -630,17 +705,21 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -663,7 +742,7 @@ class Resolver(CloningVisitor):
                 )
 
         node = super().visit_compare_operation(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=False)
 
         if (
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)

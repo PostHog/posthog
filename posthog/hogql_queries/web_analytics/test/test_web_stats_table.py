@@ -93,7 +93,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_from,
         date_to,
-        breakdown_by=WebStatsBreakdown.Page,
+        breakdown_by=WebStatsBreakdown.PAGE,
         limit=None,
         path_cleaning_filters=None,
         use_sessions_table=True,
@@ -192,7 +192,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query(
             "2023-12-01",
             "2023-12-03",
-            breakdown_by=WebStatsBreakdown.InitialChannelType,
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
             use_sessions_table=use_sessions_table,
         ).results
 
@@ -279,7 +279,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
         ).results
@@ -322,7 +322,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
         ).results
@@ -365,10 +365,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
-            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.exact, value="/a")],
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
         self.assertEqual(
@@ -392,7 +392,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
             path_cleaning_filters=[
@@ -425,7 +425,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
         ).results
 
@@ -467,7 +467,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
         ).results
 
@@ -509,9 +509,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
-            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.exact, value="/a")],
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
         self.assertEqual(
@@ -535,7 +535,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.Page,
+            breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
             path_cleaning_filters=[
                 {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
@@ -567,7 +567,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.InitialPage,
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
         ).results
 
@@ -607,7 +607,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.InitialPage,
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
         ).results
 
@@ -647,9 +647,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.InitialPage,
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
-            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.exact, value="/a")],
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
         self.assertEqual(
@@ -673,7 +673,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             use_sessions_table=True,
-            breakdown_by=WebStatsBreakdown.InitialPage,
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
             include_bounce_rate=True,
             path_cleaning_filters=[
                 {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},

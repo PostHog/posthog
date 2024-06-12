@@ -13,7 +13,6 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { waitForExpect } from '~/test/waitForExpect'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
@@ -377,47 +376,6 @@ describe('sessionRecordingDataLogic', () => {
                     action.payload.source?.source === 'realtime',
                 'loadSnapshotsForSourceSuccess',
             ])
-        })
-
-        // regularly times out in CI, let's skip for now since we know this works 🙈
-        it.skip('polls up to a max threshold', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions([
-                    'loadSnapshotsForSource', // blob
-                    'loadSnapshotsForSourceSuccess',
-                    // the returned data isn't changing from our mock,
-                    // so we'll not keep polling indefinitely
-                    'loadSnapshotsForSource', // 1
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 2
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 3
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 4
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 5
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 6
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 7
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 8
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 9
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 10
-                    'loadSnapshotsForSourceSuccess',
-                ])
-                .toNotHaveDispatchedActions([
-                    // this isn't called again
-                    'loadSnapshotsForSource',
-                ])
-
-            await waitForExpect(() => {
-                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
-            })
         })
     })
 

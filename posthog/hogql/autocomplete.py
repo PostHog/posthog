@@ -51,7 +51,7 @@ class GetNodeAtPositionTraverser(TraversingVisitor):
         self.end = end
         super().visit(expr)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
         if node is not None and node.start is not None and node.end is not None:
             if self.start >= node.start and self.end <= node.end:
                 self.node = node
@@ -85,19 +85,19 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
 
 
 def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str | None:
-    if isinstance(field_or_table, ast.BooleanDatabaseField):
+    if isinstance(field_or_table, BooleanDatabaseField):
         return "Boolean"
-    if isinstance(field_or_table, ast.IntegerDatabaseField):
+    if isinstance(field_or_table, IntegerDatabaseField):
         return "Integer"
-    if isinstance(field_or_table, ast.FloatDatabaseField):
+    if isinstance(field_or_table, FloatDatabaseField):
         return "Float"
-    if isinstance(field_or_table, ast.StringDatabaseField):
+    if isinstance(field_or_table, StringDatabaseField):
         return "String"
-    if isinstance(field_or_table, ast.DateTimeDatabaseField):
+    if isinstance(field_or_table, DateTimeDatabaseField):
         return "DateTime"
-    if isinstance(field_or_table, ast.DateDatabaseField):
+    if isinstance(field_or_table, DateDatabaseField):
         return "Date"
-    if isinstance(field_or_table, ast.StringJSONDatabaseField):
+    if isinstance(field_or_table, StringJSONDatabaseField):
         return "Object"
     if isinstance(field_or_table, ast.ExpressionField):
         return "Expression"
@@ -258,7 +258,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
     extend_responses(
         available_functions,
         suggestions,
-        Kind.Function,
+        Kind.FUNCTION,
         insert_text=lambda key: f"{key}()",
     )
 
@@ -266,7 +266,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
 def extend_responses(
     keys: list[str],
     suggestions: list[AutocompleteCompletionItem],
-    kind: Kind = Kind.Variable,
+    kind: Kind = Kind.VARIABLE,
     insert_text: Optional[Callable[[str], str]] = None,
     details: Optional[list[str | None]] = None,
 ) -> None:
@@ -365,7 +365,7 @@ def get_hogql_autocomplete(
                             extend_responses(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
-                                kind=Kind.Folder,
+                                kind=Kind.FOLDER,
                                 details=["Table"] * len(table_aliases),
                             )
                             break
@@ -459,7 +459,7 @@ def get_hogql_autocomplete(
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
-                            kind=Kind.Folder,
+                            kind=Kind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
         except Exception:

@@ -17,11 +17,14 @@ class HogQLHasMorePaginator:
     Takes care of setting the limit and offset on the query.
     """
 
-    def __init__(self, *, limit: Optional[int] = None, offset: Optional[int] = None):
+    def __init__(
+        self, *, limit: Optional[int] = None, offset: Optional[int] = None, limit_context: Optional[LimitContext] = None
+    ):
         self.response: Optional[HogQLQueryResponse] = None
         self.results: list[Any] = []
         self.limit = limit if limit and limit > 0 else DEFAULT_RETURNED_ROWS
         self.offset = offset if offset and offset > 0 else 0
+        self.limit_context = limit_context
 
     @classmethod
     def from_limit_context(
@@ -30,7 +33,7 @@ class HogQLHasMorePaginator:
         max_rows = get_max_limit_for_context(limit_context)
         default_rows = get_default_limit_for_context(limit_context)
         limit = min(max_rows, default_rows if (limit is None or limit <= 0) else limit)
-        return cls(limit=limit, offset=offset)
+        return cls(limit=limit, offset=offset, limit_context=limit_context)
 
     def paginate(self, query: ast.SelectQuery) -> ast.SelectQuery:
         query.limit = ast.Constant(value=self.limit + 1)
@@ -64,7 +67,7 @@ class HogQLHasMorePaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
-                **kwargs,
+                **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )
         self.results = self.trim_results()

@@ -1,9 +1,13 @@
+from asgiref.sync import sync_to_async
 from dataclasses import dataclass
 import datetime as dt
 import dns.resolver
 import grpc.aio
 import json
 import uuid
+import ipaddress
+import requests
+from django.db import connection
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -35,6 +39,7 @@ class CreateManagedProxyInputs:
 @dataclass
 class WaitForDNSRecordsInputs:
     organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
 
@@ -58,6 +63,22 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         inputs.target_cname,
     )
 
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        connection.connect()
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    @sync_to_async
+    def update_record_message(*, proxy_record_id, message):
+        connection.connect()
+        pr = ProxyRecord.objects.get(id=proxy_record_id)
+        pr.message = message
+        pr.save()
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for DNS records")
+
     try:
         cnames = dns.resolver.query(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
@@ -66,7 +87,27 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
             return
         else:
             raise ApplicationError("target CNAME doesn't match", non_retryable=False)
-    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, ApplicationError):
+    except dns.resolver.NoAnswer:
+        # NoAnswer is not the same as NXDOMAIN
+        # It means there is a record set, but it's not a CNAME record
+        # A likely reason for this is that they have set Cloudflare proxying on.
+        # Check for this explicitly to create a nice message for the user.
+        arecords = dns.resolver.query(inputs.domain, "A")
+        if len(arecords) == 0:
+            raise
+        ip = arecords[0].to_text()
+        # this is rare enough and fast enough that it's probably fine
+        # but maybe we want to cache this and/or do it async
+        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
+        if is_cloudflare:
+            # the customer has set cloudflare proxying on
+            await update_record_message(
+                proxy_record_id=inputs.proxy_record_id,
+                message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
+            )
+        raise
+    except (dns.resolver.NXDOMAIN, ApplicationError):
         # retriable
         raise
     except Exception as e:
@@ -81,9 +122,18 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Creating managed proxy resources for domain %s",
         inputs.domain,
     )
+
+    @sync_to_async
+    def record_exists(proxy_record_id) -> bool:
+        connection.connect()
+        pr = ProxyRecord.objects.filter(id=proxy_record_id)
+        return len(pr) > 0
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise NonRetriableException("proxy record was deleted while waiting for certificate to be provisioned")
 
     client = await get_grpc_client()
 
@@ -108,7 +158,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
-        "Creating hosted proxy for domain %s",
+        "Waiting for certificate to be provisioned for domain %s",
         inputs.domain,
     )
 
@@ -158,7 +208,10 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 wait_for_dns_records,
                 WaitForDNSRecordsInputs(
-                    organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    domain=inputs.domain,
+                    target_cname=inputs.target_cname,
                 ),
                 schedule_to_close_timeout=dt.timedelta(days=7),
                 start_to_close_timeout=dt.timedelta(seconds=2),

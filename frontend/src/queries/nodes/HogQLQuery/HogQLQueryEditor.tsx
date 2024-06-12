@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
@@ -148,16 +148,19 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     })
 
     return (
-        <div className="space-y-2 flex flex-row">
+        <div className="flex items-start gap-2">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
+                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
                     <DatabaseTableTreeWithItems inline />
                 </div>
             </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
+                className={clsx(
+                    'flex flex-col rounded space-y-2 w-full overflow-hidden',
+                    !props.embedded && 'p-2 border'
+                )}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
@@ -240,7 +243,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                 column: word.endColumn,
                                             })
 
-                                            const response = await query<HogQLAutocomplete>({
+                                            const response = await performQuery<HogQLAutocomplete>({
                                                 kind: NodeKind.HogQLAutocomplete,
                                                 select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
                                                 filters: props.query.filters,

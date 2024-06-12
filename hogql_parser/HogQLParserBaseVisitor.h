@@ -15,6 +15,70 @@
 class  HogQLParserBaseVisitor : public HogQLParserVisitor {
 public:
 
+  virtual std::any visitProgram(HogQLParser::ProgramContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitDeclaration(HogQLParser::DeclarationContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitExpression(HogQLParser::ExpressionContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitVarDecl(HogQLParser::VarDeclContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitStatement(HogQLParser::StatementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitIfStmt(HogQLParser::IfStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitBlock(HogQLParser::BlockContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitKvPair(HogQLParser::KvPairContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitKvPairList(HogQLParser::KvPairListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitSelect(HogQLParser::SelectContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -215,6 +279,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprDict(HogQLParser::ColumnExprDictContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprSubquery(HogQLParser::ColumnExprSubqueryContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -268,6 +336,10 @@ public:
   }
 
   virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprTemplateString(HogQLParser::ColumnExprTemplateStringContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -456,6 +528,26 @@ public:
   }
 
   virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitString(HogQLParser::StringContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTemplateString(HogQLParser::TemplateStringContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitStringContents(HogQLParser::StringContentsContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitFullTemplateString(HogQLParser::FullTemplateStringContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitStringContentsFull(HogQLParser::StringContentsFullContext *ctx) override {
     return visitChildren(ctx);
   }
 

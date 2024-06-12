@@ -6,7 +6,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     DashboardFilter,
-    DateRange,
+    InsightDateRange,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
@@ -38,7 +38,7 @@ class TestTrendsDashboardFilters(BaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
@@ -52,7 +52,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
         )
 
@@ -75,7 +75,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
         )
 
@@ -98,7 +98,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
         )
 
@@ -121,7 +121,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
         )
 
@@ -146,7 +146,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
             properties=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
         )
@@ -165,16 +165,16 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
-            type=FilterLogicalOperator.AND,
+            type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         EventPropertyFilter(key="abc", value="foo", operator="exact"),
                     ],
                 ),
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         EventPropertyFilter(key="xyz", value="bar", operator="regex"),
                     ],
@@ -188,17 +188,17 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
             properties=PropertyGroupFilter(
-                type=FilterLogicalOperator.OR,
+                type=FilterLogicalOperator.OR_,
                 values=[
                     PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.OR,
+                        type=FilterLogicalOperator.OR_,
                         values=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
                     ),
                     PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND,
+                        type=FilterLogicalOperator.AND_,
                         values=[EventPropertyFilter(key="klm", value="foo", operator="exact")],
                     ),
                 ],
@@ -209,14 +209,14 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
-            type=FilterLogicalOperator.OR,
+            type=FilterLogicalOperator.OR_,
             values=[
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.OR,
+                    type=FilterLogicalOperator.OR_,
                     values=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
                 ),
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[EventPropertyFilter(key="klm", value="foo", operator="exact")],
                 ),
             ],
@@ -235,23 +235,23 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
-            type=FilterLogicalOperator.AND,
+            type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.OR,
+                    type=FilterLogicalOperator.OR_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
                         ),
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.AND,
+                            type=FilterLogicalOperator.AND_,
                             values=[EventPropertyFilter(key="klm", value="foo", operator="exact")],
                         ),
                     ],
                 ),
                 PropertyGroupFilterValue(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[EventPropertyFilter(key="xyz", value="bar", operator="regex")],
                 ),
             ],
@@ -263,7 +263,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
             breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
         )
@@ -296,7 +296,7 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner = self._create_query_runner(
             "2024-07-07",
             "2024-07-14",
-            IntervalType.day,
+            IntervalType.DAY,
             None,
             trends_filters=TrendsFilter(compare=True),
         )

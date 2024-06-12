@@ -2,7 +2,7 @@ import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
     beforeEach(() => {
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
 
         cy.intercept('**/decide/*', (req) =>
             req.reply(

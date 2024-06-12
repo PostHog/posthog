@@ -10,13 +10,13 @@ from posthog.schema import (
     BreakdownFilter,
     ChartDisplayType,
     DataWarehouseNode,
-    DateRange,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    InsightDateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
@@ -40,16 +40,16 @@ class MathAvailability(str, Enum):
 
 
 actors_only_math_types = [
-    BaseMathType.dau,
-    BaseMathType.weekly_active,
-    BaseMathType.monthly_active,
+    BaseMathType.DAU,
+    BaseMathType.WEEKLY_ACTIVE,
+    BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
 ]
 
 
 def clean_display(display: str):
-    if display not in ChartDisplayType.__members__:
+    if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
         return display
@@ -81,7 +81,7 @@ def legacy_entity_to_node(
             and math_availability == MathAvailability.ActorsOnly
             and entity.math not in actors_only_math_types
         ):
-            shared = {**shared, "math": BaseMathType.dau}
+            shared = {**shared, "math": BaseMathType.DAU}
         else:
             shared = {
                 **shared,
@@ -151,7 +151,7 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: dict):
-    date_range = DateRange(
+    date_range = InsightDateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
@@ -321,7 +321,7 @@ def _insight_filter(filter: dict):
         # Backwards compatibility
         # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
         if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
-            funnel_viz_type = FunnelVizType.trends
+            funnel_viz_type = FunnelVizType.TRENDS
 
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
@@ -445,7 +445,9 @@ def filter_to_query(filter: dict) -> InsightQueryNode:
         **_insight_filter(filter),
     }
 
-    return Query(**data)
+    # :KLUDGE: We do this dance to have default values instead of None, when setting
+    # values from a filter above.
+    return Query(**Query(**data).model_dump(exclude_none=True))
 
 
 def filter_str_to_query(filters: str) -> InsightQueryNode:

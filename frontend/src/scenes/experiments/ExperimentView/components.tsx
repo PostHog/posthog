@@ -1,8 +1,7 @@
 import '../Experiment.scss'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -190,8 +189,22 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
+        let parsedDetail = {}
+        try {
+            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
+        } catch (error) {
+            return (
+                <div className="border rounded bg-bg-light p-4">
+                    <div className="font-semibold leading-tight text-base text-current">
+                        Experiment results could not be calculated
+                    </div>
+                    <div className="mt-2">{experimentResultCalculationError.detail}</div>
+                </div>
+            )
+        }
+
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
+        for (const [failureReason, value] of Object.entries(parsedDetail)) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
         }
 
@@ -223,9 +236,9 @@ export function NoResultsEmptyState(): JSX.Element {
     // Non-400 errors are rendered as plain text
     return (
         <div>
-            <div className="border rounded bg-bg-light pt-6 pb-8">
-                <div className="flex flex-col items-center mx-auto text-muted">
-                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+            <div className="border rounded bg-bg-light py-10">
+                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                    <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
                         <div className="text-sm text-center text-balance">

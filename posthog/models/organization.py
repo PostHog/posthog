@@ -48,6 +48,16 @@ class OrganizationUsageInfo(TypedDict):
     period: Optional[list[str]]
 
 
+class ProductFeature(TypedDict):
+    key: str
+    name: str
+    description: str
+    unit: Optional[str]
+    limit: Optional[int]
+    note: Optional[str]
+    is_plan_default: bool
+
+
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         return create_with_slug(super().create, *args, **kwargs)
@@ -145,9 +155,6 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
-    available_features = ArrayField(
-        models.CharField(max_length=64, blank=False), blank=True, default=list
-    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -176,34 +183,41 @@ class Organization(UUIDModel):
                 return (license.plan, "ee")
         return (None, None)
 
-    def update_available_features(self) -> list[Union[AvailableFeature, str]]:
-        """Updates field `available_features`. Does not `save()`."""
+    def update_available_product_features(self) -> list[ProductFeature]:
+        """Updates field `available_product_features`. Does not `save()`."""
         if is_cloud() or self.usage:
-            # Since billing V2 we just use the available features which are updated when the billing service is called
-            return self.available_features
+            # Since billing V2 we just use the field which is updated when the billing service is called
+            return self.available_product_features or []
 
         try:
             from ee.models.license import License
         except ImportError:
-            self.available_features = []
+            self.available_product_features = []
             return []
 
-        self.available_features = []
+        self.available_product_features = []
 
         # Self hosted legacy license so we just sync the license features
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            self.available_features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+            features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+            self.available_product_features = [
+                {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+            ]
         else:
             # Otherwise, try to find a valid license on this instance
             license = License.objects.first_valid()
             if license:
-                self.available_features = License.PLANS.get(license.plan, [])
+                features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+                self.available_product_features = [
+                    {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+                ]
 
-        return self.available_features
+        return self.available_product_features
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        return feature in self.available_features
+        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
+        return feature in available_product_feature_keys
 
     @property
     def active_invites(self) -> QuerySet:
@@ -220,21 +234,21 @@ class Organization(UUIDModel):
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
-        instance.update_available_features()
+        instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
 @receiver(models.signals.post_save, sender=Organization)
-def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
     updated_fields = kwargs.get("update_fields") or []
-    if "available_features" in updated_fields:
+    if "available_product_features" in updated_fields:
         logger.info(
-            "Notifying plugin-server to reset available features cache.",
+            "Notifying plugin-server to reset available product features cache.",
             {"organization_id": instance.id},
         )
         get_client().publish(
-            "reset-available-features-cache",
+            "reset-available-product-features-cache",
             json.dumps({"organization_id": str(instance.id)}),
         )
 
@@ -271,11 +285,6 @@ class OrganizationMembership(UUIDModel):
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
             ),
-            models.UniqueConstraint(
-                fields=["organization_id"],
-                condition=models.Q(level=15),
-                name="only_one_owner_per_organization",
-            ),
         ]
 
     def __str__(self):
@@ -292,9 +301,8 @@ class OrganizationMembership(UUIDModel):
             if new_level == OrganizationMembership.Level.OWNER:
                 if self.level != OrganizationMembership.Level.OWNER:
                     raise exceptions.PermissionDenied(
-                        "You can only pass on organization ownership if you're its owner."
+                        "You can only make another member owner if you're this organization's owner."
                     )
-                self.level = OrganizationMembership.Level.ADMIN
                 self.save()
             elif new_level > self.level:
                 raise exceptions.PermissionDenied(
@@ -331,6 +339,9 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
+    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
+    )
 
     def validate(
         self,
@@ -376,7 +387,7 @@ class OrganizationInvite(UUIDModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization)
+        user.join(organization=self.organization, level=self.level)
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 

@@ -12,6 +12,7 @@ export type ProxyRecord = {
     id: string
     domain: string
     status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
+    message?: string
     target_cname: string
 }
 
@@ -67,7 +68,6 @@ export const proxyLogic = kea<proxyLogicType>([
     listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
-        deleteRecordSuccess: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {

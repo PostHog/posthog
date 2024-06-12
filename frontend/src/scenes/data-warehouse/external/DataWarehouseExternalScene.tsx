@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -26,7 +27,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     <>
                         {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 data-attr="new-data-warehouse-view"
                                 key="new-data-warehouse-view"
                                 to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
@@ -63,7 +64,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-
+            <DataWarehouseBetaNotice />
             <DataWarehouseTables />
         </div>
     )

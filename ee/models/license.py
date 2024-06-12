@@ -10,7 +10,7 @@ from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-from posthog.tasks.tasks import sync_all_organization_available_features
+from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class LicenseError(exceptions.APIException):
@@ -116,4 +116,4 @@ def get_licensed_users_available() -> Optional[int]:
 
 @receiver(post_save, sender=License)
 def license_saved(sender, instance, created, raw, using, **kwargs):
-    sync_all_organization_available_features()
+    sync_all_organization_available_product_features()

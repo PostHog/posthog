@@ -4,7 +4,6 @@ import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -85,7 +84,7 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, querySource, isDataWarehouseSeries, isHogQLInsight } = useValues(
+    const { insightData, trendsFilter, querySource, isDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
 
@@ -103,26 +102,19 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     // != is intentional to catch undefined too
                     showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries
                         ? () => {
-                              if (isHogQLInsight) {
-                                  openPersonsModal({
-                                      title: resultSeries.label,
-                                      query: {
-                                          kind: NodeKind.InsightActorsQuery,
-                                          source: querySource!,
-                                          includeRecordings: true,
-                                      },
-                                      additionalSelect: {
-                                          value_at_data_point: 'event_count',
-                                          matched_recordings: 'matched_recordings',
-                                      },
-                                      orderBy: ['event_count DESC, actor_id DESC'],
-                                  })
-                              } else if (resultSeries.persons?.url) {
-                                  openPersonsModal({
-                                      url: resultSeries.persons?.url,
-                                      title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
-                                  })
-                              }
+                              openPersonsModal({
+                                  title: resultSeries.label,
+                                  query: {
+                                      kind: NodeKind.InsightActorsQuery,
+                                      source: querySource!,
+                                      includeRecordings: true,
+                                  },
+                                  additionalSelect: {
+                                      value_at_data_point: 'event_count',
+                                      matched_recordings: 'matched_recordings',
+                                  },
+                                  orderBy: ['event_count DESC, actor_id DESC'],
+                              })
                           }
                         : undefined
                 }
@@ -143,7 +135,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, querySource, isHogQLInsight } = useValues(insightVizDataLogic(insightProps))
+    const { insightData, querySource } = useValues(insightVizDataLogic(insightProps))
 
     if (!insightData?.result) {
         return null
@@ -194,25 +186,18 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 ) : (
                     <Link
                         onClick={() => {
-                            if (isHogQLInsight) {
-                                openPersonsModal({
-                                    title: previousPeriodSeries.label,
-                                    query: {
-                                        kind: NodeKind.InsightActorsQuery,
-                                        source: querySource!,
-                                    },
-                                    additionalSelect: {
-                                        value_at_data_point: 'event_count',
-                                        matched_recordings: 'matched_recordings',
-                                    },
-                                    orderBy: ['event_count DESC, actor_id DESC'],
-                                })
-                            } else if (previousPeriodSeries.persons?.url) {
-                                openPersonsModal({
-                                    url: previousPeriodSeries.persons?.url,
-                                    title: <PropertyKeyInfo value={previousPeriodSeries.label} disablePopover />,
-                                })
-                            }
+                            openPersonsModal({
+                                title: previousPeriodSeries.label,
+                                query: {
+                                    kind: NodeKind.InsightActorsQuery,
+                                    source: querySource!,
+                                },
+                                additionalSelect: {
+                                    value_at_data_point: 'event_count',
+                                    matched_recordings: 'matched_recordings',
+                                },
+                                orderBy: ['event_count DESC, actor_id DESC'],
+                            })
                         }}
                     >
                         previous period

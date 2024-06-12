@@ -93,3 +93,17 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user
         ).first()
         return membership.level if membership is not None else None
+
+
+class FilterBaseSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["events", "actions"])
+    id = serializers.CharField(required=False)
+    name = serializers.CharField(required=False, allow_null=True)
+    order = serializers.IntegerField(required=False)
+    properties = serializers.ListField(child=serializers.DictField(), default=[])
+
+
+class FiltersSerializer(serializers.Serializer):
+    events = FilterBaseSerializer(many=True, required=False)
+    actions = FilterBaseSerializer(many=True, required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)

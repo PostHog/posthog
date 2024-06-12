@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,17 +32,25 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowReverseProxyStep, product, includeIntro } =
-        useValues(onboardingLogic)
+    const {
+        productKey,
+        currentOnboardingStep,
+        shouldShowBillingStep,
+        shouldShowReverseProxyStep,
+        product,
+        includeIntro,
+        waitForBilling,
+    } = useValues(onboardingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
         createAllSteps()
-    }, [children])
+    }, [children, billingLoading])
 
     useEffect(() => {
-        if (!allSteps.length) {
+        if (!allSteps.length || (billingLoading && waitForBilling)) {
             return
         }
         setAllOnboardingSteps(allSteps)
@@ -58,7 +67,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             steps = [children as JSX.Element]
         }
-        if (includeIntro) {
+        const billingProduct = billing?.products.find((p) => p.type === productKey)
+        if (includeIntro && billingProduct) {
             const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
             steps = [IntroStep, ...steps]
         }
@@ -66,8 +76,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
             steps = [...steps, ReverseProxyStep]
         }
-        if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
+        if (shouldShowBillingStep && billingProduct) {
+            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
@@ -80,7 +90,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -104,34 +113,32 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             type: 'toggle',
             visible: true,
         },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.ENABLE_SESSION_REPLAY_PA_ONBOARDING]) {
-        options.push({
+        {
             title: 'Enable session recordings',
             description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
             teamProperty: 'session_recording_opt_in',
             value: currentTeam?.session_recording_opt_in ?? true,
             type: 'toggle',
             visible: true,
-        })
-        options.push({
+        },
+        {
             title: 'Capture console logs',
             description: `Automatically enable console log capture`,
             teamProperty: 'capture_console_log_opt_in',
             value: true,
             type: 'toggle',
             visible: false,
-        })
-        options.push({
+        },
+        {
             title: 'Capture network performance',
             description: `Automatically enable network performance capture`,
             teamProperty: 'capture_performance_opt_in',
             value: true,
             type: 'toggle',
             visible: false,
-        })
-    }
+        },
+    ]
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -197,7 +204,11 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={configOptions} />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={configOptions}
+                product={ProductKey.SESSION_REPLAY}
+            />
         </OnboardingWrapper>
     )
 }
@@ -228,19 +239,20 @@ const SurveysOnboarding = (): JSX.Element => {
     )
 }
 
-export function Onboarding(): JSX.Element | null {
-    const { product } = useValues(onboardingLogic)
+export const onboardingViews = {
+    [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+    [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+    [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    [ProductKey.SURVEYS]: SurveysOnboarding,
+}
 
-    if (!product) {
+export function Onboarding(): JSX.Element | null {
+    const { product, productKey } = useValues(onboardingLogic)
+
+    if (!product || !productKey) {
         return <></>
     }
-    const onboardingViews = {
-        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
-        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
-        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
-        [ProductKey.SURVEYS]: SurveysOnboarding,
-    }
-    const OnboardingView = onboardingViews[product.type]
+    const OnboardingView = onboardingViews[productKey]
 
     return <OnboardingView />
 }

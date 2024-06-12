@@ -638,7 +638,10 @@ class TestFunnelUnorderedStepsBreakdown(
 
 class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(FunnelOrderType.UNORDERED),  # type: ignore
+    funnel_breakdown_group_test_factory(  # type: ignore
+        FunnelOrderType.UNORDERED,
+        ClickhouseFunnelUnorderedActors,
+    ),
 ):
     maxDiff = None
     pass

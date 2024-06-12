@@ -109,6 +109,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
+COPY hogvm hogvm/
 COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist

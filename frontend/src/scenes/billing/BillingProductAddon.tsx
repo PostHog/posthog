@@ -3,24 +3,51 @@ import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posth
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useRef } from 'react'
+import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
+const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
+    if (!unit) {
+        return `$${flatRate}`
+    }
+    return (
+        <span className="space-x-0.5">
+            <span>${Number(flatRate)}</span>
+            <span>/</span>
+            <span>{unit}</span>
+        </span>
+    )
+}
+
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
-    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade } = useActions(
         billingProductLogic({ product: addon })
+    )
+
+    const upgradePlan = currentAndUpgradePlans?.upgradePlan
+
+    const { prorationAmount, isProrated } = useMemo(
+        () =>
+            getProration({
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
+                amountUsd: upgradePlan?.unit_amount_usd,
+                hasActiveSubscription: billing?.has_active_subscription,
+            }),
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
@@ -33,7 +60,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     // Filter out the addon itself from the features list
-    const addonFeatures = addon.features?.filter((feature) => feature.name !== addon.name)
+    const addonFeatures =
+        currentAndUpgradePlans?.upgradePlan?.features ||
+        currentAndUpgradePlans?.currentPlan?.features ||
+        addon.features?.filter((feature) => feature.name !== addon.name)
 
     const is_enhanced_persons_og_customer =
         addon.type === 'enhanced_persons' &&
@@ -67,7 +97,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link
-                                    to="https://posthog.com/changelog/2024#person-profiles-addon"
+                                    to="https://posthog.com/changelog/2024#person-profiles-launched-posthog-now-up-to-80percent-cheaper"
                                     className="italic"
                                     target="_blank"
                                     targetBlankIcon
@@ -78,69 +108,85 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         )}
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
-                    {addon.docs_url && (
-                        <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
-                    )}
-                    {addon.subscribed && !addon.inclusion_only ? (
-                        <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() => {
-                                                setSurveyResponse(addon.type, '$survey_response_1')
-                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                            }}
-                                        >
-                                            Remove addon
-                                        </LemonButton>
-                                    </>
-                                }
+                <div>
+                    <div className="ml-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
+                        {addon.docs_url && (
+                            <LemonButton
+                                icon={<IconDocument />}
+                                size="small"
+                                to={addon.docs_url}
+                                tooltip="Read the docs"
                             />
-                        </>
-                    ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckCircle />}>
-                            Included with plan
-                        </LemonTag>
-                    ) : (
-                        <>
-                            {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
-                                <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                    <span>${Number(currentAndUpgradePlans?.upgradePlan?.unit_amount_usd)}</span>
-                                    <span>/</span>
-                                    <span>{currentAndUpgradePlans?.upgradePlan?.unit}</span>
-                                </h4>
-                            ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        toggleIsPricingModalOpen()
-                                    }}
-                                >
-                                    View pricing
-                                </LemonButton>
-                            )}
-                            {!addon.inclusion_only && (
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    size="small"
-                                    to={`/api/billing-v2/activation?products=${addon.type}:${
-                                        currentAndUpgradePlans?.upgradePlan?.plan_key
-                                    }${redirectPath && `&redirect_path=${redirectPath}`}`}
-                                    disableClientSideRouting
-                                    disabledReason={billingError && billingError.message}
-                                    loading={billingProductLoading === addon.type}
-                                    onClick={() => {
-                                        setBillingProductLoading(addon.type)
-                                    }}
-                                >
-                                    Add
-                                </LemonButton>
-                            )}
-                        </>
+                        )}
+                        {addon.subscribed && !addon.inclusion_only ? (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                fullWidth
+                                                onClick={() => {
+                                                    setSurveyResponse(addon.type, '$survey_response_1')
+                                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                                }}
+                                            >
+                                                Remove addon
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                            </>
+                        ) : addon.included_with_main_product ? (
+                            <LemonTag type="completion" icon={<IconCheckCircle />}>
+                                Included with plan
+                            </LemonTag>
+                        ) : (
+                            <>
+                                {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
+                                    <h4 className="leading-5 font-bold mb-0 space-x-0.5">
+                                        <span>
+                                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}
+                                        </span>
+                                    </h4>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => {
+                                            toggleIsPricingModalOpen()
+                                        }}
+                                    >
+                                        View pricing
+                                    </LemonButton>
+                                )}
+                                {!addon.inclusion_only && (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        size="small"
+                                        disableClientSideRouting
+                                        disabledReason={billingError && billingError.message}
+                                        loading={billingProductLoading === addon.type}
+                                        onClick={() =>
+                                            initiateProductUpgrade(
+                                                addon,
+                                                currentAndUpgradePlans?.upgradePlan,
+                                                redirectPath
+                                            )
+                                        }
+                                    >
+                                        Add
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                    </div>
+                    {!addon.inclusion_only && isProrated && (
+                        <p className="mt-2 text-xs text-muted text-right">
+                            Pay ~${prorationAmount} today (prorated) and
+                            <br />
+                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
+                            thereafter.
+                        </p>
                     )}
                 </div>
             </div>
@@ -148,21 +194,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 {addonFeatures?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        {addonFeatures?.map((feature, i) => {
-                            return (
-                                i < 6 && (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + i}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name} </b>
-                                        </Tooltip>
-                                    </div>
-                                )
-                            )
-                        })}
+                        <div className="grid grid-cols-2 gap-x-4">
+                            {addonFeatures.map((feature, index) => (
+                                <div
+                                    className="flex gap-x-2 items-center mb-2"
+                                    key={'addon-features-' + addon.type + index}
+                                >
+                                    <IconCheckCircle className="text-success" />
+                                    <Tooltip key={feature.key} title={feature.description}>
+                                        <b>
+                                            {feature.name}
+                                            {feature.note ? ': ' + feature.note : ''}
+                                        </b>
+                                    </Tooltip>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

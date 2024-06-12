@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
 import {
@@ -7,6 +8,9 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -16,7 +20,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
+import { ActionType, ChartDisplayType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -113,26 +117,62 @@ export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
-export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
-    if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showPercentStackView
-    }
-    return undefined
-}
+export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
+
+export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
+    supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
 export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
+    if (!cachedInsight) {
+        return undefined
+    }
+
+    let cachedQueryNode: Node | undefined
+
+    if (cachedInsight.query) {
+        cachedQueryNode = cachedInsight.query
+        if ('source' in cachedInsight.query) {
+            cachedQueryNode = cachedInsight.query.source as Node
+        }
+    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
+        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
+    } else {
         return undefined
     }
 
     // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     if (!equal(cachedQueryNode, query)) {
         return undefined
     }
 
     return cachedInsight
+}
+
+// these types exist so that the return type reflects the input model
+// i.e. when given a partial model the return model is types as
+// partial as well
+type InputInsightModel = InsightModel | Partial<InsightModel>
+
+type ReturnInsightModel<T> = T extends InsightModel
+    ? QueryBasedInsightModel
+    : T extends Partial<InsightModel>
+    ? Partial<QueryBasedInsightModel>
+    : never
+
+export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+    let query
+    if (insight.query) {
+        query = insight.query
+    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
+        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+    } else {
+        query = null
+    }
+
+    const { filters, ...baseInsight } = insight
+    return { ...baseInsight, query } as unknown as ReturnInsightModel<T>
 }

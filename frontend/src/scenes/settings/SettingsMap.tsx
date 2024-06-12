@@ -1,3 +1,4 @@
+import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
 import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
@@ -125,8 +126,9 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'persons-on-events',
-                title: 'Event person filtering behavior',
+                title: 'Person properties mode',
                 component: <PersonsOnEvents />,
+                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
             },
             {
                 id: 'correlation-analysis',
@@ -158,6 +160,12 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Persons join mode',
                 component: <PersonsJoinMode />,
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
         ],
     },

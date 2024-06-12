@@ -254,7 +254,11 @@ class PluginConfig(models.Model):
     description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
     # Used in the frontend to hide pluginConfigs that user deleted
     deleted: models.BooleanField = models.BooleanField(default=False, null=True)
-    # If set, the plugin-server will only trigger this plugin for events that match this action
+
+    # If set we will filter the plugin triggers for this event
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
+
+    # DEPRECATED - this never actually got used - filters is the way to go
     match_action = models.ForeignKey(
         "posthog.Action",
         on_delete=models.SET_NULL,
@@ -332,7 +336,7 @@ class PluginSourceFileManager(models.Manager):
             },
         )
         # Save frontend.tsx
-        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        frontend_tsx_instance: Optional[PluginSourceFile] = None
         if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
@@ -347,7 +351,7 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("frontend.tsx")
         # Save frontend.tsx
-        site_ts_instance: Optional["PluginSourceFile"] = None
+        site_ts_instance: Optional[PluginSourceFile] = None
         if site_ts is not None:
             site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
@@ -362,7 +366,7 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("site.ts")
         # Save index.ts
-        index_ts_instance: Optional["PluginSourceFile"] = None
+        index_ts_instance: Optional[PluginSourceFile] = None
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)

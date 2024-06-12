@@ -288,7 +288,7 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string> => ({
+export const insightTypeURL = {
     TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
     STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
     LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
@@ -296,12 +296,9 @@ export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(
-        undefined,
-        undefined,
-        JSON.stringify(bi_viz_flag ? examples.DataVisualization : examples.HogQLTable)
-    ),
-})
+    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+}
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {

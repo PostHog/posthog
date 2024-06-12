@@ -1,4 +1,5 @@
-from typing import cast, Any, Optional, TYPE_CHECKING
+import re
+from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -13,9 +14,11 @@ from posthog.hogql.database.models import (
     LazyTable,
     FloatDatabaseField,
     BooleanDatabaseField,
+    LazyTableToAdd,
+    LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
-from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
@@ -23,6 +26,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -61,6 +65,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
+    "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
@@ -188,10 +193,20 @@ def select_from_sessions_table(
         ],
     )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$num_uniq_urls"] = ast.Call(
+        name="length",
+        args=[aggregate_fields["$urls"]],
+    )
+
+    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_URLS:
+        bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
+    else:
+        bounce_pageview_count = aggregate_fields["$pageview_count"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
+            # if pageview_count is 0, return NULL so it doesn't contribute towards the bounce rate either way
+            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",
@@ -199,10 +214,13 @@ def select_from_sessions_table(
                     ast.Call(
                         name="or",
                         args=[
-                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                            # if > 1 pageview, not a bounce
+                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                            # if > 0 autocapture events, not a bounce
                             ast.Call(
                                 name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                             ),
+                            # if session duration >= 10 seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
                                 args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
@@ -247,8 +265,13 @@ def select_from_sessions_table(
 class SessionsTable(LazyTable):
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node: ast.SelectQuery):
-        return select_from_sessions_table(requested_fields, node, context)
+    def lazy_select(
+        self,
+        table_to_add: LazyTableToAdd,
+        context,
+        node: ast.SelectQuery,
+    ):
+        return select_from_sessions_table(table_to_add.fields_accessed, node, context)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -263,21 +286,21 @@ class SessionsTable(LazyTable):
 
 
 def join_events_table_to_sessions_table(
-    from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: ast.SelectQuery
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
     from posthog.hogql import ast
 
-    if not requested_fields:
+    if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
+    join_expr = ast.JoinExpr(table=select_from_sessions_table(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
-    join_expr.alias = to_table
+    join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "$session_id"]),
-            right=ast.Field(chain=[to_table, "session_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "$session_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id"]),
         ),
         constraint_type="ON",
     )
@@ -286,7 +309,16 @@ def join_events_table_to_sessions_table(
 
 def get_lazy_session_table_properties(search: Optional[str]):
     # some fields shouldn't appear as properties
-    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls", "duration"}
+    hidden_fields = {
+        "team_id",
+        "distinct_id",
+        "session_id",
+        "id",
+        "$event_count_map",
+        "$urls",
+        "duration",
+        "$num_uniq_urls",
+    }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
@@ -304,6 +336,15 @@ def get_lazy_session_table_properties(search: Optional[str]):
             return PropertyType.Boolean
         return PropertyType.String
 
+    search_words = re.findall(r"\w+", search.lower()) if search else None
+
+    def is_match(field_name: str) -> bool:
+        if field_name in hidden_fields:
+            return False
+        if not search_words:
+            return True
+        return all(word in field_name.lower() for word in search_words)
+
     results = [
         {
             "id": field_name,
@@ -315,7 +356,7 @@ def get_lazy_session_table_properties(search: Optional[str]):
             "tags": [],
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
-        if (not search or search.lower() in field_name.lower()) and field_name not in hidden_fields
+        if is_match(field_name)
     ]
     return results
 

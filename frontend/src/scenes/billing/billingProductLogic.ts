@@ -53,7 +53,25 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
-        setBillingProductLoading: (productKey: string) => ({ productKey }),
+        setBillingProductLoading: (productKey: string | null) => ({ productKey }),
+        initiateProductUpgrade: (
+            product: BillingProductV2Type | BillingProductV2AddonType,
+            plan: BillingV2PlanType,
+            redirectPath?: string
+        ) => ({
+            plan,
+            product,
+            redirectPath,
+        }),
+        handleProductUpgrade: (
+            product: BillingProductV2Type | BillingProductV2AddonType,
+            plan: BillingV2PlanType,
+            redirectPath?: string
+        ) => ({
+            plan,
+            product,
+            redirectPath,
+        }),
     }),
     reducers({
         billingLimitInput: [
@@ -146,12 +164,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : product.plans?.[currentPlanIndex + 1]
                 const downgradePlan = product.plans?.[currentPlanIndex - 1]
                 return { currentPlan, upgradePlan, downgradePlan }
-            },
-        ],
-        showBillingLimitInput: [
-            (s) => [s.billing, s.customLimitUsd, s.isEditingBillingLimit],
-            (billing, customLimitUsd, isEditingBillingLimit) => {
-                return billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit)
             },
         ],
         freeTier: [
@@ -307,6 +319,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     }, 0)
                 }
             }
+        },
+        initiateProductUpgrade: ({ plan, product, redirectPath }) => {
+            actions.setBillingProductLoading(product.type)
+            actions.handleProductUpgrade(product, plan, redirectPath)
+        },
+        handleProductUpgrade: ({ plan, product, redirectPath }) => {
+            window.location.href = `/api/billing/activate?products=${product.type}:${plan?.plan_key}${
+                redirectPath && `&redirect_path=${redirectPath}`
+            }`
         },
     })),
     forms(({ actions, props, values }) => ({

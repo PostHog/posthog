@@ -1,29 +1,67 @@
-import { Action, Hook, RawAction, Team } from '../../types'
+import { captureException } from '@sentry/node'
+import * as schedule from 'node-schedule'
+
+import { Action, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
+    private started: boolean
     private ready: boolean
-    private postgres: PostgresRouter
     private actionCache: ActionCache
+    private pubSub: PubSub
+    private refreshJob?: schedule.Job
 
-    constructor(postgres: PostgresRouter) {
+    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+        this.started = false
         this.ready = false
-        this.postgres = postgres
         this.actionCache = {}
+
+        this.pubSub = new PubSub(this.serverConfig, {
+            'reload-action': async (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                await this.reloadAction(teamId, actionId)
+            },
+            'drop-action': (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                this.dropAction(teamId, actionId)
+            },
+        })
     }
 
-    public async prepare(): Promise<void> {
+    public async start(): Promise<void> {
+        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
+        if (this.started) {
+            return
+        }
+        this.started = true
+        await this.pubSub.start()
         await this.reloadAllActions()
+
+        // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+        this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            await this.reloadAllActions().catch((error) => {
+                status.error('🍿', 'Error reloading actions:', error)
+            })
+        })
         this.ready = true
+    }
+
+    public async stop(): Promise<void> {
+        if (this.refreshJob) {
+            schedule.cancelJob(this.refreshJob)
+        }
+
+        await this.pubSub.stop()
     }
 
     public getTeamActions(teamId: Team['id']): ActionMap {
         if (!this.ready) {
-            throw new Error('ActionManager is not ready! Run actionManager.prepare() before this')
+            throw new Error('ActionManager is not ready! Run actionManager.start() before this')
         }
         return this.actionCache[teamId] || {}
     }
@@ -78,6 +116,9 @@ export async function fetchAllActionsGroupedByTeam(
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
+    const pluginConfigFiltersActionIds = await fetchPluginConfigsRelatedActionIds(client)
+    const additionalActionIds = [...restHookActionIds, ...pluginConfigFiltersActionIds]
+
     const rawActions = (
         await client.query<RawAction>(
             PostgresUse.COMMON_READ,
@@ -101,7 +142,7 @@ export async function fetchAllActionsGroupedByTeam(
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
-            [restHookActionIds],
+            [additionalActionIds],
             'fetchActions'
         )
     ).rows
@@ -167,4 +208,32 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
 
     const action: Action = { ...rawActions[0], steps: rawActions[0].steps_json ?? [], hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null
+}
+
+async function fetchPluginConfigsRelatedActionIds(postgres: PostgresRouter): Promise<number[]> {
+    // TODO: Do we need to trigger a reload when the plugin config changes?
+    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'filters'>[] } = await postgres.query(
+        PostgresUse.COMMON_READ,
+        `SELECT id, team_id, filters 
+            FROM posthog_pluginconfig
+            WHERE filters IS NOT NULL 
+            AND enabled`,
+        undefined,
+        'fetchPluginConfigsRelatedActionIds'
+    )
+
+    const actionIds: number[] = []
+
+    for (const row of rows) {
+        try {
+            row.filters?.actions?.forEach((filter) => {
+                actionIds.push(parseInt(filter.id))
+            })
+        } catch (e) {
+            // Badly formatted actions in the list
+            captureException(e)
+        }
+    }
+
+    return actionIds
 }

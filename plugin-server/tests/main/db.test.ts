@@ -360,7 +360,11 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
+            await hub.db.kafkaProducer.queueMessages({
+                kafkaMessages,
+                waitForAck: true,
+            })
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -418,7 +422,13 @@ describe('DB', () => {
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                await db.updatePersonDeprecated(person, { properties: { foo: 'bar' } })
+                const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
+                    properties: { foo: 'bar' },
+                })
+                await hub.db.kafkaProducer.queueMessages({
+                    kafkaMessages: updatePersonKafkaMessages,
+                    waitForAck: true,
+                })
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
@@ -492,37 +502,6 @@ describe('DB', () => {
                     version: 0,
                 })
             )
-        })
-    })
-
-    describe('fetchGroupTypes() and insertGroupType()', () => {
-        it('fetches group types that have been inserted', async () => {
-            expect(await db.fetchGroupTypes(2)).toEqual({})
-            expect(await db.insertGroupType(2, 'g0', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'g1', 1)).toEqual([1, true])
-            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1 })
-        })
-
-        it('handles conflicting by index when inserting and limits', async () => {
-            expect(await db.insertGroupType(2, 'g0', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'g1', 0)).toEqual([1, true])
-            expect(await db.insertGroupType(2, 'g2', 0)).toEqual([2, true])
-            expect(await db.insertGroupType(2, 'g3', 1)).toEqual([3, true])
-            expect(await db.insertGroupType(2, 'g4', 0)).toEqual([4, true])
-            expect(await db.insertGroupType(2, 'g5', 0)).toEqual([null, false])
-            expect(await db.insertGroupType(2, 'g6', 0)).toEqual([null, false])
-
-            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1, g2: 2, g3: 3, g4: 4 })
-        })
-
-        it('handles conflict by name when inserting', async () => {
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, true])
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
-            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
-            expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, true])
-            expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, false])
-
-            expect(await db.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 
@@ -1023,6 +1002,7 @@ describe('DB', () => {
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             } as Team)
         })
 
@@ -1048,6 +1028,7 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
+                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
             })
         })
 

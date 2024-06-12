@@ -2,6 +2,7 @@ import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonMenu,
     LemonTable,
@@ -16,6 +17,7 @@ import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { AvailableFeature } from '~/types'
 
@@ -28,6 +30,8 @@ export function ManagedReverseProxy(): JSX.Element {
     const { showForm, deleteRecord } = useActions(proxyLogic)
 
     const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
+
+    const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -76,7 +80,22 @@ export function ManagedReverseProxy(): JSX.Element {
                                 {
                                     label: 'Delete',
                                     status: 'danger',
-                                    onClick: () => deleteRecord(id),
+                                    onClick: () => {
+                                        LemonDialog.open({
+                                            title: 'Delete managed proxy',
+                                            width: '20rem',
+                                            content:
+                                                'Are you sure you want to delete this managed proxy? This cannot be undone and if it is in use then events sent to the domain will not be processed.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                onClick: () => deleteRecord(id),
+                                                children: 'Delete',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    },
                                 },
                             ]}
                         >
@@ -91,6 +110,11 @@ export function ManagedReverseProxy(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
             <div className="space-y-2">
+                {recordsWithMessages.map((r) => (
+                    <LemonBanner type="warning" key={r.id}>
+                        <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+                    </LemonBanner>
+                ))}
                 <LemonTable
                     loading={proxyRecords.length === 0 && proxyRecordsLoading}
                     columns={columns}

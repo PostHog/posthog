@@ -8,13 +8,10 @@ from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Cohort, GroupTypeMapping
+from posthog.models import Cohort, GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
@@ -23,6 +20,9 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
+)
+from posthog.session_recordings.sql.session_replay_event_sql import (
+    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -723,7 +723,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             with freeze_time("2023-09-01T12:00:01Z"):
                 assert ttl_days(self.team) == 30
 
-            self.team.organization.available_features = [AvailableFeature.RECORDINGS_PLAYLISTS]
+            self.team.organization.available_product_features = [
+                {"name": AvailableFeature.RECORDINGS_PLAYLISTS, "key": AvailableFeature.RECORDINGS_PLAYLISTS}
+            ]
 
             # Far enough in the future from `days_since_blob_ingestion` but paid
             with freeze_time("2023-12-01T12:00:01Z"):
@@ -1460,46 +1462,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["email"])
-    def test_event_filter_with_person_properties(self):
-        user_one = "test_event_filter_with_person_properties-user"
-        user_two = "test_event_filter_with_person_properties-user2"
-        session_id_one = f"test_event_filter_with_person_properties-1-{str(uuid4())}"
-        session_id_two = f"test_event_filter_with_person_properties-2-{str(uuid4())}"
-
-        Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-        Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
-
-        produce_replay_summary(
-            distinct_id=user_one,
-            session_id=session_id_one,
-            first_timestamp=self.an_hour_ago,
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_one,
-            session_id=session_id_one,
-            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_two,
-            session_id=session_id_two,
-            first_timestamp=self.an_hour_ago,
-            team_id=self.team.id,
-        )
-        produce_replay_summary(
-            distinct_id=user_two,
-            session_id=session_id_two,
-            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
-            team_id=self.team.id,
+    def test_filter_with_person_properties_exact(self):
+        session_id_one, session_id_two = self._two_sessions_two_persons(
+            "test_filter_with_person_properties_exact",
+            session_one_person_properties={"email": "bla@gmail.com"},
+            session_two_person_properties={"email": "bla2@hotmail.com"},
         )
 
-        (session_recordings, _) = self._filter_recordings_by(
+        query_results: SessionRecordingQueryResult = self._filter_recordings_by(
             {
                 "properties": [
                     {
                         "key": "email",
-                        "value": ["bla"],
+                        "value": ["bla@gmail.com"],
                         "operator": "exact",
                         "type": "person",
                     }
@@ -1507,8 +1482,53 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             }
         )
 
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_id_one
+        assert [x["session_id"] for x in query_results.results] == [session_id_one]
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(person_properties=["email"])
+    def test_filter_with_person_properties_not_contains(self):
+        session_id_one, session_id_two = self._two_sessions_two_persons(
+            "test_filter_with_person_properties_not_contains",
+            session_one_person_properties={"email": "bla@gmail.com"},
+            session_two_person_properties={"email": "bla2@hotmail.com"},
+        )
+
+        query_results: SessionRecordingQueryResult = self._filter_recordings_by(
+            {"properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}]}
+        )
+
+        assert [x["session_id"] for x in query_results.results] == [session_id_two]
+
+    def _two_sessions_two_persons(
+        self, label: str, session_one_person_properties: dict, session_two_person_properties: dict
+    ) -> tuple[str, str]:
+        sessions = []
+
+        for i in range(2):
+            user = f"{label}-user-{i}"
+            session = f"{label}-session-{i}"
+            sessions.append(session)
+
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[user],
+                properties=session_one_person_properties if i == 0 else session_two_person_properties,
+            )
+
+            produce_replay_summary(
+                distinct_id=user,
+                session_id=session,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+            )
+            produce_replay_summary(
+                distinct_id=user,
+                session_id=session,
+                first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+                team_id=self.team.id,
+            )
+
+        return sessions[0], sessions[1]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
@@ -1549,7 +1569,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
-                # self.create_event(user_one, self.base_time, team=self.team)
+                # self.create_event(user_one, self.an_hour_ago, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
@@ -1562,7 +1582,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
-                # self.create_event(user_two, self.base_time, team=self.team)
+                # self.create_event(user_two, self.an_hour_ago, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,

@@ -20,7 +20,9 @@ import {
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
 
@@ -165,8 +167,12 @@ describe('eachBatchX', () => {
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            const actionManager = new ActionManager(queue.pluginsServer.postgres)
-            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
+            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
+            const actionMatcher = new ActionMatcher(
+                queue.pluginsServer.postgres,
+                actionManager,
+                queue.pluginsServer.teamManager
+            )
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
@@ -175,16 +181,31 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.appMetrics,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )
+            const groupTypeManager: GroupTypeManager = {
+                fetchGroupTypes: jest.fn(() => Promise.resolve({})),
+            } as unknown as GroupTypeManager
+            const organizatonManager: OrganizationManager = {
+                hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
+            } as unknown as GroupTypeManager
+
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
-            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), actionMatcher, hookCannon, 10)
+            await eachBatchWebhooksHandlers(
+                createKafkaJSBatch(clickhouseEvent),
+                actionMatcher,
+                hookCannon,
+                10,
+                groupTypeManager,
+                organizatonManager
+            )
 
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
             // is at the least testing a little bit more than we were before.
             expect(matchSpy).toHaveBeenCalledWith({
                 ...event,
+                groups: {},
                 properties: {
                     $ip: '127.0.0.1',
                 },
@@ -346,7 +367,7 @@ describe('eachBatchX', () => {
                 ip: null,
                 now: null,
                 sent_at: null,
-                site_url: null,
+                site_url: '',
                 team_id: 1,
                 uuid: 'uuid1',
             })

@@ -119,7 +119,7 @@ class TrendsActorsQueryBuilder:
     def is_compare_previous(self) -> bool:
         return (
             bool(self.trends_query.trendsFilter and self.trends_query.trendsFilter.compare)
-            and self.compare_value == Compare.previous
+            and self.compare_value == Compare.PREVIOUS
         )
 
     @cached_property
@@ -128,11 +128,11 @@ class TrendsActorsQueryBuilder:
 
     @cached_property
     def is_weekly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.weekly_active
+        return self.entity.math == BaseMathType.WEEKLY_ACTIVE
 
     @cached_property
     def is_monthly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.monthly_active
+        return self.entity.math == BaseMathType.MONTHLY_ACTIVE
 
     @cached_property
     def is_hourly(self) -> bool:
@@ -360,7 +360,7 @@ class TrendsActorsQueryBuilder:
             timings=self.timings,
             modifiers=self.modifiers,
             events_filter=self._events_where_expr(with_breakdown_expr=False),
-            breakdown_values_override=[str(self.breakdown_value)] if self.breakdown_value is not None else None,
+            breakdown_values_override=[self.breakdown_value] if self.breakdown_value is not None else None,
             limit_context=self.limit_context,
         )
 

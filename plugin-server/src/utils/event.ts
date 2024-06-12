@@ -1,7 +1,16 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 
-import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
+import {
+    ClickHouseEvent,
+    GroupTypeToColumnIndex,
+    HookPayload,
+    PipelineEvent,
+    PostIngestionEvent,
+    RawClickHouseEvent,
+} from '../types'
+import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -10,7 +19,15 @@ import {
     clickHouseTimestampToISO,
 } from './utils'
 
-export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
+const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
+const KNOWN_SET_EVENTS = new Set([
+    '$feature_interaction',
+    '$feature_enrollment_update',
+    'survey dismissed',
+    'survey sent',
+])
+
+export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
         ip: null, // deprecated : within properties[$ip] now
@@ -22,6 +39,28 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
         elements: event.elementsList ?? [],
+    }
+}
+
+export function convertToHookPayload(event: PostIngestionEvent): HookPayload['data'] {
+    // It is only at this point that we need the elements list for the full event
+    // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
+    // currently we have no way of being sure so we keep it in
+    mutatePostIngestionEventWithElementsList(event)
+
+    return {
+        eventUuid: event.eventUuid,
+        event: event.event,
+        teamId: event.teamId,
+        distinctId: event.distinctId,
+        properties: event.properties,
+        timestamp: event.timestamp,
+        elementsList: event.elementsList,
+        person: {
+            uuid: event.person_id!,
+            properties: event.person_properties,
+            created_at: event.person_created_at,
+        },
     }
 }
 
@@ -70,10 +109,36 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     }
 }
 
-export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
+// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
+// that we can keep to as a contract
+export function convertToPostIngestionEvent(
+    event: RawClickHouseEvent,
+    groupTypes?: GroupTypeToColumnIndex
+): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
+    }
+
+    let groups: PostIngestionEvent['groups'] = undefined
+
+    if (groupTypes) {
+        groups = {}
+
+        for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
+            const groupKey = (properties[`$groups`] || {})[groupType]
+            const groupProperties = event[`group${columnIndex}_properties`]
+
+            // TODO: Check that groupProperties always exist if the event is in that group
+            if (groupKey && groupProperties) {
+                groups[groupType] = {
+                    index: columnIndex,
+                    key: groupKey,
+                    type: groupType,
+                    properties: JSON.parse(groupProperties),
+                }
+            }
+        }
     }
 
     return {
@@ -89,6 +154,7 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
             : null,
         person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
+        groups,
     }
 }
 
@@ -148,7 +214,7 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
     return event
 }
 
-export function normalizeEvent(event: PluginEvent): PluginEvent {
+export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     let properties = event.properties ?? {}
@@ -179,10 +245,29 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
 export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+
+    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+    if (
+        combinedEvent.properties &&
+        !PERSON_EVENTS.has(combinedEvent.event) &&
+        !KNOWN_SET_EVENTS.has(combinedEvent.event) &&
+        ('$set' in combinedEvent.properties ||
+            '$set_once' in combinedEvent.properties ||
+            '$unset' in combinedEvent.properties)
+    ) {
+        setUsageInNonPersonEventsCounter.inc()
+        if (Math.random() < 0.001) {
+            status.info('👀', 'Found $set usage in non-person event', {
+                event: combinedEvent.event,
+                team_id: combinedEvent.team_id,
+                token: combinedEvent.token,
+            })
+        }
+    }
+
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
     })
     return event
 }
