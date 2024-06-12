@@ -8486,6 +8486,9 @@ class HogQLParser ( Parser ):
         def ID(self):
             return self.getToken(HogQLParser.ID, 0)
 
+        def IS(self):
+            return self.getToken(HogQLParser.IS, 0)
+
         def IF(self):
             return self.getToken(HogQLParser.IF, 0)
 
@@ -8500,9 +8503,6 @@ class HogQLParser ( Parser ):
 
         def INTERVAL(self):
             return self.getToken(HogQLParser.INTERVAL, 0)
-
-        def IS(self):
-            return self.getToken(HogQLParser.IS, 0)
 
         def JOIN(self):
             return self.getToken(HogQLParser.JOIN, 0)
