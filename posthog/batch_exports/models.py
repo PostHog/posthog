@@ -1,4 +1,3 @@
-import collections.abc
 import dataclasses
 import datetime as dt
 import enum
@@ -115,45 +114,6 @@ class BatchExportRun(UUIDModel):
     records_total_count: models.IntegerField = models.IntegerField(
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
-
-
-def fetch_batch_export_run_count(
-    *,
-    team_id: int,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> int:
-    """Fetch a list of batch export log entries from ClickHouse."""
-    if exclude_events:
-        exclude_events_statement = f"AND event NOT IN ({','.join(exclude_events)})"
-    else:
-        exclude_events_statement = ""
-
-    if include_events:
-        include_events_statement = f"AND event IN ({','.join(include_events)})"
-    else:
-        include_events_statement = ""
-
-    data_interval_start_ch = data_interval_start.strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = data_interval_end.strftime("%Y-%m-%d %H:%M:%S")
-
-    clickhouse_query = f"""
-        SELECT count(*)
-        FROM events
-        WHERE
-            team_id = {team_id}
-            AND timestamp >= toDateTime64('{data_interval_start_ch}', 6, 'UTC')
-            AND timestamp < toDateTime64('{data_interval_end_ch}', 6, 'UTC')
-            {exclude_events_statement}
-            {include_events_statement}
-    """
-
-    try:
-        return sync_execute(clickhouse_query)[0][0]
-    except Exception:
-        return 0
 
 
 BATCH_EXPORT_INTERVALS = [

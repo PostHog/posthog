@@ -239,10 +239,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         data_interval_start=last_updated_at - dt.timedelta(hours=1),
                         status=BatchExportRun.Status.COMPLETED,
                     )
-                    insert_event(team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1))
-                    insert_event(
-                        team_id=self.team.pk, timestamp=last_updated_at - dt.timedelta(minutes=1), event="exclude-me"
-                    )
 
             response = self.client.get(f"/api/projects/@current/app_metrics/{batch_export_id}?date_from=-7d")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
