@@ -1,6 +1,7 @@
-from posthog.models.hog_functions.hog_function_template import HogFunctionTemplate
+from typing import Any
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.test.base import BaseTest
-from posthog.models.hog_functions.templates.webhook.template_webhook import template as template_webhook
 
 
 # TODO: Add base test helper for compiling the function etc.
@@ -8,9 +9,13 @@ from posthog.models.hog_functions.templates.webhook.template_webhook import temp
 
 class BaseHogFunctionTemplateTest(BaseTest):
     template: HogFunctionTemplate
+    compiled_hog: Any
 
     def setUp(self):
-        return super().setUp()
+        super().setUp()
+
+
+        return
 
 
 class TestTemplateWebhook(BaseHogFunctionTemplateTest):
