@@ -497,15 +497,12 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def upgrade(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="upgrading")
         serializer = PluginSerializer(plugin, context=self.get_serializer_context())
-        if plugin.plugin_type not in (
-            Plugin.PluginType.SOURCE,
-            Plugin.PluginType.LOCAL,
-        ):
+        if plugin.plugin_type not in (Plugin.PluginType.SOURCE,):
             validated_data: dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             with transaction.atomic():
                 serializer.update(plugin, validated_data)
-                PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+                PluginSourceFile.objects.sync_plugin_source_files(plugin, plugin_json)
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:

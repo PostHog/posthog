@@ -34,6 +34,7 @@ export function AppsManagement(): JSX.Element {
         globalPlugins,
         localPlugins,
         pluginsLoading,
+        localAndSourcePlugins,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
 
@@ -43,6 +44,15 @@ export function AppsManagement(): JSX.Element {
 
     return (
         <div className="pipeline-apps-management-scene">
+            {isDev && (
+                <>
+                    <h2>Local plugin development</h2>
+                    <InstallLocalApp />
+                    <InstallSourceApp />
+                    <h2>Local and source plugins</h2>
+                    <AppsTable plugins={localAndSourcePlugins} />
+                </>
+            )}
             {/* When plugins are still loading we don't know yet if any apps are out of sync
             with the global state, so skip this section for smooter user experience */}
             {isCloudOrDev &&
@@ -52,7 +62,6 @@ export function AppsManagement(): JSX.Element {
                     shouldNotBeGlobalPlugins.length > 0) && <OutOfSyncApps />}
             <h2>Manual installation</h2>
             <InstallFromUrl />
-            {isDev && <InstallLocalApp />}
             <InstallSourceApp />
 
             <LemonDivider className="my-6" />
@@ -188,7 +197,8 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         render: function RenderAccess(_, plugin) {
                             return (
                                 <div className="flex items-center gap-2 justify-end">
-                                    {plugin.latest_tag && plugin.tag != plugin.latest_tag && (
+                                    {(plugin.plugin_type == PluginInstallationType.Local ||
+                                        (plugin.latest_tag && plugin.tag != plugin.latest_tag)) && (
                                         <LemonButton
                                             type="secondary"
                                             size="small"

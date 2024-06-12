@@ -1,6 +1,5 @@
 import datetime
 import json
-import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional, cast
@@ -27,7 +26,7 @@ from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
     get_file_from_archive,
-    load_json_file,
+    load_local_plugin_file,
     parse_url,
 )
 from posthog.redis import get_client
@@ -56,17 +55,15 @@ def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> 
     """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
     plugin_json: Optional[dict[str, Any]]
     if url.startswith("file:"):
-        plugin_path = url[5:]
-        plugin_json_path = os.path.join(plugin_path, "plugin.json")
-        plugin_json = cast(Optional[dict[str, Any]], load_json_file(plugin_json_path))
+        plugin_json = cast(Optional[dict[str, Any]], load_local_plugin_file(url, "plugin.json"))
         if not plugin_json:
-            raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
+            raise ValidationError(f"Could not load plugin.json from: {url}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
         validated_data["latest_tag"] = None
         validated_data["archive"] = None
-        validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["name"] = plugin_json.get("name", url.split("/")[-2])
         validated_data["icon"] = plugin_json.get("icon", None)
         validated_data["description"] = plugin_json.get("description", "")
         validated_data["config_schema"] = plugin_json.get("config", [])
@@ -130,7 +127,7 @@ class PluginManager(models.Manager):
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
-            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+            PluginSourceFile.objects.sync_plugin_source_files(plugin, plugin_json)
         get_client().publish(
             "populate-plugin-capabilities",
             json.dumps({"plugin_id": str(plugin.id)}),
@@ -307,6 +304,18 @@ class PluginLogEntryType(str, Enum):
 
 
 class PluginSourceFileManager(models.Manager):
+    def sync_plugin_source_files(
+        self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]]
+    ) -> tuple[
+        "PluginSourceFile",
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+    ]:
+        if plugin.plugin_type == Plugin.PluginType.LOCAL:
+            return self.sync_local_plugin_source_files(plugin, plugin_json_parsed)
+        return self.sync_from_plugin_archive(plugin, plugin_json_parsed)
+
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
     ) -> tuple[
@@ -322,6 +331,38 @@ class PluginSourceFileManager(models.Manager):
             plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+        return self.save_plugin_source_files(plugin, plugin_json, index_ts, frontend_tsx, site_ts)
+
+    def sync_local_plugin_source_files(
+        self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
+    ) -> tuple[
+        "PluginSourceFile",
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+    ]:
+        plugin_json = json.dumps(plugin_json_parsed)
+        # Extract frontend.tsx - optional
+        frontend_tsx: Optional[str] = load_local_plugin_file(plugin.url, "frontend.tsx", json_parse=False)
+        # Extract site.ts - optional
+        site_ts: Optional[str] = load_local_plugin_file(plugin.url, "site.ts", json_parse=False)
+        # Extract index.ts - optional if frontend.tsx is present, otherwise required
+        index_ts: Optional[str] = None
+        try:
+            index_ts = load_local_plugin_file(plugin.url, plugin_json_parsed.get("main"), json_parse=False)
+        except ValueError as e:
+            if frontend_tsx is None and site_ts is None:
+                raise e
+        return self.save_plugin_source_files(plugin, plugin_json, index_ts, frontend_tsx, site_ts)
+
+    def save_plugin_source_files(
+        self, plugin: Plugin, plugin_json: str, index_ts: str, frontend_tsx: str, site_ts: str
+    ) -> tuple[
+        "PluginSourceFile",
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+    ]:
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
         filenames_to_delete = []
         # Save plugin.json
