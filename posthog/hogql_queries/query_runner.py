@@ -464,7 +464,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if results is not None:
                 return results
 
-        fresh_response_dict = self.calculate().model_dump()
+        fresh_response_dict = self.calculate().model_dump(by_alias=True)
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
