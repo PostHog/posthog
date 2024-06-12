@@ -1,4 +1,4 @@
-name: Rust
+name: Rust test CI
 
 on:
     workflow_dispatch:
@@ -31,8 +31,12 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - '.github/workflows/rust.yml'
+                        - '.github/workflows/rust-docker-build.yml'
+                        - '.github/workflows/rust-hook-migrator-docker.yml'
 
     build:
+        name: Build rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 
@@ -68,6 +72,7 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
+        name: Test rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 10
@@ -118,6 +123,7 @@ jobs:
               run: cargo test --all-features
 
     linting:
+        name: Lint rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 
@@ -163,6 +169,7 @@ jobs:
               run: cargo check --all-features
 
     shear:
+        name: Shear rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 
