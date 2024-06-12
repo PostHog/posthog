@@ -9,5 +9,5 @@ class HogFunctionTemplate:
     name: str
     description: str
     hog: str
-    inputs_schema: Optional[list[dict]] = None
+    inputs_schema: list[dict]
     filters: Optional[dict] = None
