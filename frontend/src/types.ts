@@ -4136,7 +4136,9 @@ export type HogFunctionType = {
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters'
->
+> & {
+    status: 'alpha' | 'beta' | 'stable'
+}
 
 export interface AnomalyCondition {
     absoluteThreshold: {

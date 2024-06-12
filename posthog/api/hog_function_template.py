@@ -82,6 +82,12 @@ class HogFunctionTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     def list(self, request: Request, *args, **kwargs):
         # TODO: Filtering for status?
+        data = HOG_FUNCTION_TEMPLATES
 
-        serializer = HogFunctionTemplateSerializer(HOG_FUNCTION_TEMPLATES, many=True)
+        page = self.paginate_queryset(data)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(data, many=True)
         return Response(serializer.data)
