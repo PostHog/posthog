@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
@@ -40,13 +41,18 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     return (
         <div data-attr="manage-events-table">
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex flex-justify-center items-center bg-white px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
+                        <div
+                            className={`flex flex-justify-center items-center px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5 ${
+                                isDarkModeOn ? 'bg-[var(--bg-light)]' : 'bg-white'
+                            }`}
+                        >
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(
