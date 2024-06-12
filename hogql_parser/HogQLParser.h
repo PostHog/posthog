@@ -2127,12 +2127,12 @@ public:
     antlr4::tree::TerminalNode *GROUP();
     antlr4::tree::TerminalNode *HAVING();
     antlr4::tree::TerminalNode *ID();
+    antlr4::tree::TerminalNode *IS();
     antlr4::tree::TerminalNode *IF();
     antlr4::tree::TerminalNode *ILIKE();
     antlr4::tree::TerminalNode *IN();
     antlr4::tree::TerminalNode *INNER();
     antlr4::tree::TerminalNode *INTERVAL();
-    antlr4::tree::TerminalNode *IS();
     antlr4::tree::TerminalNode *JOIN();
     antlr4::tree::TerminalNode *KEY();
     antlr4::tree::TerminalNode *LAST();
