@@ -58,6 +58,7 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
 ]
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -285,6 +286,24 @@ export class PersonState {
         return 'other'
     }
 
+    // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
+    // They will still show up for PoE as it's not removed from the event, we just don't update the person in PG anymore
+    private shouldUpdatePersonIfOnlyChange(key: string): boolean {
+        if (PERSON_EVENTS.has(this.event.event)) {
+            // for person events always update everything
+            return true
+        }
+        // These are properties we add from the event and some change often, it's useless to update person always
+        if (eventToPersonProperties.has(key)) {
+            return false
+        }
+        // same as above, coming from GeoIP plugin
+        if (key.startsWith('$geoip_')) {
+            return false
+        }
+        return true
+    }
+
     /**
      * @param personProperties Properties of the person to be updated, these are updated in place.
      * @returns true if the properties were changed, false if they were not
@@ -309,7 +328,9 @@ export class PersonState {
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updated = true
+                if (this.shouldUpdatePersonIfOnlyChange(key)) {
+                    updated = true
+                }
                 metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
