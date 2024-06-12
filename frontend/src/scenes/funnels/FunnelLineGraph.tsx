@@ -4,10 +4,8 @@ import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartParams, GraphDataset, GraphType } from '~/types'
@@ -28,15 +26,8 @@ export function FunnelLineGraph({
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        isHogQLInsight,
-        indexedSteps,
-        aggregationTargetLabel,
-        incompletenessOffsetFromEnd,
-        interval,
-        querySource,
-        insightData,
-    } = useValues(funnelDataLogic(insightProps))
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
+        useValues(funnelDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -89,28 +80,16 @@ export function FunnelLineGraph({
                                   aggregationTargetLabel.plural
                               )} converted on ${dayjs(label).format('MMMM Do YYYY')}`
 
-                              if (isHogQLInsight) {
-                                  const query: FunnelsActorsQuery = {
-                                      kind: NodeKind.FunnelsActorsQuery,
-                                      source: querySource,
-                                      funnelTrendsDropOff: false,
-                                      funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
-                                  }
-                                  openPersonsModal({
-                                      title,
-                                      query,
-                                  })
-                              } else {
-                                  const filters = queryNodeToFilter(querySource) // for persons modal
-                                  const personsUrl = buildPeopleUrl({
-                                      filters,
-                                      date_from: day ?? '',
-                                      response: insightData,
-                                  })
-                                  if (personsUrl) {
-                                      openPersonsModal({ title, url: personsUrl })
-                                  }
+                              const query: FunnelsActorsQuery = {
+                                  kind: NodeKind.FunnelsActorsQuery,
+                                  source: querySource,
+                                  funnelTrendsDropOff: false,
+                                  funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
                               }
+                              openPersonsModal({
+                                  title,
+                                  query,
+                              })
                           }
                 }
             />

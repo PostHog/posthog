@@ -10146,6 +10146,10 @@ tree::TerminalNode* HogQLParser::KeywordContext::ID() {
   return getToken(HogQLParser::ID, 0);
 }
 
+tree::TerminalNode* HogQLParser::KeywordContext::IS() {
+  return getToken(HogQLParser::IS, 0);
+}
+
 tree::TerminalNode* HogQLParser::KeywordContext::IF() {
   return getToken(HogQLParser::IF, 0);
 }
@@ -10164,10 +10168,6 @@ tree::TerminalNode* HogQLParser::KeywordContext::INNER() {
 
 tree::TerminalNode* HogQLParser::KeywordContext::INTERVAL() {
   return getToken(HogQLParser::INTERVAL, 0);
-}
-
-tree::TerminalNode* HogQLParser::KeywordContext::IS() {
-  return getToken(HogQLParser::IS, 0);
 }
 
 tree::TerminalNode* HogQLParser::KeywordContext::JOIN() {

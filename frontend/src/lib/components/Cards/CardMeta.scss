@@ -106,7 +106,7 @@
     &.CardMeta--details-shown {
         .CardMeta__details {
             margin-top: 0;
-            box-shadow: var(--shadow-elevation);
+            box-shadow: var(--shadow-elevation-3000);
 
             .CardMeta__details__content {
                 pointer-events: all;
