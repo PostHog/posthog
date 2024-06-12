@@ -104,7 +104,6 @@ export function PayGateMini({
                         product={productWithFeature}
                         featureInfo={featureInfo}
                         gateVariant={gateVariant}
-                        isAddonProduct={isAddonProduct}
                     />
                 ) : (
                     <PayGateMiniButtonVariant
@@ -203,10 +202,10 @@ const renderUsageLimitMessage = (
                     </span>
                 </p>
                 {billing?.subscription_level === 'free' && !isAddonProduct ? (
-                    <p>Please upgrade to our paid plan to create more {featureInfo.name}</p>
+                    <p>Upgrade to our paid plan to create more {featureInfo.name}</p>
                 ) : (
                     <p>
-                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        Upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
                     </p>
                 )}
             </div>
@@ -215,7 +214,7 @@ const renderUsageLimitMessage = (
     return (
         <>
             <p>{featureInfo.description}</p>
-            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, isAddonProduct)}</p>
         </>
     )
 }
@@ -223,6 +222,7 @@ const renderUsageLimitMessage = (
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    billing: BillingV2Type | null,
     isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
@@ -233,7 +233,10 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
+    } else if (billing?.subscription_level === 'free') {
+        return <>Upgrade to our paid plan to use this feature.</>
     }
+
     return (
         <>
             Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
