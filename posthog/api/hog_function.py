@@ -38,6 +38,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "enabled",
             "hog",
             "filters",
+            "icon_url",
         ]
         read_only_fields = fields
 
@@ -58,6 +59,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema",
             "inputs",
             "filters",
+            "icon_url",
         ]
         read_only_fields = [
             "id",

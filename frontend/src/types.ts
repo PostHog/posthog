@@ -4122,8 +4122,8 @@ export type HogFunctionType = {
     enabled: boolean
     hog: string
 
-    inputs_schema: HogFunctionInputSchemaType[]
-    inputs: Record<
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<
         string,
         {
             value: any
