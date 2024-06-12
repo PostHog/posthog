@@ -559,7 +559,6 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args] if node.args else None,
             over_expr=self.visit(node.over_expr) if node.over_expr else None,
             over_identifier=node.over_identifier,
-            distinct=node.distinct,
         )
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):

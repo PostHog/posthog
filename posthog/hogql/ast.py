@@ -720,7 +720,6 @@ class WindowFunction(Expr):
     exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
-    distinct: Optional[bool] = None
 
 
 @dataclass(kw_only=True)

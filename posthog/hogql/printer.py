@@ -1144,11 +1144,7 @@ class _Printer(Visitor):
     def visit_window_function(self, node: ast.WindowFunction):
         identifier = self._print_identifier(node.name)
         exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
-        args = (
-            "(" + ("DISTINCT " if node.distinct else "") + (", ".join(self.visit(arg) for arg in node.args or [])) + ")"
-            if node.args
-            else ""
-        )
+        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
         if node.over_expr or node.over_identifier:
             over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
         else:
