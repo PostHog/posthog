@@ -11,6 +11,9 @@
       "cowsay": {
         "pkg-path": "cowsay"
       },
+      "libtool": {
+        "pkg-path": "libtool"
+      },
       "nodejs": {
         "pkg-path": "nodejs",
         "version": "18.19.1"
@@ -20,6 +23,9 @@
       },
       "python3": {
         "pkg-path": "python310"
+      },
+      "xmlsec": {
+        "pkg-path": "xmlsec"
       }
     },
     "options": {
@@ -113,6 +119,34 @@
         },
         "priority": 5
       },
+      "libtool": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "libtool"
+        ],
+        "info": {
+          "broken": false,
+          "description": "GNU Libtool, a generic library support script",
+          "license": "GPL-2.0-or-later",
+          "pname": "libtool",
+          "unfree": false,
+          "version": "2.4.7"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
       "nodejs": {
         "attr-path": [
           "legacyPackages",
@@ -183,6 +217,34 @@
           "pname": "python3",
           "unfree": false,
           "version": "3.10.14"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
+      "xmlsec": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "xmlsec"
+        ],
+        "info": {
+          "broken": false,
+          "description": "XML Security Library in C based on libxml2",
+          "license": "MIT",
+          "pname": "xmlsec",
+          "unfree": false,
+          "version": "1.2.34"
         },
         "input": {
           "attrs": {
