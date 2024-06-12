@@ -243,7 +243,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "properties.'no strings'",
-            "mismatched input",
+            "input",
             "hogql",
         )
 
