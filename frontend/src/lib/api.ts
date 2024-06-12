@@ -5,6 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { LogEntry } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -1658,6 +1659,12 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
+        },
+        async searchLogs(
+            id: HogFunctionType['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
     },
 

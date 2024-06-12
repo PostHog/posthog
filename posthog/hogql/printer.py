@@ -173,7 +173,9 @@ class _Printer(Visitor):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
+        if node is None:
+            return ""
         self.stack.append(node)
         self._indent += 1
         response = super().visit(node)

@@ -957,7 +957,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_select_array_join(self):
             self.assertEqual(
-                self._select("select a from events ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -977,7 +977,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select a from events INNER ARRAY JOIN [1,2,3] a"),
+                self._select("select a from events INNER ARRAY JOIN [1,2,3] as a"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -997,7 +997,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] a, [4,5,6] AS b"),
+                self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] as a, [4,5,6] AS b"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1), ast.Field(chain=["b"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),

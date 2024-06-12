@@ -545,6 +545,23 @@ export class PersonState {
                         created_at: createdAt,
                         properties: properties,
                         is_identified: true,
+
+                        // By using the max version between the two Persons, we ensure that if
+                        // this Person is later split, we can use `this_person.version + 1` for
+                        // any split-off Persons and know that *that* version will be higher than
+                        // any previously deleted Person, and so the new Person row will "win" and
+                        // "undelete" the Person.
+                        //
+                        // For example:
+                        //  - Merge Person_1(version:7) into Person_2(version:2)
+                        //      - Person_1 is deleted
+                        //      - Person_2 attains version 8 via this code below
+                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                        //    its `distinct_id` to generate the deterministic Person UUID.
+                        //    That new Person_1 will have a version _at least_ as high as 8, and
+                        //    so any previously existing rows in CH or otherwise from
+                        //    Person_1(version:7) will "lose" to this new Person_1.
+                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
                     },
                     tx
                 )

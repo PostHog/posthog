@@ -227,6 +227,8 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_expr_statement(self, node: ast.ExprStatement):
+        if node.expr is None:
+            return []
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response
