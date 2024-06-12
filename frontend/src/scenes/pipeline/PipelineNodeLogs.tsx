@@ -26,7 +26,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                     <>
                         <IconSearch />
 
-                        {instanceId && <LemonSnack onClose={() => setInstanceId('')}>{instanceId}</LemonSnack>}
+                        {instanceId && <LemonSnack onClose={() => setInstanceId(null)}>{instanceId}</LemonSnack>}
                     </>
                 }
             />
