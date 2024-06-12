@@ -1,8 +1,8 @@
 ---- Commented out because python and JS add different spaces to their JSON output
--- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }));
--- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3));
+-- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }))
+-- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3))
 
-print(jsonParse('[1,2,3]'));
+print(jsonParse('[1,2,3]'))
 
 let event := {
     'event': '$pageview',
@@ -10,6 +10,6 @@ let event := {
         '$browser': 'Chrome',
         '$os': 'Windows'
     }
-};
-let json := jsonStringify(event);
-print(jsonParse(json));
+}
+let json := jsonStringify(event)
+print(jsonParse(json))

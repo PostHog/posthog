@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import {
     AnyPropertyFilter,
     DurationType,
+    FilterableLogLevel,
     FilterType,
     PropertyFilterType,
     PropertyOperator,
@@ -97,6 +98,7 @@ export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
+    duration: [defaultRecordingDurationFilter],
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -127,6 +129,8 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
+    let console_logs: FilterableLogLevel[] = []
+    let console_search_query = ''
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
@@ -134,17 +138,29 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         } else if (isActionFilter(f)) {
             actions.push(f)
         } else if (isAnyPropertyfilter(f)) {
-            properties.push(f)
+            if (f.type === PropertyFilterType.Recording) {
+                if (f.key === 'console_log_level') {
+                    console_logs = f.value as FilterableLogLevel[]
+                } else if (f.key === 'console_log_query') {
+                    console_search_query = (f.value || '') as string
+                }
+            } else {
+                properties.push(f)
+            }
         }
     })
 
-    // TODO: add console log and duration filtering (not yet supported in universal filtering)
+    const durationFilter = universalFilters.duration[0]
 
     return {
         ...universalFilters,
         properties,
         events,
         actions,
+        session_recording_duration: { ...durationFilter, key: 'duration' },
+        duration_type_filter: durationFilter.key,
+        console_search_query,
+        console_logs,
     }
 }
 

@@ -24,11 +24,7 @@ export class HogFunctionManager {
         this.pubSub = new PubSub(this.serverConfig, {
             'reload-hog-function': async (message) => {
                 const { hogFunctionId, teamId } = JSON.parse(message)
-                // TODO: Change to only if already loaded
-
-                if (this.cache[teamId]?.[hogFunctionId]) {
-                    await this.reloadHogFunction(teamId, hogFunctionId)
-                }
+                await this.reloadHogFunction(teamId, hogFunctionId)
             },
         })
     }
@@ -66,14 +62,18 @@ export class HogFunctionManager {
         return this.cache[teamId] || {}
     }
 
+    public teamHasHogFunctions(teamId: Team['id']): boolean {
+        return !!Object.keys(this.getTeamHogFunctions(teamId)).length
+    }
+
     public async reloadAllHogFunctions(): Promise<void> {
         this.cache = await fetchAllHogFunctionsGroupedByTeam(this.postgres)
         status.info('🍿', 'Fetched all hog functions from DB anew')
     }
 
     public async reloadHogFunction(teamId: Team['id'], id: HogFunctionType['id']): Promise<void> {
+        status.info('🍿', `Reloading hog function ${id} from DB`)
         const item = await fetchHogFunction(this.postgres, id)
-
         if (item) {
             this.cache[teamId][id] = item
         } else {

@@ -717,6 +717,12 @@ export class DB {
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, ProducerRecord[]]> {
+        let versionString = 'COALESCE(version, 0)::numeric + 1'
+        if (update.version) {
+            versionString = update.version.toString()
+            delete update['version']
+        }
+
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
@@ -727,11 +733,9 @@ export class DB {
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
-        const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
-            update
-        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
-            Object.values(update).length + 1
-        }
+        const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${Object.values(update).length + 1}
         RETURNING *`
 
         const { rows } = await this.postgres.query<RawPerson>(
@@ -754,20 +758,14 @@ export class DB {
             personUpdateVersionMismatchCounter.inc()
         }
 
-        const kafkaMessages = []
-        const message = generateKafkaPersonUpdateMessage(updatedPerson)
-        if (tx) {
-            kafkaMessages.push(message)
-        } else {
-            await this.kafkaProducer.queueMessage({ kafkaMessage: message, waitForAck: true })
-        }
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
         status.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, kafkaMessages]
+        return [updatedPerson, [kafkaMessage]]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
