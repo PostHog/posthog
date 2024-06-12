@@ -5,7 +5,7 @@ import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
 
 
-const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
+const DEFAULT_VIEWPORT = { width: 1300, height: 720 };
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
