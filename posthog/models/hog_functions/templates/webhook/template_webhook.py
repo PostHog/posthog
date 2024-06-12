@@ -12,7 +12,7 @@ fetch(inputs.url, {
   'body': inputs.payload,
   'method': inputs.method
 });
-""",
+""".strip(),
     inputs_schema=[
         {
             "key": "url",

@@ -1676,6 +1676,9 @@ const api = {
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return await new ApiRequest().hogFunctionTemplates().get()
         },
+        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).get()
+        },
     },
 
     annotations: {

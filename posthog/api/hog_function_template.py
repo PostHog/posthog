@@ -4,6 +4,7 @@ from rest_framework import serializers, viewsets, mixins
 from rest_framework.serializers import BaseSerializer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql.bytecode import create_bytecode
@@ -80,14 +81,22 @@ class HogFunctionTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     serializer_class = HogFunctionTemplateSerializer
 
-    def list(self, request: Request, *args, **kwargs):
+    def _get_templates(self):
         # TODO: Filtering for status?
         data = HOG_FUNCTION_TEMPLATES
+        return data
 
-        page = self.paginate_queryset(data)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+    def list(self, request: Request, *args, **kwargs):
+        page = self.paginate_queryset(self._get_templates())
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(data, many=True)
+    def retrieve(self, request: Request, *args, **kwargs):
+        data = self._get_templates()
+        item = next((item for item in data if item.id == kwargs["pk"]), None)
+
+        if not item:
+            raise NotFound(f"Template with id {kwargs['pk']} not found.")
+
+        serializer = self.get_serializer(item)
         return Response(serializer.data)

@@ -17,7 +17,6 @@ import {
 } from '~/types'
 
 import type { pipelineHogFunctionConfigurationLogicType } from './pipelineHogFunctionConfigurationLogicType'
-import { HOG_FUNCTION_TEMPLATES } from './templates/hog-templates'
 
 export interface PipelineHogFunctionConfigurationLogicProps {
     templateId?: string
@@ -86,7 +85,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         return null
                     }
 
-                    const res = HOG_FUNCTION_TEMPLATES.find((template) => template.id === props.templateId)
+                    const res = await api.hogFunctions.getTemplate(props.templateId)
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -235,9 +234,13 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     ...values.configuration,
                     name: `${values.configuration.name} (copy)`,
                 }
-                router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-new`), undefined, {
-                    configuration: newConfig,
-                })
+                router.actions.push(
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-helloworld`),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
             }
         },
     })),

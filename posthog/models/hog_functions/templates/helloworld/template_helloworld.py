@@ -7,8 +7,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Hello world",
     description="Prints your message or hello world!",
     hog="""
-print(inputs.message || 'hello world!');
-""",
+print(inputs.message ?? 'hello world!');
+""".strip(),
     inputs_schema=[
         {
             "key": "message",
