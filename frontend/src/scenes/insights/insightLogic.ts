@@ -7,7 +7,7 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -35,6 +35,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { InsightVizNode } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
@@ -50,7 +51,6 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
 import { extractObjectDiffKeys, getInsightId } from './utils'
 
@@ -369,8 +369,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
-        /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
-        loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
+        queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
@@ -383,9 +382,9 @@ export const insightLogic = kea<insightLogicType>([
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (s) => [s.queryBasedInsight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (insight, aggregationLabel, cohortsById, mathDefinitions) =>
-                summarizeInsight(insight.query, insight.filters || {}, {
+                summarizeInsight(insight.query, null, {
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
@@ -393,10 +392,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
-        isFilterBasedInsight: [
-            (s) => [s.insight],
-            (insight) => Object.keys(insight.filters || {}).length > 0 && !insight.query,
-        ],
         isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
         isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
@@ -447,21 +442,6 @@ export const insightLogic = kea<insightLogicType>([
                 return 'insight' in (filters ?? {})
             },
         ],
-        filterPropertiesCount: [
-            (s) => [s.filters],
-            (filters): number => {
-                return Array.isArray(filters.properties)
-                    ? filters.properties.length
-                    : sum(filters.properties?.values?.map((x) => x.values.length) || [])
-            },
-        ],
-        localFilters: [
-            (s) => [s.filters],
-            (filters) => {
-                return toLocalFilters(filters)
-            },
-        ],
-        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
