@@ -7,12 +7,15 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { Survey, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
 
@@ -85,6 +88,10 @@ export function SurveyEditQuestionHeader({
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const hasBranching =
+        featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC] &&
+        (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -332,6 +339,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
+                {hasBranching && <QuestionBranchingInput questionIndex={index} question={question} />}
             </div>
         </Group>
     )

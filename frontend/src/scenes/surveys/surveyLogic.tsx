@@ -16,10 +16,13 @@ import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     FeatureFlagFilters,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
+    SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -154,6 +157,7 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
+        setQuestionBranching: (questionIndex, value) => ({ questionIndex, value }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -657,6 +661,44 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
+                setQuestionBranching: (state, { questionIndex, value }) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+
+                    if (
+                        question.type !== SurveyQuestionType.Rating &&
+                        question.type !== SurveyQuestionType.SingleChoice
+                    ) {
+                        throw new Error(
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                        )
+                    }
+
+                    if (value === SurveyQuestionBranchingType.NextQuestion) {
+                        delete question.branching
+                    } else if (value === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                        }
+                    } else if (value === SurveyQuestionBranchingType.ResponseBased) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ResponseBased,
+                            responseValue: {},
+                        }
+                    } else if (value.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                        const nextQuestionIndex = parseInt(value.split(':')[1])
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.SpecificQuestion,
+                            index: nextQuestionIndex,
+                        }
+                    }
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -880,6 +922,28 @@ export const surveyLogic = kea<surveyLogicType>([
                         return npsScore.toFixed(1)
                     }
                 }
+            },
+        ],
+        getBranchingDropdownValue: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+                if (question.branching?.type) {
+                    const { type } = question.branching
+
+                    if (type === SurveyQuestionBranchingType.SpecificQuestion) {
+                        const nextQuestionIndex = question.branching.index
+                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                    }
+
+                    return type
+                }
+
+                // No branching specified, default to Next question / Confirmation message
+                if (questionIndex < survey.questions.length - 1) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
     }),

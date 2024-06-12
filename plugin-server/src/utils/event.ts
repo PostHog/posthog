@@ -10,6 +10,7 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../types'
+import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -249,13 +250,19 @@ export function formPipelineEvent(message: Message): PipelineEvent {
     // Track $set usage in events that aren't known to use it, before ingestion adds anything there
     if (
         combinedEvent.properties &&
-        !(combinedEvent.event in PERSON_EVENTS) &&
-        !(combinedEvent.event in KNOWN_SET_EVENTS) &&
+        !PERSON_EVENTS.has(combinedEvent.event) &&
+        !KNOWN_SET_EVENTS.has(combinedEvent.event) &&
         ('$set' in combinedEvent.properties ||
             '$set_once' in combinedEvent.properties ||
             '$unset' in combinedEvent.properties)
     ) {
         setUsageInNonPersonEventsCounter.inc()
+        if (Math.random() < 0.001) {
+            status.info('👀', 'Found $set usage in non-person event', {
+                event: combinedEvent.event,
+                team_id: combinedEvent.team_id,
+            })
+        }
     }
 
     const event: PipelineEvent = normalizeEvent({
