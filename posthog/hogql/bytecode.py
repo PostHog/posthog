@@ -161,7 +161,7 @@ class BytecodeBuilder(Visitor):
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
-        return [*chain, Operation.FIELD, len(node.chain)]
+        return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
@@ -227,6 +227,8 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_expr_statement(self, node: ast.ExprStatement):
+        if node.expr is None:
+            return []
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response
@@ -289,25 +291,22 @@ class BytecodeBuilder(Visitor):
                 Operation.SET_PROPERTY,
             ]
 
-        if isinstance(node.left, ast.Field) and len(node.left.chain) == 1:
-            name = node.left.chain[0]
-            for index, local in reversed(list(enumerate(self.locals))):
-                if local.name == name:
-                    return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
-            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
-
-        if isinstance(node.left, ast.Field) and len(node.left.chain) > 1:
+        if isinstance(node.left, ast.Field) and len(node.left.chain) >= 1:
             chain = node.left.chain
             name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == name:
+                    # Set a local variable
+                    if len(node.left.chain) == 1:
+                        return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+
+                    # else set a property on a local object
                     ops: list = [Operation.GET_LOCAL, index]
                     for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
                         else:
                             ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
-
                     if isinstance(chain[-1], int):
                         ops.extend([Operation.INTEGER, chain[-1], *self.visit(node.right), Operation.SET_PROPERTY])
                     else:
@@ -315,7 +314,7 @@ class BytecodeBuilder(Visitor):
 
                     return ops
 
-            raise NotImplementedError(f"Variable `{name}` not declared in this scope")
+            raise NotImplementedError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
         raise NotImplementedError(f"Can not assign to this type of expression")
 
@@ -324,7 +323,16 @@ class BytecodeBuilder(Visitor):
             raise NotImplementedError(f"Function `{node.name}` already declared")
         all_known_functions = self.supported_functions.union(set(self.functions.keys()))
         all_known_functions.add(node.name)
-        bytecode = create_bytecode(node.body, all_known_functions, node.params)
+
+        # add an implicit return if none at the end of the function
+        body = node.body
+        if isinstance(node.body, ast.Block):
+            if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
+                body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])
+        elif not isinstance(node.body, ast.ReturnStatement):
+            body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
+
+        bytecode = create_bytecode(body, all_known_functions, node.params)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
 
@@ -356,14 +364,14 @@ class BytecodeBuilder(Visitor):
 
 def execute_hog(
     source_code: str,
-    team: "Team",
+    team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=10,
 ) -> BytecodeResult:
     source_code = source_code.strip()
     if source_code.count("\n") == 0:
-        if not source_code.startswith("return"):
+        if not source_code.startswith("return") and ":=" not in source_code:
             source_code = f"return {source_code}"
         if not source_code.endswith(";"):
             source_code = f"{source_code};"

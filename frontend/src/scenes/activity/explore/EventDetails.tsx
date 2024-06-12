@@ -93,7 +93,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'Exception',
             content: (
                 <div className="ml-10 my-2">
-                    <ErrorDisplay event={event} />
+                    <ErrorDisplay eventProperties={event.properties} />
                 </div>
             ),
         })

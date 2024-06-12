@@ -1,12 +1,24 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import cloudflareLogo from 'public/cloudflare-logo.svg'
+import googleStorageLogo from 'public/google-cloud-storage-logo.png'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
-import posthogLogo from 'public/posthog-icon.svg'
+import s3Logo from 'public/s3-logo.png'
 import snowflakeLogo from 'public/snowflake-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.svg'
@@ -14,10 +26,10 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
+    DataWarehouseSyncInterval,
     ExternalDataSourceSchema,
-    ExternalDataSourceType,
     ExternalDataStripeSource,
-    PipelineInterval,
+    manualLinkSources,
     ProductKey,
 } from '~/types'
 
@@ -33,7 +45,7 @@ const StatusTagSetting = {
 export function DataWarehouseSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource, updateSource } = useActions(dataWarehouseSettingsLogic)
 
     const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
         return (
@@ -70,7 +82,7 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                 {
                     width: 0,
                     render: function RenderAppInfo(_, source) {
-                        return <RenderDataWarehouseSourceIcon type={source.source_type as ExternalDataSourceType} />
+                        return <RenderDataWarehouseSourceIcon type={source.source_type} />
                     },
                 },
                 {
@@ -81,7 +93,7 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                     },
                 },
                 {
-                    title: 'Table Prefix',
+                    title: 'Table prefix',
                     key: 'prefix',
                     render: function RenderPrefix(_, source) {
                         return source.prefix
@@ -90,8 +102,21 @@ export function DataWarehouseSourcesTable(): JSX.Element {
                 {
                     title: 'Sync Frequency',
                     key: 'frequency',
-                    render: function RenderFrequency() {
-                        return 'day' as PipelineInterval
+                    render: function RenderFrequency(_, source) {
+                        return (
+                            <LemonSelect
+                                className="my-1"
+                                value={source.sync_frequency || 'day'}
+                                onChange={(value) =>
+                                    updateSource({ ...source, sync_frequency: value as DataWarehouseSyncInterval })
+                                }
+                                options={[
+                                    { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
+                                    { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                    { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                ]}
+                            />
+                        )
                     },
                 },
                 {
@@ -191,7 +216,11 @@ export function DataWarehouseSourcesTable(): JSX.Element {
     )
 }
 
-export function getDataWarehouseSourceUrl(service: ExternalDataSourceType): string {
+export function getDataWarehouseSourceUrl(service: string): string {
+    if (manualLinkSources.includes(service)) {
+        return 'https://posthog.com/docs/data-warehouse/setup#step-1-creating-a-bucket-in-s3'
+    }
+
     return `https://posthog.com/docs/data-warehouse/setup#${service.toLowerCase()}`
 }
 
@@ -199,30 +228,10 @@ export function RenderDataWarehouseSourceIcon({
     type,
     size = 'small',
 }: {
-    type: ExternalDataSourceType
+    type: string
     size?: 'small' | 'medium'
 }): JSX.Element {
     const sizePx = size === 'small' ? 30 : 60
-
-    if (type == 'Manual') {
-        return (
-            <div className="flex items-center gap-4">
-                <Tooltip
-                    title={
-                        <>
-                            {type}
-                            <br />
-                            Click to view docs
-                        </>
-                    }
-                >
-                    <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">
-                        <img src={posthogLogo} alt={type} height={sizePx} width={sizePx} />
-                    </Link>
-                </Tooltip>
-            </div>
-        )
-    }
 
     const icon = {
         Stripe: stripeLogo,
@@ -230,6 +239,9 @@ export function RenderDataWarehouseSourceIcon({
         Zendesk: zendeskLogo,
         Postgres: postgresLogo,
         Snowflake: snowflakeLogo,
+        aws: s3Logo,
+        'google-cloud': googleStorageLogo,
+        'cloudflare-r2': cloudflareLogo,
     }[type]
 
     return (

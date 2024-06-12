@@ -38,12 +38,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy == WebStatsBreakdown.Page:
+        if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.includeScrollDepth and self.query.includeBounceRate:
                 return self.to_path_scroll_bounce_query()
             elif self.query.includeBounceRate:
                 return self.to_path_bounce_query()
-        if self.query.breakdownBy == WebStatsBreakdown.InitialPage:
+        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
         if self._has_session_properties():
@@ -178,7 +178,7 @@ ORDER BY "context.columns.visitors" DESC,
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy != WebStatsBreakdown.Page:
+        if self.query.breakdownBy != WebStatsBreakdown.PAGE:
             raise NotImplementedError("Scroll depth is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_bounce_query"):
@@ -290,7 +290,7 @@ ORDER BY "context.columns.visitors" DESC,
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:
-        if self.query.breakdownBy not in [WebStatsBreakdown.InitialPage, WebStatsBreakdown.Page]:
+        if self.query.breakdownBy not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_scroll_query"):
@@ -394,15 +394,15 @@ ORDER BY "context.columns.visitors" DESC,
         return any(
             get_property_type(p) == "session" for p in self.query.properties + self._test_account_filters
         ) or self.query.breakdownBy in {
-            WebStatsBreakdown.InitialChannelType,
-            WebStatsBreakdown.InitialReferringDomain,
-            WebStatsBreakdown.InitialUTMSource,
-            WebStatsBreakdown.InitialUTMCampaign,
-            WebStatsBreakdown.InitialUTMMedium,
-            WebStatsBreakdown.InitialUTMTerm,
-            WebStatsBreakdown.InitialUTMContent,
-            WebStatsBreakdown.InitialPage,
-            WebStatsBreakdown.ExitPage,
+            WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+            WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+            WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+            WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+            WebStatsBreakdown.INITIAL_UTM_TERM,
+            WebStatsBreakdown.INITIAL_UTM_CONTENT,
+            WebStatsBreakdown.INITIAL_PAGE,
+            WebStatsBreakdown.EXIT_PAGE,
         }
 
     def _session_properties(self) -> ast.Expr:
@@ -453,60 +453,60 @@ ORDER BY "context.columns.visitors" DESC,
 
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.Page:
+            case WebStatsBreakdown.PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
-            case WebStatsBreakdown.InitialPage:
+            case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["sessions", "$entry_pathname"]))
-            case WebStatsBreakdown.ExitPage:
+            case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_pathname"]))
-            case WebStatsBreakdown.InitialReferringDomain:
+            case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["sessions", "$entry_referring_domain"])
-            case WebStatsBreakdown.InitialUTMSource:
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["sessions", "$entry_utm_source"])
-            case WebStatsBreakdown.InitialUTMCampaign:
+            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
                 return ast.Field(chain=["sessions", "$entry_utm_campaign"])
-            case WebStatsBreakdown.InitialUTMMedium:
+            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
                 return ast.Field(chain=["sessions", "$entry_utm_medium"])
-            case WebStatsBreakdown.InitialUTMTerm:
+            case WebStatsBreakdown.INITIAL_UTM_TERM:
                 return ast.Field(chain=["sessions", "$entry_utm_term"])
-            case WebStatsBreakdown.InitialUTMContent:
+            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["sessions", "$entry_utm_content"])
-            case WebStatsBreakdown.InitialChannelType:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["sessions", "$channel_type"])
-            case WebStatsBreakdown.Browser:
+            case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
-            case WebStatsBreakdown.DeviceType:
+            case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
-            case WebStatsBreakdown.Country:
+            case WebStatsBreakdown.COUNTRY:
                 return ast.Field(chain=["properties", "$geoip_country_code"])
-            case WebStatsBreakdown.Region:
+            case WebStatsBreakdown.REGION:
                 return parse_expr(
                     "tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name)"
                 )
-            case WebStatsBreakdown.City:
+            case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def where_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.Region:
+            case WebStatsBreakdown.REGION:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.City:
+            case WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.InitialChannelType:
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMSource:
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMCampaign:
+            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMMedium:
+            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMTerm:
+            case WebStatsBreakdown.INITIAL_UTM_TERM:
                 return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.InitialUTMContent:
+            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return parse_expr("TRUE")  # actually show null values
             case _:
                 return parse_expr("breakdown_value IS NOT NULL")

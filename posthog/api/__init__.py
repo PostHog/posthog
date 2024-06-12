@@ -20,6 +20,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    hog_function,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -405,6 +406,13 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_functions",
+    hog_function.HogFunctionViewSet,
+    "project_hog_functions",
     ["team_id"],
 )
 

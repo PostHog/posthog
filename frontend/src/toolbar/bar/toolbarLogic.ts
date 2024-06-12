@@ -31,6 +31,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapFixedPositionMode',
                 'setHeatmapColorPalette',
                 'setCommonFilters',
+                'toggleClickmapsEnabled',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -280,6 +284,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
+        loadHeatmap: () => {
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
+        },
+        loadHeatmapSuccess: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
+        },
+        loadHeatmapFailure: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
@@ -309,6 +324,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                     actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:

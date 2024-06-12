@@ -1145,10 +1145,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],
@@ -1377,10 +1377,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],
@@ -1461,10 +1461,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             [  # Property group filter, which is what's actually used these days
                 PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND,
+                    type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR,
+                            type=FilterLogicalOperator.OR_,
                             values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                         )
                     ],
@@ -1520,7 +1520,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=blocking").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
@@ -1531,26 +1531,53 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2012-01-15T05:17:39.000Z"):
             # Make sure the /query/ endpoint reuses the same cached result - ASYNC EXECUTION HERE!
             response = self.client.post(
-                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "async": True}
+                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "async"}
             ).json()
             self.assertNotIn("code", response)
-            self.assertTrue(response.get("query_async"))
-            self.assertTrue(response.get("complete"))
-            results = response["results"]
-
+            self.assertIsNone(response.get("query_status"))
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
-            self.assertEqual(results["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(results["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
-            self.assertTrue(results["is_cached"])
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:39.000Z"):
-            # Now with refresh requested - cache should be ignored
+            # Now with force async requested - cache should be ignored
             response = self.client.post(
-                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "async": True, "refresh": True}
+                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "force_async"}
             ).json()
             self.assertNotIn("code", response)
-            self.assertTrue(response.get("query_async"))
-            self.assertFalse(response.get("complete"))  # Just checking that recalculation was initiated
+            self.assertIs(response.get("query_status", {}).get("query_async"), True)
+            self.assertIs(
+                response.get("query_status", {}).get("complete"), False
+            )  # Just checking that recalculation was initiated
+
+        # make new insight to test cache miss
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                ),
+                EventsNode(
+                    event="$something",
+                ),
+            ],
+            properties=properties_filter,
+        ).model_dump()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": query_dict,
+                "dashboards": [dashboard_id],
+            },
+        ).json()
+        insight_id = response["id"]
+
+        # Check that cache miss contains query status
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=async").json()
+        self.assertNotIn("code", response)
+        self.assertEqual(response["result"], None)
+        self.assertEqual(response["query_status"]["query_async"], True)
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(

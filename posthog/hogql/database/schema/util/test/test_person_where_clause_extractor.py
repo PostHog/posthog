@@ -40,8 +40,8 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
         modifiers.optimizeJoinedFilters = True
-        modifiers.personsOnEventsMode = PersonsOnEventsMode.disabled
-        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.v1
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V1
         context = HogQLContext(
             team_id=team.pk,
             team=team,

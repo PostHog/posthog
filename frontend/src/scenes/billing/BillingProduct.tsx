@@ -43,7 +43,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -65,9 +65,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const currentPlan = currentAndUpgradePlans?.currentPlan
-    const downgradePlan = currentAndUpgradePlans?.downgradePlan
+    const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
     const additionalFeaturesOnUpgradedPlan = upgradePlan
         ? upgradePlan?.features?.filter(
               (feature) =>
@@ -81,8 +79,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
     const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
-        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) && upgradePlan
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -189,7 +186,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </div>
                         ) : (
-                            !isOnboarding &&
                             !isUnlicensedDebug && (
                                 <>
                                     {product.tiered ? (
@@ -205,14 +201,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
-                                            {product.current_amount_usd ? (
+                                            {product.subscribed ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
                                                         title={`The current ${
                                                             billing?.discount_percent ? 'discounted ' : ''
                                                         }amount you have been billed for this ${
                                                             billing?.billing_period?.interval
-                                                        } so far.`}
+                                                        } so far. This number updates once daily.`}
                                                     >
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
@@ -239,7 +235,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 billing?.discount_percent
                                                                     ? ', discounts on your account,'
                                                                     : ''
-                                                            } and the remaining time left in this billing period.`}
+                                                            } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-muted text-lg leading-5">
@@ -286,7 +282,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
-                    {!isOnboarding && product.addons?.length > 0 && (
+                    {product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
@@ -400,7 +396,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     product,
                                                     upgradeToPlanKey || '',
                                                     redirectPath,
-                                                    isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                                    false // don't include addons, as we're not in onboarding
                                                 )}
                                                 type="primary"
                                                 icon={<IconPlus />}
@@ -423,7 +419,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                         <PlanComparisonModal
                             product={product}
-                            includeAddons={isOnboarding}
+                            includeAddons={false}
                             modalOpen={isPlanComparisonModalOpen}
                             onClose={() => toggleIsPlanComparisonModalOpen()}
                         />

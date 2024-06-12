@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
-from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, cast
 
 import jwt
 import requests
@@ -11,7 +10,7 @@ from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
 
-from ee.billing.billing_types import BillingStatus, Tier
+from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -56,61 +55,6 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
-
-
-def compute_usage_per_tier(limited_usage: int, projected_usage: int, tiers):
-    remaining_usage = limited_usage
-    remaining_projected_usage = projected_usage or 0
-    previous_tier: Optional[dict[str, Any]] = None
-    tier_max_usage: Union[int, float] = 0
-
-    result: list[Tier] = []
-    for tier in tiers:
-        if previous_tier and previous_tier.get("up_to"):
-            previous_tier_up_to = previous_tier["up_to"]
-        else:
-            previous_tier_up_to = 0
-
-        if tier.get("up_to"):
-            tier_max_usage = tier["up_to"] - previous_tier_up_to
-        else:
-            tier_max_usage = float("inf")
-
-        flat_amount_usd = Decimal(tier.get("flat_amount_usd") or 0)
-        unit_amount_usd = Decimal(tier.get("unit_amount_usd") or 0)
-        usage_this_tier = int(min(remaining_usage, tier_max_usage))
-        remaining_usage -= usage_this_tier
-        current_amount_usd = Decimal(unit_amount_usd * usage_this_tier + flat_amount_usd).quantize(Decimal("0.01"))
-        previous_tier = tier
-        if projected_usage:
-            projected_usage_this_tier = int(min(remaining_projected_usage, tier_max_usage))
-            remaining_projected_usage -= projected_usage_this_tier
-            projected_amount_usd = Decimal(unit_amount_usd * projected_usage_this_tier + flat_amount_usd).quantize(
-                Decimal("0.01")
-            )
-        else:
-            projected_usage_this_tier = None
-            projected_amount_usd = None
-
-        result.append(
-            Tier(
-                flat_amount_usd=str(flat_amount_usd),
-                unit_amount_usd=str(unit_amount_usd),
-                up_to=tier.get("up_to", None),
-                current_amount_usd=str(current_amount_usd),
-                current_usage=usage_this_tier,
-                projected_usage=projected_usage_this_tier,
-                projected_amount_usd=str(projected_amount_usd),
-            )
-        )
-    return result
-
-
-def sum_total_across_tiers(tiers):
-    total = Decimal(0)
-    for tier in tiers:
-        total += Decimal(tier["current_amount_usd"])
-    return total
 
 
 class BillingManager:
@@ -164,50 +108,6 @@ class BillingManager:
 
                 product["current_usage"] = current_usage
                 product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
-
-                # Also update the tiers
-                if product.get("tiers"):
-                    usage_limit = product_usage.get("limit")
-                    limited_usage = 0
-                    # If the usage has already exceeded the billing limit, don't increment
-                    # today's usage
-                    if usage_limit is not None and billing_reported_usage > usage_limit:
-                        limited_usage = billing_reported_usage
-                    else:
-                        limited_usage = current_usage
-
-                    product["tiers"] = compute_usage_per_tier(
-                        limited_usage, product["projected_usage"], product["tiers"]
-                    )
-                    product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
-
-                # Update the add on tiers
-                # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
-                for addon in product.get("addons"):
-                    if not addon.get("subscribed"):
-                        continue
-                    addon_usage_key = addon.get("usage_key")
-                    if not usage_key:
-                        continue
-                    if addon_usage_key != usage_key:
-                        usage = response.get("usage_summary", {}).get(addon_usage_key, {})
-                        usage_limit = usage.get("limit")
-                        billing_reported_usage = usage.get("usage") or 0
-                        if product_usage.get("todays_usage"):
-                            todays_usage = product_usage["todays_usage"]
-                            current_usage = billing_reported_usage + todays_usage
-                    addon["current_usage"] = current_usage
-
-                    limited_usage = 0
-                    # If the usage has already exceeded the billing limit, don't increment
-                    # today's usage
-                    if usage_limit is not None and billing_reported_usage > usage_limit:
-                        limited_usage = billing_reported_usage
-                    else:
-                        # Otherwise, do increment toady's usage
-                        limited_usage = current_usage
-                    addon["tiers"] = compute_usage_per_tier(limited_usage, addon["projected_usage"], addon["tiers"])
-                    addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
         else:
             products = self.get_default_products(organization)
             response = {

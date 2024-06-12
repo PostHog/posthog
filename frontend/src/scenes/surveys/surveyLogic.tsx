@@ -16,10 +16,13 @@ import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     FeatureFlagFilters,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
+    SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -36,6 +39,7 @@ export enum SurveyEditSection {
     Appearance = 'appearance',
     Customization = 'customization',
     Targeting = 'targeting',
+    Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
 export interface SurveyLogicProps {
@@ -59,6 +63,19 @@ export interface SurveyRatingResults {
         data: number[]
         total: number
     }
+}
+
+export interface SurveyRecurringNPSResults {
+    [key: number]: {
+        data: number[]
+        total: number
+    }
+}
+
+type SurveyNPSResult = {
+    Promoters: number
+    Detractors: number
+    Passives: number
 }
 
 export interface SurveySingleChoiceResults {
@@ -85,6 +102,8 @@ export interface SurveyOpenTextResults {
 export interface QuestionResultsReady {
     [key: string]: boolean
 }
+
+export type ScheduleType = 'once' | 'recurring'
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
@@ -138,11 +157,14 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
+        setQuestionBranching: (questionIndex, value) => ({ questionIndex, value }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
+
+        setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
@@ -249,8 +271,10 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
+                iteration,
             }: {
                 questionIndex: number
+                iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
                 const { survey } = values
 
@@ -264,6 +288,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
+                let iterationCondition = ''
+                if (iteration && iteration > 0) {
+                    iterationCondition = ` AND properties.$survey_iteration='${iteration}' `
+                }
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -273,6 +301,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
+                            ${iterationCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                         GROUP BY survey_response
@@ -294,6 +323,92 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
+            },
+        },
+        surveyRecurringNPSResults: {
+            loadSurveyRecurringNPSResults: async ({
+                questionIndex,
+            }: {
+                questionIndex: number
+            }): Promise<SurveyRecurringNPSResults> => {
+                const { survey } = values
+
+                const question = values.survey.questions[questionIndex]
+                if (question.type !== SurveyQuestionType.Rating) {
+                    throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
+                }
+
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT
+                            JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
+                            JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
+                            COUNT(survey_response)
+                        FROM events
+                        WHERE event = 'survey sent'
+                            AND properties.$survey_id = '${props.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        GROUP BY survey_response, survey_iteration
+                    `,
+                }
+
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+                let total = 100
+                const data = new Array(survey.iteration_count).fill(0)
+
+                const iterations = new Map<string, SurveyNPSResult>()
+
+                results?.forEach(([iteration, response, count]) => {
+                    let promoters = 0
+                    let passives = 0
+                    let detractors = 0
+
+                    if (parseInt(response) >= 9) {
+                        // a Promoter is someone who gives a survey response of 9 or 10
+                        promoters += parseInt(count)
+                    } else if (parseInt(response) > 6) {
+                        // a Passive is someone who gives a survey response of 7 or 8
+                        passives += parseInt(count)
+                    } else {
+                        // a Detractor is someone who gives a survey response of 0 - 6
+                        detractors += parseInt(count)
+                    }
+
+                    if (iterations.has(iteration)) {
+                        const currentValue = iterations.get(iteration)
+                        if (currentValue !== undefined) {
+                            currentValue.Detractors += detractors
+                            currentValue.Promoters += promoters
+                            currentValue.Passives += passives
+                        }
+                    } else {
+                        iterations.set(iteration, {
+                            Detractors: detractors,
+                            Passives: passives,
+                            Promoters: promoters,
+                        })
+                    }
+                })
+
+                iterations.forEach((value: SurveyNPSResult, key: string) => {
+                    // NPS score is calculated with this formula
+                    // (Promoters / (Promoters + Passives + Detractors) * 100) - (Detractors / (Promoters + Passives + Detractors)* 100)
+                    const totalResponses = value.Promoters + value.Passives + value.Detractors
+                    const npsScore =
+                        (value.Promoters / totalResponses) * 100 - (value.Detractors / totalResponses) * 100
+                    data[parseInt(key) - 1] = npsScore
+                    total += 100
+                })
+
+                return { ...values.surveyRecurringNPSResults, [questionIndex]: { total, data } }
             },
         },
         surveySingleChoiceResults: {
@@ -477,6 +592,10 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
             actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
+            actions.setSurveyValues({
+                iteration_count: NEW_SURVEY.iteration_count,
+                iteration_frequency_days: NEW_SURVEY.iteration_frequency_days,
+            })
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -542,6 +661,44 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
+                setQuestionBranching: (state, { questionIndex, value }) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+
+                    if (
+                        question.type !== SurveyQuestionType.Rating &&
+                        question.type !== SurveyQuestionType.SingleChoice
+                    ) {
+                        throw new Error(
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                        )
+                    }
+
+                    if (value === SurveyQuestionBranchingType.NextQuestion) {
+                        delete question.branching
+                    } else if (value === SurveyQuestionBranchingType.ConfirmationMessage) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ConfirmationMessage,
+                        }
+                    } else if (value === SurveyQuestionBranchingType.ResponseBased) {
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.ResponseBased,
+                            responseValue: {},
+                        }
+                    } else if (value.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                        const nextQuestionIndex = parseInt(value.split(':')[1])
+                        question.branching = {
+                            type: SurveyQuestionBranchingType.SpecificQuestion,
+                            index: nextQuestionIndex,
+                        }
+                    }
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -560,6 +717,17 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
+                },
+            },
+        ],
+        surveyRecurringNPSResultsReady: [
+            {},
+            {
+                loadSurveyRecurringNPSResultsSuccess: (state, { payload }) => {
                     if (!payload || !payload.hasOwnProperty('questionIndex')) {
                         return { ...state }
                     }
@@ -606,6 +774,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
+        schedule: [
+            'once',
+            {
+                setSchedule: (_, { schedule }) => schedule,
+            },
+        ],
         flagPropertyErrors: [
             null as any,
             {
@@ -620,9 +794,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
         descriptionContentType: [
             (s) => [s.survey],
-            (survey) => (questionIndex: number) => {
+            (survey: Survey) => (questionIndex: number) => {
                 return survey.questions[questionIndex].descriptionContentType
             },
         ],
@@ -747,6 +922,28 @@ export const surveyLogic = kea<surveyLogicType>([
                         return npsScore.toFixed(1)
                     }
                 }
+            },
+        ],
+        getBranchingDropdownValue: [
+            (s) => [s.survey],
+            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+                if (question.branching?.type) {
+                    const { type } = question.branching
+
+                    if (type === SurveyQuestionBranchingType.SpecificQuestion) {
+                        const nextQuestionIndex = question.branching.index
+                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                    }
+
+                    return type
+                }
+
+                // No branching specified, default to Next question / Confirmation message
+                if (questionIndex < survey.questions.length - 1) {
+                    return SurveyQuestionBranchingType.NextQuestion
+                }
+
+                return SurveyQuestionBranchingType.ConfirmationMessage
             },
         ],
     }),

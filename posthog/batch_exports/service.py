@@ -57,6 +57,7 @@ class BatchExportSchema(typing.TypedDict):
 class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -92,6 +93,7 @@ class S3BatchExportInputs:
     batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    is_backfill: bool = False
 
 
 @dataclass
@@ -113,6 +115,7 @@ class SnowflakeBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -134,6 +137,7 @@ class PostgresBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -162,6 +166,7 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
     use_json_type: bool = False
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -177,6 +182,7 @@ class HttpBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 @dataclass
@@ -188,6 +194,7 @@ class NoOpInputs:
     interval: str = "hour"
     arg: str = ""
     batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
 
 
 DESTINATION_WORKFLOWS = {
@@ -336,6 +343,9 @@ def disable_and_delete_export(instance: BatchExport):
 
     instance.deleted = True
 
+    for backfill in running_backfills_for_batch_export(instance.id):
+        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
     except BatchExportServiceScheduleNotFound as e:
@@ -345,9 +355,6 @@ def disable_and_delete_export(instance: BatchExport):
         )
 
     instance.save()
-
-    for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
@@ -391,7 +398,7 @@ class BackfillBatchExportInputs:
     start_at: str
     end_at: str | None
     buffer_limit: int = 1
-    wait_delay: float = 5.0
+    start_delay: float = 1.0
 
 
 def backfill_export(
@@ -436,13 +443,6 @@ def backfill_export(
 @async_to_sync
 async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    handle = temporal.get_schedule_handle(inputs.batch_export_id)
-    description = await handle.describe()
-
-    if description.schedule.spec.jitter is not None and inputs.end_at is not None:
-        # Adjust end_at to account for jitter if present.
-        inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
-
     workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",

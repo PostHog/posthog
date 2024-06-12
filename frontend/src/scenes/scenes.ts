@@ -53,6 +53,14 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
+    [Scene.ErrorTracking]: {
+        projectBased: true,
+        name: 'Error tracking',
+    },
+    [Scene.ErrorTrackingGroup]: {
+        projectBased: true,
+        name: 'Error tracking group',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -408,7 +416,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
-        hideProjectNotice: true,
     },
 }
 
@@ -529,7 +536,7 @@ export const routes: Record<string, Scene> = {
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
-    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
@@ -541,6 +548,8 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
+    [urls.errorTracking()]: Scene.ErrorTracking,
+    [urls.errorTrackingGroup(':id')]: Scene.ErrorTrackingGroup,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,

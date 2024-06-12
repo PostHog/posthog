@@ -17,6 +17,7 @@ import {
     IconServer,
     IconTestTube,
     IconToggle,
+    IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
@@ -450,6 +451,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
+                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                            ? {
+                                  identifier: Scene.ErrorTracking,
+                                  label: 'Error tracking',
+                                  icon: <IconWarning />,
+                                  to: urls.errorTracking(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
                             ? {
                                   identifier: Scene.Heatmaps,
