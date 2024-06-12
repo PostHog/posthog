@@ -125,7 +125,7 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
             {!billing?.has_active_subscription && (
-                <div className="my-8">
+                <div className="mb-6">
                     {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? (
                         platformAndSupportProduct ? (
                             <BillingCTAHero product={platformAndSupportProduct} />
@@ -144,7 +144,7 @@ export function Billing(): JSX.Element {
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
+                        className={clsx('flex flex-wrap gap-4 w-fit', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}
@@ -281,7 +281,7 @@ export function Billing(): JSX.Element {
                 )}
             </div>
 
-            <LemonDivider className="my-8" />
+            <LemonDivider className="mt-6 mb-8" />
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>

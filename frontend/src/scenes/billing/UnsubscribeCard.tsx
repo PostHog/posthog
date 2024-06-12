@@ -20,7 +20,7 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
                     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                 }}
             >
-                Unsubscribe
+                Downgrade to free plan
             </LemonButton>
         </div>
     )

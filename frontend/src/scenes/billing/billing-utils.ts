@@ -175,17 +175,17 @@ export const getUpgradeProductLink = ({
     subscriptionLevel?: BillingV2Type['subscription_level']
     featureFlags: FeatureFlagsSet
 }): string => {
-    let url = '/api/billing/activation?'
+    let url = '/api/billing/activate?'
     if (redirectPath) {
         url += `redirect_path=${redirectPath}&`
     }
 
     if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && subscriptionLevel == 'free') {
-        url += 'products=all_products:'
+        url += 'products=all_products:,'
         return url
     }
-
     url += `products=${product.type}:${upgradeToPlanKey},`
+
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
             if (
