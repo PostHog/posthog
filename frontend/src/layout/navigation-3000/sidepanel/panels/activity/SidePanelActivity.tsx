@@ -122,7 +122,7 @@ export const SidePanelActivity = (): JSX.Element => {
     )
 
     return (
-        <div className="flex flex-col overflow-hidden flex-1">
+        <>
             <SidePanelPaneHeader title="Team activity" />
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
@@ -276,6 +276,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     </div>
                 </div>
             </PayGateMini>
-        </div>
+        </>
     )
 }
