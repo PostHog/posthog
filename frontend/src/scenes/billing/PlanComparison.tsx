@@ -150,52 +150,59 @@ export const BillingUpgradePopover = ({
     }, [addonsEnabled])
 
     return (
-        <div>
+        <div className="p-2">
             <h3>Configure your subscription</h3>
-            {!plan.current_plan && !plan.free_allocation && includeAddons && filteredAddons.length > 0 && (
-                <div className="mb-2">
-                    <h4 className="mb-0">Enable add-ons</h4>
-                    {filteredAddons.map((addon, i) => {
-                        return (
-                            <div key={addon.name} className="grid grid-cols-2 pl-2 pr-2">
-                                <span>{addon.name}</span>
-                                <LemonSwitch
-                                    checked={addonsEnabled[i]}
-                                    className="justify-self-end"
-                                    onChange={(value) => {
-                                        const newAddons = addonsEnabled.map((val, idx) => {
-                                            if (idx == i) {
-                                                return value
-                                            }
-                                            return val
-                                        })
-                                        setAddonsEnabled(newAddons)
-                                    }}
-                                />
-                            </div>
-                        )
-                    })}
+            <div className="pt-2 flex flex-col gap-3">
+                {!plan.current_plan && !plan.free_allocation && includeAddons && filteredAddons.length > 0 && (
+                    <div className="mb-2">
+                        <h4 className="mb-0">Enable add-ons</h4>
+                        <div className="flex flex-col gap-1">
+                            {filteredAddons.map((addon, i) => {
+                                return (
+                                    <div key={addon.name} className="grid grid-cols-2 pl-2 pr-2">
+                                        <span>{addon.name}</span>
+                                        <LemonSwitch
+                                            checked={addonsEnabled[i]}
+                                            className="justify-self-end"
+                                            onChange={(value) => {
+                                                const newAddons = addonsEnabled.map((val, idx) => {
+                                                    if (idx == i) {
+                                                        return value
+                                                    }
+                                                    return val
+                                                })
+                                                setAddonsEnabled(newAddons)
+                                            }}
+                                        />
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )}
+                <div>
+                    <h4>Set a billing limit</h4>
+                    <LemonInput
+                        className="ml-2 mr-2"
+                        type="number"
+                        fullWidth={false}
+                        status="default"
+                        value={inputValue}
+                        onChange={(value) => value && setInputValue(value)}
+                        prefix={<b>$</b>}
+                        min={0}
+                        step={10}
+                        suffix={<>/ month</>}
+                        size="small"
+                    />
                 </div>
-            )}
-            <h4 className="mb-0">Set a billing limit</h4>
-            <LemonInput
-                className="ml-2 mr-2"
-                type="number"
-                fullWidth={false}
-                status="default"
-                value={inputValue}
-                onChange={(value) => value && setInputValue(value)}
-                prefix={<b>$</b>}
-                min={0}
-                step={10}
-                suffix={<>/ month</>}
-                size="small"
-            />
+            </div>
 
             <LemonButton
-                className="float-right mt-4"
+                className="float-right mt-4 mb-2"
                 status="default"
                 type="primary"
+                size="small"
                 to={
                     plan.contact_support
                         ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
