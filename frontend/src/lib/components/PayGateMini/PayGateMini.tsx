@@ -102,35 +102,36 @@ export function PayGateMini({
                 featureInfoOnNextPlan={featureInfoOnNextPlan}
                 handleCtaClick={handleCtaClick}
             >
-                {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
-                    <PayGateMiniButton
-                        product={productWithFeature}
-                        featureInfo={featureInfo}
-                        gateVariant={gateVariant}
-                    />
-                ) : (
-                    <PayGateMiniButtonVariant
-                        gateVariant={gateVariant}
-                        productWithFeature={productWithFeature}
-                        featureInfo={featureInfo}
-                        onCtaClick={handleCtaClick}
-                        billing={billing}
-                        scrollToProduct={scrollToProduct}
-                    />
-                )}
-                {docsLink && isCloudOrDev && (
-                    <LemonButton
-                        type="secondary"
-                        to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
-                        targetBlank
-                        center
-                        className="mt-3"
-                        data-attr={`${feature}-learn-more`}
-                    >
-                        Learn more <IconOpenSidebar className="ml-2" />
-                    </LemonButton>
-                )}
+                <div className="flex items-center justify-center space-x-3">
+                    {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
+                        <PayGateMiniButton
+                            product={productWithFeature}
+                            featureInfo={featureInfo}
+                            gateVariant={gateVariant}
+                        />
+                    ) : (
+                        <PayGateMiniButtonVariant
+                            gateVariant={gateVariant}
+                            productWithFeature={productWithFeature}
+                            featureInfo={featureInfo}
+                            onCtaClick={handleCtaClick}
+                            billing={billing}
+                            scrollToProduct={scrollToProduct}
+                        />
+                    )}
+                    {docsLink && isCloudOrDev && (
+                        <LemonButton
+                            type="secondary"
+                            to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                            targetBlank
+                            center
+                            data-attr={`${feature}-learn-more`}
+                        >
+                            Learn more <IconOpenSidebar className="ml-2" />
+                        </LemonButton>
+                    )}
+                </div>
             </PayGateContent>
         )
     }
