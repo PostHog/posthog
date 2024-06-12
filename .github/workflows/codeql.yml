@@ -48,8 +48,10 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - language: c-cpp
-                      build-mode: autobuild
+                    # TODO: Add cpp with manual build mode when we need it.
+                    # needs updating of manual build instructions below
+                    # - language: c-cpp
+                    #   build-mode: manual
                     - language: javascript-typescript
                       build-mode: none
                     - language: python
