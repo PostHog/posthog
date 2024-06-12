@@ -113,7 +113,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name:
                             insight?.name ||
-                            summarizeInsight(insight?.query, null, {
+                            summarizeInsight(insight?.query, {
                                 aggregationLabel,
                                 cohortsById,
                                 mathDefinitions,
