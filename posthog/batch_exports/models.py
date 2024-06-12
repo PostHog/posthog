@@ -226,7 +226,8 @@ class BatchExport(UUIDModel):
 
     model = models.CharField(
         max_length=64,
-        null=False,
+        null=True,
+        blank=True,
         choices=Model.choices,
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
