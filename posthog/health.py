@@ -17,7 +17,8 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
-from typing import Callable, Dict, List, Literal, cast, get_args
+from typing import Literal, cast, get_args
+from collections.abc import Callable
 
 from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
@@ -35,7 +36,7 @@ logger = get_logger(__name__)
 
 ServiceRole = Literal["events", "web", "worker", "decide"]
 
-service_dependencies: Dict[ServiceRole, List[str]] = {
+service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
     "web": [
         "http",
@@ -66,7 +67,7 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
 
 # if atleast one of the checks is True, then the service is considered healthy
 # for the given role
-service_conditional_dependencies: Dict[ServiceRole, List[str]] = {
+service_conditional_dependencies: dict[ServiceRole, list[str]] = {
     "decide": ["cache", "postgres_flags"],
 }
 
@@ -110,7 +111,7 @@ def readyz(request: HttpRequest):
     if role and role not in get_args(ServiceRole):
         return JsonResponse({"error": "InvalidRole"}, status=400)
 
-    available_checks: Dict[str, Callable] = {
+    available_checks: dict[str, Callable] = {
         "clickhouse": is_clickhouse_connected,
         "postgres": is_postgres_connected,
         "postgres_flags": lambda: is_postgres_connected(DATABASE_FOR_FLAG_MATCHING),

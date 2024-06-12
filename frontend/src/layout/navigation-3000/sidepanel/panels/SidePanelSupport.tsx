@@ -1,5 +1,4 @@
 import {
-    IconBug,
     IconChevronDown,
     IconFeatures,
     IconFlask,
@@ -52,7 +51,7 @@ const PRODUCTS = [
     },
     {
         name: 'A/B testing',
-        slug: 'ab-testing',
+        slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
     {
@@ -72,13 +71,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
-
-    // TODO(@zach): remove after updated plans w/ support levels are shipped
-    const supportResponseTimes = {
-        [AvailableFeature.EMAIL_SUPPORT]: '2-3 days',
-        [AvailableFeature.PRIORITY_SUPPORT]: '4-6 hours',
-    }
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
         <Section title="Email an engineer">
@@ -91,30 +84,27 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                {billing?.products
-                    ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
-                    ?.plans?.map((plan) => (
+                {supportPlans?.map((plan) => {
+                    // If they have an addon plan, only show the addon plan
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                    return (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {plan.name}
-                                {plan.current_plan && (
+                                {currentPlan && (
                                     <>
                                         {' '}
                                         <span className="font-normal opacity-60 text-sm">(your plan)</span>
                                     </>
                                 )}
                             </div>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note ??
-                                    (plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
-                                        : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.EMAIL_SUPPORT]
-                                        : 'Community support only')}
+                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>
-                    ))}
+                    )
+                })}
             </div>
             <SupportForm />
             <LemonButton
@@ -144,10 +134,9 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloud } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const region = preflight?.region
     const { status } = useValues(sidePanelStatusLogic)
@@ -214,63 +203,32 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
-                                <>
-                                    <Section title="Contact us">
-                                        <p>Can't find what you need in the docs?</p>
-                                        <LemonButton
-                                            type="primary"
-                                            fullWidth
-                                            center
-                                            onClick={() => openEmailForm()}
-                                            targetBlank
-                                            className="mt-2"
-                                        >
-                                            Email an engineer
-                                        </LemonButton>
-                                    </Section>
-                                    <Section title="Ask the community">
-                                        <p>
-                                            Questions about features, how to's, or use cases? There are thousands of
-                                            discussions in our community forums.{' '}
-                                            <Link to="https://posthog.com/questions">Ask a question</Link>
-                                        </p>
-                                    </Section>
-                                </>
-                            ) : (
-                                <Section title="Ask the community">
-                                    <p>
-                                        Questions about features, how to's, or use cases? There are thousands of
-                                        discussions in our community forums.
-                                    </p>
+                            {/* only allow opening tickets on our Cloud instances */}
+                            {isCloud ? (
+                                <Section title="Contact us">
+                                    <p>Can't find what you need in the docs?</p>
                                     <LemonButton
                                         type="primary"
                                         fullWidth
                                         center
-                                        to="https://posthog.com/questions"
+                                        onClick={() => openEmailForm()}
                                         targetBlank
                                         className="mt-2"
                                     >
-                                        Ask a question
+                                        Email an engineer
                                     </LemonButton>
                                 </Section>
-                            )}
+                            ) : null}
+                            <Section title="Ask the community">
+                                <p>
+                                    Questions about features, how-tos, or use cases? There are thousands of discussions
+                                    in our community forums.{' '}
+                                    <Link to="https://posthog.com/questions">Ask a question</Link>
+                                </p>
+                            </Section>
 
                             <Section title="Share feedback">
                                 <ul>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, user)
-                                            )}`}
-                                            icon={<IconBug />}
-                                            targetBlank
-                                        >
-                                            Report a bug
-                                        </LemonButton>
-                                    </li>
                                     <li>
                                         <LemonButton
                                             type="secondary"
@@ -308,54 +266,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                     </li>
                                 </ul>
                             </Section>
-
-                            {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
-                                <Section title="Contact support">
-                                    <p>
-                                        Due to our large userbase, we're unable to offer email support to organizations
-                                        on the free plan. But we still want to help!
-                                    </p>
-
-                                    <ol className="pl-5">
-                                        <li>
-                                            <strong className="block">Search our docs</strong>
-                                            <p>
-                                                We're constantly updating our docs and tutorials to provide the latest
-                                                information about installing, using, and troubleshooting.
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">Ask a community question</strong>
-                                            <p>
-                                                Many common (and niche) questions have already been resolved by users
-                                                just like you. (Our own engineers also keep an eye on the questions as
-                                                they have time!){' '}
-                                                <Link to="https://posthog.com/question" className="block">
-                                                    Search community questions or ask your own.
-                                                </Link>
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">
-                                                Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
-                                            </strong>
-                                            <p>
-                                                Third-party providers can help with installation and debugging of data
-                                                issues.
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">Upgrade to a paid plan</strong>
-                                            <p>
-                                                Our paid plans offer email support.{' '}
-                                                <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                                    Explore options.
-                                                </Link>
-                                            </p>
-                                        </li>
-                                    </ol>
-                                </Section>
-                            ) : null}
                         </>
                     )}
                 </div>

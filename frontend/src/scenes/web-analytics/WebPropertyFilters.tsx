@@ -1,6 +1,9 @@
+import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { WebAnalyticsPropertyFilters } from '~/queries/schema'
 
@@ -11,42 +14,24 @@ export const WebPropertyFilters = ({
     webAnalyticsFilters: WebAnalyticsPropertyFilters
     setWebAnalyticsFilters: (filters: WebAnalyticsPropertyFilters) => void
 }): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useSessionTablePropertyFilters = featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+
     return (
         <PropertyFilters
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]}
-            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))}
+            taxonomicGroupTypes={
+                useSessionTablePropertyFilters
+                    ? [
+                          TaxonomicFilterGroupType.SessionProperties,
+                          TaxonomicFilterGroupType.EventProperties,
+                          TaxonomicFilterGroupType.PersonProperties,
+                      ]
+                    : [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
+            }
+            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
             propertyFilters={webAnalyticsFilters}
             pageKey="web-analytics"
-            eventNames={['$pageview', '$pageleave', '$autocapture']}
-            propertyAllowList={{
-                [TaxonomicFilterGroupType.EventProperties]: [
-                    '$pathname',
-                    '$host',
-                    '$browser',
-                    '$os',
-                    '$device_type',
-                    '$geoip_country_code',
-                    '$geoip_subdivision_1_code',
-                    '$geoip_city_name',
-                    // re-enable after https://github.com/PostHog/posthog-js/pull/875 is merged
-                    // '$client_session_initial_pathname',
-                    // '$client_session_initial_referring_host',
-                    // '$client_session_initial_utm_source',
-                    // '$client_session_initial_utm_campaign',
-                    // '$client_session_initial_utm_medium',
-                    // '$client_session_initial_utm_content',
-                    // '$client_session_initial_utm_term',
-                ],
-                [TaxonomicFilterGroupType.PersonProperties]: [
-                    '$initial_pathname',
-                    '$initial_referring_domain',
-                    '$initial_utm_source',
-                    '$initial_utm_campaign',
-                    '$initial_utm_medium',
-                    '$initial_utm_content',
-                    '$initial_utm_term',
-                ],
-            }}
+            eventNames={useSessionTablePropertyFilters ? ['$pageview'] : ['$pageview', '$pageleave', '$autocapture']}
         />
     )
 }

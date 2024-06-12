@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Optional, Union, cast
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
@@ -30,7 +30,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[List[str]]
+    breakdown_values_override: Optional[list[str | int]]
     limit_context: LimitContext
 
     def __init__(
@@ -42,7 +42,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[List[str]] = None,
+        breakdown_values_override: Optional[list[str | int]] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
@@ -71,7 +71,7 @@ class Breakdown:
     def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
 
-    def placeholders(self) -> Dict[str, ast.Expr]:
+    def placeholders(self) -> dict[str, ast.Expr]:
         values = self._breakdown_buckets_ast if self.is_histogram_breakdown else self._breakdown_values_ast
 
         return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
@@ -81,7 +81,7 @@ class Breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
         if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
                     alias="breakdown_value",
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
@@ -103,10 +103,16 @@ class Breakdown:
             and self.query.breakdownFilter.breakdown is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
-            if self.query.breakdownFilter.breakdown == "all":
+            breakdown = (
+                self.breakdown_values_override
+                if self.breakdown_values_override
+                else self.query.breakdownFilter.breakdown
+            )
+
+            if breakdown == "all":
                 return None
 
-            if isinstance(self.query.breakdownFilter.breakdown, List):
+            if isinstance(breakdown, list):
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
@@ -114,12 +120,12 @@ class Breakdown:
                             op=ast.CompareOperationOp.InCohort,
                             right=ast.Constant(value=breakdown),
                         )
-                        for breakdown in self.query.breakdownFilter.breakdown
+                        for breakdown in breakdown
                     ]
                 )
-                if len(self.query.breakdownFilter.breakdown) > 1:
+                if len(breakdown) > 1:
                     return or_clause
-                elif len(self.query.breakdownFilter.breakdown) == 1:
+                elif len(breakdown) == 1:
                     return or_clause.exprs[0]
                 else:
                     return ast.Constant(value=True)
@@ -127,11 +133,16 @@ class Breakdown:
             return ast.CompareOperation(
                 left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,
-                right=ast.Constant(value=self.query.breakdownFilter.breakdown),
+                right=ast.Constant(value=breakdown),
             )
 
         # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
-        if self.query.breakdownFilter is not None and not self.query.breakdownFilter.breakdown_hide_other_aggregation:
+        # Except when explicitly filtering
+        if (
+            self.query.breakdownFilter is not None
+            and not self.query.breakdownFilter.breakdown_hide_other_aggregation
+            and len(self.breakdown_values_override or []) == 0
+        ):
             return ast.Constant(value=True)
 
         if (
@@ -221,10 +232,10 @@ class Breakdown:
         return ast.Array(exprs=exprs)
 
     @cached_property
-    def _all_breakdown_values(self) -> List[str | int | None]:
+    def _all_breakdown_values(self) -> list[str | int | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
-            return cast(List[str | int | None], self.breakdown_values_override)
+            return cast(list[str | int | None], self.breakdown_values_override)
 
         if self.query.breakdownFilter is None:
             return []
@@ -240,18 +251,18 @@ class Breakdown:
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            return cast(List[str | int | None], breakdown.get_breakdown_values())
+            return cast(list[str | int | None], breakdown.get_breakdown_values())
 
     @cached_property
-    def _breakdown_values(self) -> List[str | int]:
+    def _breakdown_values(self) -> list[str | int]:
         values = [BREAKDOWN_NULL_STRING_LABEL if v is None else v for v in self._all_breakdown_values]
-        return cast(List[str | int], values)
+        return cast(list[str | int], values)
 
     @cached_property
     def has_breakdown_values(self) -> bool:
         return len(self._breakdown_values) > 0
 
-    def _get_breakdown_histogram_buckets(self) -> List[Tuple[float, float]]:
+    def _get_breakdown_histogram_buckets(self) -> list[tuple[float, float]]:
         buckets = []
         values = self._breakdown_values
 
@@ -270,7 +281,7 @@ class Breakdown:
         return buckets
 
     def _get_breakdown_histogram_multi_if(self) -> ast.Expr:
-        multi_if_exprs: List[ast.Expr] = []
+        multi_if_exprs: list[ast.Expr] = []
 
         buckets = self._get_breakdown_histogram_buckets()
 

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -29,7 +29,7 @@ class TrendsEventQueryBase(EventQuery):
         self._entity = entity
         super().__init__(*args, **kwargs)
 
-    def get_query_base(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query_base(self) -> tuple[str, dict[str, Any]]:
         """
         Returns part of the event query with only FROM, JOINs and WHERE clauses.
         """
@@ -80,7 +80,7 @@ class TrendsEventQueryBase(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = False
 
         is_entity_per_user = self._entity.math in (
@@ -97,7 +97,7 @@ class TrendsEventQueryBase(EventQuery):
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             self._should_join_persons = False
         else:
             EventQuery._determine_should_join_persons(self)
@@ -107,16 +107,16 @@ class TrendsEventQueryBase(EventQuery):
             # If aggregating by person, exclude events with null/zero person IDs
             return (
                 f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-                if self._person_on_events_mode != PersonsOnEventsMode.disabled
+                if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
                 else ""
             )
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
 
-    def _get_date_filter(self) -> Tuple[str, Dict]:
+    def _get_date_filter(self) -> tuple[str, dict]:
         date_query = ""
-        date_params: Dict[str, Any] = {}
+        date_params: dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
@@ -145,7 +145,7 @@ class TrendsEventQueryBase(EventQuery):
 
         return date_query, date_params
 
-    def _get_entity_query(self, *, deep_filtering: bool) -> Tuple[str, Dict]:
+    def _get_entity_query(self, *, deep_filtering: bool) -> tuple[str, dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
             allowed_entities=[self._entity],
             team_id=self._team_id,

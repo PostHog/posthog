@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -25,7 +26,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -34,12 +35,10 @@ export function TrendsSeries(): JSX.Element | null {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
-        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]
-            ? [TaxonomicFilterGroupType.DataWarehousePersonProperties]
-            : []),
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? [TaxonomicFilterGroupType.DataWarehousePersonProperties] : []),
     ]
 
     if (!isInsightQueryNode(querySource)) {
@@ -57,7 +56,15 @@ export function TrendsSeries(): JSX.Element | null {
         <>
             {isLifecycle && (
                 <div className="leading-6">
-                    Showing <b>Unique users</b> who did
+                    <div className="flex items-center">
+                        Showing
+                        {showGroupsOptions ? (
+                            <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
+                        ) : (
+                            <b> Unique users </b>
+                        )}
+                        who did
+                    </div>
                 </div>
             )}
             <ActionFilter
@@ -81,8 +88,7 @@ export function TrendsSeries(): JSX.Element | null {
                 mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                 actionsTaxonomicGroupTypes={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] &&
-                    (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
                         ? [
                               TaxonomicFilterGroupType.Events,
                               TaxonomicFilterGroupType.Actions,

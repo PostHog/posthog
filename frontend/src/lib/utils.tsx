@@ -417,9 +417,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     } else if (!isFinite(d)) {
         if (d > 0) {
             return 'inf'
-        } else {
-            return '-inf'
         }
+        return '-inf'
     }
     const trillion = 1_000_000_000_000
     const billion = 1_000_000_000
@@ -443,9 +442,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     }
     if (d >= thousand) {
         return `${prefix}${(d / thousand).toString()}K`
-    } else {
-        return `${prefix}${d}`
     }
+    return `${prefix}${d}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -552,10 +550,9 @@ export function colonDelimitedDuration(d: string | number | null | undefined, fi
     ;[weeks, days, h, m, s].forEach((unit, i) => {
         if (!fixedUnits && !unit && !stopTrimming && i < 3) {
             return
-        } else {
-            units.push(zeroPad(unit, 2))
-            stopTrimming = true
         }
+        units.push(zeroPad(unit, 2))
+        stopTrimming = true
     })
 
     if (fixedUnits) {
@@ -600,10 +597,9 @@ export function isDomain(url: string): boolean {
         const parsedUrl = new URL(url)
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
-        } else {
-            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
-                return true
-            }
+        }
+        if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+            return true
         }
     } catch {
         return false
@@ -700,10 +696,9 @@ export function autoCaptureEventToDescription(
 
     if (shortForm) {
         return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
-    } else {
-        const value = getValue()
-        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
     }
+    const value = getValue()
+    return [getVerb(), getTag(), value].filter((x) => x).join(' ')
 }
 
 export function determineDifferenceType(
@@ -722,9 +717,8 @@ export function determineDifferenceType(
         return 'day'
     } else if (first.diff(second, 'hours') !== 0) {
         return 'hour'
-    } else {
-        return 'minute'
     }
+    return 'minute'
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
@@ -803,14 +797,14 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
         key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+            formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         inactive: true,
         defaultInterval: 'day',
     },
@@ -872,9 +866,8 @@ export function dateFilterToText(
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
             return isDateFormatted ? dayjs(dateFrom).format(dateFormat) : `Today`
-        } else {
-            return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
         }
+        return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
@@ -912,9 +905,8 @@ export function dateFilterToText(
                 return formatDateRange(date, dayjs().endOf('d'))
             } else if (startOfRange) {
                 return formatDate(date, dateFormat)
-            } else {
-                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }
+            return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
         }
     }
 
@@ -1063,11 +1055,17 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
         )
+    } else if (interval === 'minute') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
     }
     throw new UnexpectedNeverError(interval)
 }
 
 const defaultDatesForInterval = {
+    minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
@@ -1086,6 +1084,19 @@ export const updateDatesWithInterval = (
         }
     }
     return defaultDatesForInterval[interval]
+}
+
+export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-([0-9]|1[0-2])h$/) != -1
+}
+export function isLessThan2Days(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-(4[0-7]|[0-3]?[0-9])h|[1-2]d$/) != -1
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -1597,6 +1608,8 @@ export function promiseResolveReject<T>(): {
     return { resolve: resolve!, reject: reject!, promise }
 }
 
+export type AsyncReturnType<T extends (...args: any) => any> = T extends (...args: any) => Promise<infer R> ? R : any
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365
@@ -1651,10 +1664,17 @@ export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
 }
 
+/** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
-    // We cancel queries "manually" when the request times out or is aborted since in these cases
-    // the query will continue running in ClickHouse
-    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+    return isAbortedRequest(error) || isTimedOutRequest(error)
+}
+
+export function isAbortedRequest(error: any): boolean {
+    return error.name === 'AbortError' || error.message?.name === 'AbortError'
+}
+
+export function isTimedOutRequest(error: any): boolean {
+    return error.status === 504
 }
 
 export function flattenObject(ob: Record<string, any>): Record<string, any> {

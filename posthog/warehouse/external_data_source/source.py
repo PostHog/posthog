@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Dict, Optional
+from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -71,7 +71,7 @@ def create_stripe_source(payload: StripeSourcePayload, workspace_id: str) -> Ext
     return _create_source(payload)
 
 
-def _create_source(payload: Dict) -> ExternalDataSource:
+def _create_source(payload: dict) -> ExternalDataSource:
     response = send_request(AIRBYTE_SOURCE_URL, method="POST", payload=payload)
     return ExternalDataSource(
         source_id=response["sourceId"],

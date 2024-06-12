@@ -46,10 +46,9 @@ export const cleanGlobalProperties = (
             values: [properties],
         }
         return cleanPropertyGroupFilter(properties)
-    } else {
-        // property group filter
-        return cleanPropertyGroupFilter(properties)
     }
+    // property group filter
+    return cleanPropertyGroupFilter(properties)
 }
 
 /** Cleans properties of entities i.e. event and action nodes. These are a simple list of property filters. */
@@ -75,9 +74,8 @@ export const cleanEntityProperties = (
     ) {
         // property group filter value
         return properties.values.map(cleanProperty)
-    } else {
-        throw new Error('Unexpected format of entity properties.')
     }
+    throw new Error('Unexpected format of entity properties.')
 }
 
 const cleanPropertyGroupFilter = (properties: Record<string, any>): PropertyGroupFilter => {
@@ -98,13 +96,21 @@ const cleanPropertyGroupFilterValue = (
         // property group filter value
         property['values'] = cleanPropertyGroupFilterValues(property['values'] as PropertyGroupFilterValue[])
         return property
-    } else {
-        // property filter
-        return cleanProperty(property)
     }
+    // property filter
+    return cleanProperty(property)
 }
 
 const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
+    if (Object.keys(property).length === 0) {
+        return { type: PropertyFilterType.HogQL, key: 'true' }
+    }
+
+    // remove invalid properties without type
+    if (property['type'] === undefined) {
+        return { type: PropertyFilterType.HogQL, key: 'true' }
+    }
+
     // fix type typo
     if (property['type'] === 'events') {
         property['type'] = 'event'

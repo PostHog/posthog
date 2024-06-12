@@ -24,7 +24,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return b"NULL"
 
         case uuid.UUID():
-            return f"{quote_char}{data}{quote_char}".encode("utf-8")
+            return f"{quote_char}{data}{quote_char}".encode()
 
         case int() | float():
             return b"%d" % data
@@ -35,8 +35,8 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
                 timezone_arg = f", '{data:%Z}'"
 
             if data.microsecond == 0:
-                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S}'{timezone_arg})".encode("utf-8")
-            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', 6{timezone_arg})".encode("utf-8")
+                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S}'{timezone_arg})".encode()
+            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', 6{timezone_arg})".encode()
 
         case list():
             encoded_data = [encode_clickhouse_data(value) for value in data]
@@ -62,7 +62,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
                     value = str(value)
 
                 encoded_data.append(
-                    f'"{str(key)}"'.encode("utf-8") + b":" + encode_clickhouse_data(value, quote_char=quote_char)
+                    f'"{str(key)}"'.encode() + b":" + encode_clickhouse_data(value, quote_char=quote_char)
                 )
 
             result = b"{" + b",".join(encoded_data) + b"}"
@@ -71,7 +71,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
         case _:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
-            return f"{quote_char}{str_data}{quote_char}".encode("utf-8")
+            return f"{quote_char}{str_data}{quote_char}".encode()
 
 
 class ClickHouseError(Exception):
@@ -355,8 +355,7 @@ class ClickHouseClient:
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
-                for batch in reader:
-                    yield batch
+                yield from reader
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

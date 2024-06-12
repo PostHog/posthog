@@ -29,7 +29,7 @@ describe('Redirect to other subdomain if logged in', () => {
 
         cy.visit(`/login?next=${redirect_path}`)
 
-        cy.setCookie('ph_current_instance', `"app.posthog.com"`)
+        cy.setCookie('ph_current_instance', `"us.posthog.com"`)
         cy.setCookie('is-logged-in', '1')
         cy.reload()
 

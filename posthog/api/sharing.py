@@ -1,11 +1,12 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
+from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
@@ -15,8 +16,8 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import SharingConfiguration, Team
-from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
+from posthog.models import SessionRecording, SharingConfiguration, Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
     ExportedAsset,
@@ -24,12 +25,10 @@ from posthog.models.exported_asset import (
     get_content_response,
 )
 from posthog.models.insight import Insight
-from posthog.models import SessionRecording
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
-from loginas.utils import is_impersonated_session
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -87,7 +86,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
     def get_serializer_context(
         self,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         context = super().get_serializer_context()
 
         dashboard_id = context.get("dashboard_id")
@@ -113,7 +112,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return context
 
-    def _get_sharing_configuration(self, context: Dict[str, Any]):
+    def _get_sharing_configuration(self, context: dict[str, Any]):
         """
         Gets but does not create a SharingConfiguration. Only once enabled do we actually store it
         """
@@ -247,7 +246,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
         }
-        exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
+        exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
@@ -285,7 +284,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in resource.team.organization.available_features:
+        if "whitelabel" in request.GET and "white_labelling" in [
+            feature["key"] for feature in resource.team.organization.available_product_features
+        ]:
             exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})

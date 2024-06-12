@@ -5,60 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Celery",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/env/bin/celery",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}",
-            "args": [
-                "-A",
-                "posthog",
-                "worker",
-                "-B",
-                "--scheduler",
-                "redbeat.RedBeatScheduler",
-                "--without-heartbeat",
-                "--without-gossip",
-                "--without-mingle",
-                "--pool=solo",
-                "-Ofair",
-                "-n",
-                "node@%h"
-            ],
-            "envFile": "${workspaceFolder}/bin/celery-queues.env",
-            "env": {
-                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
-                "DEBUG": "1",
-                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
-            }
-        },
-        {
-            "command": "npm run start:dev",
-            "name": "Plugin Server",
-            "request": "launch",
-            "type": "node-terminal",
-            "cwd": "${workspaceFolder}/plugin-server",
-            "env": {
-                "CLICKHOUSE_SECURE": "False",
-                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
-                "KAFKA_HOSTS": "localhost:9092",
-                "WORKER_CONCURRENCY": "2",
-                "OBJECT_STORAGE_ENABLED": "True"
-            }
-        },
-        {
             "name": "Frontend",
             "command": "npm start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
         },
         {
             "name": "Backend",
-            "type": "python",
+            "consoleName": "Backend",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
             "args": ["runserver"],
@@ -72,15 +31,126 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
-                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev"
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "CLOUD_DEPLOYMENT": "dev"
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Backend (with local billing)",
+            "consoleName": "Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["runserver"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Celery Threaded Pool",
+            "consoleName": "Celery Threaded Pool",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/env/bin/celery",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-A",
+                "posthog",
+                "worker",
+                "--without-heartbeat",
+                "--without-mingle",
+                "--pool=threads",
+                "-Ofair",
+                "-n",
+                "node@%h"
+            ],
+            "envFile": "${workspaceFolder}/bin/celery-queues.env",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Celery Redbeat Scheduler",
+            "consoleName": "Celery Redbeat Scheduler",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/env/bin/celery",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}",
+            "args": ["-A", "posthog", "beat", "-S", "redbeat.RedBeatScheduler"],
+            "envFile": "${workspaceFolder}/bin/celery-queues.env",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Plugin Server",
+            "command": "npm run start:dev",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}/plugin-server",
+            "env": {
+                "CLICKHOUSE_SECURE": "False",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "KAFKA_HOSTS": "localhost:9092",
+                "WORKER_CONCURRENCY": "2",
+                "OBJECT_STORAGE_ENABLED": "True"
+            },
+            "presentation": {
+                "group": "main"
+            }
         },
         {
             "name": "Temporal Worker",
-            "type": "python",
+            "consoleName": "Temporal Worker",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
             "args": ["start_temporal_worker"],
@@ -97,11 +167,14 @@
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
         },
         {
             "name": "Pytest: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": ["${file}", "-vvv"],
@@ -128,8 +201,19 @@
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
-            "stopAll": true
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Redbeat Scheduler",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
         }
     ]
 }

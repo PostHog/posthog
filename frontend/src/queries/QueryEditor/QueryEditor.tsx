@@ -16,6 +16,7 @@ export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
     className?: string
+    aboveButton?: JSX.Element
     context?: QueryContext
 }
 
@@ -78,6 +79,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                         <strong>Error parsing JSON:</strong> {error}
                     </div>
                 ) : null}
+                {props.aboveButton}
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"

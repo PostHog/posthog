@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, List
+from typing import Optional
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -19,6 +19,7 @@ from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedLifecycleQueryResponse,
     LifecycleQuery,
     ActionsNode,
     EventsNode,
@@ -30,7 +31,8 @@ from posthog.utils import format_label_date
 
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
-    query_type = LifecycleQuery
+    response: LifecycleQueryResponse
+    cached_response: CachedLifecycleQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:
@@ -76,7 +78,7 @@ class LifecycleQueryRunner(QueryRunner):
                             ORDER BY status, start_of_period
                             UNION ALL
                             SELECT
-                                start_of_period, count(DISTINCT person_id) AS counts, status
+                                start_of_period, count(DISTINCT actor_id) AS counts, status
                             FROM {events_query}
                             GROUP BY start_of_period, status
                         )
@@ -95,7 +97,7 @@ class LifecycleQueryRunner(QueryRunner):
     def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        with self.timings.measure("persons_query"):
+        with self.timings.measure("actors_query"):
             exprs = []
             if day is not None:
                 exprs.append(
@@ -117,7 +119,7 @@ class LifecycleQueryRunner(QueryRunner):
                 )
 
             return parse_select(
-                "SELECT DISTINCT person_id FROM {events_query} WHERE {where}",
+                "SELECT DISTINCT actor_id FROM {events_query} WHERE {where}",
                 placeholders={
                     "events_query": self.events_query,
                     "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
@@ -225,7 +227,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: List[ast.Expr] = []
+        event_filters: list[ast.Expr] = []
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
@@ -271,6 +273,19 @@ class LifecycleQueryRunner(QueryRunner):
                 for property in self.team.test_account_filters:
                     event_filters.append(property_to_expr(property, self.team))
 
+        if self.has_group_type:
+            event_filters.append(
+                ast.Not(
+                    expr=ast.Call(
+                        name="has",
+                        args=[
+                            ast.Array(exprs=[ast.Constant(value="")]),
+                            self.target_field,
+                        ],
+                    ),
+                ),
+            )
+
         if len(event_filters) == 0:
             return ast.Constant(value=True)
         elif len(event_filters) == 1:
@@ -278,13 +293,26 @@ class LifecycleQueryRunner(QueryRunner):
         else:
             return ast.And(exprs=event_filters)
 
+    @property
+    def has_group_type(self) -> bool:
+        return self.group_type_index is not None and 0 <= self.group_type_index <= 4
+
+    @property
+    def group_type_index(self) -> int | None:
+        return self.query.aggregation_group_type_index
+
+    @property
+    def target_field(self):
+        if self.has_group_type:
+            return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
+        return ast.Field(chain=["person_id"])
+
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
             events_query = parse_select(
                 """
                     SELECT
-                        events.person_id as person_id,
                         min(events.person.created_at) AS created_at,
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
@@ -296,13 +324,15 @@ class LifecycleQueryRunner(QueryRunner):
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
                         period_status_pairs.1 as start_of_period,
-                        period_status_pairs.2 as status
+                        period_status_pairs.2 as status,
+                        {target}
                     FROM events
                     WHERE {event_filter}
-                    GROUP BY person_id
+                    GROUP BY actor_id
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
+                    "target": ast.Alias(alias="actor_id", expr=self.target_field),
                     "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])

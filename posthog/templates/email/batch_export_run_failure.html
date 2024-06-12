@@ -9,7 +9,7 @@
 </p>
 
 <div class="mb mt text-center">
-  <a href="https://us.posthog.com/project/{{ team }}/batch_exports/{{ id }}"
+  <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
      target="_blank"><b>Go to the batch export</b></a>
 </div>
 

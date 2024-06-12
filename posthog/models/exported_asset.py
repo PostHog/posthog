@@ -1,6 +1,6 @@
 import secrets
 from datetime import timedelta
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 from django.conf import settings
@@ -178,7 +178,7 @@ def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
-    path_parts: List[str] = [
+    path_parts: list[str] = [
         settings.OBJECT_STORAGE_EXPORTS_FOLDER,
         exported_asset.export_format.split("/")[1],
         f"team-{exported_asset.team.id}",

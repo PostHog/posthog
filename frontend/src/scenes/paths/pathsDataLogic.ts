@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -52,6 +51,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'funnelPathsFilter',
                 'dateRange',
+                'isHogQLInsight',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -110,11 +110,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 return taxonomicGroupTypes
             },
         ],
-        hogQLInsightsPathsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
-                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]),
-        ],
     }),
 
     listeners(({ values }) => ({
@@ -137,7 +132,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 }),
                 orderBy: ['id'],
             }
-            if (values.hogQLInsightsPathsFlagEnabled && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
+            if (values.isHogQLInsight && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
                 modalProps['query'] = {
                     kind: NodeKind.InsightActorsQuery,
                     source: {
@@ -154,6 +149,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
                 }
+                modalProps['orderBy'] = ['event_count DESC, actor_id DESC']
             }
             openPersonsModal(modalProps)
         },

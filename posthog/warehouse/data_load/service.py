@@ -46,6 +46,8 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema):
         external_data_source_id=external_data_schema.source_id,
     )
 
+    sync_frequency = get_sync_frequency(external_data_schema)
+
     return Schedule(
         action=ScheduleActionStartWorkflow(
             "external-data-job",
@@ -55,15 +57,24 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema):
         ),
         spec=ScheduleSpec(
             intervals=[
-                ScheduleIntervalSpec(
-                    every=timedelta(hours=24), offset=timedelta(hours=external_data_schema.created_at.hour)
-                )
+                ScheduleIntervalSpec(every=sync_frequency, offset=timedelta(hours=external_data_schema.created_at.hour))
             ],
             jitter=timedelta(hours=2),
         ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
+
+
+def get_sync_frequency(external_data_schema: ExternalDataSchema):
+    if external_data_schema.source.sync_frequency == ExternalDataSource.SyncFrequency.DAILY:
+        return timedelta(days=1)
+    elif external_data_schema.source.sync_frequency == ExternalDataSource.SyncFrequency.WEEKLY:
+        return timedelta(weeks=1)
+    elif external_data_schema.source.sync_frequency == ExternalDataSource.SyncFrequency.MONTHLY:
+        return timedelta(days=30)
+    else:
+        raise ValueError(f"Unknown sync frequency: {external_data_schema.source.sync_frequency}")
 
 
 def sync_external_data_job_workflow(

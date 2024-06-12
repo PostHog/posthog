@@ -1,5 +1,4 @@
 import json
-from typing import Dict
 
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -13,7 +12,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.utils import cast_timestamp_or_now
 
 
-def create_ingestion_warning(team_id: int, type: str, details: Dict, timestamp: str, source=""):
+def create_ingestion_warning(team_id: int, type: str, details: dict, timestamp: str, source=""):
     timestamp = cast_timestamp_or_now(timestamp)
     data = {
         "team_id": team_id,

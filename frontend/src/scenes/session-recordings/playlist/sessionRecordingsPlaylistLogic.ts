@@ -4,17 +4,28 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
+    AnyPropertyFilter,
     DurationType,
+    FilterableLogLevel,
+    FilterType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    RecordingUniversalFilters,
+    ReplayTabs,
     SessionRecordingId,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -76,10 +87,18 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     properties: [],
     events: [],
     actions: [],
-    date_from: '-7d',
+    date_from: '-3d',
     date_to: null,
     console_logs: [],
     console_search_query: '',
+}
+
+export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
+    live_mode: false,
+    filter_test_accounts: false,
+    date_from: '-3d',
+    filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
+    duration: [defaultRecordingDurationFilter],
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -103,6 +122,47 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
         ...partialFilters,
     })
 }
+function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
+    const filters = nestedFilters.values as UniversalFilterValue[]
+
+    const properties: AnyPropertyFilter[] = []
+    const events: FilterType['events'] = []
+    const actions: FilterType['actions'] = []
+    let console_logs: FilterableLogLevel[] = []
+    let console_search_query = ''
+
+    filters.forEach((f) => {
+        if (isEventFilter(f)) {
+            events.push(f)
+        } else if (isActionFilter(f)) {
+            actions.push(f)
+        } else if (isAnyPropertyfilter(f)) {
+            if (f.type === PropertyFilterType.Recording) {
+                if (f.key === 'console_log_level') {
+                    console_logs = f.value as FilterableLogLevel[]
+                } else if (f.key === 'console_log_query') {
+                    console_search_query = (f.value || '') as string
+                }
+            } else {
+                properties.push(f)
+            }
+        }
+    })
+
+    const durationFilter = universalFilters.duration[0]
+
+    return {
+        ...universalFilters,
+        properties,
+        events,
+        actions,
+        session_recording_duration: { ...durationFilter, key: 'duration' },
+        duration_type_filter: durationFilter.key,
+        console_search_query,
+        console_logs,
+    }
+}
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
@@ -110,11 +170,13 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     hideSimpleFilters?: boolean
+    universalFilters?: RecordingUniversalFilters
     advancedFilters?: RecordingFilters
     simpleFilters?: RecordingFilters
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+    currentTab?: ReplayTabs
 }
 
 export interface SessionSummaryResponse {
@@ -144,6 +206,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
     actions({
+        setUniversalFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
@@ -161,6 +224,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -214,6 +278,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
+                        hog_ql_filtering: values.useHogQLFiltering,
+                    }
+
+                    if (values.artificialLag && !params.date_to) {
+                        // values.artificalLag is a number of seconds to delay the recordings by
+                        // convert it to an absolute UTC timestamp as the relative date parsing in the backend
+                        // can't cope with seconds as a relative date
+                        const absoluteLag = now().subtract(values.artificialLag, 'second')
+                        params['date_to'] = absoluteLag.toISOString()
                     }
 
                     if (values.orderBy === 'start_time') {
@@ -241,7 +314,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs)
+                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
 
                     breakpoint()
 
@@ -332,11 +405,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         advancedFilters: [
             props.advancedFilters ?? getDefaultFilters(props.personUUID),
             {
-                setAdvancedFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
+                setAdvancedFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
                 resetFilters: () => getDefaultFilters(props.personUUID),
+            },
+        ],
+        universalFilters: [
+            props.universalFilters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+            {
+                setUniversalFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
+                resetFilters: () => DEFAULT_RECORDING_UNIVERSAL_FILTERS,
             },
         ],
         showFilters: [
@@ -388,9 +475,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ...s,
                                 viewed: true,
                             }
-                        } else {
-                            return { ...s }
                         }
+                        return { ...s }
                     }),
 
                 summarizeSessionSuccess: (state, { sessionSummary }) => {
@@ -401,9 +487,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                       ...s,
                                       summary: sessionSummary.content,
                                   }
-                              } else {
-                                  return s
                               }
+                              return s
                           })
                         : state
                 },
@@ -426,6 +511,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        isRecordingsListCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -439,6 +531,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadEventsHaveSessionId()
         },
         setAdvancedFilters: ({ filters }) => {
+            actions.loadSessionRecordings()
+            props.onFiltersChange?.(values.filters)
+            capturePartialFilters(filters)
+            actions.loadEventsHaveSessionId()
+        },
+        setUniversalFilters: ({ filters }) => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
@@ -477,11 +575,34 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        artificialLag: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                const lag = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_ARTIFICIAL_LAG]
+                // lag needs to match `\d+` when present it is a number of seconds delay
+                // relative_date parsing in the backend can't cope with seconds
+                // so it will be converted to an absolute date when added to API call
+                return typeof lag === 'string' && /^\d+$/.test(lag) ? Number.parseInt(lag) : null
+            },
+        ],
+        useHogQLFiltering: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],
+        ],
+        useUniversalFiltering: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS],
+        ],
+
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
         filters: [
-            (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters => {
+            (s) => [s.simpleFilters, s.advancedFilters, s.universalFilters, s.featureFlags],
+            (simpleFilters, advancedFilters, universalFilters, featureFlags): RecordingFilters => {
+                if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]) {
+                    return convertUniversalFiltersToLegacyFilters(universalFilters)
+                }
+
                 return {
                     ...advancedFilters,
                     events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],
@@ -506,22 +627,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
-                } else {
-                    if (!hasEvents) {
-                        return { matchType: 'none' }
-                    }
+                }
+                if (!hasEvents) {
+                    return { matchType: 'none' }
+                }
 
-                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
-                        return {
-                            matchType: 'name',
-                            eventNames: simpleEventsFilters,
-                        }
-                    } else {
-                        return {
-                            matchType: 'backend',
-                            filters,
-                        }
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                    return {
+                        matchType: 'name',
+                        eventNames: simpleEventsFilters,
                     }
+                }
+                return {
+                    matchType: 'backend',
+                    filters,
                 }
             },
         ],
@@ -529,11 +648,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
             (selectedRecordingId, recordings, autoPlay): SessionRecordingId | undefined => {
-                return selectedRecordingId
-                    ? recordings.find((rec) => rec.id === selectedRecordingId)?.id || selectedRecordingId
-                    : autoPlay
-                    ? recordings[0]?.id
-                    : undefined
+                return selectedRecordingId ? selectedRecordingId : autoPlay ? recordings[0]?.id : undefined
             },
         ],
 

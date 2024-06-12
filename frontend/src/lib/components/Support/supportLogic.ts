@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { AvailableFeature, Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -79,7 +79,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'apps',
                 'data-attr': `support-form-target-area-apps`,
-                label: 'Apps',
+                label: 'Data pipelines',
             },
             {
                 value: 'login',
@@ -166,10 +166,10 @@ export const TARGET_AREA_TO_NAME = [
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Product outage / data loss / data breach',
-    high: 'Specific feature not working at all',
-    medium: 'Feature functioning but not as expected',
-    low: 'General question or feature request',
+    critical: 'Outage, data loss, or data breach',
+    high: 'Feature is not working at all',
+    medium: 'Feature not working as expected',
+    low: 'Question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -253,13 +253,23 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
 export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight'], sidePanelStateLogic, ['sidePanelAvailable']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
@@ -294,7 +304,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind: 'support',
                 severity_level: null,
                 target_area: null,
-                message: SUPPORT_TICKET_TEMPLATES.support,
+                message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -331,13 +341,14 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
+                values.isEmailFormOpen ?? 'false',
             ].join(':')
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -349,8 +360,14 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? SUPPORT_TICKET_TEMPLATES[kind],
+                message: message ?? '',
             })
+
+            if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
+                actions.openEmailForm()
+            } else {
+                actions.closeEmailForm()
+            }
 
             if (values.sidePanelAvailable) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
@@ -387,6 +404,14 @@ export const supportLogic = kea<supportLogicType>([
                             id: 22129191462555,
                             value: posthog.get_distinct_id(),
                         },
+                        {
+                            id: 26073267652251,
+                            value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
+                                ? 'priority_support'
+                                : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
+                                ? 'email_support'
+                                : 'free_support',
+                        },
                     ],
                     comment: {
                         body: (
@@ -399,6 +424,11 @@ export const supportLogic = kea<supportLogicType>([
                             getSessionReplayLink() +
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
+                            '\n' +
+                            'PoE mode: ' +
+                            (teamLogic.values.currentTeam?.modifiers?.personsOnEventsMode ??
+                                teamLogic.values.currentTeam?.default_modifiers?.personsOnEventsMode ??
+                                'disabled') +
                             '\n' +
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(userLogic.values.user) + '\n'
@@ -487,12 +517,13 @@ export const supportLogic = kea<supportLogicType>([
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
             if (panel === SidePanelTab.Support) {
-                const [kind, area, severity] = panelOptions
+                const [kind, area, severity, isEmailFormOpen] = panelOptions
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
                     severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
+                    isEmailFormOpen: isEmailFormOpen ?? 'false',
                 })
                 return
             }

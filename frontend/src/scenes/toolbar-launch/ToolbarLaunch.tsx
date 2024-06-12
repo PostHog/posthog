@@ -48,7 +48,7 @@ function ToolbarLaunch(): JSX.Element {
             </h2>
             <p>
                 Click on the URL to launch the toolbar.{' '}
-                {window.location.host === 'app.posthog.com' && 'Remember to disable your adblocker.'}
+                {window.location.host.includes('.posthog.com') && 'Remember to disable your adblocker.'}
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 

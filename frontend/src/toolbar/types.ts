@@ -7,6 +7,29 @@ export type ElementsEventType = {
     type: '$autocapture' | '$rageclick'
 }
 
+export type HeatmapResponseType = {
+    results: (
+        | {
+              count: number
+              pointer_relative_x: number
+              pointer_target_fixed: boolean
+              pointer_y: number
+          }
+        | {
+              scroll_depth_bucket: number
+              bucket_count: number
+              cumulative_count: number
+          }
+    )[]
+}
+
+export type HeatmapElement = {
+    count: number
+    xPercentage: number
+    targetFixed: boolean
+    y: number
+}
+
 export interface CountedHTMLElement {
     count: number // total of types of clicks
     clickCount: number // autocapture clicks
@@ -42,12 +65,6 @@ export interface ElementWithMetadata {
 export interface ActionElementWithMetadata extends ElementWithMetadata {
     action: ActionType
     step?: ActionStepType
-}
-
-export type BoxColor = {
-    backgroundBlendMode: string
-    background: string
-    boxShadow: string
 }
 
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>

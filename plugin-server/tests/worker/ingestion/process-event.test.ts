@@ -171,6 +171,36 @@ describe('EventsProcessor#createEvent()', () => {
         )
     })
 
+    it('force_upgrade persons are recorded as such', async () => {
+        const processPerson = false
+        person.force_upgrade = true
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            person,
+            processPerson
+        )
+
+        await eventsProcessor.kafkaProducer.flush()
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                uuid: eventUuid,
+                event: '$pageview',
+                properties: {}, // $group_0 is removed
+                timestamp: expect.any(DateTime),
+                team_id: 2,
+                distinct_id: 'my_id',
+                elements_chain: null,
+                created_at: expect.any(DateTime),
+                person_id: personUuid,
+                person_properties: {},
+                person_mode: 'force_upgrade',
+            })
+        )
+    })
+
     it('handles the person no longer existing', async () => {
         // This person is never in the DB, but createEvent gets a Person object and should use that
         const uuid = new UUIDT().toString()

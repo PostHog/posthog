@@ -19,6 +19,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -53,6 +54,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         return random_uuid
+
+    def test_extended_query_time(self):
+        self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):
@@ -620,7 +624,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self._create_random_events()
             # sample pivot table, testing tuple access
             query = """
-                select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from (
+                select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) as r from (
                 select col_a, groupArray( (col_b, col_c) ) as g from
                 (
                     SELECT properties.index as col_a,
@@ -890,7 +894,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                                 group by col_a
                           ),
                           PIVOT_FUNCTION_2 AS (
-                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) as r from
                               PIVOT_FUNCTION_1
                               group by col_a
                           )
@@ -929,7 +933,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                                 group by col_a
                           ),
                           PIVOT_FUNCTION_2 AS (
-                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) as r from
                               PIVOT_FUNCTION_1
                               group by col_a
                           ),
@@ -1012,9 +1016,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
             )
-            self.assertEqual(response.results[0], tuple((random_uuid for x in alternatives)))
+            self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"

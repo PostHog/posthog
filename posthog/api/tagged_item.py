@@ -50,7 +50,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         obj.prefetched_tags = tagged_item_objects
 
     def to_representation(self, obj):
-        ret = super(TaggedItemSerializerMixin, self).to_representation(obj)
+        ret = super().to_representation(obj)
         ret["tags"] = []
         if self._is_licensed():
             if hasattr(obj, "prefetched_tags"):
@@ -61,12 +61,12 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
     def create(self, validated_data):
         validated_data.pop("tags", None)
-        instance = super(TaggedItemSerializerMixin, self).create(validated_data)
+        instance = super().create(validated_data)
         self._attempt_set_tags(self.initial_data.get("tags"), instance)
         return instance
 
     def update(self, instance, validated_data):
-        instance = super(TaggedItemSerializerMixin, self).update(instance, validated_data)
+        instance = super().update(instance, validated_data)
         self._attempt_set_tags(self.initial_data.get("tags"), instance)
         return instance
 
@@ -95,8 +95,8 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             )
         return queryset
 
-    def get_queryset(self):
-        queryset = super(TaggedItemViewSetMixin, self).get_queryset()
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().filter_queryset(queryset)
         return self.prefetch_tagged_items_if_available(queryset)
 
 

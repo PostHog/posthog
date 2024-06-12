@@ -1,8 +1,19 @@
 export function apiHostOrigin(): string {
-    let apiHost = window.location.origin
-    // similar to https://github.com/PostHog/posthog-js/blob/b79315b7a4fa0caded7026bda2fec01defb0ba73/src/posthog-core.ts#L1742
-    if (apiHost === 'https://us.posthog.com') {
-        apiHost = 'https://app.posthog.com'
+    const appOrigin = window.location.origin
+    if (appOrigin === 'https://us.posthog.com') {
+        return 'https://us.i.posthog.com'
+    } else if (appOrigin === 'https://eu.posthog.com') {
+        return 'https://eu.i.posthog.com'
     }
-    return apiHost
+    return appOrigin
+}
+
+export function liveEventsHostOrigin(): string | null {
+    const appOrigin = window.location.origin
+    if (appOrigin === 'https://us.posthog.com') {
+        return 'https://live.us.posthog.com'
+    } else if (appOrigin === 'https://eu.posthog.com') {
+        return 'https://live.eu.posthog.com'
+    }
+    return 'http://localhost:8666'
 }

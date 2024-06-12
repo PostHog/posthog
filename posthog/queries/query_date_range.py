@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Literal, Optional, Tuple
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -117,7 +117,7 @@ class QueryDateRange:
         return self._get_timezone_aware_date_condition("date_from")
 
     @cached_property
-    def date_to(self) -> Tuple[str, Dict]:
+    def date_to(self) -> tuple[str, dict]:
         date_to_query = self.date_to_clause
         date_to = self.date_to_param
 
@@ -129,7 +129,7 @@ class QueryDateRange:
         return date_to_query, date_to_param
 
     @cached_property
-    def date_from(self) -> Tuple[str, Dict]:
+    def date_from(self) -> tuple[str, dict]:
         date_from_query = self.date_from_clause
         date_from = self.date_from_param
 

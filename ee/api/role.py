@@ -1,4 +1,4 @@
-from typing import List, cast
+from typing import cast
 
 from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
@@ -76,7 +76,7 @@ class RoleSerializer(serializers.ModelSerializer):
         return RoleMembershipSerializer(members, many=True).data
 
     def get_associated_flags(self, role: Role):
-        associated_flags: List[dict] = []
+        associated_flags: list[dict] = []
 
         role_access_objects = FeatureFlagRoleAccess.objects.filter(role=role).values_list("feature_flag_id")
         flags = FeatureFlag.objects.filter(id__in=role_access_objects)
@@ -99,9 +99,8 @@ class RoleViewSet(
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
-    def get_queryset(self):
-        filters = self.request.GET.dict()
-        return super().get_queryset().filter(**filters)
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(**self.request.GET.dict())
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):

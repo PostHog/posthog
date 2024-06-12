@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
@@ -9,7 +9,7 @@ from posthog.models import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
-def _feature_flag_json_payload(key: str) -> Dict:
+def _feature_flag_json_payload(key: str) -> dict:
     return {
         "key": key,
         "name": "",
@@ -103,7 +103,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
     def _edit_them_all(
         self,
-        created_insights: List[int],
+        created_insights: list[int],
         flag_one: str,
         flag_two: str,
         notebook_short_id: str,
@@ -269,10 +269,10 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
     def _create_insight(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_201_CREATED,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 

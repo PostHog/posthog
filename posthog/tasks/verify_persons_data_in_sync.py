@@ -1,7 +1,7 @@
 import json
 from collections import Counter, defaultdict
 from datetime import timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 import structlog
 from celery import shared_task
@@ -80,7 +80,7 @@ def verify_persons_data_in_sync(
     return results
 
 
-def _team_integrity_statistics(person_data: List[Any]) -> Counter:
+def _team_integrity_statistics(person_data: list[Any]) -> Counter:
     person_ids = [id for id, _, _ in person_data]
     person_uuids = [uuid for _, uuid, _ in person_data]
     team_ids = list({team_id for _, _, team_id in person_data})
@@ -159,8 +159,8 @@ def _emit_metrics(integrity_results: Counter) -> None:
         statsd.gauge(f"posthog_person_integrity_{key}", value)
 
 
-def _index_by(collection: List[Any], key_fn: Any, flat: bool = True) -> Dict:
-    result: Dict = {} if flat else defaultdict(list)
+def _index_by(collection: list[Any], key_fn: Any, flat: bool = True) -> dict:
+    result: dict = {} if flat else defaultdict(list)
     for item in collection:
         if flat:
             result[key_fn(item)] = item

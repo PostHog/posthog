@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Generator
+from collections.abc import Generator
 
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.test.utils import CaptureQueriesContext

@@ -1,5 +1,5 @@
 import base64
-from typing import Iterable
+from collections.abc import Iterable
 
 from cryptography.fernet import Fernet
 from temporalio.api.common.v1 import Payload

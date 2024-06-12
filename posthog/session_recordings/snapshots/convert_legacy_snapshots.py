@@ -1,5 +1,4 @@
 import json
-from typing import Dict
 
 import structlog
 from prometheus_client import Histogram
@@ -67,7 +66,7 @@ def _prepare_legacy_content(content: str) -> str:
     return _convert_legacy_format_from_lts_storage(json_content)
 
 
-def _convert_legacy_format_from_lts_storage(lts_formatted_data: Dict) -> str:
+def _convert_legacy_format_from_lts_storage(lts_formatted_data: dict) -> str:
     """
     The latest version is JSONL formatted data.
     Each line is json containing a window_id and a data array.

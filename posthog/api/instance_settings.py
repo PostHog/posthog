@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
@@ -50,7 +50,7 @@ class InstanceSettingHelper:
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Optional[Tuple] = None) -> InstanceSettingHelper:
+def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> InstanceSettingHelper:
     setting_config = setting_config or CONSTANCE_CONFIG[key]
     is_secret = key in SECRET_SETTINGS
     value = get_instance_setting_raw(key)
@@ -73,7 +73,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
     editable = serializers.BooleanField(read_only=True)
     is_secret = serializers.BooleanField(read_only=True)
 
-    def update(self, instance: InstanceSettingHelper, validated_data: Dict[str, Any]) -> InstanceSettingHelper:
+    def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
 

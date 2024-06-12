@@ -18,9 +18,9 @@ T = TypeVar("T")
 
 
 class Visitor(Generic[T]):
-    def visit(self, node: AST) -> T:
+    def visit(self, node: AST | None) -> T:
         if node is None:
-            return node
+            return node  # type: ignore
 
         try:
             return node.accept(self)
@@ -131,8 +131,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.limit_by or []:
             self.visit(expr)
-        (self.visit(node.limit),)
-        (self.visit(node.offset),)
+        self.visit(node.limit)
+        self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
@@ -231,6 +231,12 @@ class TraversingVisitor(Visitor[None]):
     def visit_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
+    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
+        pass
+
+    def visit_unresolved_field_type(self, node: ast.UnresolvedFieldType):
+        pass
+
     def visit_window_expr(self, node: ast.WindowExpr):
         for expr in node.partition_by or []:
             self.visit(expr)
@@ -240,8 +246,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.frame_end)
 
     def visit_window_function(self, node: ast.WindowFunction):
-        for expr in node.args or []:
+        for expr in node.exprs or []:
             self.visit(expr)
+        for arg in node.args or []:
+            self.visit(arg)
         self.visit(node.over_expr)
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
@@ -250,15 +258,51 @@ class TraversingVisitor(Visitor[None]):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
-    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
-        pass
-
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:
             self.visit(attribute)
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         self.visit(node.value)
+
+    def visit_program(self, node: ast.Program):
+        for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_statement(self, node: ast.Statement):
+        raise NotImplementedError("Abstract 'visit_statement' not implemented")
+
+    def visit_block(self, node: ast.Block):
+        for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        self.visit(node.expr)
+        self.visit(node.then)
+        if node.else_:
+            self.visit(node.else_)
+
+    def visit_while_statement(self, node: ast.WhileStatement):
+        self.visit(node.expr)
+        self.visit(node.body)
+
+    def visit_expr_statement(self, node: ast.ExprStatement):
+        self.visit(node.expr)
+
+    def visit_return_statement(self, node: ast.ReturnStatement):
+        if node.expr:
+            self.visit(node.expr)
+
+    def visit_declaration(self, node: ast.Declaration):
+        raise NotImplementedError("Abstract 'visit_declaration' not implemented")
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        if node.expr:
+            self.visit(node.expr)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment):
+        self.visit(node.left)
+        self.visit(node.right)
 
 
 class CloningVisitor(Visitor[Any]):
@@ -465,7 +509,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
-            select=[self.visit(expr) for expr in node.select] if node.select else None,
+            select=[self.visit(expr) for expr in node.select] if node.select else [],
             array_join_op=node.array_join_op,
             array_join_list=[self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None,
             where=self.visit(node.where),
@@ -478,9 +522,9 @@ class CloningVisitor(Visitor[Any]):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
-            window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
-            if node.window_exprs
-            else None,
+            window_exprs=(
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
         )
@@ -511,7 +555,8 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
-            args=[self.visit(expr) for expr in node.args] if node.args else None,
+            exprs=[self.visit(expr) for expr in node.exprs] if node.exprs else None,
+            args=[self.visit(arg) for arg in node.args] if node.args else None,
             over_expr=self.visit(node.over_expr) if node.over_expr else None,
             over_identifier=node.over_identifier,
         )
@@ -525,11 +570,78 @@ class CloningVisitor(Visitor[Any]):
             frame_value=node.frame_value,
         )
 
-    def visit_join_constraint(self, node: ast.JoinConstraint):
-        return ast.JoinConstraint(expr=self.visit(node.expr))
+    def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
+        return ast.JoinConstraint(expr=self.visit(node.expr), constraint_type=node.constraint_type)
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
+
+    def visit_program(self, node: ast.Program):
+        return ast.Program(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            declarations=[self.visit(expr) for expr in node.declarations],
+        )
+
+    def visit_statement(self, node: ast.Statement):
+        raise NotImplementedError("Abstract 'visit_statement' not implemented")
+
+    def visit_block(self, node: ast.Block):
+        return ast.Block(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            declarations=[self.visit(expr) for expr in node.declarations],
+        )
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        return ast.IfStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+            then=self.visit(node.then),
+            else_=self.visit(node.else_) if node.else_ else None,
+        )
+
+    def visit_while_statement(self, node: ast.WhileStatement):
+        return ast.WhileStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+            body=self.visit(node.body),
+        )
+
+    def visit_expr_statement(self, node: ast.ExprStatement):
+        return ast.ExprStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+        )
+
+    def visit_return_statement(self, node: ast.ReturnStatement):
+        return ast.ReturnStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_declaration(self, node: ast.Declaration):
+        raise NotImplementedError("Abstract 'visit_declaration' not implemented")
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        return ast.VariableDeclaration(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            name=node.name,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment):
+        return ast.VariableAssignment(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            left=self.visit(node.left),
+            right=self.visit(node.right),
+        )

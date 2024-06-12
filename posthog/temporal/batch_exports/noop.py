@@ -13,6 +13,7 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 @dataclass
 class NoopActivityArgs:
     arg: str
+    is_backfill: bool = False
 
 
 @activity.defn
@@ -39,7 +40,7 @@ class NoOpWorkflow(PostHogWorkflow):
         workflow.logger.info(f"Running workflow with parameter {inputs.arg}")
         result = await workflow.execute_activity(
             noop_activity,
-            NoopActivityArgs(inputs.arg),
+            NoopActivityArgs(inputs.arg, inputs.is_backfill),
             start_to_close_timeout=timedelta(seconds=60),
             schedule_to_close_timeout=timedelta(minutes=5),
         )

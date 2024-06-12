@@ -34,7 +34,6 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
-                        - 'hogvm/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -114,9 +113,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -218,7 +215,7 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.1.0
+              uses: iFaxity/wait-on-action@v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true
@@ -305,6 +302,7 @@ jobs:
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

@@ -8,12 +8,13 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import WebTopClicksQuery, WebTopClicksQueryResponse
+from posthog.schema import CachedWebTopClicksQueryResponse, WebTopClicksQuery, WebTopClicksQueryResponse
 
 
 class WebTopClicksQueryRunner(WebAnalyticsQueryRunner):
     query: WebTopClicksQuery
-    query_type = WebTopClicksQuery
+    response: WebTopClicksQueryResponse
+    cached_response: CachedWebTopClicksQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("top_clicks_query"):

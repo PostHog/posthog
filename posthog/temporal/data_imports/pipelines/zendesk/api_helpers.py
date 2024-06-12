@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict, Dict
+from typing import Optional, TypedDict
 
 from dlt.common import pendulum
 from dlt.common.time import ensure_pendulum_datetime
@@ -18,7 +18,7 @@ def _parse_date_or_none(value: Optional[str]) -> Optional[pendulum.DateTime]:
 
 def process_ticket(
     ticket: DictStrAny,
-    custom_fields: Dict[str, TCustomFieldInfo],
+    custom_fields: dict[str, TCustomFieldInfo],
     pivot_custom_fields: bool = True,
 ) -> DictStrAny:
     """
@@ -78,7 +78,7 @@ def process_ticket(
     return ticket
 
 
-def process_ticket_field(field: DictStrAny, custom_fields_state: Dict[str, TCustomFieldInfo]) -> TDataItem:
+def process_ticket_field(field: DictStrAny, custom_fields_state: dict[str, TCustomFieldInfo]) -> TDataItem:
     """Update custom field mapping in dlt state for the given field."""
     # grab id and update state dict
     # if the id is new, add a new key to indicate that this is the initial value for title

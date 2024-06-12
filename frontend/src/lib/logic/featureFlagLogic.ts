@@ -54,22 +54,21 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
                 },
             }
         )
-    } else {
-        // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
-        const flags: FeatureFlagsSet = {}
-        for (const flag of Object.keys(availableFlags)) {
-            Object.defineProperty(flags, flag, {
-                get: function () {
-                    if (flag === 'toJSON') {
-                        return () => availableFlags
-                    }
-                    notifyFlagIfNeeded(flag, true)
-                    return true
-                },
-            })
-        }
-        return flags
     }
+    // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
+    const flags: FeatureFlagsSet = {}
+    for (const flag of Object.keys(availableFlags)) {
+        Object.defineProperty(flags, flag, {
+            get: function () {
+                if (flag === 'toJSON') {
+                    return () => availableFlags
+                }
+                notifyFlagIfNeeded(flag, true)
+                return true
+            },
+        })
+    }
+    return flags
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([

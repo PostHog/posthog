@@ -1,14 +1,11 @@
-import { LemonTable, LemonTableColumn, LemonTag, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
@@ -16,15 +13,11 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
-import { Destination, PipelineBackend } from './types'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
     const { destinations, shouldShowProductIntroduction } = useValues(pipelineDestinationsLogic)
 
     const shouldShowEmptyState = !destinations.some((destination) => destination.enabled)
@@ -51,7 +44,6 @@ export function Destinations(): JSX.Element {
 
 export function DestinationsTable({ inOverview = false }: { inOverview?: boolean }): JSX.Element {
     const { loading, destinations } = useValues(pipelineDestinationsLogic)
-
     const data = inOverview ? destinations.filter((destination) => destination.enabled) : destinations
 
     return (
@@ -62,31 +54,40 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                 loading={loading}
                 columns={[
                     {
+                        title: 'App',
+                        width: 0,
+                        render: function RenderAppInfo(_, destination) {
+                            switch (destination.backend) {
+                                case 'plugin':
+                                    return <RenderApp plugin={destination.plugin} />
+                                case 'batch_export':
+                                    return <RenderBatchExportIcon type={destination.service.type} />
+                                default:
+                                    return null
+                            }
+                        },
+                    },
+                    {
                         title: 'Name',
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
                             return (
-                                <Tooltip title="Click to update configuration, view metrics, and more">
-                                    <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Configuration
-                                        )}
-                                        title={destination.name}
-                                        description={destination.description}
-                                    />
-                                </Tooltip>
+                                <LemonTableLink
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Configuration
+                                    )}
+                                    title={
+                                        <>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                                <span>{destination.name}</span>
+                                            </Tooltip>
+                                        </>
+                                    }
+                                    description={destination.description}
+                                />
                             )
-                        },
-                    },
-                    {
-                        title: 'App',
-                        render: function RenderAppInfo(_, destination) {
-                            if (destination.backend === 'plugin') {
-                                return <RenderApp plugin={destination.plugin} />
-                            }
-                            return <RenderBatchExportIcon type={destination.service.type} />
                         },
                     },
                     {
@@ -98,7 +99,17 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     {
                         title: 'Weekly volume',
                         render: function RenderSuccessRate(_, destination) {
-                            return <AppMetricSparkLine pipelineNode={destination} />
+                            return (
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Metrics
+                                    )}
+                                >
+                                    <AppMetricSparkLine pipelineNode={destination} />
+                                </Link>
+                            )
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
@@ -145,17 +156,17 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
-    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (
         <LemonMenuOverlay
             items={[
                 {
                     label: destination.enabled ? 'Pause destination' : 'Unpause destination',
-                    onClick: () => toggleEnabled(destination, !destination.enabled),
+                    onClick: () => toggleNode(destination, !destination.enabled),
                     disabledReason: !canConfigurePlugins
-                        ? 'You do not have permission to enable/disable destinations.'
+                        ? 'You do not have permission to toggle destinations.'
                         : !canEnableNewDestinations && !destination.enabled
                         ? 'Data pipelines add-on is required for enabling new destinations'
                         : undefined,
@@ -165,22 +176,8 @@ export const DestinationMoreOverlay = ({
                     ? [
                           {
                               label: 'Delete destination',
-                              onClick: () => {
-                                  if (destination.backend === PipelineBackend.Plugin) {
-                                      void deleteWithUndo({
-                                          endpoint: `plugin_config`, // TODO: Batch exports too
-                                          object: {
-                                              id: destination.id,
-                                              name: destination.name,
-                                          },
-                                          callback: loadPluginConfigs,
-                                      })
-                                  } else {
-                                      lemonToast.warning(
-                                          'Deleting batch export destinations is not yet supported here.'
-                                      )
-                                  }
-                              },
+                              status: 'danger' as const, // for typechecker happiness
+                              onClick: () => deleteNode(destination),
                               disabledReason: canConfigurePlugins
                                   ? undefined
                                   : 'You do not have permission to delete destinations.',

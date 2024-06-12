@@ -9,12 +9,13 @@ export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorTracking = 'ErrorTracking',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     Cohort = 'Cohort',
-    Events = 'Events',
+    Activity = 'Activity',
     DataManagement = 'DataManagement',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
@@ -26,6 +27,8 @@ export enum Scene {
     ReplayFilePlayback = 'ReplayFilePlayback',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
+    pipelineNodeDataWarehouseNew = 'pipelineNodeDataWarehouseNew',
+    PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
     Group = 'Group',
@@ -80,6 +83,7 @@ export enum Scene {
     Onboarding = 'Onboarding',
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
+    Heatmaps = 'Heatmaps',
 }
 
 export type SceneProps = Record<string, any>

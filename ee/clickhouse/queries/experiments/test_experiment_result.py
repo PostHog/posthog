@@ -1,7 +1,6 @@
 import unittest
 from functools import lru_cache
 from math import exp, lgamma, log
-from typing import List
 
 from flaky import flaky
 
@@ -31,7 +30,7 @@ def logbeta(x: int, y: int) -> float:
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#binary_ab
 
 
-def calculate_probability_of_winning_for_target(target_variant: Variant, other_variants: List[Variant]) -> Probability:
+def calculate_probability_of_winning_for_target(target_variant: Variant, other_variants: list[Variant]) -> Probability:
     """
     Calculates the probability of winning for target variant.
     """
@@ -455,7 +454,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
 def calculate_probability_of_winning_for_target_count_data(
-    target_variant: CountVariant, other_variants: List[CountVariant]
+    target_variant: CountVariant, other_variants: list[CountVariant]
 ) -> Probability:
     """
     Calculates the probability of winning for target variant.

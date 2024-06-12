@@ -1,6 +1,7 @@
+import posthoganalytics
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Optional, Union, cast
 
 import structlog
 from django.db import transaction
@@ -12,6 +13,8 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
@@ -29,7 +32,6 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
-from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -37,10 +39,8 @@ from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import (
     InsightResult,
-    fetch_cached_insight_result,
-    synchronously_update_cache,
 )
-from posthog.caching.insights_api import should_refresh_insight
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -50,18 +50,23 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.decorators import cached_by_filters
 from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.apply_dashboard_filters import DATA_TABLE_LIKE_NODE_KINDS
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
-from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
+from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
+from posthog.hogql_queries.legacy_compatibility.feature_flag import (
+    hogql_insights_replace_filters,
+)
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
+    conversion_to_query_based,
+)
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh, ExecutionMode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User
+from posthog.models import DashboardTile, Filter, Insight, User, Team
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -92,16 +97,12 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
 )
-from loginas.utils import is_impersonated_session
-
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +123,7 @@ def log_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -152,7 +153,7 @@ class QuerySchemaParser(JSONParser):
     """
 
     def parse(self, stream, media_type=None, parser_context=None):
-        data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
+        data = super().parse(stream, media_type, parser_context)
         try:
             query = data.get("query", None)
             if query:
@@ -201,7 +202,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
     def to_representation(self, instance):
@@ -209,11 +210,14 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
         representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
-        filters = instance.dashboard_filters()
-
-        if not filters.get("date_from") and not instance.query:
-            filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
-        representation["filters"] = filters
+        if hogql_insights_replace_filters(instance.team) and (
+            instance.query is not None or instance.query_from_filters is not None
+        ):
+            representation["filters"] = {}
+            representation["query"] = instance.query or instance.query_from_filters
+        else:
+            filters = instance.dashboard_filters()
+            representation["filters"] = filters
 
         return representation
 
@@ -224,6 +228,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
+    columns = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -263,6 +268,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     """,
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
+    query_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -280,6 +286,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "last_refresh",
             "next_allowed_client_refresh",
             "result",
+            "columns",
             "created_at",
             "created_by",
             "description",
@@ -294,6 +301,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "effective_privilege_level",
             "timezone",
             "is_cached",
+            "query_status",
         ]
         read_only_fields = (
             "created_at",
@@ -310,7 +318,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
@@ -331,7 +339,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
-                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -349,8 +356,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
-    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
-        dashboards_before_change: List[Union[str, Dict]] = []
+    def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
+        dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be undeleting a soft deleted insight
             # the state captured before the update has to include soft deleted insights
@@ -415,7 +422,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 changes=changes,
             )
 
-    def _synthetic_dashboard_changes(self, dashboards_before_change: List[Dict]) -> List[Change]:
+    def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
         if artificial_dashboard_changes:
             return [
@@ -430,7 +437,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return []
 
-    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
@@ -467,6 +474,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
 
+    def get_columns(self, insight: Insight):
+        return self.insight_result(insight).columns
+
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
         # This should get refactored.
@@ -483,6 +493,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
+
+    def get_query_status(self, insight: Insight):
+        return self.insight_result(insight).query_status
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -509,40 +522,75 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        representation["query"] = instance.dashboard_query(dashboard=dashboard)
+        if hogql_insights_replace_filters(instance.team) and (
+            instance.query is not None or instance.query_from_filters is not None
+        ):
+            from posthog.hogql_queries.apply_dashboard_filters import (
+                apply_dashboard_filters_to_dict,
+            )
 
-        if "insight" not in representation["filters"] and not representation["query"]:
-            representation["filters"]["insight"] = "TRENDS"
+            query = instance.query or instance.query_from_filters
+            if dashboard:
+                query = apply_dashboard_filters_to_dict(query, dashboard.filters, instance.team)
+            representation["filters"] = {}
+            representation["query"] = query
+        else:
+            representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+            representation["query"] = instance.get_effective_query(dashboard=dashboard)
+
+            if "insight" not in representation["filters"] and not representation["query"]:
+                representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
         return representation
 
+    def is_async_shared_dashboard(self, team: Team) -> bool:
+        flag_enabled = posthoganalytics.feature_enabled(
+            "hogql-dashboard-async",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        return flag_enabled and self.context.get("is_shared", False)
+
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
-        dashboard = self.context.get("dashboard", None)
-        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        target = insight if dashboard is None else dashboard_tile
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        if hogql_insights_enabled(self.context.get("request", None).user) and is_insight_with_hogql_support(
-            target or insight
-        ):
-            return process_insight(target or insight, insight.team)
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        is_shared = self.context.get("is_shared", False)
-        refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight,
-            dashboard_tile,
-            request=self.context["request"],
-            is_shared=is_shared,
-        )
-        if refresh_insight_now:
-            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
-            return synchronously_update_cache(insight, dashboard, refresh_frequency)
+        with conversion_to_query_based(insight):
+            try:
+                refresh_requested = refresh_requested_by_client(self.context["request"])
+                execution_mode = execution_mode_from_refresh(refresh_requested)
 
-        # :TODO: Clear up if tile can be null or not
-        return fetch_cached_insight_result(target or insight, refresh_frequency)
+                if (
+                    self.is_async_shared_dashboard(insight.team)
+                    and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                ):
+                    execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
+
+                return calculate_for_query_based_insight(
+                    insight,
+                    dashboard=dashboard,
+                    execution_mode=execution_mode,
+                    user=self.context["request"].user,
+                )
+            except ExposedHogQLError as e:
+                raise ValidationError(str(e))
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
@@ -576,6 +624,7 @@ class InsightViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     sharing_enabled_actions = ["retrieve", "list"]
+    queryset = Insight.objects_including_soft_deleted.all()
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -583,34 +632,31 @@ class InsightViewSet(
 
     parser_classes = (QuerySchemaParser,)
 
-    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def get_queryset(self) -> QuerySet:
-        queryset: QuerySet
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        include_deleted = False
+
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            queryset = Insight.objects.filter(
+            queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset = Insight.objects_including_soft_deleted.all()
-        else:
-            queryset = Insight.objects.all()
+            include_deleted = True
 
-        # Optimize tag retrieval
-        queryset = self.prefetch_tagged_items_if_available(queryset)
-        # Disallow access to other teams' insights
-        queryset = self.filter_queryset_by_parents_lookups(queryset)
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -691,14 +737,10 @@ class InsightViewSet(
                 insight = request.GET[INSIGHT]
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.exclude(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.filter(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 else:
                     queryset = queryset.filter(query__isnull=True)
                     queryset = queryset.filter(filters__insight=insight)
@@ -852,7 +894,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response({**result, "next": next})
 
     @cached_by_filters
-    def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_trends(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -904,7 +946,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(funnel)
 
     @cached_by_filters
-    def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
@@ -944,7 +986,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         data = {}
         if not request.GET.get("date_from") and not request.data.get("date_from"):
@@ -974,7 +1016,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_path(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_path(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 

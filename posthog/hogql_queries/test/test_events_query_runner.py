@@ -1,4 +1,4 @@
-from typing import Tuple, Any, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 
@@ -8,6 +8,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
@@ -24,7 +25,7 @@ from posthog.test.base import (
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _create_events(self, data: list[Tuple[str, str, Any]], event="$pageview"):
+    def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):
@@ -84,7 +85,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             runner = EventsQueryRunner(query=query, team=self.team)
-            return runner.run().results
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            results = response.results
+            return results
 
     def test_is_not_set_boolean(self):
         # see https://github.com/PostHog/posthog/issues/18030
@@ -93,8 +97,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_not_set,
-                value=PropertyOperator.is_not_set,
+                operator=PropertyOperator.IS_NOT_SET,
+                value=PropertyOperator.IS_NOT_SET,
             )
         )
 
@@ -107,8 +111,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_set,
-                value=PropertyOperator.is_set,
+                operator=PropertyOperator.IS_SET,
+                value=PropertyOperator.IS_SET,
             )
         )
 

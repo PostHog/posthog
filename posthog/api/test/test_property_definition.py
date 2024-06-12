@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional, Union
+from typing import Optional, Union
 from unittest.mock import ANY, patch
 
 from rest_framework import status
@@ -17,7 +17,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
-    EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Union[str, Optional[int], bool]]] = [
+    EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
         {"name": "$lib", "is_numerical": False},
@@ -69,7 +69,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
-            response_item: Dict = next(
+            response_item: dict = next(
                 (_i for _i in response.json()["results"] if _i["name"] == item["name"]),
                 {},
             )

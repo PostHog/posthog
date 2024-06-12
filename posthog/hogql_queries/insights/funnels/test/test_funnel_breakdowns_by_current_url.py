@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, cast, Optional
+from typing import cast, Optional
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
@@ -116,7 +116,7 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journey, team=self.team, create_people=True)
 
-    def _run(self, extra: Optional[Dict] = None, events_extra: Optional[Dict] = None):
+    def _run(self, extra: Optional[dict] = None, events_extra: Optional[dict] = None):
         if events_extra is None:
             events_extra = {}
         if extra is None:

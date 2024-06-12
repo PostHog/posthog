@@ -8,7 +8,7 @@ import { KAFKA_PERSON } from '../../config/kafka-topics'
 import {
     BasePerson,
     ClickHousePerson,
-    Person,
+    InternalPerson,
     PluginLogEntryType,
     PluginLogLevel,
     RawPerson,
@@ -17,7 +17,7 @@ import {
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 
-export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
+export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
 }
 
@@ -116,7 +116,7 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return propertiesCopy
 }
 
-export function generateKafkaPersonUpdateMessage(person: Person, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
     return {
         topic: KAFKA_PERSON,
         messages: [
@@ -182,6 +182,10 @@ export function sanitizeJsonbValue(value: any): any {
     } else {
         return value
     }
+}
+
+export function sanitizeString(value: string) {
+    return value.replace(/\u0000/g, '\uFFFD')
 }
 
 export const surrogatesSubstitutedCounter = new Counter({

@@ -109,6 +109,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
+COPY hogvm hogvm/
 COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
@@ -131,7 +132,7 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir share && \
-    ( curl -s -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
 
 

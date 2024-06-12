@@ -36,6 +36,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import {
     ActorType,
     ExporterFormat,
@@ -44,6 +45,7 @@ import {
     SessionRecordingType,
 } from '~/types'
 
+import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
@@ -160,25 +162,17 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => {
-                                if (Array.isArray(value)) {
-                                    return !!value.length
-                                }
-
-                                return !!value
-                            })
-                            .map(([key, options]) => (
-                                <div key={key}>
-                                    <LemonSelect
-                                        fullWidth
-                                        className="mb-2"
-                                        value={query?.[key] ?? null}
-                                        onChange={(v) => updateActorsQuery({ [key]: v })}
-                                        options={options}
-                                    />
-                                </div>
-                            ))}
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions).map(([key, options]) => (
+                            <div key={key}>
+                                <LemonSelect
+                                    fullWidth
+                                    className="mb-2"
+                                    value={query?.[key] ?? null}
+                                    onChange={(v) => updateActorsQuery({ [key]: v })}
+                                    options={options}
+                                />
+                            </div>
+                        ))}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (
@@ -201,9 +195,9 @@ export function PersonsModal({
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
-                                <InsightValidationError detail={validationError} />
+                                <InsightValidationError query={query} detail={validationError} />
                             ) : (
-                                <InsightErrorState />
+                                <InsightErrorState query={query} />
                             )
                         ) : actors && actors.length > 0 ? (
                             <>
@@ -245,22 +239,32 @@ export function PersonsModal({
                 <LemonModal.Footer>
                     <div className="flex justify-between gap-2 w-full">
                         <div className="flex gap-2">
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    startExport({
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: query
-                                            ? { source: actorsQuery as Record<string, any> }
-                                            : { path: originalUrl },
-                                    })
-                                }}
-                                data-attr="person-modal-download-csv"
-                                disabled={!actors.length}
-                            >
-                                Download CSV
-                            </LemonButton>
-                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                            {actors.length > 0 && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        startExport({
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: query
+                                                ? {
+                                                      source: {
+                                                          ...actorsQuery,
+                                                          select: actorsQuery!.select?.filter(
+                                                              (c) => c !== 'matched_recordings'
+                                                          ),
+                                                          source: { ...actorsQuery!.source, includeRecordings: false },
+                                                      },
+                                                  }
+                                                : { path: originalUrl },
+                                        })
+                                    }}
+                                    tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                    data-attr="person-modal-download-csv"
+                                >
+                                    Download CSV
+                                </LemonButton>
+                            )}
+                            {actors.length > 0 && !isGroupType(actors[0]) && (
                                 <LemonButton
                                     onClick={() => setIsCohortModalOpen(true)}
                                     type="secondary"

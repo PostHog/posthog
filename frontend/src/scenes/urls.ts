@@ -6,6 +6,7 @@ import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
+    ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
     AppMetricsUrlParams,
@@ -66,7 +67,9 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/events',
+    activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    /** @deprecated in favor of /activity */
+    events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',
@@ -116,7 +119,15 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    // TODO: Default to the landing page, once it's ready
+    pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
+    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
+        if (stage === PipelineStage.DataImport) {
+            // should match 'pipelineNodeDataWarehouseNew'
+            return `/pipeline/new/data-warehouse`
+        }
+
+        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (
@@ -138,6 +149,8 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    errorTracking: (): string => '/error_tracking',
+    errorTrackingGroup: (id: string): string => `/error_tracking/${id}`,
     surveys: (): string => '/surveys',
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
@@ -223,4 +236,8 @@ export const urls = {
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
+    heatmaps: (params?: string): string =>
+        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
+    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
 }

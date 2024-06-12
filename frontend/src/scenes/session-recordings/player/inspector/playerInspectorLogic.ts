@@ -8,7 +8,10 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import {
+    InspectorListItemPerformance,
+    performanceEventDataLogic,
+} from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -47,7 +50,7 @@ export const IMAGE_WEB_EXTENSIONS = [
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
-type InspectorListItemBase = {
+export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
@@ -63,11 +66,6 @@ export type InspectorListItemEvent = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogV2
-}
-
-export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.NETWORK
-    data: PerformanceEvent
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -159,7 +157,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     connect((props: PlayerInspectorLogicProps) => ({
         actions: [
             playerSettingsLogic,
-            ['setTab', 'setMiniFilter', 'setSyncScroll', 'setSearchQuery'],
+            ['setTab', 'setMiniFilter', 'setSearchQuery'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
@@ -182,6 +180,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
+            performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
+            ['allPerformanceEvents'],
         ],
     })),
     actions(() => ({
@@ -210,13 +210,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        syncScrollingPaused: [
+        syncScrollPaused: [
             false,
             {
                 setTab: () => false,
                 setSyncScrollPaused: (_, { paused }) => paused,
                 setItemExpanded: () => true,
-                setSyncScroll: () => false,
             },
         ],
     })),
@@ -391,6 +390,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return items
             },
         ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -435,17 +435,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 })
 
                 return logs
-            },
-        ],
-
-        allPerformanceEvents: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): PerformanceEvent[] => {
-                // performanceEvents used to come from the API,
-                // but we decided to instead store them in the recording data
-                // we gather more info than rrweb, so we mix the two back together here
-
-                return filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
             },
         ],
 
@@ -494,21 +483,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
+                    // TODO should we be defaulting to 200 here :shrug:
                     const responseStatus = event.response_status || 200
-
-                    // NOTE: Navigation events are missing the first contentful paint info
-                    // so, we find the relevant first contentful paint event and add it to the navigation event
-                    if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
-                        const firstContentfulPaint = performanceEventsArr.find(
-                            (x) =>
-                                x.pageview_id === event.pageview_id &&
-                                x.entry_type === 'paint' &&
-                                x.name === 'first-contentful-paint'
-                        )
-                        if (firstContentfulPaint) {
-                            event.first_contentful_paint = firstContentfulPaint.start_time
-                        }
-                    }
 
                     if (event.entry_type === 'paint') {
                         // We don't include paint events as they are covered in the navigation events
@@ -907,7 +883,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items],
             (playerTime, items): number => {
-                // Returnts the index of the event that the playback is closest to
+                // Returns the index of the event that the playback is closest to
                 if (!playerTime) {
                     return 0
                 }
@@ -969,11 +945,3 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         }
     }),
 ])
-
-function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
-    // the browser can provide network events that we're not interested in,
-    // like a navigation to "about:blank"
-    return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name === 'about:blank')
-    })
-}

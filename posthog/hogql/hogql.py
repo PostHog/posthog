@@ -1,4 +1,4 @@
-from typing import Dict, Literal, cast, Optional
+from typing import Literal, cast, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -18,7 +18,7 @@ def translate_hogql(
     metadata_source: Optional[ast.SelectQuery] = None,
     *,
     events_table_alias: Optional[str] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
 ) -> str:
     """Translate a HogQL expression into a ClickHouse expression."""
     if query == "":

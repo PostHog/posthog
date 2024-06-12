@@ -1,6 +1,6 @@
 import datetime
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Optional, TypeVar
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -60,10 +60,10 @@ def process_math(
     filter: Filter,
     event_table_alias: Optional[str] = None,
     person_id_alias: str = "person_id",
-) -> Tuple[str, str, Dict[str, Any]]:
+) -> tuple[str, str, dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
 
     if entity.math in (UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE):
         if team.aggregate_users_by_distinct_id:
@@ -100,11 +100,11 @@ def process_math(
 
 
 def parse_response(
-    stats: Dict,
+    stats: dict,
     filter: Filter,
-    additional_values: Optional[Dict] = None,
+    additional_values: Optional[dict] = None,
     entity: Optional[Entity] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if additional_values is None:
         additional_values = {}
     counts = stats[1]
@@ -122,7 +122,7 @@ def parse_response(
     }
 
 
-def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
     diff = timedelta(days=7 if entity.math == WEEKLY_ACTIVE else 30)
 
     date_from: datetime.datetime
@@ -155,11 +155,11 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
     return format_params, query_params
 
 
-def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
+def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> list[str]:
     date_from = filter.date_from
     date_to = filter.date_to
     delta = timedelta(seconds=seconds_in_interval)
-    time_range: List[str] = []
+    time_range: list[str] = []
 
     if not date_from or not date_to:
         return time_range
@@ -176,10 +176,10 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
         return f'"$group_{entity.math_group_type_index}"'
     elif team.aggregate_users_by_distinct_id:
         return "e.distinct_id"
-    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+    elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         return "e.person_id"
-    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        return f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+    elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        return f"if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id)"
     else:
         return "pdi.person_id"
 

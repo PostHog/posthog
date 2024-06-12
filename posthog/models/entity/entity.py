@@ -1,6 +1,6 @@
 import inspect
 from collections import Counter
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -66,8 +66,10 @@ class Entity(PropertyMixin):
     # data warehouse fields
     id_field: Optional[str]
     timestamp_field: Optional[str]
+    distinct_id_field: Optional[str]
+    table_name: Optional[str]
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.id = data.get("id")
         if data.get("type") not in [
             TREND_FILTER_TYPE_ACTIONS,
@@ -95,6 +97,8 @@ class Entity(PropertyMixin):
         )
         self.id_field = data.get("id_field")
         self.timestamp_field = data.get("timestamp_field")
+        self.distinct_id_field = data.get("distinct_id_field")
+        self.table_name = data.get("table_name")
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
@@ -102,7 +106,7 @@ class Entity(PropertyMixin):
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             self.name = "All events" if self.id is None else str(self.id)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": self.type,
@@ -114,6 +118,10 @@ class Entity(PropertyMixin):
             "math_hogql": self.math_hogql,
             "math_group_type_index": self.math_group_type_index,
             "properties": self.property_groups.to_dict(),
+            "id_field": self.id_field,
+            "timestamp_field": self.timestamp_field,
+            "distinct_id_field": self.distinct_id_field,
+            "table_name": self.table_name,
         }
 
     def equals(self, other) -> bool:
@@ -171,6 +179,10 @@ class Entity(PropertyMixin):
         "math_property",
         "math_hogql",
         "properties",
+        "id_field",
+        "timestamp_field",
+        "distinct_id_field",
+        "table_name",
     )
 
 
@@ -180,10 +192,10 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
     with extra parameters for exclusion semantics.
     """
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         super().__init__(data)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):

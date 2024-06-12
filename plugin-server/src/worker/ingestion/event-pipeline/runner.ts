@@ -10,6 +10,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -174,19 +175,17 @@ export class EventPipelineRunner {
         }
 
         if (event.event === '$$client_ingestion_warning') {
-            kafkaAcks.push(
-                captureIngestionWarning(
-                    this.hub.db.kafkaProducer,
-                    event.team_id,
-                    'client_ingestion_warning',
-                    {
-                        eventUuid: event.uuid,
-                        event: event.event,
-                        distinctId: event.distinct_id,
-                        message: event.properties?.$$client_ingestion_warning_message,
-                    },
-                    { alwaysSend: true }
-                )
+            await captureIngestionWarning(
+                this.hub.db.kafkaProducer,
+                event.team_id,
+                'client_ingestion_warning',
+                {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                    message: event.properties?.$$client_ingestion_warning_message,
+                },
+                { alwaysSend: true }
             )
 
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
@@ -204,11 +203,12 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [postPersonEvent, person] = await this.runStep(
+        const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
             [this, normalizedEvent, timestamp, processPerson],
             event.team_id
         )
+        kafkaAcks.push(personKafkaAck)
 
         const preparedEvent = await this.runStep(
             prepareEventStep,
@@ -216,9 +216,19 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+            extractHeatmapDataStep,
+            [this, preparedEvent],
+            event.team_id
+        )
+
+        if (heatmapKafkaAcks.length > 0) {
+            kafkaAcks.push(...heatmapKafkaAcks)
+        }
+
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
-            [this, preparedEvent, person, processPerson],
+            [this, preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id
         )
 

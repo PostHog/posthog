@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 import posthoganalytics
 import structlog
@@ -161,16 +161,21 @@ def send_fatal_plugin_error(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 async def send_batch_export_run_failure(
-    batch_export_run_id: int,
+    batch_export_run_id: str,
 ) -> None:
+    logger = structlog.get_logger()
+
     is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
     if not is_email_available_result:
+        logger.debug("Email service is not available")
         return
 
     batch_export_run: BatchExportRun = await sync_to_async(
         BatchExportRun.objects.select_related("batch_export__team").get
     )(id=batch_export_run_id)
     team: Team = batch_export_run.batch_export.team
+    logger = logger.new(team_id=team.id)
+
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
@@ -189,6 +194,8 @@ async def send_batch_export_run_failure(
             "name": batch_export_run.batch_export.name,
         },
     )
+    logger.debug("Prepared notification email for campaign %s", campaign_key)
+
     memberships_to_email = []
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
         organization_id=team.organization_id
@@ -210,9 +217,13 @@ async def send_batch_export_run_failure(
             memberships_to_email.append(membership)
 
     if memberships_to_email:
+        logger.debug("Sending failure notification email")
+
         for membership in memberships_to_email:
             message.add_recipient(email=membership.user.email, name=membership.user.first_name)
         await sync_to_async(message.send)(send_async=True)
+    else:
+        logger.debug("No available recipients for notification email")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -281,7 +292,7 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
-def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> List[User]:
+def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(

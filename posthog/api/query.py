@@ -3,6 +3,8 @@ import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
@@ -17,7 +19,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
-    enqueue_process_query_task,
     get_query_status,
 )
 from posthog.clickhouse.query_tagging import tag_queries
@@ -30,7 +31,7 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     TeamRateThrottle,
 )
-from posthog.schema import QueryRequest, QueryResponseAlternative
+from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -60,23 +61,32 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
+        execution_mode = execution_mode_from_refresh(data.refresh)
+        response_status: int = status.HTTP_200_OK
 
         self._tag_client_query_id(client_query_id)
 
-        if data.async_:
-            query_status = enqueue_process_query_task(
-                team_id=self.team.pk,
-                user_id=self.request.user.pk,
-                query_json=request.data["query"],
-                query_id=client_query_id,
-                refresh_requested=data.refresh or False,
-            )
-            return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
+        if data.async_:  # TODO: Legacy async, use "refresh=async" instead
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
+        if execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
+            # Here in query endpoint we always want to calculate if the cache is stale
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
         tag_queries(query=request.data["query"])
         try:
-            result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
-            return Response(result)
+            result = process_query_model(
+                self.team,
+                data.query,
+                execution_mode=execution_mode,
+                query_id=client_query_id,
+                user=request.user,
+            )
+            if isinstance(result, BaseModel):
+                result = result.model_dump(by_alias=True)
+            if result.get("query_status") and result["query_status"].get("complete") is False:
+                response_status = status.HTTP_202_ACCEPTED
+            return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except Exception as e:
@@ -86,12 +96,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     @extend_schema(
         description="(Experimental)",
-        responses={
-            200: OpenApiResponse(description="Query status"),
-        },
+        responses={200: QueryStatusResponse},
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        query_status = get_query_status(team_id=self.team.pk, query_id=pk)
+        query_status = get_query_status(
+            team_id=self.team.pk, query_id=pk, show_progress=request.query_params.get("showProgress", False)
+        )
+        query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
@@ -102,7 +113,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
-        return JsonResponse(query_status.model_dump(), safe=False, status=http_code)
+        return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
     @extend_schema(
         description="(Experimental)",

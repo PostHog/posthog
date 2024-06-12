@@ -1,12 +1,10 @@
-from typing import List
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
 
-def matches_action(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
+def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.Expr:
     arg = args[0]
     if not isinstance(arg, ast.Constant):
         raise QueryError("action() takes only constant arguments", node=arg)

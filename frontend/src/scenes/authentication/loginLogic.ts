@@ -92,16 +92,12 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : undefined,
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
@@ -114,7 +110,7 @@ export const loginLogic = kea<loginLogicType>([
                         router.actions.push(urls.login2FA())
                         throw e
                     }
-                    if (code === 'invalid_credentials') {
+                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
                         detail += ' Make sure you have selected the right data region.'
                     }
                     actions.setGeneralError(code, detail)

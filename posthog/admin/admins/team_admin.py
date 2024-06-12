@@ -12,28 +12,31 @@ class TeamAdmin(admin.ModelAdmin):
         "name",
         "organization_link",
         "organization_id",
+        "project_link",
+        "project_id",
         "created_at",
         "updated_at",
     )
     list_display_links = ("id", "name")
-    list_select_related = ("organization",)
+    list_select_related = ("organization", "project")
     search_fields = (
         "id",
         "name",
         "organization__id",
         "organization__name",
+        "project__id",
+        "project__name",
         "api_token",
     )
-    readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
+    readonly_fields = ["id", "organization", "primary_dashboard", "test_account_filters", "created_at", "updated_at"]
+    autocomplete_fields = ["project"]
+
     inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
         (
             None,
             {
-                "fields": [
-                    "name",
-                    "organization",
-                ],
+                "fields": ["name", "organization", "project"],
             },
         ),
         (
@@ -79,6 +82,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "access_control",
                     "inject_web_apps",
                     "extra_settings",
+                    "modifiers",
                 ],
             },
         ),
@@ -100,4 +104,11 @@ class TeamAdmin(admin.ModelAdmin):
             '<a href="/admin/posthog/organization/{}/change/">{}</a>',
             team.organization.pk,
             team.organization.name,
+        )
+
+    def project_link(self, team: Team):
+        return format_html(
+            '<a href="/admin/posthog/project/{}/change/">{}</a>',
+            team.project.pk,
+            team.project.name,
         )

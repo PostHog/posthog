@@ -5,8 +5,9 @@ from prometheus_client import Counter, Histogram
 
 from django.db import transaction
 
-from posthog import settings
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import ExportedAsset
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
 EXPORT_QUEUED_COUNTER = Counter(
@@ -41,8 +42,16 @@ EXPORT_TIMER = Histogram(
 @shared_task(
     acks_late=True,
     ignore_result=False,
-    time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
+    # we let the hogql query run for HOGQL_INCREASED_MAX_EXECUTION_TIME, give this some breathing room
+    # soft time limit throws an error and lets us clean up
+    # hard time limit kills without a word
+    soft_time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
+    time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
     queue=CeleryQueue.EXPORTS.value,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=1,
+    retry_backoff_max=3,
+    max_retries=3,
 )
 @transaction.atomic
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:

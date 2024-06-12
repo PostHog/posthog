@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, cast
+from typing import Optional, cast
 
 from posthog.models.filters.filter import Filter
 from posthog.queries.actor_base_query import ActorBaseQuery
@@ -27,7 +27,7 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
 
     QUERY_TYPE = "paths"
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()
         paths_funnel_cte = ""

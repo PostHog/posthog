@@ -217,6 +217,7 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/shared_dashboard/my_test_token")
         assert response.status_code == 200
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"deleted": True})
+        assert response.status_code == 200
         response = self.client.get(f"/shared_dashboard/my_test_token")
         assert response.status_code == 404
 

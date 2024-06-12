@@ -1,11 +1,8 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,15 +10,18 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
+import { BatchExportRuns } from './BatchExportRuns'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
     [PipelineTab.Transformations]: PipelineStage.Transformation,
     [PipelineTab.Destinations]: PipelineStage.Destination,
     [PipelineTab.SiteApps]: PipelineStage.SiteApp,
     [PipelineTab.ImportApps]: PipelineStage.ImportApp,
+    [PipelineTab.DataImport]: PipelineStage.DataImport,
 }
 
 const paramsToProps = ({
@@ -49,52 +49,37 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab, node, nodeLoading } = useValues(pipelineNodeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
+    const { currentTab, node } = useValues(pipelineNodeLogic)
 
     if (!stage) {
-        return <NotFound object="pipeline app stage" />
+        return <NotFound object="pipeline stage" />
     }
 
-    if (nodeLoading) {
-        return <Spinner />
-    }
-
-    if (id === 'new') {
-        // If it's new we don't want to show any tabs
-        return <PipelineNodeConfiguration />
-    }
-
-    if (!node) {
-        return <NotFound object={stage} />
-    }
-
-    const tabToContent: Record<PipelineNodeTab, JSX.Element> = {
+    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> = {
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics pluginConfigId={id as number} />,
+        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics id={id} />,
         [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
-        [PipelineNodeTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
+    if (node.backend === PipelineBackend.BatchExport) {
+        tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
+    }
+    tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
 
     return (
-        <div className="pipeline-app-scene">
+        <>
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
-                tabs={Object.values(PipelineNodeTab).map(
-                    (tab) =>
+                tabs={Object.entries(tabToContent).map(
+                    ([tab, content]) =>
                         ({
                             label: capitalizeFirstLetter(tab),
                             key: tab,
-                            content: tabToContent[tab],
+                            content: content,
                             link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
                         } as LemonTab<PipelineNodeTab>)
                 )}
             />
-        </div>
+        </>
     )
 }

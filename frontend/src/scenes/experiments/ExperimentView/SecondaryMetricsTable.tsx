@@ -1,8 +1,7 @@
 import '../Experiment.scss'
 
-import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
+import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -87,20 +86,7 @@ export function SecondaryMetricsModal({
             }
         >
             {showResults ? (
-                <div>
-                    {targetResults && targetResults.insight ? (
-                        <ResultsQuery targetResults={targetResults} showTable={false} />
-                    ) : (
-                        <div className="bg-bg-light pt-6 pb-8 text-muted">
-                            <div className="flex flex-col items-center mx-auto">
-                                <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
-                                <h2 className="text-xl font-semibold leading-tight">
-                                    There are no results for this metric yet
-                                </h2>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <ResultsQuery targetResults={targetResults} showTable={false} />
             ) : (
                 <Form
                     logic={secondaryMetricsLogic}
@@ -170,6 +156,10 @@ export function SecondaryMetricsTable({
     ]
 
     experiment.secondary_metrics?.forEach((metric, idx) => {
+        const targetResults = secondaryMetricResults?.[idx]
+        const targetResultFilters = targetResults?.filters
+        const winningVariant = getHighestProbabilityVariant(targetResults || null)
+
         const Header = (): JSX.Element => (
             <div className="">
                 <div className="flex">
@@ -182,6 +172,11 @@ export function SecondaryMetricsTable({
                                 size="xsmall"
                                 icon={<IconAreaChart />}
                                 onClick={() => openModalToEditSecondaryMetric(metric, idx, true)}
+                                disabledReason={
+                                    targetResults && targetResults.insight
+                                        ? undefined
+                                        : 'There are no results for this metric yet'
+                                }
                             />
                             <LemonButton
                                 className="max-w-72"
@@ -195,10 +190,6 @@ export function SecondaryMetricsTable({
                 </div>
             </div>
         )
-
-        const targetResults = secondaryMetricResults?.[idx]
-        const targetResultFilters = targetResults?.filters
-        const winningVariant = getHighestProbabilityVariant(targetResults || null)
 
         if (metric.filters.insight === InsightType.TRENDS) {
             columns.push({
@@ -286,11 +277,15 @@ export function SecondaryMetricsTable({
         <>
             <div>
                 <div className="flex">
-                    <div className="w-1/2">
-                        <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
-                        {metrics.length > 0 && (
-                            <div className="text-muted text-xs mb-2">Monitor side effects of your experiment.</div>
-                        )}
+                    <div className="w-1/2 pt-5">
+                        <div className="inline-flex space-x-2 mb-0">
+                            <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
+                            {metrics.length > 0 && (
+                                <Tooltip title="Monitor side effects of your experiment.">
+                                    <IconInfo className="text-muted-alt text-base" />
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
 
                     <div className="w-1/2 flex flex-col justify-end">

@@ -13,7 +13,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         source_table_key="properties.email",
         joining_table_name=f"{table_prefix}stripe_customer",
         joining_table_key="email",
-        field_name="stripe_customer",
+        field_name=f"{table_prefix}stripe_customer",
     ).exists()
 
     invoice_join_exists = DataWarehouseJoin.objects.filter(
@@ -22,7 +22,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         source_table_key="properties.email",
         joining_table_name=f"{table_prefix}stripe_invoice",
         joining_table_key="customer_email",
-        field_name="stripe_invoice",
+        field_name=f"{table_prefix}stripe_invoice",
     ).exists()
 
     if not customer_join_exists:
@@ -32,7 +32,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
             source_table_key="properties.email",
             joining_table_name=f"{table_prefix}stripe_customer",
             joining_table_key="email",
-            field_name="stripe_customer",
+            field_name=f"{table_prefix}stripe_customer",
         )
 
     if not invoice_join_exists:
@@ -42,7 +42,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
             source_table_key="properties.email",
             joining_table_name=f"{table_prefix}stripe_invoice",
             joining_table_key="customer_email",
-            field_name="stripe_invoice",
+            field_name=f"{table_prefix}stripe_invoice",
         )
 
 

@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any
 
 import pytest
 from django.conf import settings
@@ -22,7 +22,7 @@ def create_clickhouse_tables(num_tables: int):
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    CREATE_TABLE_QUERIES: Tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
+    CREATE_TABLE_QUERIES: tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
 
     # Check if all the tables have already been created
     if num_tables == len(CREATE_TABLE_QUERIES):
@@ -62,6 +62,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
     )
     from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -69,6 +70,7 @@ def reset_clickhouse_tables():
     )
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
+    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
@@ -76,6 +78,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
@@ -86,6 +89,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
         TRUNCATE_SESSIONS_TABLE_SQL(),
+        TRUNCATE_HEATMAPS_TABLE_SQL(),
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)

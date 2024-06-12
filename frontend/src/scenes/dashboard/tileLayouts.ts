@@ -15,9 +15,8 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
             return -1
         } else if (ay > by || (ay == by && ax > bx)) {
             return 1
-        } else {
-            return 0
         }
+        return 0
     })
 }
 export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout[]>> => {

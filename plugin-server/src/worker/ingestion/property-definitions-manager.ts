@@ -14,7 +14,7 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
+import { sanitizeString, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
@@ -48,6 +48,22 @@ type PartialPropertyDefinition = {
     type: PropertyDefinitionTypeEnum
     value: any
     groupTypeIndex: GroupTypeIndex | null
+}
+
+// See EventProperty and EventDefinition in Django. They have CharFields with a `max_length` we
+// need to respect. Note that `character varying` columns deal in characters and not in bytes.
+const DJANGO_EVENT_MAX_CHARFIELD_LENGTH = 400
+
+function willFitInPostgresColumn(str: string, maxLength = DJANGO_EVENT_MAX_CHARFIELD_LENGTH) {
+    if (str.length <= maxLength / 2) {
+        // If it's half or less the length, then it will fit even if every character contains
+        // a surrogate pair.
+        return true
+    }
+
+    // Gives us a correct unicode character count, handling surrogate pairs.
+    const unicodeCharacters = Array.from(str)
+    return unicodeCharacters.length <= maxLength
 }
 
 export class PropertyDefinitionsManager {
@@ -91,6 +107,11 @@ export class PropertyDefinitionsManager {
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
         if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
+            return
+        }
+
+        event = sanitizeString(event)
+        if (!willFitInPostgresColumn(event)) {
             return
         }
 
@@ -159,30 +180,40 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             this.eventPropertiesCache.set(key, existingProperties)
         }
 
-        for (const property of this.getPropertyKeys(properties)) {
+        for (let property of this.getPropertyKeys(properties)) {
+            property = sanitizeString(property)
+            if (!willFitInPostgresColumn(property)) {
+                continue
+            }
+
             if (!existingProperties.has(property)) {
                 existingProperties.add(property)
                 toInsert.push([event, property, team.id])
             }
         }
 
-        await this.db.postgres.bulkInsert(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES {VALUES} ON CONFLICT DO NOTHING`,
-            toInsert,
-            'insertEventProperty'
-        )
+        if (toInsert.length > 0) {
+            await this.db.postgres.bulkInsert(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES {VALUES} ON CONFLICT DO NOTHING`,
+                toInsert,
+                'insertEventProperty'
+            )
+        }
     }
 
     private async syncPropertyDefinitions(team: Team, event: string, properties: Properties) {
         const toInsert: Array<
             [string, string, number, number | null, boolean, null, null, TeamId, PropertyType | null]
         > = []
-        for await (const { key, value, type, groupTypeIndex } of this.getPropertyDefinitions(
-            team.id,
-            event,
-            properties
-        )) {
+        for await (const definitions of this.getPropertyDefinitions(team.id, event, properties)) {
+            let { key } = definitions
+            key = sanitizeString(key)
+            if (!willFitInPostgresColumn(key)) {
+                continue
+            }
+
+            const { value, type, groupTypeIndex } = definitions
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key, type, groupTypeIndex)) {
                 const propertyType = detectPropertyDefinitionTypes(value, key)
                 const isNumerical = propertyType == PropertyType.Numeric
@@ -202,17 +233,19 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             }
         }
 
-        await this.db.postgres.bulkInsert(
-            PostgresUse.COMMON_WRITE,
-            `
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
-            VALUES {VALUES}
-            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
-            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-            `,
-            toInsert,
-            'insertPropertyDefinition'
-        )
+        if (toInsert.length > 0) {
+            await this.db.postgres.bulkInsert(
+                PostgresUse.COMMON_WRITE,
+                `
+                INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+                VALUES {VALUES}
+                ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
+                DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
+                `,
+                toInsert,
+                'insertPropertyDefinition'
+            )
+        }
     }
 
     public async cacheEventNamesAndProperties(teamId: number, event: string): Promise<void> {

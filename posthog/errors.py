@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Dict, Optional
+from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -57,6 +57,10 @@ def wrap_query_error(err: Exception) -> Exception:
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
         meta = look_up_error_code_meta(err)
+
+        if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
+            return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+
         name = f"CHQueryError{meta.name.replace('_', ' ').title().replace(' ', '')}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
         message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
@@ -69,6 +73,19 @@ def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     if code is None or code not in CLICKHOUSE_ERROR_CODE_LOOKUP:
         return CLICKHOUSE_UNKNOWN_EXCEPTION
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
+
+
+# Specific error classes we need
+# These exist here and are not dynamically created because they are used in the codebase.
+class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
+    pass
+
+
+CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
+    "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
+        "Too many simultaneous queries. Try again later.", code=202
+    ),
+}
 
 
 #
@@ -91,7 +108,7 @@ def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 #
 # Remember to add back the `user_safe` args though!
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
-CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
+CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
     1: ErrorCodeMeta("UNSUPPORTED_METHOD"),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),

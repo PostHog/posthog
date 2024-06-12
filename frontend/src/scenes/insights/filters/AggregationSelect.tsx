@@ -7,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery } from '~/queries/schema'
-import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
@@ -15,9 +15,8 @@ function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
         return `$group_${groupIndex}`
     } else if (aggregationQuery) {
         return aggregationQuery
-    } else {
-        return UNIQUE_USERS
     }
+    return UNIQUE_USERS
 }
 
 function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
@@ -25,9 +24,8 @@ function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQ
         return { groupIndex: parseInt(value.replace('$group_', '')) }
     } else if (value === 'person_id') {
         return {}
-    } else {
-        return { aggregationQuery: value }
     }
+    return { aggregationQuery: value }
 }
 
 const UNIQUE_USERS = 'person_id'
@@ -52,9 +50,7 @@ export function AggregationSelect({
     }
 
     const value = getHogQLValue(
-        isLifecycleQuery(querySource) || isStickinessQuery(querySource)
-            ? undefined
-            : querySource.aggregation_group_type_index,
+        isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
         isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
     )
     const onChange = (value: string): void => {

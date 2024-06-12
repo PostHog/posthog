@@ -1,5 +1,5 @@
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
@@ -78,9 +78,6 @@ export const SidePanelExports = (): JSX.Element => {
                 title={
                     <div className="flex space-x-2">
                         <span>Exports</span>
-                        <Tooltip title="While exports are not new, this side panel is a feature we are experimenting with! We'd love to get your feedback on it and whether this is something useful for working with PostHog.">
-                            <LemonTag type="completion">Experimental</LemonTag>
-                        </Tooltip>
                     </div>
                 }
             />

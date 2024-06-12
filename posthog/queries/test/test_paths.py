@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Dict
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -26,7 +25,7 @@ class MockEvent:
     distinct_id: str
     team: Team
     timestamp: str
-    properties: Dict
+    properties: dict
 
 
 class TestPaths(ClickhouseTestMixin, APIBaseTest):

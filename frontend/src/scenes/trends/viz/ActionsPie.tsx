@@ -4,19 +4,15 @@ import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
@@ -34,7 +30,6 @@ export function ActionsPie({
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const {
@@ -42,39 +37,32 @@ export function ActionsPie({
         labelGroupType,
         trendsFilter,
         formula,
-        showValueOnSeries,
+        showValuesOnSeries,
         showLabelOnSeries,
         supportsPercentStackView,
         showPercentStackView,
         pieChartVizOptions,
         isDataWarehouseSeries,
+        querySource,
+        isHogQLInsight,
     } = useValues(trendsDataLogic(insightProps))
-
-    const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
-
     function updateData(): void {
-        const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = _data.length > 0 ? _data[0].days : []
-        const colorList = _data.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
+        const days = indexedResults.length > 0 ? indexedResults[0].days : []
+        const colorList = indexedResults.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
 
         setData([
             {
                 id: 0,
-                labels: _data.map((item) => item.label),
-                data: _data.map((item) => item.aggregated_value),
-                actions: _data.map((item) => item.action),
-                breakdownValues: _data.map((item) => {
+                labels: indexedResults.map((item) => item.label),
+                data: indexedResults.map((item) => item.aggregated_value),
+                actions: indexedResults.map((item) => item.action),
+                breakdownValues: indexedResults.map((item) => item.breakdown_value),
+                breakdownLabels: indexedResults.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
@@ -84,13 +72,16 @@ export function ActionsPie({
                         false
                     )
                 }),
-                personsValues: _data.map((item) => item.persons),
+                compareLabels: indexedResults.map((item) => item.compare_label),
+                personsValues: indexedResults.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
                 borderColor: colorList, // For colors to display in the tooltip
             },
         ])
-        setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
+        setTotal(
+            indexedResults.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0)
+        )
     }
 
     useEffect(() => {
@@ -111,17 +102,15 @@ export function ActionsPie({
                   const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                   const selectedUrl = urls[index]?.value
 
-                  if (isTrendsQueryWithFeatureFlagOn) {
+                  if (isHogQLInsight) {
                       openPersonsModal({
                           title: label || '',
-                          query: {
-                              kind: NodeKind.InsightActorsQuery,
-                              source: query.source,
-                          },
+                          query: datasetToActorsQuery({ dataset, query: querySource!, index }),
                           additionalSelect: {
                               value_at_data_point: 'event_count',
                               matched_recordings: 'matched_recordings',
                           },
+                          orderBy: ['event_count DESC, actor_id DESC'],
                       })
                   } else if (selectedUrl) {
                       openPersonsModal({
@@ -148,7 +137,7 @@ export function ActionsPie({
                             showPersonsModal={showPersonsModal}
                             trendsFilter={trendsFilter}
                             formula={formula}
-                            showValueOnSeries={showValueOnSeries}
+                            showValuesOnSeries={showValuesOnSeries}
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}

@@ -101,7 +101,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         deleteFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
-        triggerFeatureFlagUpdate,
+        saveFeatureFlag,
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
@@ -384,7 +384,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 person is identified. This ensures the experience for the anonymous
                                                 person is carried forward to the authenticated person.{' '}
                                                 <Link
-                                                    to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
                                                 >
                                                     Learn more
@@ -485,28 +485,45 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 href: urls.featureFlag(id),
                             }}
                             caption={
-                                <>
-                                    <span>{featureFlag.name || <i>Description (optional)</i>}</span>
-                                    {featureFlag?.tags && (
-                                        <>
-                                            {featureFlag.can_edit ? (
-                                                <ObjectTags
-                                                    tags={featureFlag.tags}
-                                                    onChange={(tags) => {
-                                                        // TODO: Use an existing function instead of this new one for updates
-                                                        triggerFeatureFlagUpdate({ tags })
-                                                    }}
-                                                    tagsAvailable={tags.filter(
-                                                        (tag) => !featureFlag.tags?.includes(tag)
-                                                    )}
-                                                    className="mt-2"
-                                                />
-                                            ) : featureFlag.tags.length ? (
-                                                <ObjectTags tags={featureFlag.tags} staticOnly className="mt-2" />
-                                            ) : null}
-                                        </>
-                                    )}
-                                </>
+                                <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="flex space-x-1">
+                                            <div>
+                                                <span className="text-muted">Key:</span>{' '}
+                                                <CopyToClipboardInline
+                                                    tooltipMessage={null}
+                                                    description="Feature flag key"
+                                                    className="justify-end"
+                                                >
+                                                    {featureFlag.key}
+                                                </CopyToClipboardInline>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            {featureFlag?.tags && (
+                                                <>
+                                                    {featureFlag.tags.length > 0 ? (
+                                                        <span className="text-muted">Tags:</span>
+                                                    ) : null}{' '}
+                                                    {featureFlag.can_edit ? (
+                                                        <ObjectTags
+                                                            tags={featureFlag.tags}
+                                                            onChange={(tags) => {
+                                                                saveFeatureFlag({ tags })
+                                                            }}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag) => !featureFlag.tags?.includes(tag)
+                                                            )}
+                                                        />
+                                                    ) : featureFlag.tags.length > 0 ? (
+                                                        <ObjectTags tags={featureFlag.tags} staticOnly />
+                                                    ) : null}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="mt-2">{featureFlag.name || <i>Description (optional)</i>}</div>
+                                </div>
                             }
                             buttons={
                                 <>
@@ -601,13 +618,12 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
     let dashboard: DashboardType | null = null
-    let connectedDashboardExists = false
     if (dashboardId) {
+        // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         const dashboardLogicValues = useValues(
             dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
         )
         dashboard = dashboardLogicValues.dashboard
-        connectedDashboardExists = !dashboardLogicValues.receivedErrorsFromAPI
     }
 
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
@@ -615,7 +631,6 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     useEffect(() => {
         if (
-            connectedDashboardExists &&
             dashboard &&
             hasEnrichedAnalytics &&
             !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
@@ -635,7 +650,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     return (
         <div>
-            {connectedDashboardExists ? (
+            {dashboard ? (
                 <>
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
                         <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
@@ -693,9 +708,8 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 function variantConcatWithPunctuation(phrases: string[]): string {
     if (phrases === null || phrases.length < 3) {
         return concatWithPunctuation(phrases)
-    } else {
-        return `${phrases[0]} and ${phrases.length - 1} more sets`
     }
+    return `${phrases[0]} and ${phrases.length - 1} more sets`
 }
 
 function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {

@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import structlog
 from django.conf import settings
 
@@ -12,7 +10,7 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 
 
-def _block_for_asset(asset: ExportedAsset) -> Dict:
+def _block_for_asset(asset: ExportedAsset) -> dict:
     image_url = asset.get_public_content_url()
     alt_text = None
     if asset.insight:
@@ -26,7 +24,7 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 
 def send_slack_subscription_report(
     subscription: Subscription,
-    assets: List[ExportedAsset],
+    assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
 ) -> None:

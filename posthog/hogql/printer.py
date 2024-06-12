@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
-from typing import List, Literal, Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -73,7 +73,7 @@ def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -92,7 +92,7 @@ def prepare_ast_for_printing(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
@@ -100,12 +100,12 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == InCohortVia.leftjoin:
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
@@ -130,7 +130,7 @@ def print_prepared_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -158,13 +158,13 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[AST]] = None,
+        stack: Optional[list[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
         self._indent = -1
@@ -173,7 +173,9 @@ class _Printer(Visitor):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
+        if node is None:
+            return ""
         self.stack.append(node)
         self._indent += 1
         response = super().visit(node)
@@ -452,7 +454,7 @@ class _Printer(Visitor):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            join_strings.append(f"ON {self.visit(node.constraint)}")
+            join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
@@ -573,23 +575,23 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Gt:
             op = f"greater({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op > right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op > right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.GtEq:
             op = f"greaterOrEquals({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op >= right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op >= right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.Lt:
             op = f"less({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op < right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op < right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.LtEq:
             op = f"lessOrEquals({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
@@ -773,7 +775,7 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: List[str] = []
+                    args: list[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
@@ -783,7 +785,7 @@ class _Printer(Visitor):
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
-                    args: List[str] = []
+                    args = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
@@ -804,6 +806,9 @@ class _Printer(Visitor):
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
                     args = [self.visit(arg) for arg in node.args]
+
+                if func_meta.suffix_args:
+                    args += [self.visit(arg) for arg in func_meta.suffix_args]
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -855,7 +860,7 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
@@ -953,7 +958,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -977,7 +982,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1002,7 +1007,7 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        args: List[str] = []
+        args: list[str] = []
 
         if self.context.modifiers.materializationMode != "disabled":
             # find a materialized property for the first part of the chain
@@ -1027,7 +1032,7 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     materialized_column = self._get_materialized_column(
                         "events", str(type.chain[0]), "person_properties"
                     )
@@ -1038,9 +1043,9 @@ class _Printer(Visitor):
 
             if materialized_property_sql is not None:
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.legacy_null_as_string:
+                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                else:  # MaterializationMode.auto.legacy_null_as_null
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
                     materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
@@ -1090,11 +1095,16 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
+    def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
+        if self.dialect == "clickhouse":
+            raise QueryError(f"Unable to resolve field: {type.name}")
+        return self._print_identifier(type.name)
+
     def visit_unknown(self, node: AST):
         raise ImpossibleASTError(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
-        strings: List[str] = []
+        strings: list[str] = []
         if node.partition_by is not None:
             if len(node.partition_by) == 0:
                 raise ImpossibleASTError("PARTITION BY must have at least one argument")
@@ -1132,8 +1142,11 @@ class _Printer(Visitor):
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
+        identifier = self._print_identifier(node.name)
+        exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
+        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
         over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
-        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args or [])}) OVER {over}"
+        return f"{identifier}({exprs}){args} OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":
@@ -1168,7 +1181,7 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
-    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
@@ -1209,7 +1222,7 @@ class _Printer(Visitor):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, (int, float, str)):
+            if not isinstance(value, int | float | str):
                 raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")

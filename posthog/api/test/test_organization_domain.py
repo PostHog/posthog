@@ -1,10 +1,9 @@
 import datetime
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import dns.resolver
 import dns.rrset
-import pytest
-from zoneinfo import ZoneInfo
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -87,6 +86,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_create_domain(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [
+            {"key": "automatic_provisioning", "name": "automatic_provisioning"}
+        ]
+        self.organization.save()
         self.organization_membership.save()
 
         with self.is_cloud(True):
@@ -113,12 +116,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
 
-    @pytest.mark.skip_on_multitenancy
-    def test_creating_domain_on_self_hosted_is_automatically_verified(self):
+    def test_cant_create_domain_without_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with freeze_time("2021-08-08T20:20:08Z"):
+        with self.is_cloud(True):
             response = self.client.post(
                 "/api/organizations/@current/domains/",
                 {
@@ -129,21 +131,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "sso_enforcement": "saml",  # ignore me
                 },
             )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response_data = response.json()
-        self.assertEqual(response_data["domain"], "the.posthog.com")
-        self.assertEqual(response_data["verified_at"], "2021-08-08T20:20:08Z")
-        self.assertEqual(response_data["jit_provisioning_enabled"], False)
-        self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
-
-        instance = OrganizationDomain.objects.get(id=response_data["id"])
-        self.assertEqual(instance.domain, "the.posthog.com")
-        self.assertEqual(
-            instance.verified_at,
-            datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC")),
-        )
-        self.assertEqual(instance.last_verification_retry, None)
-        self.assertEqual(instance.sso_enforcement, "")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_cannot_create_duplicate_domain(self):
         OrganizationDomain.objects.create(domain="i-registered-first.com", organization=self.another_org)
@@ -344,7 +332,11 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     def test_can_update_jit_provisioning_and_sso_enforcement(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [
+            {"key": "automatic_provisioning", "name": "automatic_provisioning"}
+        ]
         self.organization_membership.save()
+        self.organization.save()
         self.domain.verified_at = timezone.now()
         self.domain.save()
 

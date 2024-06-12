@@ -1,6 +1,6 @@
 import re
 from datetime import timedelta
-from typing import Dict, List, Literal, Tuple, Union, cast
+from typing import Literal, Union, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -17,7 +17,7 @@ ColumnName = str
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
 
-TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
+TablesWithMaterializedColumns = Union[TableWithProperties]
 
 TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw({table_column}, %(property)s)")
 
@@ -36,7 +36,7 @@ SHORT_TABLE_COLUMN_NAME = {
 @cache_for(timedelta(minutes=15))
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
-) -> Dict[Tuple[PropertyName, TableColumn], ColumnName]:
+) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
     rows = sync_execute(
         """
         SELECT comment, name
@@ -82,7 +82,7 @@ def materialize(
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
             {"property": property},
-            settings={"alter_sync": 1},
+            settings={"alter_sync": 2 if TEST else 1},
         )
         sync_execute(
             f"""
@@ -91,7 +91,7 @@ def materialize(
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR
         """,
-            settings={"alter_sync": 1},
+            settings={"alter_sync": 2 if TEST else 1},
         )
     else:
         sync_execute(
@@ -102,13 +102,13 @@ def materialize(
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
             {"property": property},
-            settings={"alter_sync": 1},
+            settings={"alter_sync": 2 if TEST else 1},
         )
 
     sync_execute(
         f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": f"column_materializer::{table_column}::{property}"},
-        settings={"alter_sync": 1},
+        settings={"alter_sync": 2 if TEST else 1},
     )
 
     if create_minmax_index:
@@ -130,7 +130,7 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
             ADD INDEX {index_name} {column_name}
             TYPE minmax GRANULARITY 1
             """,
-            settings={"alter_sync": 1},
+            settings={"alter_sync": 2 if TEST else 1},
         )
     except ServerException as err:
         if "index with this name already exists" not in str(err):
@@ -141,7 +141,7 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
 
 def backfill_materialized_columns(
     table: TableWithProperties,
-    properties: List[Tuple[PropertyName, TableColumn]],
+    properties: list[tuple[PropertyName, TableColumn]],
     backfill_period: timedelta,
     test_settings=None,
 ) -> None:
@@ -215,7 +215,7 @@ def _materialized_column_name(
     return f"{prefix}{property_str}{suffix}"
 
 
-def _extract_property(comment: str) -> Tuple[PropertyName, TableColumn]:
+def _extract_property(comment: str) -> tuple[PropertyName, TableColumn]:
     # Old style comments have the format "column_materializer::property", dealing with the default table column.
     # Otherwise, it's "column_materializer::table_column::property"
     split_column = comment.split("::", 2)

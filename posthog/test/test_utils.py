@@ -434,12 +434,17 @@ class TestShouldRefresh(TestCase):
     def test_refresh_requested_by_client_with_data_true(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": True}  # type: ignore
-        self.assertTrue(refresh_requested_by_client((drf_request)))
+        self.assertTrue(refresh_requested_by_client(drf_request))
 
     def test_should_not_refresh_with_data_false(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(refresh_requested_by_client(drf_request))
+
+    def test_should_refresh_with_data_async(self):
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": "async"}  # type: ignore
+        assert refresh_requested_by_client(drf_request) == "async"
 
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         """

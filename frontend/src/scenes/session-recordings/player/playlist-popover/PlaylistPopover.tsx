@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconPin, IconPlus } from '@posthog/icons'
 import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -119,7 +119,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                 }
             >
                 <LemonButton
-                    icon={<IconPlus />}
+                    icon={<IconPin />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
                     sideIcon={null}

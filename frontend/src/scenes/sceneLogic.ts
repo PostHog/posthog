@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
+import { billingLogic } from './billing/billingLogic'
 import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -25,7 +26,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.SESSION_REPLAY]: [urls.replay()],
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
-    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights(), urls.webAnalytics()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -38,7 +39,7 @@ export const sceneLogic = kea<sceneLogicType>([
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -245,7 +246,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
                                 onboardingLogic.mount()
-                                onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.actions.setIncludeIntro(!!values.billing)
                                 onboardingLogic.unmount()
                                 router.actions.replace(
                                     urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
@@ -298,9 +299,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.reloadBrowserDueToImportError()
                         }
                         return
-                    } else {
-                        throw error
                     }
+                    throw error
                 } finally {
                     window.clearTimeout(timeout)
                 }

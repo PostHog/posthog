@@ -24,7 +24,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey']],
+        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError']],
         actions: [
             billingLogic,
             [
@@ -34,6 +34,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'deactivateProduct',
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
+                'deactivateProductSuccess',
             ],
         ],
     }),
@@ -52,6 +53,25 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
+        setBillingProductLoading: (productKey: string | null) => ({ productKey }),
+        initiateProductUpgrade: (
+            product: BillingProductV2Type | BillingProductV2AddonType,
+            plan: BillingV2PlanType,
+            redirectPath?: string
+        ) => ({
+            plan,
+            product,
+            redirectPath,
+        }),
+        handleProductUpgrade: (
+            product: BillingProductV2Type | BillingProductV2AddonType,
+            plan: BillingV2PlanType,
+            redirectPath?: string
+        ) => ({
+            plan,
+            product,
+            redirectPath,
+        }),
     }),
     reducers({
         billingLimitInput: [
@@ -108,6 +128,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setSurveyID: (_, { surveyID }) => surveyID,
             },
         ],
+        billingProductLoading: [
+            null as string | null,
+            {
+                setBillingProductLoading: (_, { productKey }) => productKey,
+            },
+        ],
         comparisonModalHighlightedFeatureKey: [
             null as string | null,
             {
@@ -138,12 +164,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : product.plans?.[currentPlanIndex + 1]
                 const downgradePlan = product.plans?.[currentPlanIndex - 1]
                 return { currentPlan, upgradePlan, downgradePlan }
-            },
-        ],
-        showBillingLimitInput: [
-            (s) => [s.billing, s.customLimitUsd, s.isEditingBillingLimit],
-            (billing, customLimitUsd, isEditingBillingLimit) => {
-                return billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit)
             },
         ],
         freeTier: [
@@ -251,6 +271,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             })
             actions.setSurveyID('')
         },
+        deactivateProductSuccess: () => {
+            if (!values.unsubscribeError) {
+                const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
+                textAreaNotEmpty
+                    ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                    : actions.reportSurveyDismissed(values.surveyID)
+            }
+        },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 const { currentPlan } = values.currentAndUpgradePlans
@@ -283,12 +311,23 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         if (props.productRef?.current) {
                             props.productRef?.current.scrollIntoView({
                                 behavior: 'smooth',
-                                block: 'start',
+                                block: 'center',
                             })
+                            props.productRef?.current.classList.add('border')
+                            props.productRef?.current.classList.add('border-primary-3000')
                         }
                     }, 0)
                 }
             }
+        },
+        initiateProductUpgrade: ({ plan, product, redirectPath }) => {
+            actions.setBillingProductLoading(product.type)
+            actions.handleProductUpgrade(product, plan, redirectPath)
+        },
+        handleProductUpgrade: ({ plan, product, redirectPath }) => {
+            window.location.href = `/api/billing/activate?products=${product.type}:${plan?.plan_key}${
+                redirectPath && `&redirect_path=${redirectPath}`
+            }`
         },
     })),
     forms(({ actions, props, values }) => ({

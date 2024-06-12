@@ -190,8 +190,9 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
     mock_server = MockServer()
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)
@@ -239,22 +240,25 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         **http_config,
     )
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=400, repeat=True)
         with pytest.raises(NonRetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=429, repeat=True)
         with pytest.raises(RetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=500, repeat=True)
         with pytest.raises(RetryableResponseError):
@@ -352,8 +356,9 @@ async def test_http_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-                BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+            with (
+                aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+                override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
             ):
                 m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
 
@@ -589,8 +594,9 @@ async def test_insert_into_http_activity_heartbeats(
     )
 
     mock_server = MockServer()
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
-        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+        override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
         m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)

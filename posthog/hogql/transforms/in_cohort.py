@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, cast, Literal
+from typing import Optional, cast, Literal
 
 
 from posthog.hogql import ast
@@ -13,7 +13,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_in_cohorts(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     context: HogQLContext = None,
 ):
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
@@ -23,13 +23,13 @@ def resolve_in_cohorts_conjoined(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
     context: HogQLContext,
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
 ):
     MultipleInCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
 
 class CohortCompareOperationTraverser(TraversingVisitor):
-    ops: List[ast.CompareOperation] = []
+    ops: list[ast.CompareOperation] = []
 
     def __init__(self, expr: ast.Expr):
         self.ops = []
@@ -50,10 +50,10 @@ class MultipleInCohortResolver(TraversingVisitor):
         self,
         dialect: Literal["hogql", "clickhouse"],
         context: HogQLContext,
-        stack: Optional[List[ast.SelectQuery]] = None,
+        stack: Optional[list[ast.SelectQuery]] = None,
     ):
         super().__init__()
-        self.stack: List[ast.SelectQuery] = stack or []
+        self.stack: list[ast.SelectQuery] = stack or []
         self.context = context
         self.dialect = dialect
 
@@ -68,7 +68,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
         self.stack.pop()
 
-    def _execute(self, node: ast.SelectQuery, compare_operations: List[ast.CompareOperation]):
+    def _execute(self, node: ast.SelectQuery, compare_operations: list[ast.CompareOperation]):
         if len(compare_operations) == 0:
             return
 
@@ -81,11 +81,11 @@ class MultipleInCohortResolver(TraversingVisitor):
             compare_node.right = ast.Constant(value=1)
 
     def _resolve_cohorts(
-        self, compare_operations: List[ast.CompareOperation]
-    ) -> List[Tuple[int, StaticOrDynamic, int]]:
+        self, compare_operations: list[ast.CompareOperation]
+    ) -> list[tuple[int, StaticOrDynamic, int]]:
         from posthog.models import Cohort
 
-        cohorts: List[Tuple[int, StaticOrDynamic, int]] = []
+        cohorts: list[tuple[int, StaticOrDynamic, int]] = []
 
         for node in compare_operations:
             arg = node.right
@@ -132,9 +132,9 @@ class MultipleInCohortResolver(TraversingVisitor):
 
     def _add_join(
         self,
-        cohorts: List[Tuple[int, StaticOrDynamic, int]],
+        cohorts: list[tuple[int, StaticOrDynamic, int]],
         select: ast.SelectQuery,
-        compare_operations: List[ast.CompareOperation],
+        compare_operations: list[ast.CompareOperation],
     ):
         must_add_join = True
         last_join = select.select_from
@@ -237,7 +237,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=1),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
 
@@ -264,11 +265,11 @@ class InCohortResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[ast.SelectQuery]] = None,
+        stack: Optional[list[ast.SelectQuery]] = None,
         context: HogQLContext = None,
     ):
         super().__init__()
-        self.stack: List[ast.SelectQuery] = stack or []
+        self.stack: list[ast.SelectQuery] = stack or []
         self.context = context
         self.dialect = dialect
 
@@ -377,7 +378,8 @@ class InCohortResolver(TraversingVisitor):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=1),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
             new_join = cast(

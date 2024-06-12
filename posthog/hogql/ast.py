@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -12,12 +12,6 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
     LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
-    DateDatabaseField,
-    FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
@@ -27,6 +21,68 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
+
+
+@dataclass(kw_only=True)
+class Declaration(AST):
+    pass
+
+
+@dataclass(kw_only=True)
+class VariableAssignment(Declaration):
+    left: Expr
+    right: Expr
+
+
+@dataclass(kw_only=True)
+class VariableDeclaration(Declaration):
+    name: str
+    expr: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
+class Statement(Declaration):
+    pass
+
+
+@dataclass(kw_only=True)
+class ExprStatement(Statement):
+    expr: Optional[Expr]
+
+
+@dataclass(kw_only=True)
+class ReturnStatement(Statement):
+    expr: Optional[Expr]
+
+
+@dataclass(kw_only=True)
+class IfStatement(Statement):
+    expr: Expr
+    then: Statement
+    else_: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
+class WhileStatement(Statement):
+    expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class Function(Statement):
+    name: str
+    params: list[str]
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class Block(Statement):
+    declarations: list[Declaration]
+
+
+@dataclass(kw_only=True)
+class Program(AST):
+    declarations: list[Declaration]
 
 
 @dataclass(kw_only=True)
@@ -40,7 +96,7 @@ class FieldAliasType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.type.has_child(name, context)
 
-    def resolve_constant_type(self, context: HogQLContext):
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
@@ -116,6 +172,9 @@ class LazyJoinType(BaseTableType):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.lazy_join.resolve_table(context)
 
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        return self.get_child(self.field, context).resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class LazyTableType(BaseTableType):
@@ -137,20 +196,23 @@ class VirtualTableType(BaseTableType):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.virtual_table.has_field(name)
 
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        return self.get_child(self.field, context).resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, FieldAliasType] = field(default_factory=dict)
+    aliases: dict[str, FieldAliasType] = field(default_factory=dict)
     # all types a select query exports
-    columns: Dict[str, Type] = field(default_factory=dict)
+    columns: dict[str, Type] = field(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, TableOrSelectType] = field(default_factory=dict)
-    ctes: Dict[str, CTE] = field(default_factory=dict)
+    tables: dict[str, TableOrSelectType] = field(default_factory=dict)
+    ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
+    anonymous_tables: list[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
 
@@ -170,10 +232,21 @@ class SelectQueryType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return name in self.columns
 
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        field = self.columns.get(name)
+        if field is None:
+            raise QueryError(f"Constant type cant be resolved: {name}")
+
+        return field.resolve_constant_type(context)
+
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        # Used only for resolving the constant type of a `ast.Lambda` node or `SELECT 1` query
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
-    types: List[SelectQueryType]
+    types: list[SelectQueryType]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -183,6 +256,9 @@ class SelectUnionQueryType(Type):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.types[0].has_child(name, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.types[0].resolve_column_constant_type(name, context)
 
 
 @dataclass(kw_only=True)
@@ -227,6 +303,9 @@ class SelectViewType(Type):
 
         return self.select_query_type.has_child(name, context)
 
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.select_query_type.resolve_column_constant_type(name, context)
+
 
 @dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
@@ -243,6 +322,9 @@ class SelectQueryAliasType(Type):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> "ConstantType":
+        return self.select_query_type.resolve_column_constant_type(name, context)
 
 
 @dataclass(kw_only=True)
@@ -304,7 +386,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType
+    item_type: ConstantType = UnknownType()
 
     def print_type(self) -> str:
         return "Array"
@@ -313,7 +395,8 @@ class ArrayType(ConstantType):
 @dataclass(kw_only=True)
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
-    item_types: List[ConstantType]
+    item_types: list[ConstantType]
+    repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
@@ -322,8 +405,8 @@ class TupleType(ConstantType):
 @dataclass(kw_only=True)
 class CallType(Type):
     name: str
-    arg_types: List[ConstantType]
-    param_types: Optional[List[ConstantType]] = None
+    arg_types: list[ConstantType]
+    param_types: Optional[list[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -334,11 +417,17 @@ class CallType(Type):
 class AsteriskType(Type):
     table_type: TableOrSelectType
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
 
 @dataclass(kw_only=True)
 class FieldTraverserType(Type):
-    chain: List[str | int]
+    chain: list[str | int]
     table_type: TableOrSelectType
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -346,6 +435,11 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+
+    def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
+        if self.expr.type is not None:
+            return self.expr.type.resolve_constant_type(context)
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -367,20 +461,18 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        database_field = self.resolve_database_field(context)
-        if isinstance(database_field, IntegerDatabaseField):
-            return IntegerType()
-        elif isinstance(database_field, FloatDatabaseField):
-            return FloatType()
-        elif isinstance(database_field, StringDatabaseField):
-            return StringType()
-        elif isinstance(database_field, BooleanDatabaseField):
-            return BooleanType()
-        elif isinstance(database_field, DateTimeDatabaseField):
-            return DateTimeType()
-        elif isinstance(database_field, DateDatabaseField):
-            return DateType()
-        return UnknownType()
+        if not isinstance(self.table_type, BaseTableType):
+            return self.table_type.resolve_column_constant_type(self.name, context)
+
+        table: Table = self.table_type.resolve_database_table(context)
+
+        database_field = table.get_field(self.name)
+        if isinstance(database_field, DatabaseField):
+            return database_field.get_constant_type()
+
+        raise NotImplementedError(
+            f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
+        )
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
@@ -399,8 +491,22 @@ class FieldType(Type):
 
 
 @dataclass(kw_only=True)
+class UnresolvedFieldType(Type):
+    name: str
+
+    def get_child(self, name: str | int, context: HogQLContext) -> "Type":
+        raise QueryError(f"Unable to resolve field: {self.name}")
+
+    def has_child(self, name: str | int, context: HogQLContext) -> bool:
+        return False
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
+
+
+@dataclass(kw_only=True)
 class PropertyType(Type):
-    chain: List[str | int]
+    chain: list[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
@@ -413,10 +519,19 @@ class PropertyType(Type):
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return True
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
+            return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+
+        return self.field_type.resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class LambdaArgumentType(Type):
     name: str
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -449,12 +564,12 @@ class ArithmeticOperation(Expr):
 @dataclass(kw_only=True)
 class And(Expr):
     type: Optional[ConstantType] = None
-    exprs: List[Expr]
+    exprs: list[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    exprs: List[Expr]
+    exprs: list[Expr]
     type: Optional[ConstantType] = None
 
 
@@ -509,7 +624,12 @@ class ArrayAccess(Expr):
 
 @dataclass(kw_only=True)
 class Array(Expr):
-    exprs: List[Expr]
+    exprs: list[Expr]
+
+
+@dataclass(kw_only=True)
+class Dict(Expr):
+    items: list[tuple[Expr, Expr]]
 
 
 @dataclass(kw_only=True)
@@ -520,12 +640,12 @@ class TupleAccess(Expr):
 
 @dataclass(kw_only=True)
 class Tuple(Expr):
-    exprs: List[Expr]
+    exprs: list[Expr]
 
 
 @dataclass(kw_only=True)
 class Lambda(Expr):
-    args: List[str]
+    args: list[str]
     expr: Expr
 
 
@@ -536,7 +656,7 @@ class Constant(Expr):
 
 @dataclass(kw_only=True)
 class Field(Expr):
-    chain: List[str | int]
+    chain: list[str | int]
 
 
 @dataclass(kw_only=True)
@@ -548,8 +668,8 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     """Function name"""
-    args: List[Expr]
-    params: Optional[List[Expr]] = None
+    args: list[Expr]
+    params: Optional[list[Expr]] = None
     """
     Parameters apply to some aggregate functions, see ClickHouse docs:
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
@@ -560,6 +680,7 @@ class Call(Expr):
 @dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
+    constraint_type: Literal["ON", "USING"]
 
 
 @dataclass(kw_only=True)
@@ -569,7 +690,7 @@ class JoinExpr(Expr):
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
-    table_args: Optional[List[Expr]] = None
+    table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional["JoinConstraint"] = None
@@ -585,8 +706,8 @@ class WindowFrameExpr(Expr):
 
 @dataclass(kw_only=True)
 class WindowExpr(Expr):
-    partition_by: Optional[List[Expr]] = None
-    order_by: Optional[List[OrderExpr]] = None
+    partition_by: Optional[list[Expr]] = None
+    order_by: Optional[list[OrderExpr]] = None
     frame_method: Optional[Literal["ROWS", "RANGE"]] = None
     frame_start: Optional[WindowFrameExpr] = None
     frame_end: Optional[WindowFrameExpr] = None
@@ -595,7 +716,8 @@ class WindowExpr(Expr):
 @dataclass(kw_only=True)
 class WindowFunction(Expr):
     name: str
-    args: Optional[List[Expr]] = None
+    args: Optional[list[Expr]] = None
+    exprs: Optional[list[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 
@@ -604,20 +726,20 @@ class WindowFunction(Expr):
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
-    ctes: Optional[Dict[str, CTE]] = None
-    select: List[Expr]
+    ctes: Optional[dict[str, CTE]] = None
+    select: list[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
     array_join_op: Optional[str] = None
-    array_join_list: Optional[List[Expr]] = None
-    window_exprs: Optional[Dict[str, WindowExpr]] = None
+    array_join_list: Optional[list[Expr]] = None
+    window_exprs: Optional[dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
-    group_by: Optional[List[Expr]] = None
-    order_by: Optional[List[OrderExpr]] = None
+    group_by: Optional[list[Expr]] = None
+    order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
-    limit_by: Optional[List[Expr]] = None
+    limit_by: Optional[list[Expr]] = None
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
@@ -627,7 +749,7 @@ class SelectQuery(Expr):
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    select_queries: List[SelectQuery]
+    select_queries: list[SelectQuery]
 
 
 @dataclass(kw_only=True)
@@ -652,7 +774,7 @@ class HogQLXAttribute(AST):
 @dataclass(kw_only=True)
 class HogQLXTag(AST):
     kind: str
-    attributes: List[HogQLXAttribute]
+    attributes: list[HogQLXAttribute]
 
     def to_dict(self):
         return {

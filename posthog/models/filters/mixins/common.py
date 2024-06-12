@@ -2,7 +2,7 @@ import datetime
 import json
 import re
 from math import ceil
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
@@ -142,7 +142,7 @@ class FormulaMixin(BaseParamMixin):
 
 class BreakdownMixin(BaseParamMixin):
     @cached_property
-    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
+    def breakdown(self) -> Optional[Union[str, list[Union[str, int]]]]:
         breakdown = self._data.get(BREAKDOWN)
 
         if not isinstance(breakdown, str):
@@ -171,11 +171,11 @@ class BreakdownMixin(BaseParamMixin):
         return int(attribution_value) if attribution_value is not None else None
 
     @cached_property
-    def breakdowns(self) -> Optional[List[Dict[str, Any]]]:
+    def breakdowns(self) -> Optional[list[dict[str, Any]]]:
         breakdowns = self._data.get(BREAKDOWNS)
 
         try:
-            if isinstance(breakdowns, List):
+            if isinstance(breakdowns, list):
                 return breakdowns
             elif isinstance(breakdowns, str):
                 return json.loads(breakdowns)
@@ -226,7 +226,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @include_dict
     def breakdown_to_dict(self):
-        result: Dict = {}
+        result: dict = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
         if self.breakdowns:
@@ -346,8 +346,8 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
-    date_from_delta_mapping: Optional[Dict[str, int]]
-    date_to_delta_mapping: Optional[Dict[str, int]]
+    date_from_delta_mapping: Optional[dict[str, int]]
+    date_to_delta_mapping: Optional[dict[str, int]]
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
@@ -417,7 +417,7 @@ class DateMixin(BaseParamMixin):
         return process_bool(self._data.get(EXPLICIT_DATE))
 
     @include_dict
-    def date_to_dict(self) -> Dict:
+    def date_to_dict(self) -> dict:
         result_dict = {}
         if self._date_from:
             result_dict.update(
@@ -455,8 +455,8 @@ class DateMixin(BaseParamMixin):
 
 class EntitiesMixin(BaseParamMixin):
     @cached_property
-    def entities(self) -> List[Entity]:
-        processed_entities: List[Entity] = []
+    def entities(self) -> list[Entity]:
+        processed_entities: list[Entity] = []
         if self._data.get(ACTIONS):
             actions = self._data.get(ACTIONS, [])
             if isinstance(actions, str):
@@ -487,20 +487,20 @@ class EntitiesMixin(BaseParamMixin):
         return {"number_of_entities": len(self.entities)}
 
     @cached_property
-    def actions(self) -> List[Entity]:
+    def actions(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
 
     @cached_property
-    def events(self) -> List[Entity]:
+    def events(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
     @cached_property
-    def data_warehouse_entities(self) -> List[Entity]:
+    def data_warehouse_entities(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE]
 
     @cached_property
-    def exclusions(self) -> List[ExclusionEntity]:
-        _exclusions: List[ExclusionEntity] = []
+    def exclusions(self) -> list[ExclusionEntity]:
+        _exclusions: list[ExclusionEntity] = []
         if self._data.get(EXCLUSIONS):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
@@ -557,7 +557,7 @@ class EntityMathMixin(BaseParamMixin):
 class EntityOrderMixin(BaseParamMixin):
     @cached_property
     def target_entity_order(self) -> Optional[str]:
-        return self._data.get("entity_order", None) or self._data.get("entity_order", None)
+        return self._data.get("entity_order", None) or self._data.get("target_entity_order", None)
 
     @include_dict
     def entity_order_to_dict(self):

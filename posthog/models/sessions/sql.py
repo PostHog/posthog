@@ -260,3 +260,44 @@ FROM sessions
 GROUP BY session_id, team_id
 """
 )
+
+SELECT_SESSION_PROP_STRING_VALUES_SQL = """
+SELECT
+    value,
+    count(value)
+FROM (
+    SELECT
+        {property_expr} as value
+    FROM
+        sessions
+    WHERE
+        team_id = %(team_id)s AND
+        {property_expr} IS NOT NULL AND
+        {property_expr} != ''
+    ORDER BY session_id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
+
+SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER = """
+SELECT
+    value,
+    count(value)
+FROM (
+    SELECT
+        {property_expr} as value
+    FROM
+        sessions
+    WHERE
+        team_id = %(team_id)s AND
+        {property_expr} ILIKE %(value)s
+    ORDER BY session_id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""

@@ -1,4 +1,3 @@
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -6,7 +5,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
@@ -24,9 +23,10 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
     onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    filters: AnyPropertyFilter[]
+    setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
     eventNames?: string[]
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
@@ -37,10 +37,12 @@ export interface PropertyFilterInternalProps {
     index: number
     onComplete: () => void
     disablePopover: boolean
+    filters: AnyPropertyFilter[]
+    setFilter: (index: number, property: AnyPropertyFilter) => void
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]
-    schemaColumns?: DatabaseSchemaQueryResponseField[]
+    schemaColumns?: DatabaseSchemaField[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null

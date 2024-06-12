@@ -1,4 +1,6 @@
 from typing import cast
+from unittest.mock import MagicMock, patch
+
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import (
     LimitContext,
@@ -110,7 +112,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
                 select=["properties.email"],
                 limit=10,
                 properties=[
-                    PersonPropertyFilter(key="email", value="random", operator=PropertyOperator.exact),
+                    PersonPropertyFilter(key="email", value="random", operator=PropertyOperator.EXACT),
                 ],
             )
         )
@@ -209,3 +211,13 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(paginator.limit, case["expected_limit"])
                 self.assertEqual(paginator.offset, case["expected_offset"])
+
+    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query")
+    def test_passes_limit_context(self, mock_execute_hogql_query: MagicMock):
+        limit_context = LimitContext.EXPORT
+        paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context, limit=5, offset=10)
+        paginator.execute_hogql_query(
+            query=cast(SelectQuery, parse_select("SELECT * FROM persons")), query_type="query type"
+        )
+        mock_execute_hogql_query.assert_called_once()
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["limit_context"], limit_context)

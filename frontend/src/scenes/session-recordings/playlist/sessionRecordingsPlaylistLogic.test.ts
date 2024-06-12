@@ -430,7 +430,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         session_recording_duration: defaultRecordingDurationFilter,
                         console_logs: [],
                         console_search_query: '',
-                        date_from: '-7d',
+                        date_from: '-3d',
                         date_to: null,
                         events: [],
                         properties: [],

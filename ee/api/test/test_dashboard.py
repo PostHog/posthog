@@ -106,7 +106,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -178,7 +178,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
@@ -211,7 +211,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         License.objects.all().delete()
-        self.organization.update_available_features()
+        self.organization.update_available_product_features()
         self.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
@@ -262,7 +262,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
@@ -275,7 +275,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         """
         self.client.logout()
 
-        self.organization.available_features = []
         self.organization.available_product_features = []
         self.organization.save()
         self.team.access_control = True

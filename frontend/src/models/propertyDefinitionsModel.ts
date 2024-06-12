@@ -1,5 +1,5 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import api, { ApiMethodOptions } from 'lib/api'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
@@ -55,6 +55,7 @@ export type Option = {
     label?: string
     name?: string
     status?: 'loading' | 'loaded'
+    allowCustomValues?: boolean
     values?: PropValue[]
 }
 
@@ -65,9 +66,8 @@ const getPropertyKey = (
 ): string => {
     if (type === PropertyDefinitionType.Group) {
         return `${type}/${groupTypeIndex}/${propertyName}`
-    } else {
-        return `${type}/${propertyName}`
     }
+    return `${type}/${propertyName}`
 }
 
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce. Returns the property sync if already found. */
@@ -95,8 +95,42 @@ const checkOrLoadPropertyDefinition = (
     return null
 }
 
+const getEndpoint = (
+    teamId: number,
+    type: PropertyDefinitionType,
+    propertyKey: string,
+    eventNames: string[] | undefined,
+    newInput: string | undefined
+): string => {
+    let eventParams = ''
+    for (const eventName of eventNames || []) {
+        eventParams += `&event_name=${eventName}`
+    }
+
+    if (type === PropertyDefinitionType.Session) {
+        return (
+            `api/projects/${teamId}/${type}s/values/?key=` +
+            encodeURIComponent(propertyKey) +
+            (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+            eventParams
+        )
+    }
+
+    return (
+        'api/' +
+        type +
+        '/values/?key=' +
+        encodeURIComponent(propertyKey) +
+        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+        eventParams
+    )
+}
+
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
     actions({
         // public
         loadPropertyDefinitions: (
@@ -116,7 +150,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             eventNames?: string[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
-        setOptions: (key: string, values: PropValue[]) => ({ key, values }),
+        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
+            key,
+            values,
+            allowCustomValues,
+        }),
         // internal
         fetchAllPendingDefinitions: true,
         abortAnyRunningQuery: true,
@@ -125,21 +163,24 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         propertyDefinitionStorage: [
             { ...localProperties } as PropertyDefinitionStorage,
             {
-                updatePropertyDefinitions: (state, { propertyDefinitions }) => ({
-                    ...state,
-                    ...propertyDefinitions,
-                }),
+                updatePropertyDefinitions: (state, { propertyDefinitions }) => {
+                    return {
+                        ...state,
+                        ...propertyDefinitions,
+                    }
+                },
             },
         ],
         options: [
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values }) => ({
+                setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
                         values: [...Array.from(new Set(values))],
                         status: 'loaded',
+                        allowCustomValues,
                     },
                 }),
             },
@@ -179,7 +220,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             // take the first 50 pending properties to avoid the 4k query param length limit
             const allPending = values.pendingProperties.slice(0, 50)
             const pendingByType: Record<
-                'event' | 'person' | 'group/0' | 'group/1' | 'group/2' | 'group/3' | 'group/4',
+                'event' | 'person' | 'group/0' | 'group/1' | 'group/2' | 'group/3' | 'group/4' | 'session',
                 string[]
             > = {
                 event: [],
@@ -189,6 +230,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 'group/2': [],
                 'group/3': [],
                 'group/4': [],
+                session: [],
             }
             for (const key of allPending) {
                 let [type, ...rest] = key.split('/')
@@ -226,10 +268,17 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     }
 
                     // and then fetch them
-                    const propertyDefinitions = await api.propertyDefinitions.list({
-                        properties: pending,
-                        ...queryParams,
-                    })
+                    let propertyDefinitions: CountedPaginatedResponse<PropertyDefinition>
+                    if (type === 'session') {
+                        propertyDefinitions = await api.sessions.propertyDefinitions({
+                            properties: pending,
+                        })
+                    } else {
+                        propertyDefinitions = await api.propertyDefinitions.list({
+                            properties: pending,
+                            ...queryParams,
+                        })
+                    }
 
                     for (const propertyDefinition of propertyDefinitions.results) {
                         newProperties[`${type}/${propertyDefinition.name}`] = propertyDefinition
@@ -268,10 +317,23 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
-            if (['cohort', 'session'].includes(type)) {
+            if (['cohort'].includes(type)) {
                 return
             }
-            if (!propertyKey) {
+            if (!propertyKey || values.currentTeamId === null) {
+                return
+            }
+            if (propertyKey === 'console_log_level') {
+                actions.setOptions(
+                    propertyKey,
+                    [
+                        // id is not used so can be arbitrarily chosen
+                        { id: 0, name: 'info' },
+                        { id: 1, name: 'warn' },
+                        { id: 2, name: 'error' },
+                    ],
+                    false
+                )
                 return
             }
 
@@ -286,23 +348,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 signal: cache.abortController.signal,
             }
 
-            let eventParams = ''
-            for (const eventName of eventNames || []) {
-                eventParams += `&event_name=${eventName}`
-            }
-
             const propValues: PropValue[] = await api.get(
-                endpoint ||
-                    'api/' +
-                        type +
-                        '/values/?key=' +
-                        encodeURIComponent(propertyKey) +
-                        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-                        eventParams,
+                endpoint || getEndpoint(values.currentTeamId, type, propertyKey, eventNames, newInput),
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues)
+            actions.setOptions(propertyKey, propValues, true)
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {

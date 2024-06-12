@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -355,9 +355,7 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
-    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+    def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -818,7 +816,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },
@@ -848,7 +846,7 @@ email@example.org,
                             "key": "$some_prop",
                             "value": "something",
                             "type": "person",
-                            "operator": PropertyOperator.exact,
+                            "operator": PropertyOperator.EXACT,
                         }
                     ],
                 },
@@ -1493,11 +1491,11 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
 
-def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

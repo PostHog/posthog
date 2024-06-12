@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -81,7 +81,7 @@ class Dashboard(models.Model):
     __repr__ = sane_repr("team_id", "id", "name")
 
     def __str__(self):
-        return self.name or self.id
+        return self.name or str(self.id)
 
     @property
     def is_sharing_enabled(self):
@@ -93,7 +93,7 @@ class Dashboard(models.Model):
     def url(self):
         return absolute_uri(f"/dashboard/{self.id}")
 
-    def get_analytics_metadata(self) -> Dict[str, Any]:
+    def get_analytics_metadata(self) -> dict[str, Any]:
         """
         Returns serialized information about the object for analytics reporting.
         """

@@ -1,16 +1,21 @@
+import time
 from typing import cast
 
-from django.db.models import Model
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-
+from django.db.models import Model
 from django.views import View
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.exceptions import NotFound
+import posthoganalytics
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -223,7 +228,10 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+        if view.premium_feature not in [
+            feature["key"]
+            for feature in request.user.organization.available_product_features  # type: ignore
+        ]:
             raise EnterpriseFeatureException()
 
         return True
@@ -255,6 +263,36 @@ class SharingTokenPermission(BasePermission):
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class TimeSensitiveActionPermission(BasePermission):
+    """
+    Validates that the authenticated session is not older than the allowed time for the action.
+    """
+
+    message = "This action requires you to be recently authenticated."
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        if allow_safe_methods and request.method in SAFE_METHODS:
+            return True
+
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return False
+
+        session_age_seconds = time.time() - session_created_at
+
+        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+            return False
+
+        return True
 
 
 class APIScopePermission(BasePermission):
@@ -367,3 +405,39 @@ class APIScopePermission(BasePermission):
             raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
 
         return view.scope_object
+
+
+class PostHogFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        flag = getattr(view, "posthog_feature_flag", None)
+
+        config = {}
+
+        if not flag:
+            raise ImproperlyConfigured(
+                "PostHogFeatureFlagPermission requires the view to define the posthog_feature_flag attribute."
+            )
+
+        if isinstance(flag, str):
+            config[flag] = ["*"]
+        else:
+            config = flag
+
+        for required_flag, actions in config.items():
+            if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
+
+                enabled = posthoganalytics.feature_enabled(
+                    required_flag,
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+
+                return enabled or False
+
+        return True

@@ -4,7 +4,7 @@ import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional
 
 from django.core.management.base import BaseCommand
 
@@ -40,7 +40,7 @@ class Command(BaseCommand):
         input_arg = options.get("ga_sources")
         if not input_arg:
             raise ValueError("No input file specified")
-        with open(input_arg, "r", encoding="utf-8-sig") as input_file:
+        with open(input_arg, encoding="utf-8-sig") as input_file:
             input_str = input_file.read()
         split_items = re.findall(r"\S+\s+SOURCE_CATEGORY_\S+", input_str)
 
@@ -59,7 +59,7 @@ class Command(BaseCommand):
             base_type, type_if_paid, type_if_organic = types[raw_type]
             return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
 
-        entries: OrderedDict[Tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
+        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in [

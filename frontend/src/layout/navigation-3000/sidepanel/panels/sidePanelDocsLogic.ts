@@ -157,7 +157,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
                 }
 
                 if (event.data.type === 'external-navigation') {
-                    // This should only be triggered for app|eu.posthog.com links
+                    // This should only be triggered for us|eu.posthog.com links
                     actions.handleExternalUrl(event.data.url)
                     return
                 }

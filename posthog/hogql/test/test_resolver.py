@@ -1,5 +1,5 @@
 from datetime import timezone, datetime, date
-from typing import Optional, Dict, cast
+from typing import Optional, cast
 import pytest
 from django.test import override_settings
 from uuid import UUID
@@ -7,6 +7,7 @@ from uuid import UUID
 from freezegun import freeze_time
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
@@ -28,7 +29,7 @@ from posthog.test.base import BaseTest
 class TestResolver(BaseTest):
     maxDiff = None
 
-    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
@@ -44,7 +45,7 @@ class TestResolver(BaseTest):
 
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
-        self.context = HogQLContext(database=self.database, team_id=self.team.pk)
+        self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table(self):
@@ -124,6 +125,16 @@ class TestResolver(BaseTest):
             with self.assertRaises(QueryError) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
             self.assertIn("Unable to resolve field:", str(e.exception))
+
+    def test_unresolved_field_type(self):
+        query = "SELECT x"
+        # raises with ClickHouse
+        with self.assertRaises(QueryError):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        # does not raise with HogQL
+        select = self._select(query)
+        select = resolve_types(select, self.context, dialect="hogql")
+        assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
@@ -240,6 +251,39 @@ class TestResolver(BaseTest):
             self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
         )
 
+    def test_ctes_with_union_all(self):
+        self.assertEqual(
+            self._print_hogql("""
+                    WITH cte1 AS (SELECT 1 AS a)
+                    SELECT 1 AS a
+                    UNION ALL
+                    WITH cte2 AS (SELECT 2 AS a)
+                    SELECT * FROM cte2
+                    UNION ALL
+                    SELECT * FROM cte1
+                        """),
+            self._print_hogql("""
+                    SELECT 1 AS a
+                    UNION ALL
+                    SELECT * FROM (SELECT 2 AS a) AS cte2
+                    UNION ALL
+                    SELECT * FROM (SELECT 1 AS a) AS cte1
+                        """),
+        )
+
+    def test_join_using(self):
+        node = self._select(
+            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        assert constraint.constraint_type == "USING"
+        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
+
+        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):
@@ -299,7 +343,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_select_union(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events union all select * from events)")
-        node = resolve_types(node, self.context, dialect="clickhouse")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_lambda_parent_scope(self):
@@ -373,7 +417,84 @@ class TestResolver(BaseTest):
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
             "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            "LIMIT 10000"
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
         assert hogql == expected
+
+    def _assert_first_columm_is_type(self, node: ast.SelectQuery, type: ast.ConstantType):
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(self.context) == type
+
+    def test_types_pass_outside_subqueries_two_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_types_pass_outside_subqueries_three_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from (select event from events))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.select_from is not None
+        assert node.select_from.table is not None
+
+        self._assert_first_columm_is_type(cast(ast.SelectQuery, node.select_from.table), ast.StringType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.StringType(nullable=False))
+
+    def test_arithmetic_types(self):
+        node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select key from (select 1 + 2 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select 1.0 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 100 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        node = self._select("select 1.0 + 200 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+    def test_boolean_types(self):
+        node: ast.SelectQuery = self._select("select true and false as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select true or false as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_compare_types(self):
+        node: ast.SelectQuery = self._select("select 1 < 2 from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = 4 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+        node = self._select("select key from (select 3 = null as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.BooleanType(nullable=False))
+
+    def test_function_types(self):
+        node: ast.SelectQuery = self._select("select abs(3) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select plus(1, 2) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))

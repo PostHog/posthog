@@ -1,8 +1,7 @@
 import '../Experiment.scss'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -190,8 +189,22 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
+        let parsedDetail = {}
+        try {
+            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
+        } catch (error) {
+            return (
+                <div className="border rounded bg-bg-light p-4">
+                    <div className="font-semibold leading-tight text-base text-current">
+                        Experiment results could not be calculated
+                    </div>
+                    <div className="mt-2">{experimentResultCalculationError.detail}</div>
+                </div>
+            )
+        }
+
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
+        for (const [failureReason, value] of Object.entries(parsedDetail)) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
         }
 
@@ -223,9 +236,9 @@ export function NoResultsEmptyState(): JSX.Element {
     // Non-400 errors are rendered as plain text
     return (
         <div>
-            <div className="border rounded bg-bg-light pt-6 pb-8">
-                <div className="flex flex-col items-center mx-auto text-muted">
-                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+            <div className="border rounded bg-bg-light py-10">
+                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                    <IconArchive className="text-4xl text-secondary-3000" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
                         <div className="text-sm text-center text-balance">
@@ -238,29 +251,29 @@ export function NoResultsEmptyState(): JSX.Element {
     )
 }
 
+export function EllipsisAnimation(): JSX.Element {
+    const [ellipsis, setEllipsis] = useState('.')
+
+    useEffect(() => {
+        let count = 1
+        let direction = 1
+
+        const interval = setInterval(() => {
+            setEllipsis('.'.repeat(count))
+            count += direction
+
+            if (count === 3 || count === 1) {
+                direction *= -1
+            }
+        }, 300)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span>{ellipsis}</span>
+}
+
 export function ExperimentLoadingAnimation(): JSX.Element {
-    function EllipsisAnimation(): JSX.Element {
-        const [ellipsis, setEllipsis] = useState('.')
-
-        useEffect(() => {
-            let count = 1
-            let direction = 1
-
-            const interval = setInterval(() => {
-                setEllipsis('.'.repeat(count))
-                count += direction
-
-                if (count === 3 || count === 1) {
-                    direction *= -1
-                }
-            }, 300)
-
-            return () => clearInterval(interval)
-        }, [])
-
-        return <span>{ellipsis}</span>
-    }
-
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <Animation type={AnimationType.LaptopHog} />
@@ -273,7 +286,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 }
 
 export function PageHeaderCustom(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
     const {
         launchExperiment,
         resetRunningExperiment,
@@ -307,38 +320,44 @@ export function PageHeaderCustom(): JSX.Element {
                     )}
                     {experiment && isExperimentRunning && (
                         <div className="flex flex-row gap-2">
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
-                                                fullWidth
-                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
-                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                targetBlank={!!exposureCohortId}
-                                            >
-                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadExperimentResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-experiment"
-                                            >
-                                                Refresh experiment results
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-secondary-metrics"
-                                            >
-                                                Refresh secondary metrics
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
+                            {!isExperimentStopped && !experiment.archived && (
+                                <>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        exposureCohortId ? undefined : createExposureCohort()
+                                                    }
+                                                    fullWidth
+                                                    data-attr={`${
+                                                        exposureCohortId ? 'view' : 'create'
+                                                    }-exposure-cohort`}
+                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                    targetBlank={!!exposureCohortId}
+                                                >
+                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadExperimentResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-experiment"
+                                                >
+                                                    Refresh experiment results
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadSecondaryMetricResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-secondary-metrics"
+                                                >
+                                                    Refresh secondary metrics
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
                             <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                             {!experiment.end_date && (
                                 <LemonButton
@@ -350,13 +369,11 @@ export function PageHeaderCustom(): JSX.Element {
                                     Stop
                                 </LemonButton>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
+                            {isExperimentStopped && (
+                                <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                    <b>Archive</b>
+                                </LemonButton>
+                            )}
                         </div>
                     )}
                 </>
@@ -376,13 +393,14 @@ export function ActionBanner(): JSX.Element {
         areResultsSignificant,
         isExperimentStopped,
         funnelResultsPersonsTotal,
-        recommendedSampleSize,
         actualRunningTime,
-        recommendedRunningTime,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>

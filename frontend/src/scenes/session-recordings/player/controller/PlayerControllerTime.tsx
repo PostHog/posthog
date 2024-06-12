@@ -4,7 +4,8 @@ import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
+import { useCallback } from 'react'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
@@ -22,27 +23,37 @@ export function Timestamp(): JSX.Element {
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
+    const rotateTimestampFormat = useCallback(() => {
+        setTimestampFormat(
+            timestampFormat === 'relative'
+                ? TimestampFormat.UTC
+                : timestampFormat === TimestampFormat.UTC
+                ? TimestampFormat.Device
+                : TimestampFormat.Relative
+        )
+    }, [timestampFormat])
+
     return (
-        <LemonButton
-            data-attr="recording-timestamp"
-            onClick={() =>
-                setTimestampFormat(timestampFormat === 'relative' ? TimestampFormat.Absolute : TimestampFormat.Relative)
-            }
-            active
-        >
-            {timestampFormat === TimestampFormat.Relative ? (
-                <>
-                    {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-                    {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-                </>
-            ) : (
-                <>
-                    {currentTimestamp
-                        ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
-                        : '--/--/----, 00:00:00'}{' '}
-                    UTC
-                </>
-            )}
+        <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
+            <span className="text-center whitespace-nowrap font-mono">
+                {timestampFormat === TimestampFormat.Relative ? (
+                    <>
+                        {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
+                        {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
+                    </>
+                ) : currentTimestamp ? (
+                    `${(timestampFormat === TimestampFormat.UTC
+                        ? dayjs(currentTimestamp).tz('UTC')
+                        : dayjs(currentTimestamp)
+                    ).format('DD/MM/YYYY, HH:mm:ss')} ${
+                        timestampFormat === TimestampFormat.UTC
+                            ? 'UTC'
+                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
+                    }`
+                ) : (
+                    '--/--/----, 00:00:00'
+                )}
+            </span>
         </LemonButton>
     )
 }

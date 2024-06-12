@@ -4,11 +4,8 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
@@ -23,7 +20,6 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
-    InsightModel,
     InsightShortId,
     InsightType,
     PathType,
@@ -124,35 +120,6 @@ export function extractObjectDiffKeys(
     }
 
     return changedKeys
-}
-
-export function findInsightFromMountedLogic(
-    insightShortId: InsightShortId | string,
-    dashboardId: number | undefined
-): Partial<InsightModel> | null {
-    if (dashboardId) {
-        const insightOnDashboard = dashboardLogic
-            .findMounted({ id: dashboardId })
-            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-        if (insightOnDashboard) {
-            return insightOnDashboard
-        } else {
-            const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
-            let foundOnModel: Partial<InsightModel> | undefined
-            for (const dashModelId of Object.keys(dashboards || {})) {
-                foundOnModel = dashboardLogic
-                    .findMounted({ id: parseInt(dashModelId) })
-                    ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-            }
-            return foundOnModel || null
-        }
-    } else {
-        return (
-            savedInsightsLogic
-                .findMounted()
-                ?.values.insights?.results?.find((item) => item.short_id === insightShortId) || null
-        )
-    }
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
@@ -297,17 +264,15 @@ export function formatBreakdownLabel(
                 formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
             )
             .join('::')
-    } else {
-        return ''
     }
+    return ''
 }
 
 export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     if (breakdownFilter.breakdown_type === 'cohort') {
         return 'Cohort'
-    } else {
-        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
+    return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
@@ -323,7 +288,7 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string> => ({
+export const insightTypeURL = {
     TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
     STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
     LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
@@ -331,12 +296,9 @@ export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(
-        undefined,
-        undefined,
-        JSON.stringify(bi_viz_flag ? examples.DataVisualization : examples.HogQLTable)
-    ),
-})
+    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+}
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {
@@ -346,9 +308,8 @@ export function concatWithPunctuation(phrases: string[]): string {
         return phrases[0]
     } else if (phrases.length === 2) {
         return `${phrases[0]} and ${phrases[1]}`
-    } else {
-        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+    return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {

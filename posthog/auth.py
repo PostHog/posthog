@@ -1,11 +1,12 @@
 import functools
 import re
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Optional, Union
 from urllib.parse import urlsplit
 
 import jwt
 from django.apps import apps
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
@@ -23,6 +24,27 @@ from posthog.models.personal_api_key import (
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
+from zxcvbn import zxcvbn
+
+
+class ZxcvbnValidator:
+    """
+    Validate that the password satisfies zxcvbn
+    """
+
+    def __init__(self, min_length=8):
+        self.min_length = min_length
+
+    def validate(self, password, user=None):
+        result = zxcvbn(password)
+
+        if result["score"] < 3:
+            joined_feedback = " ".join(result["feedback"]["suggestions"])
+
+            raise ValidationError(
+                joined_feedback or "This password is too weak.",
+                code="password_too_weak",
+            )
 
 
 class SessionAuthentication(authentication.SessionAuthentication):
@@ -57,9 +79,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_key_with_source(
         cls,
         request: Union[HttpRequest, Request],
-        request_data: Optional[Dict[str, Any]] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Tuple[str, str]]:
+        request_data: Optional[dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
+    ) -> Optional[tuple[str, str]]:
         """Try to find personal API key in request and return it along with where it was found."""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -80,8 +102,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_key(
         cls,
         request: Union[HttpRequest, Request],
-        request_data: Optional[Dict[str, Any]] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        request_data: Optional[dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[str]:
         """Try to find personal API key in request and return it."""
         key_with_source = cls.find_key_with_source(request, request_data, extra_data)
@@ -121,7 +143,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         return personal_api_key_object
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         personal_api_key_with_source = self.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
@@ -190,7 +212,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
@@ -222,7 +244,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
 
     sharing_configuration: SharingConfiguration
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")

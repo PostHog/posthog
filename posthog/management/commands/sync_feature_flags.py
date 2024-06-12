@@ -1,4 +1,4 @@
-from typing import Dict, cast
+from typing import cast
 
 from django.core.management.base import BaseCommand
 
@@ -15,8 +15,8 @@ class Command(BaseCommand):
     help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all teams"
 
     def handle(self, *args, **options):
-        flags: Dict[str, str] = {}
-        with open("frontend/src/lib/constants.tsx", "r", encoding="utf_8") as f:
+        flags: dict[str, str] = {}
+        with open("frontend/src/lib/constants.tsx", encoding="utf_8") as f:
             lines = f.readlines()
             parsing_flags = False
             for line in lines:

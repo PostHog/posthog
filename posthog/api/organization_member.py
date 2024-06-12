@@ -15,7 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import extract_organization
+from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -71,11 +71,15 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
+        level_changed = False
         for attr, value in validated_data.items():
             if attr == "level":
                 requesting_membership.validate_update(updated_membership, value)
+                level_changed = True
             setattr(updated_membership, attr, value)
         updated_membership.save()
+        if level_changed:
+            self.context["request"].user.update_billing_admin_emails(updated_membership.organization)
         return updated_membership
 
 
@@ -88,7 +92,7 @@ class OrganizationMemberViewSet(
 ):
     scope_object = "organization_member"
     serializer_class = OrganizationMemberSerializer
-    permission_classes = [OrganizationMemberObjectPermissions]
+    permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
@@ -106,19 +110,14 @@ class OrganizationMemberViewSet(
     )
     lookup_field = "user__uuid"
 
-    def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return queryset.get(user=self.request.user)
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, obj)
-        return obj
+        return get_object_or_404(queryset, **filter_kwargs)
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
 

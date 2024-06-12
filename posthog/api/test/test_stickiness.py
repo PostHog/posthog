@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
@@ -20,26 +20,26 @@ from posthog.test.base import (
 from posthog.utils import encode_get_request_params
 
 
-def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
+def get_stickiness(client: Client, team: Team, request: dict[str, Any]):
     return client.get(f"/api/projects/{team.pk}/insights/trend/", data=request)
 
 
-def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
+def get_stickiness_ok(client: Client, team: Team, request: dict[str, Any]):
     response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
     assert response.status_code == 200, response.content
     return response.json()
 
 
-def get_stickiness_time_series_ok(client: Client, team: Team, request: Dict[str, Any]):
+def get_stickiness_time_series_ok(client: Client, team: Team, request: dict[str, Any]):
     data = get_stickiness_ok(client=client, request=request, team=team)
     return get_time_series_ok(data)
 
 
-def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any]):
+def get_stickiness_people(client: Client, team_id: int, request: dict[str, Any]):
     return client.get("/api/person/stickiness/", data=request)
 
 
-def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, Any]):
+def get_stickiness_people_ok(client: Client, team_id: int, request: dict[str, Any]):
     response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()

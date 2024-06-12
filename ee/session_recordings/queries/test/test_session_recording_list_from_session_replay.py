@@ -1,5 +1,4 @@
 from itertools import product
-from typing import Dict
 from unittest import mock
 from uuid import uuid4
 
@@ -63,7 +62,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 True,
                 False,
                 False,
-                PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -79,7 +78,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 False,
                 False,
-                PersonsOnEventsMode.disabled,
+                PersonsOnEventsMode.DISABLED,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -95,7 +94,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 False,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "event_names": [],
                     "event_start_time": mock.ANY,
@@ -111,7 +110,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 True,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "event_end_time": mock.ANY,
                     "event_names": [],
@@ -131,7 +130,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         poe_v2: bool,
         allow_denormalized_props: bool,
         expected_poe_mode: PersonsOnEventsMode,
-        expected_query_params: Dict,
+        expected_query_params: dict,
         unmaterialized_person_column_used: bool,
         materialized_event_column_used: bool,
     ) -> None:

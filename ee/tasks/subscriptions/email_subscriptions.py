@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 
@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 def send_email_subscription_report(
     email: str,
     subscription: Subscription,
-    assets: List[ExportedAsset],
+    assets: list[ExportedAsset],
     invite_message: Optional[str] = None,
     total_asset_count: Optional[int] = None,
 ) -> None:

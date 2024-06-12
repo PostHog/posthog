@@ -1,4 +1,4 @@
-from typing import Any, Dict, Set, Tuple, Union
+from typing import Any, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import translate_hogql
@@ -17,7 +17,7 @@ class FunnelEventQuery(EventQuery):
         entities=None,
         entity_name="events",
         skip_entity_filter=False,
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         # Aggregating by group
         if self._filter.aggregation_group_type_index is not None:
             aggregation_target = get_aggregation_target_field(
@@ -49,7 +49,7 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
@@ -81,7 +81,7 @@ class FunnelEventQuery(EventQuery):
 
         if skip_entity_filter:
             entity_query = ""
-            entity_params: Dict[str, Any] = {}
+            entity_params: dict[str, Any] = {}
         else:
             entity_query, entity_params = self._get_entity_query(entities, entity_name)
 
@@ -95,7 +95,7 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonsOnEventsMode.disabled
+            if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
             else ""
         )
 
@@ -131,9 +131,9 @@ class FunnelEventQuery(EventQuery):
         )
         is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
 
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = True
-        elif self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events or (
+        elif self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS or (
             non_person_id_aggregation and not is_using_cohort_propertes
         ):
             self._should_join_distinct_ids = False
@@ -142,11 +142,11 @@ class FunnelEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             self._should_join_persons = False
 
-    def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
-        events: Set[Union[int, str, None]] = set()
+    def _get_entity_query(self, entities=None, entity_name="events") -> tuple[str, dict[str, Any]]:
+        events: set[Union[int, str, None]] = set()
         entities_to_use = entities or self._filter.entities
 
         for entity in entities_to_use:
@@ -160,4 +160,4 @@ class FunnelEventQuery(EventQuery):
         if None in events:
             return "AND 1 = 1", {}
 
-        return f"AND event IN %({entity_name})s", {entity_name: sorted(events)}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted([x for x in events if x])}

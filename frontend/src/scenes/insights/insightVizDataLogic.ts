@@ -3,15 +3,11 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import {
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-} from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -29,11 +25,12 @@ import {
     getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
-    getShowValueOnSeries,
+    getShowValuesOnSeries,
+    supportsPercentStackView,
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
-    DatabaseSchemaQueryResponseField,
+    DatabaseSchemaField,
     DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
@@ -62,7 +59,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -79,11 +76,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['isHogQLInsight', 'query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
-            dataWarehouseSceneLogic,
-            ['externalTablesMap'],
+            databaseTableListLogic,
+            ['dataWarehouseTablesMap'],
         ],
         actions: [
             insightLogic,
@@ -138,12 +135,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 display !== ChartDisplayType.WorldMap &&
                 dateRange?.date_from !== 'all',
         ],
-        supportsPercentStackView: [
-            (s) => [s.querySource, s.display],
-            (q, display) =>
-                isTrendsQuery(q) &&
-                PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
-        ],
+        supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) => {
@@ -151,9 +143,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
                 } else if (isLifecycle) {
                     return true
-                } else {
-                    return false
                 }
+                return false
             },
         ],
 
@@ -167,7 +158,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
-        showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
@@ -235,14 +226,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
             (
                 series,
                 isSingleSeries,
                 isDataWarehouseSeries,
                 isBreakdownSeries,
-                externalTablesMap
-            ): DatabaseSchemaQueryResponseField[] => {
+                dataWarehouseTablesMap
+            ): DatabaseSchemaField[] => {
                 if (
                     !series ||
                     series.length === 0 ||
@@ -252,7 +243,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                return externalTablesMap[(series[0] as DataWarehouseNode).table_name].columns
+                return Object.values(dataWarehouseTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.fields ?? {})
             },
         ],
 
@@ -271,10 +262,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasLegend: [
-            (s) => [s.isTrends, s.isStickiness, s.display],
-            (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) &&
-                !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display || ChartDisplayType.ActionsLineGraph),
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) =>
+                (isTrends || isStickiness || isLifecycle) &&
+                !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
@@ -285,8 +276,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath],
-            (activeUsersMath) => {
+            (s) => [s.activeUsersMath, s.isTrends],
+            (activeUsersMath, isTrends): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
 
                 if (activeUsersMath) {
@@ -307,6 +298,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     }
                 }
 
+                if (!isTrends) {
+                    enabledIntervals.minute = {
+                        ...enabledIntervals.minute,
+                        hidden: true,
+                    }
+                }
+
                 return enabledIntervals
             },
         ],
@@ -321,8 +319,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.insightDataError],
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
+                // Async queries put the error message on data.error_message, while synchronous ones use detail
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -392,6 +391,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
+                if (query.source.kind === NodeKind.TrendsQuery) {
+                    // Disable filter test account when using a data warehouse series
+                    const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
+                    const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
+                    if (hasWarehouseSeries && filterTestAccountsEnabled) {
+                        query.source.filterTestAccounts = false
+                    }
+                }
+
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
@@ -454,6 +462,10 @@ const handleQuerySourceUpdateSideEffects = (
 
     const interval = (currentState as TrendsQuery).interval
 
+    const oneHourDateRange = {
+        date_from: '-1h',
+    }
+
     /*
      * Series change side effects.
      */
@@ -461,17 +473,20 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user just flipped an event action to use WAUs/MAUs math and their
     // current interval is unsupported by the math type, switch their interval
     // to an appropriate allowed interval and inform them of the change via a toast
-    if (maybeChangedActiveUsersMath !== null && (interval === 'hour' || interval === 'month')) {
-        if (interval === 'hour') {
+    if (
+        maybeChangedActiveUsersMath !== null &&
+        (interval === 'hour' || interval === 'month' || interval === 'minute')
+    ) {
+        if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+            ;(mergedUpdate as TrendsQuery).interval = 'day'
         } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'week'
+            ;(mergedUpdate as TrendsQuery).interval = 'week'
         }
     }
 
@@ -490,27 +505,29 @@ const handleQuerySourceUpdateSideEffects = (
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
             if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+                ;(mergedUpdate as TrendsQuery).interval = 'day'
             } else {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'month'
+                ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
-            let newDefaultInterval: IntervalType = 'day'
-            for (const { key, values, defaultInterval } of dateMapping) {
-                if (
+            const selectedDateMapping = dateMapping.find(
+                ({ key, values, defaultInterval }) =>
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&
                     key !== 'Custom' &&
                     defaultInterval
-                ) {
-                    newDefaultInterval = defaultInterval
-                    break
-                }
+            )
+
+            if (!selectedDateMapping && isTrendsQuery(currentState) && is12HoursOrLess(date_from)) {
+                ;(mergedUpdate as TrendsQuery).interval = 'minute'
+            } else if (!selectedDateMapping && isLessThan2Days(date_from)) {
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
+            } else {
+                ;(mergedUpdate as TrendsQuery).interval = selectedDateMapping?.defaultInterval || 'day'
             }
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = newDefaultInterval
         }
     }
 
@@ -544,6 +561,51 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         mergedUpdate['breakdownFilter'] = null
         mergedUpdate['properties'] = []
+    }
+
+    // Don't allow minutes on anything other than Trends
+    if (
+        currentState.kind == NodeKind.TrendsQuery &&
+        kind !== NodeKind.TrendsQuery &&
+        (('interval' in mergedUpdate && mergedUpdate?.interval) || interval) == 'minute'
+    ) {
+        ;(mergedUpdate as TrendsQuery).interval = 'hour'
+    }
+
+    // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
+    if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
+        const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+
+        if (
+            // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
+            (!date_from && !date_to) ||
+            // If the interval is set manually to a range greater than 12 hours, change it to an hour
+            (date_from &&
+                date_to &&
+                dayjs(date_from).isValid() &&
+                dayjs(date_to).isValid() &&
+                dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
+        ) {
+            ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
+        } else {
+            if (!is12HoursOrLess(date_from)) {
+                ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
+            }
+        }
+    }
+
+    // If we've changed interval, clear smoothings
+    if (kind == NodeKind.TrendsQuery) {
+        if (
+            (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
+            (mergedUpdate as TrendsQuery)?.interval !== undefined &&
+            (mergedUpdate as TrendsQuery).interval !== interval
+        ) {
+            ;(mergedUpdate as TrendsQuery).trendsFilter = {
+                ...(mergedUpdate as TrendsQuery).trendsFilter,
+                smoothingIntervals: undefined,
+            }
+        }
     }
 
     return mergedUpdate

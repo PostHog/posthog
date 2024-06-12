@@ -42,11 +42,10 @@
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
-                         count(DISTINCT person_id) AS counts,
+                         count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi.person_id AS person_id,
-                  min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
+          (SELECT min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -60,7 +59,8 @@
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
                   arrayJoin(temp_concat) AS period_status_pairs,
                   period_status_pairs.1 AS start_of_period,
-                  period_status_pairs.2 AS status
+                  period_status_pairs.2 AS status,
+                  events__pdi.person_id AS actor_id
            FROM events
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -70,18 +70,18 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), ifNull(in(person_id,
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), ifNull(in(events__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                              FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0), equals(events.event, '$pageview'))
-           GROUP BY person_id)
+           GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
      WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
@@ -91,7 +91,11 @@
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestLifecycleQueryRunner.test_sampling
@@ -117,11 +121,10 @@
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
-                         count(DISTINCT person_id) AS counts,
+                         count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi.person_id AS person_id,
-                  min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
+          (SELECT min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -135,7 +138,8 @@
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
                   arrayJoin(temp_concat) AS period_status_pairs,
                   period_status_pairs.1 AS start_of_period,
-                  period_status_pairs.2 AS status
+                  period_status_pairs.2 AS status,
+                  events__pdi.person_id AS actor_id
            FROM events SAMPLE 0.1
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -145,15 +149,15 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
-           GROUP BY person_id)
+           GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
      WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
@@ -163,7 +167,11 @@
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestLifecycleQueryRunner.test_timezones
@@ -189,11 +197,10 @@
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
-                         count(DISTINCT person_id) AS counts,
+                         count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi.person_id AS person_id,
-                  min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
+          (SELECT min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
@@ -207,7 +214,8 @@
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
                   arrayJoin(temp_concat) AS period_status_pairs,
                   period_status_pairs.1 AS start_of_period,
-                  period_status_pairs.2 AS status
+                  period_status_pairs.2 AS status,
+                  events__pdi.person_id AS actor_id
            FROM events
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -217,15 +225,15 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
-           GROUP BY person_id)
+           GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
      WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
@@ -235,7 +243,11 @@
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestLifecycleQueryRunner.test_timezones.1
@@ -261,11 +273,10 @@
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
-                         count(DISTINCT person_id) AS counts,
+                         count(DISTINCT actor_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi.person_id AS person_id,
-                  min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
+          (SELECT min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,
@@ -279,7 +290,8 @@
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
                   arrayJoin(temp_concat) AS period_status_pairs,
                   period_status_pairs.1 AS start_of_period,
-                  period_status_pairs.2 AS status
+                  period_status_pairs.2 AS status,
+                  events__pdi.person_id AS actor_id
            FROM events
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -289,15 +301,15 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
+           LEFT JOIN
              (SELECT argMax(person.created_at, person.version) AS created_at,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
-           GROUP BY person_id)
+           GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
      WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific')))), 0))
@@ -307,6 +319,10 @@
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---

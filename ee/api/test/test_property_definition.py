@@ -1,4 +1,4 @@
-from typing import cast, Optional, List, Dict
+from typing import cast, Optional
 from freezegun import freeze_time
 import pytest
 from django.db.utils import IntegrityError
@@ -450,7 +450,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
 
-        properties: List[Dict] = [
+        properties: list[dict] = [
             {"name": "1_when_verified", "verified": True},
             {"name": "2_when_verified", "verified": True},
             {"name": "3_when_verified", "verified": True},

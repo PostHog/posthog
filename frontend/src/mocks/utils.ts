@@ -32,12 +32,10 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<(typeof rest)['get']>[
                             return res(...responseArray)
                         } else if (!response) {
                             return res()
-                        } else {
-                            return response
                         }
-                    } else {
-                        return res(ctx.json(handler ?? null))
+                        return response
                     }
+                    return res(ctx.json(handler ?? null))
                 })
             )
         })

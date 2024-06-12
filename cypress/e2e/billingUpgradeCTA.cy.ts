@@ -5,20 +5,12 @@ import * as fflate from 'fflate'
 
 describe('Billing Upgrade CTA', () => {
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'billing-upgrade-language': 'credit_card',
-                })
-            )
-        )
-
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
     })
 
     it('Check that events are being sent on each page visit', () => {
         cy.visit('/organization/billing')
-        cy.get('[data-attr=product_analytics-upgrade-cta] .LemonButton__content').should('have.text', 'Add credit card')
+        cy.get('[data-attr=product_analytics-upgrade-cta] .LemonButton__content').should('have.text', 'Subscribe')
         cy.window().then((win) => {
             const events = (win as any)._cypress_posthog_captures
 
@@ -28,10 +20,10 @@ describe('Billing Upgrade CTA', () => {
         })
 
         // Mock billing response with subscription
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing.json' })
         cy.reload()
 
-        cy.get('[data-attr=session_replay-upgrade-cta] .LemonButton__content').should('have.text', 'Add paid plan')
+        cy.get('[data-attr=session_replay-upgrade-cta] .LemonButton__content').should('have.text', 'Subscribe')
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture3')
         cy.window().then((win) => {
             const events = (win as any)._cypress_posthog_captures
@@ -40,7 +32,7 @@ describe('Billing Upgrade CTA', () => {
             expect(matchingEvents.length).to.equal(3)
         })
 
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
         // Navigate to the onboarding billing step
         cy.visit('/products')
         cy.get('[data-attr=product_analytics-onboarding-card]').click()

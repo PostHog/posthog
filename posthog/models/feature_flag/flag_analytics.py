@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 from posthog.constants import FlagRequestType
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
@@ -45,7 +45,7 @@ def increment_request_count(
         capture_exception(error)
 
 
-def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> Tuple[int, int, int]:
+def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:
     total_count = 0
     existing_values = client.hgetall(key)
     time_buckets = existing_values.keys()

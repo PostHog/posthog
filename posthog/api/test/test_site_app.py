@@ -1,5 +1,3 @@
-from typing import List
-
 from django.test.client import Client
 from rest_framework import status
 
@@ -44,7 +42,7 @@ class TestSiteApp(BaseTest):
         )
 
     def test_get_site_config_from_schema(self):
-        schema: List[dict] = [{"key": "in_site", "site": True}, {"key": "not_in_site"}]
+        schema: list[dict] = [{"key": "in_site", "site": True}, {"key": "not_in_site"}]
         config = {"in_site": "123", "not_in_site": "12345"}
         self.assertEqual(get_site_config_from_schema(schema, config), {"in_site": "123"})
         self.assertEqual(get_site_config_from_schema(None, None), {})

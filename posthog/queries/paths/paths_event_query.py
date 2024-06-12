@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
@@ -21,7 +21,7 @@ class PathEventQuery(EventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         funnel_paths_timestamp = ""
         funnel_paths_join = ""
         funnel_paths_filter = ""
@@ -116,7 +116,7 @@ class PathEventQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonsOnEventsMode.disabled
+            if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
             else ""
         )
 
@@ -141,17 +141,17 @@ class PathEventQuery(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             self._should_join_persons = False
 
-    def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
+    def _get_grouping_fields(self) -> tuple[list[str], dict[str, Any]]:
         _fields = []
         params = {}
 
@@ -188,8 +188,8 @@ class PathEventQuery(EventQuery):
 
         return _fields, params
 
-    def _get_event_query(self, deep_filtering: bool) -> Tuple[str, Dict[str, Any]]:
-        params: Dict[str, Any] = {}
+    def _get_event_query(self, deep_filtering: bool) -> tuple[str, dict[str, Any]]:
+        params: dict[str, Any] = {}
 
         conditions = []
         or_conditions = []

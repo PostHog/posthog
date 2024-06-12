@@ -39,9 +39,11 @@ def get_kafka_ssl_context():
     # SSLContext inside the with so when it goes out of scope the files are removed which has them
     # existing for the shortest amount of time.  As extra caution password
     # protect/encrypt the client key
-    with NamedTemporaryFile(suffix=".crt") as cert_file, NamedTemporaryFile(
-        suffix=".key"
-    ) as key_file, NamedTemporaryFile(suffix=".crt") as trust_file:
+    with (
+        NamedTemporaryFile(suffix=".crt") as cert_file,
+        NamedTemporaryFile(suffix=".key") as key_file,
+        NamedTemporaryFile(suffix=".crt") as trust_file,
+    ):
         cert_file.write(base64.b64decode(os.environ["KAFKA_CLIENT_CERT_B64"].encode("utf-8")))
         cert_file.flush()
 

@@ -1,8 +1,9 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import models
 
+from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -57,7 +58,7 @@ class SessionRecording(UUIDModel):
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
-    person: Optional[Person] = None
+    _person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
 
     # Metadata can be loaded from Clickhouse or S3
@@ -107,9 +108,24 @@ class SessionRecording(UUIDModel):
 
         return "object_storage_lts"
 
-    def load_person(self) -> Optional[Person]:
-        if self.person:
-            return self.person
+    @property
+    def snapshot_source(self) -> Optional[str]:
+        return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
+
+    @property
+    def person(self) -> Union[Person, MissingPerson]:
+        if self._person:
+            return self._person
+
+        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
+
+    @person.setter
+    def person(self, value: Person):
+        self._person = value
+
+    def load_person(self):
+        if self._person:
+            return
 
         try:
             self.person = Person.objects.get(
@@ -117,9 +133,8 @@ class SessionRecording(UUIDModel):
                 persondistinctid__team_id=self.team,
                 team=self.team,
             )
-            return self.person
         except Person.DoesNotExist:
-            return None
+            pass
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:
@@ -132,7 +147,7 @@ class SessionRecording(UUIDModel):
 
     def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
         if version == "2022-12-22":
-            path_parts: List[str] = [
+            path_parts: list[str] = [
                 settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
                 f"team-{self.team_id}",
                 f"session-{self.session_id}",
@@ -157,7 +172,7 @@ class SessionRecording(UUIDModel):
             return SessionRecording(session_id=session_id, team=team)
 
     @staticmethod
-    def get_or_build_from_clickhouse(team: Team, ch_recordings: List[dict]) -> "List[SessionRecording]":
+    def get_or_build_from_clickhouse(team: Team, ch_recordings: list[dict]) -> "list[SessionRecording]":
         session_ids = sorted([recording["session_id"] for recording in ch_recordings])
 
         recordings_by_id = {
@@ -189,7 +204,7 @@ class SessionRecording(UUIDModel):
 
         return recordings
 
-    def set_start_url_from_urls(self, urls: Optional[List[str]] = None, first_url: Optional[str] = None):
+    def set_start_url_from_urls(self, urls: Optional[list[str]] = None, first_url: Optional[str] = None):
         if first_url:
             self.start_url = first_url[:512]
             return

@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
@@ -22,6 +22,7 @@ from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
+    TimeSensitiveActionPermission,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -80,7 +81,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "is_member_join_email_enabled",
             "metadata",
@@ -96,7 +96,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "metadata",
             "customer_id",
@@ -108,7 +107,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             },  # slug is not required here as it's generated automatically for new organizations
         }
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
@@ -119,11 +118,11 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
-    def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
+    def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
-    def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
+    def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {
             "instance_tag": settings.INSTANCE_TAG,
         }
@@ -142,13 +141,12 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
-    permission_classes = [OrganizationPermissionsWithDelete]
+    permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_permissions(self):
-        # When listing there is no individual object to check for
+    def dangerously_get_permissions(self):
         if self.action == "list":
             return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
 
@@ -160,18 +158,19 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    TimeSensitiveActionPermission,
                     APIScopePermission,
                 ]
             ]
-        return super().get_permissions()
 
-    def get_queryset(self) -> QuerySet:
+        # We don't override for other actions
+        raise NotImplementedError()
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
         return cast(User, self.request.user).organizations.all()
 
-    def get_object(self):
-        organization = self.organization
-        self.check_object_permissions(self.request, organization)
-        return organization
+    def safely_get_object(self, queryset):
+        return self.organization
 
     # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
     @cached_property
@@ -210,7 +209,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         return {
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),

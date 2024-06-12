@@ -42,7 +42,6 @@ const DashboardRelationRow = ({
 }: DashboardRelationRowProps): JSX.Element => {
     const logic = addToDashboardModalLogic({
         insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
     })
     const { addToDashboard, removeFromDashboard } = useActions(logic)
     const { dashboardWithActiveAPICall } = useValues(logic)
@@ -104,7 +103,6 @@ export function AddToDashboardModal({
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic({
         insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
     })
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
@@ -128,7 +126,10 @@ export function AddToDashboardModal({
 
     return (
         <LemonModal
-            onClose={closeModal}
+            onClose={() => {
+                closeModal()
+                setSearchQuery('')
+            }}
             isOpen={isOpen}
             title="Add to dashboard"
             footer={
@@ -139,7 +140,7 @@ export function AddToDashboardModal({
                             onClick={addNewDashboard}
                             disabledReason={
                                 !canEditInsight
-                                    ? 'You do not have permission to add this Insight to dashboards'
+                                    ? 'You do not have permission to add this insight to dashboards'
                                     : undefined
                             }
                         >
@@ -162,9 +163,8 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">
-                    This insight is referenced on{' '}
-                    <strong className="text-default">{insight.dashboard_tiles?.length}</strong>{' '}
-                    {pluralize(insight.dashboard_tiles?.length || 0, 'dashboard', 'dashboards', false)}
+                    This insight is referenced on <strong className="text-default">{currentDashboards.length}</strong>{' '}
+                    {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ minHeight: 420 }}>

@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Dict, Literal, cast
+from typing import Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -24,6 +24,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    CachedPathsQueryResponse,
     FunnelsActorsQuery,
     FunnelsFilter,
     HogQLQueryModifiers,
@@ -43,11 +44,12 @@ EDGE_LIMIT_DEFAULT = 50
 
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
-    query_type = PathsQuery
+    response: PathsQueryResponse
+    cached_response: CachedPathsQueryResponse
 
     def __init__(
         self,
-        query: PathsQuery | Dict[str, Any],
+        query: PathsQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -80,13 +82,13 @@ class PathsQueryRunner(QueryRunner):
         if not self.query.pathsFilter.includeEventTypes:
             return []
 
-        if PathType.field_pageview in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_PAGEVIEW in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=PAGEVIEW_EVENT)}))
 
-        if PathType.field_screen in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_SCREEN in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=SCREEN_EVENT)}))
 
-        if PathType.custom_event in self.query.pathsFilter.includeEventTypes:
+        if PathType.CUSTOM_EVENT in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
@@ -144,8 +146,8 @@ class PathsQueryRunner(QueryRunner):
         funnelSourceFilter = funnelSource.funnelsFilter or FunnelsFilter()
 
         if funnelPathType in (
-            FunnelPathType.funnel_path_after_step,
-            FunnelPathType.funnel_path_before_step,
+            FunnelPathType.FUNNEL_PATH_AFTER_STEP,
+            FunnelPathType.FUNNEL_PATH_BEFORE_STEP,
         ):
             funnel_fields = [
                 ast.Alias(alias="target_timestamp", expr=ast.Field(chain=["funnel_actors", "timestamp"])),
@@ -153,15 +155,15 @@ class PathsQueryRunner(QueryRunner):
             interval = funnelSourceFilter.funnelWindowInterval or 14
             unit = funnelSourceFilter.funnelWindowIntervalUnit
             interval_unit = funnel_window_interval_unit_to_sql(unit)
-            operator = ">=" if funnelPathType == FunnelPathType.funnel_path_after_step else "<="
+            operator = ">=" if funnelPathType == FunnelPathType.FUNNEL_PATH_AFTER_STEP else "<="
             default_case = f"events.timestamp {operator} toTimeZone({{target_timestamp}}, 'UTC')"
-            if funnelPathType == FunnelPathType.funnel_path_after_step and funnelStep and funnelStep < 0:
+            if funnelPathType == FunnelPathType.FUNNEL_PATH_AFTER_STEP and funnelStep and funnelStep < 0:
                 default_case += f" + INTERVAL {interval} {interval_unit}"
             event_filter = parse_expr(
                 default_case, {"target_timestamp": ast.Field(chain=["funnel_actors", "timestamp"])}
             )
             return funnel_fields, event_filter
-        elif funnelPathType == FunnelPathType.funnel_path_between_steps:
+        elif funnelPathType == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS:
             funnel_fields = [
                 ast.Alias(alias="min_timestamp", expr=ast.Field(chain=["funnel_actors", "min_timestamp"])),
                 ast.Alias(alias="max_timestamp", expr=ast.Field(chain=["funnel_actors", "max_timestamp"])),
@@ -208,11 +210,11 @@ class PathsQueryRunner(QueryRunner):
         assert isinstance(actors_query_runner.source_runner, FunnelsQueryRunner)
         assert actors_query_runner.source_runner.context is not None
         actors_query_runner.source_runner.context.includeTimestamp = funnelPathType in (
-            FunnelPathType.funnel_path_after_step,
-            FunnelPathType.funnel_path_before_step,
+            FunnelPathType.FUNNEL_PATH_AFTER_STEP,
+            FunnelPathType.FUNNEL_PATH_BEFORE_STEP,
         )
         actors_query_runner.source_runner.context.includePrecedingTimestamp = (
-            funnelPathType == FunnelPathType.funnel_path_between_steps
+            funnelPathType == FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS
         )
         actors_query = actors_query_runner.to_query()
 
@@ -228,6 +230,7 @@ class PathsQueryRunner(QueryRunner):
                         left=ast.Field(chain=["events", "person_id"]),
                         right=ast.Field(chain=["funnel_actors", "actor_id"]),
                     ),
+                    constraint_type="ON",
                 ),
             ),
         )
@@ -527,7 +530,7 @@ class PathsQueryRunner(QueryRunner):
             funnelSourceFilter = self.query.funnelPathsFilter.funnelSource.funnelsFilter or FunnelsFilter()
 
             interval = 14
-            interval_unit = FunnelConversionWindowTimeUnit.day
+            interval_unit = FunnelConversionWindowTimeUnit.DAY
 
             if funnelSourceFilter.funnelWindowInterval:
                 interval = funnelSourceFilter.funnelWindowInterval

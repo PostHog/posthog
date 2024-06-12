@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any
 
 import structlog
 from django.http import HttpResponse
@@ -40,7 +40,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename"]
 
-    def validate(self, data: Dict) -> Dict:
+    def validate(self, data: dict) -> dict:
         if not data.get("export_format"):
             raise ValidationError("Must provide export format")
 
@@ -61,13 +61,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
         return self._create_asset(self.validated_data, user=None, reason=reason)
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
         return self._create_asset(validated_data, user=request.user, reason=None)
 
     def _create_asset(
         self,
-        validated_data: Dict,
+        validated_data: dict,
         user: User | None,
         reason: str | None,
     ) -> ExportedAsset:
@@ -136,8 +136,7 @@ class ExportedAssetViewSet(
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset):
         if self.action == "list":
             return queryset.filter(created_by=self.request.user)
         return queryset

@@ -23,7 +23,7 @@
             [1]:
         https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/Logger.h#L105-L114
         -->
-        <level>trace</level>
+        <level>error</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <!-- Rotation policy
@@ -285,7 +285,7 @@
     -->
 
     <!-- Maximum number of concurrent queries. -->
-    <max_concurrent_queries>100</max_concurrent_queries>
+    <max_concurrent_queries>200</max_concurrent_queries>
 
     <!-- Maximum memory usage (resident set size) for server process.
          Zero value or unset means default. Default is "max_server_memory_usage_to_ram_ratio" of available
@@ -878,10 +878,21 @@
 
         <!-- Interval of flushing data. -->
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
+        <max_size_rows>1048576</max_size_rows>
+        <!-- Pre-allocated size in lines for the logs. -->
+        <reserved_size_rows>8192</reserved_size_rows>
+        <!-- Lines amount threshold, reaching it launches flushing logs to the disk in background. -->
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <!-- Indication whether logs should be dumped to the disk in case of a crash -->
+        <flush_on_crash>false</flush_on_crash>
+
+        <!-- example of using a different storage policy for a system table -->
+        <!-- storage_policy>local_ssd</storage_policy -->
     </query_log>
 
     <!-- Trace log. Stores stack traces collected by query profilers.
-         See query_profiler_real_time_period_ns and query_profiler_cpu_time_period_ns settings. -->
+         See query_profiler_real_time_period_ns and query_profiler_cpu_time_period_ns settings.
     <trace_log>
         <database>system</database>
         <table>trace_log</table>
@@ -889,6 +900,7 @@
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </trace_log>
+  -->
 
     <!-- Query thread log. Has information about all threads participated in query execution.
          Used only for queries with setting log_query_threads = 1. -->
@@ -897,6 +909,10 @@
         <table>query_thread_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>1048576</max_size_rows>
+        <reserved_size_rows>8192</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <flush_on_crash>false</flush_on_crash>
     </query_thread_log>
 
     <!-- Query views log. Has information about all dependent views associated with a query.
@@ -910,13 +926,14 @@
 
     <!-- Uncomment if use part log.
          Part log contains information about all actions with parts in MergeTree tables (creation, deletion,
-    merges, downloads).-->
+    merges, downloads).
     <part_log>
         <database>system</database>
         <table>part_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </part_log>
+  -->
 
     <!-- Uncomment to write text log into table.
          Text log contains all information from usual server log but stores it in structured and efficient
@@ -987,6 +1004,10 @@
 
         <partition_by />
         <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+        <max_size_rows>1024</max_size_rows>
+        <reserved_size_rows>1024</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>512</buffer_size_rows_flush_threshold>
+        <flush_on_crash>true</flush_on_crash>
     </crash_log>
 
     <!-- Session log. Stores user log in (successful or not) and log out events. -->

@@ -1,10 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    convertSnapshotsByWindowId,
-    snapshotsAsRealTimeJSONPayload,
-} from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
     deduplicateSnapshots,
     sessionRecordingDataLogic,
@@ -16,7 +13,6 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { waitForExpect } from '~/test/waitForExpect'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
@@ -51,10 +47,9 @@ describe('sessionRecordingDataLogic', () => {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'realtime') {
                         if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json({ snapshots: [] }))
+                            return res(ctx.json([]))
                         }
-                        // ... since this is fake, we'll just return the same data in the right format
-                        return res(ctx.json(snapshotsAsRealTimeJSONPayload()))
+                        return res(ctx.text(snapshotsAsJSONLines()))
                     }
 
                     // with no source requested should return sources
@@ -381,46 +376,6 @@ describe('sessionRecordingDataLogic', () => {
                     action.payload.source?.source === 'realtime',
                 'loadSnapshotsForSourceSuccess',
             ])
-        })
-
-        it('polls up to a max threshold', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions([
-                    'loadSnapshotsForSource', // blob
-                    'loadSnapshotsForSourceSuccess',
-                    // the returned data isn't changing from our mock,
-                    // so we'll not keep polling indefinitely
-                    'loadSnapshotsForSource', // 1
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 2
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 3
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 4
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 5
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 6
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 7
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 8
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 9
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 10
-                    'loadSnapshotsForSourceSuccess',
-                ])
-                .toNotHaveDispatchedActions([
-                    // this isn't called again
-                    'loadSnapshotsForSource',
-                ])
-
-            await waitForExpect(() => {
-                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
-            })
         })
     })
 

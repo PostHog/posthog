@@ -63,7 +63,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"
-            + "\n".join((f'- {field["key"]} ({field["type"]})' for field in table_fields))
+            + "\n".join(f'- {field["key"]} ({field["type"]})' for field in table_fields)
             for table_name, table_fields in serialized_database.items()
         )
     )

@@ -26,6 +26,7 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         canEditDashboard,
+        stale,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -137,6 +138,7 @@ export function DashboardItems(): JSX.Element {
                                 <InsightCard
                                     key={tile.id}
                                     insight={insight}
+                                    stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
                                     apiErrored={refreshStatus[insight.short_id]?.error || false}

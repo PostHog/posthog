@@ -1,6 +1,6 @@
 import hashlib
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from django.db import models, transaction
 from django.forms.models import model_to_dict
@@ -9,8 +9,8 @@ from posthog.models.element import Element
 from posthog.models.team import Team
 
 
-def hash_elements(elements: List) -> str:
-    elements_list: List[Dict] = []
+def hash_elements(elements: list) -> str:
+    elements_list: list[dict] = []
     for element in elements:
         el_dict = model_to_dict(element)
         [el_dict.pop(key) for key in ["event", "id", "group"]]

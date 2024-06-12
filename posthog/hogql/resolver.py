@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast, Literal
+from typing import Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import validate_function_args
+from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
@@ -31,34 +31,53 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
         return ast.UnknownType()
     if isinstance(constant, bool):
-        return ast.BooleanType()
+        return ast.BooleanType(nullable=False)
     if isinstance(constant, int):
-        return ast.IntegerType()
+        return ast.IntegerType(nullable=False)
     if isinstance(constant, float):
-        return ast.FloatType()
+        return ast.FloatType(nullable=False)
     if isinstance(constant, str):
-        return ast.StringType()
+        return ast.StringType(nullable=False)
     if isinstance(constant, list):
         unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()
+            nullable=False,
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType(),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
+        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
-        return ast.DateTimeType()
+        return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
-        return ast.DateType()
+        return ast.DateType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
-        return ast.UUIDType()
+        return ast.UUIDType(nullable=False)
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
+def resolve_types_from_table(
+    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+) -> ast.Expr:
+    if context.database is None:
+        raise QueryError("Database needs to be defined")
+
+    if not context.database.has_table(table_name):
+        raise QueryError(f'Table "{table_name}" does not exist')
+
+    select_node = ast.SelectQuery(
+        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+    )
+    select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
+    assert select_node_with_types.type is not None
+
+    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+
 def resolve_types(
-    node: ast.Expr,
+    node: ast.Expr | ast.SelectQuery,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    scopes: Optional[List[ast.SelectQueryType]] = None,
+    scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
@@ -66,7 +85,7 @@ def resolve_types(
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.aliases: List[str] = []
+        self.aliases: list[str] = []
 
     def visit_alias(self, node: ast.Alias):
         self.aliases.append(node.alias)
@@ -80,18 +99,18 @@ class Resolver(CloningVisitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
-        scopes: Optional[List[ast.SelectQueryType]] = None,
+        scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.scopes: list[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr) -> ast.Expr:
+    def visit(self, node: ast.Expr | None) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -101,8 +120,18 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        # all expressions combined by UNION ALL can use CTEs from the first expression
+        # so we put these CTEs to the scope
+        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        if default_ctes:
+            self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
+
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+
+        if default_ctes:
+            self.scopes.pop()
+
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -214,7 +243,7 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
@@ -300,10 +329,15 @@ class Resolver(CloningVisitor):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
+
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
+
             scope.tables[table_alias] = node_type
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
-            node = cast(ast.JoinExpr, clone_expr(node))
             node.type = node_type
             node.table = cast(ast.Field, clone_expr(node.table))
             node.table.type = node_table_type
@@ -320,7 +354,8 @@ class Resolver(CloningVisitor):
             if is_global:
                 node.next_join.join_type = "GLOBAL JOIN"
 
-            node.constraint = self.visit(node.constraint)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
@@ -331,6 +366,9 @@ class Resolver(CloningVisitor):
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = super().visit(node.table)
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
@@ -355,7 +393,8 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
-            node.constraint = self.visit(node.constraint)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             return node
@@ -382,6 +421,33 @@ class Resolver(CloningVisitor):
             scope.aliases[node.alias] = node.type
         return node
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        node = super().visit_arithmetic_operation(node)
+
+        if node.left.type is None or node.right.type is None:
+            return node
+
+        left_type = node.left.type.resolve_constant_type(self.context)
+        right_type = node.right.type.resolve_constant_type(self.context)
+
+        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.IntegerType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+            node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
+            node.type = ast.UnknownType()
+        else:
+            node.type = ast.UnknownType()
+
+        node.type.nullable = left_type.nullable or right_type.nullable
+        return node
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -393,25 +459,54 @@ class Resolver(CloningVisitor):
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
-        arg_types: List[ast.ConstantType] = []
+        arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type(self.context))
             else:
                 arg_types.append(ast.UnknownType())
-        param_types: Optional[List[ast.ConstantType]] = None
+        param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
-            for param in node.params:
+            for i, param in enumerate(node.params):
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type(self.context))
                 else:
-                    param_types.append(ast.UnknownType())
+                    raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
+
+        return_type = None
+
+        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
+            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
+            if signatures:
+                for sig_arg_types, sig_return_type in signatures:
+                    if sig_arg_types is None:
+                        return_type = sig_return_type
+                        break
+
+                    if compare_types(arg_types, sig_arg_types):
+                        return_type = sig_return_type
+                        break
+
+        if return_type is None:
+            return_type = ast.UnknownType()
+
+            # Uncomment once all hogql mappings are complete with signatures
+            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
+            # raise ResolutionError(
+            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
+            # )
+
+        if node.name == "concat":
+            return_type.nullable = False
+        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
         node.type = ast.CallType(
             name=node.name,
             arg_types=arg_types,
             param_types=param_types,
-            return_type=ast.UnknownType(),
+            return_type=return_type,
         )
         return node
 
@@ -450,7 +545,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         type: Optional[ast.Type] = None
-        name = node.chain[0]
+        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
@@ -487,10 +582,18 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
-            raise QueryError(f"Unable to resolve field: {name}")
+            if self.dialect == "clickhouse":
+                raise QueryError(f"Unable to resolve field: {name}")
+            else:
+                type = ast.UnresolvedFieldType(name=name)
+                self.context.add_error(
+                    start=node.start,
+                    end=node.end,
+                    message=f"Unable to resolve field: {name}",
+                )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
-        field_name = node.chain[-1]
+        field_name = str(node.chain[-1])
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
@@ -509,7 +612,7 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            loop_type = loop_type.get_child(next_chain, self.context)
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -518,7 +621,7 @@ class Resolver(CloningVisitor):
             # only swap out expression fields in ClickHouse
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
-                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
                 new_node = self.visit(new_node)
                 return new_node
 
@@ -537,7 +640,7 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
-            property_alias = "__".join(node.type.chain)
+            property_alias = "__".join(str(s) for s in node.type.chain)
             return ast.Alias(
                 alias=property_alias,
                 expr=node,
@@ -602,17 +705,21 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(
+            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+        )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -635,7 +742,7 @@ class Resolver(CloningVisitor):
                 )
 
         node = super().visit_compare_operation(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=False)
 
         if (
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)

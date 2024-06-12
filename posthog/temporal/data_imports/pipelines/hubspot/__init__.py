@@ -23,7 +23,8 @@ python
 >>> resources = hubspot(api_key="hubspot_access_code")
 """
 
-from typing import Literal, Sequence, Iterator, Iterable
+from typing import Literal
+from collections.abc import Sequence, Iterator, Iterable
 
 import dlt
 from dlt.common.typing import TDataItems
@@ -114,13 +115,11 @@ def crm_objects(
 
     if len(props) > 10000:
         raise ValueError(
-            (
-                "Your request to Hubspot is too long to process. "
-                "Maximum allowed query length is 10000 symbols, while "
-                f"your list of properties `{props[:200]}`... is {len(props)} "
-                "symbols long. Use the `props` argument of the resource to "
-                "set the list of properties to extract from the endpoint."
-            )
+            "Your request to Hubspot is too long to process. "
+            "Maximum allowed query length is 10000 symbols, while "
+            f"your list of properties `{props[:200]}`... is {len(props)} "
+            "symbols long. Use the `props` argument of the resource to "
+            "set the list of properties to extract from the endpoint."
         )
 
     params = {"properties": props, "limit": 100}

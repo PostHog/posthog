@@ -31,9 +31,8 @@ export const filterTestAccountsDefaultsLogic = kea<filterTestAccountsDefaultsLog
                     return localFilterTestAccountsDefault
                 } else if (currentTeam?.test_account_filters_default_checked) {
                     return currentTeam?.test_account_filters_default_checked
-                } else {
-                    return false
                 }
+                return false
             },
         ],
     }),

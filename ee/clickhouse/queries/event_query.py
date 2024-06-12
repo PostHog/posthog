@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
@@ -33,11 +33,11 @@ class EnterpriseEventQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: Optional[List[ColumnName]] = None,
-        extra_event_properties: Optional[List[PropertyName]] = None,
-        extra_person_fields: Optional[List[ColumnName]] = None,
+        extra_fields: Optional[list[ColumnName]] = None,
+        extra_event_properties: Optional[list[PropertyName]] = None,
+        extra_person_fields: Optional[list[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         if extra_person_fields is None:
@@ -62,7 +62,7 @@ class EnterpriseEventQuery(EventQuery):
 
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
 
-    def _get_groups_query(self) -> Tuple[str, Dict]:
+    def _get_groups_query(self) -> tuple[str, dict]:
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -26,8 +26,8 @@ from posthog.queries.util import PersonPropertiesMode
 from posthog.schema import PersonsOnEventsMode
 from posthog.utils import relative_date_parse
 
-Relative_Date = Tuple[int, OperatorInterval]
-Event = Tuple[str, Union[str, int]]
+Relative_Date = tuple[int, OperatorInterval]
+Event = tuple[str, Union[str, int]]
 
 
 INTERVAL_TO_SECONDS = {
@@ -40,7 +40,7 @@ INTERVAL_TO_SECONDS = {
 }
 
 
-def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
+def relative_date_to_seconds(date: tuple[Optional[int], Union[OperatorInterval, None]]):
     if date[0] is None or date[1] is None:
         raise ValueError("Time value and time interval must be specified")
 
@@ -66,7 +66,7 @@ def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -
     return parsed_value
 
 
-def validate_entity(possible_event: Tuple[Optional[str], Optional[Union[int, str]]]) -> Event:
+def validate_entity(possible_event: tuple[Optional[str], Optional[Union[int, str]]]) -> Event:
     event_type = possible_event[0]
     event_val = possible_event[1]
     if event_type is None or event_val is None:
@@ -83,7 +83,7 @@ def relative_date_is_greater(date_1: Relative_Date, date_2: Relative_Date) -> bo
     return relative_date_to_seconds(date_1) > relative_date_to_seconds(date_2)
 
 
-def convert_to_entity_params(events: List[Event]) -> Tuple[List, List]:
+def convert_to_entity_params(events: list[Event]) -> tuple[list, list]:
     res_events = []
     res_actions = []
 
@@ -124,8 +124,8 @@ class FOSSCohortQuery(EventQuery):
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
     FUNNEL_QUERY_ALIAS = "funnel_query"
     SEQUENCE_FIELD_ALIAS = "steps"
-    _fields: List[str]
-    _events: List[str]
+    _fields: list[str]
+    _events: list[str]
     _earliest_time_for_event_query: Optional[Relative_Date]
     _restrict_event_query_by_time: bool
 
@@ -139,9 +139,9 @@ class FOSSCohortQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: Optional[List[ColumnName]] = None,
-        extra_event_properties: Optional[List[PropertyName]] = None,
-        extra_person_fields: Optional[List[ColumnName]] = None,
+        extra_fields: Optional[list[ColumnName]] = None,
+        extra_event_properties: Optional[list[PropertyName]] = None,
+        extra_person_fields: Optional[list[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
@@ -187,14 +187,16 @@ class FOSSCohortQuery(EventQuery):
                     if not negate_group:
                         return PropertyGroup(
                             type=property_group.type,
-                            values=[_unwrap(v) for v in cast(List[PropertyGroup], property_group.values)],
+                            values=[_unwrap(v) for v in cast(list[PropertyGroup], property_group.values)],
                         )
                     else:
                         return PropertyGroup(
-                            type=PropertyOperatorType.AND
-                            if property_group.type == PropertyOperatorType.OR
-                            else PropertyOperatorType.OR,
-                            values=[_unwrap(v, True) for v in cast(List[PropertyGroup], property_group.values)],
+                            type=(
+                                PropertyOperatorType.AND
+                                if property_group.type == PropertyOperatorType.OR
+                                else PropertyOperatorType.OR
+                            ),
+                            values=[_unwrap(v, True) for v in cast(list[PropertyGroup], property_group.values)],
                         )
 
                 elif isinstance(property_group.values[0], Property):
@@ -202,7 +204,7 @@ class FOSSCohortQuery(EventQuery):
                     # if any single one is a cohort property, unwrap it into a property group
                     # which implies converting everything else in the list into a property group too
 
-                    new_property_group_list: List[PropertyGroup] = []
+                    new_property_group_list: list[PropertyGroup] = []
                     for prop in property_group.values:
                         prop = cast(Property, prop)
                         current_negation = prop.negation or False
@@ -246,9 +248,11 @@ class FOSSCohortQuery(EventQuery):
                         return PropertyGroup(type=property_group.type, values=new_property_group_list)
                     else:
                         return PropertyGroup(
-                            type=PropertyOperatorType.AND
-                            if property_group.type == PropertyOperatorType.OR
-                            else PropertyOperatorType.OR,
+                            type=(
+                                PropertyOperatorType.AND
+                                if property_group.type == PropertyOperatorType.OR
+                                else PropertyOperatorType.OR
+                            ),
                             values=new_property_group_list,
                         )
 
@@ -258,7 +262,7 @@ class FOSSCohortQuery(EventQuery):
         return filter.shallow_clone({"properties": new_props.to_dict()})
 
     # Implemented in /ee
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
@@ -294,7 +298,7 @@ class FOSSCohortQuery(EventQuery):
 
         return final_query, self.params
 
-    def _build_sources(self, subq: List[Tuple[str, str]]) -> Tuple[str, str]:
+    def _build_sources(self, subq: list[tuple[str, str]]) -> tuple[str, str]:
         q = ""
         filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
 
@@ -306,7 +310,7 @@ class FOSSCohortQuery(EventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
-                    if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+                    if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
@@ -325,7 +329,7 @@ class FOSSCohortQuery(EventQuery):
 
         return q, fields
 
-    def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_behavior_subquery(self) -> tuple[str, dict[str, Any], str]:
         #
         # Get the subquery for the cohort query.
         #
@@ -337,11 +341,11 @@ class FOSSCohortQuery(EventQuery):
         query, params = "", {}
         if self._should_join_behavioral_query:
             _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.disabled else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
+            if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -371,7 +375,7 @@ class FOSSCohortQuery(EventQuery):
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
-    def _get_persons_query(self, prepend: str = "") -> Tuple[str, Dict[str, Any], str]:
+    def _get_persons_query(self, prepend: str = "") -> tuple[str, dict[str, Any], str]:
         query, params = "", {}
         if self._should_join_persons:
             person_query, person_params = self._person_query.get_query(prepend=prepend)
@@ -387,9 +391,9 @@ class FOSSCohortQuery(EventQuery):
             prop.type for prop in getattr(self._outer_property_groups, "flat", [])
         ] and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
 
-    def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_date_condition(self) -> tuple[str, dict[str, Any]]:
         date_query = ""
-        date_params: Dict[str, Any] = {}
+        date_params: dict[str, Any] = {}
         earliest_time_param = f"earliest_time_{self._cohort_pk}"
 
         if self._earliest_time_for_event_query and self._restrict_event_query_by_time:
@@ -404,7 +408,7 @@ class FOSSCohortQuery(EventQuery):
         elif relative_date_is_greater(relative_date, self._earliest_time_for_event_query):
             self._earliest_time_for_event_query = relative_date
 
-    def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_conditions(self) -> tuple[str, dict[str, Any]]:
         def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
             if not prop:
                 return "", {}
@@ -426,9 +430,9 @@ class FOSSCohortQuery(EventQuery):
         return f"AND ({conditions})" if conditions else "", params
 
     # Implemented in /ee
-    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         res: str = ""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
 
         if prop.type == "behavioral":
             if prop.value == "performed_event":
@@ -446,7 +450,7 @@ class FOSSCohortQuery(EventQuery):
 
         return res, params
 
-    def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_person_condition(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         if self._outer_property_groups and len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
                 prop,
@@ -459,7 +463,7 @@ class FOSSCohortQuery(EventQuery):
         else:
             return "", {}
 
-    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
@@ -467,8 +471,8 @@ class FOSSCohortQuery(EventQuery):
         query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
-    def _get_entity_event_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        params: Dict[str, Any] = {}
+    def _get_entity_event_filters(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
+        params: dict[str, Any] = {}
 
         if prop.event_filters:
             prop_query, prop_params = parse_prop_grouped_clauses(
@@ -491,7 +495,7 @@ class FOSSCohortQuery(EventQuery):
         # one extra day for any partial days
         return (delta.days + 1, "day")
 
-    def _get_entity_datetime_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def _get_entity_datetime_filters(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date, follows same convention
             # as all analytics datetime filters
@@ -512,7 +516,7 @@ class FOSSCohortQuery(EventQuery):
 
             return f"timestamp > now() - INTERVAL %({date_param})s {date_interval}", {f"{date_param}": date_value}
 
-    def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         column_name = f"performed_event_condition_{prepend}_{idx}"
 
@@ -530,7 +534,7 @@ class FOSSCohortQuery(EventQuery):
             **entity_filters_params,
         }
 
-    def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         event = (prop.event_type, prop.key)
         column_name = f"performed_event_multiple_condition_{prepend}_{idx}"
 
@@ -557,7 +561,7 @@ class FOSSCohortQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = (
-            self._person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events
+            self._person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         )
 
     def _determine_should_join_persons(self) -> None:
@@ -591,12 +595,12 @@ class FOSSCohortQuery(EventQuery):
 
     def _get_entity(
         self,
-        event: Tuple[Optional[str], Optional[Union[int, str]]],
+        event: tuple[Optional[str], Optional[Union[int, str]]],
         prepend: str,
         idx: int,
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         res: str = ""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
 
         if event[0] is None or event[1] is None:
             raise ValueError("Event type and key must be specified")
@@ -626,8 +630,9 @@ class FOSSCohortQuery(EventQuery):
 
     def _add_action(self, action_id: int) -> None:
         action = Action.objects.get(id=action_id)
-        for step in action.steps.all():
-            self._events.append(step.event)
+        for step in action.steps:
+            if step.event:
+                self._events.append(step.event)
 
     def _add_event(self, event_id: str) -> None:
         self._events.append(event_id)

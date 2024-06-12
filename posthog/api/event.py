@@ -1,7 +1,7 @@
 import json
 import urllib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union  # noqa: UP035
 
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
@@ -94,7 +94,7 @@ class EventViewSet(
         self,
         request: request.Request,
         last_event_timestamp: datetime,
-        order_by: List[str],
+        order_by: list[str],
     ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
@@ -175,7 +175,7 @@ class EventViewSet(
 
             team = self.team
             filter = Filter(request=request, team=self.team)
-            order_by: List[str] = (
+            order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
@@ -217,11 +217,11 @@ class EventViewSet(
             capture_exception(ex)
             raise ex
 
-    def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
+    def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        distinct_to_person: Dict[str, Person] = {}
+        distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
                 distinct_to_person[distinct_id] = person
@@ -258,7 +258,7 @@ class EventViewSet(
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         team = self.team
 

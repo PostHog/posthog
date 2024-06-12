@@ -1,5 +1,5 @@
 import sys
-from typing import Dict, List, Optional
+from typing import Optional
 
 import lxml
 import toronado
@@ -54,9 +54,9 @@ EMAIL_TASK_KWARGS = {
 @shared_task(**EMAIL_TASK_KWARGS)
 def _send_email(
     campaign_key: str,
-    to: List[Dict[str, str]],
+    to: list[dict[str, str]],
     subject: str,
-    headers: Dict,
+    headers: dict,
     txt_body: str = "",
     html_body: str = "",
     reply_to: Optional[str] = None,
@@ -65,8 +65,8 @@ def _send_email(
     Sends built email message asynchronously.
     """
 
-    messages: List = []
-    records: List = []
+    messages: list = []
+    records: list = []
 
     with transaction.atomic():
         for dest in to:
@@ -135,8 +135,8 @@ class EmailMessage:
         campaign_key: str,
         subject: str,
         template_name: str,
-        template_context: Optional[Dict] = None,
-        headers: Optional[Dict] = None,
+        template_context: Optional[dict] = None,
+        headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
     ):
         if template_context is None:
@@ -153,7 +153,7 @@ class EmailMessage:
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
         self.headers = headers if headers else {}
-        self.to: List[Dict[str, str]] = []
+        self.to: list[dict[str, str]] = []
         self.reply_to = reply_to
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:

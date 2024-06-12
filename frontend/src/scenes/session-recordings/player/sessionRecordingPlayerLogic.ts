@@ -352,6 +352,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
+        roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [
             (s) => [
                 s.playingState,
@@ -444,9 +445,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (isSkippingInactivity) {
                     const secondsToSkip = ((currentSegment?.endTimestamp ?? 0) - (currentTimestamp ?? 0)) / 1000
                     return Math.max(50, secondsToSkip)
-                } else {
-                    return speed
                 }
+                return speed
             },
         ],
         segmentForTimestamp: [
@@ -814,47 +814,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
-            const skip = values.playerSpeed * (1000 / 60) // rough animation fps
-            if (
-                rrwebPlayerTime !== undefined &&
-                newTimestamp !== undefined &&
-                (values.currentPlayerState === SessionPlayerState.PLAY ||
-                    values.currentPlayerState === SessionPlayerState.SKIP) &&
-                values.timestampChangeTracking.timestampMatchesPrevious > 10
-            ) {
-                // NOTE: We should investigate if this is still happening - logging to posthog recording so we can find this in the future
-                posthog.sessionRecording?.log(
-                    'stuck session player detected - this indicates an issue with the segmenter',
-                    'warn'
-                )
-                cache.debug?.('stuck session player detected', {
-                    timestampChangeTracking: values.timestampChangeTracking,
-                    currentSegment: values.currentSegment,
-                    snapshots: values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId ?? ''],
-                    player: values.player,
-                    meta: values.player?.replayer.getMetaData(),
-                    rrwebPlayerTime,
-                    segments: values.sessionPlayerData.segments,
-                    segmentIndex:
-                        values.currentSegment && values.sessionPlayerData.segments.indexOf(values.currentSegment),
-                })
-
-                actions.skipPlayerForward(rrwebPlayerTime, skip)
-                newTimestamp = newTimestamp + skip
-            }
-
             if (newTimestamp == undefined && values.currentTimestamp) {
                 // This can happen if the player is not loaded due to us being in a "gap" segment
                 // In this case, we should progress time forward manually
-
                 if (values.currentSegment?.kind === 'gap') {
                     cache.debug?.('gap segment: skipping forward')
-                    newTimestamp = values.currentTimestamp + skip
+                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
             }
 
+            // If we're beyond buffered position, set to buffering
+            if (values.currentSegment?.kind === 'buffer') {
+                // Pause only the animation, not our player, so it will restart
+                // when the buffering progresses
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+                actions.setErrorPlayerState(false)
+                cache.debug('buffering')
+                return
+            }
+
+            if (newTimestamp == undefined) {
+                // no newTimestamp is unexpected, bail out
+                return
+            }
+
             // If we are beyond the current segment then move to the next one
-            if (newTimestamp && values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
+            if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
                 const nextSegment = values.segmentForTimestamp(newTimestamp)
 
                 if (nextSegment) {
@@ -874,22 +860,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            // If we're beyond buffered position, set to buffering
-            if (values.currentSegment?.kind === 'buffer') {
-                // Pause only the animation, not our player, so it will restart
-                // when the buffering progresses
-                values.player?.replayer?.pause()
-                actions.startBuffer()
-                actions.setErrorPlayerState(false)
-                cache.debug('buffering')
-                return
-            }
-
-            if (newTimestamp !== undefined) {
-                // The normal loop. Progress the player position and continue the loop
-                actions.setCurrentTimestamp(newTimestamp)
-                cache.timer = requestAnimationFrame(actions.updateAnimation)
-            }
+            // The normal loop. Progress the player position and continue the loop
+            actions.setCurrentTimestamp(newTimestamp)
+            cache.timer = requestAnimationFrame(actions.updateAnimation)
         },
         stopAnimation: () => {
             if (cache.timer) {
@@ -1003,7 +976,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -1011,6 +984,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+            }
+        },
+        timestampChangeTracking: (next) => {
+            if (next.timestampMatchesPrevious < 10) {
+                return
+            }
+
+            const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
+
+            if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
+                actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
     })),

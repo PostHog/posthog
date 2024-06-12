@@ -19,8 +19,8 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
-import { useEffect } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { useEffect, useMemo } from 'react'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
@@ -77,7 +77,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isEvent,
         isCohort,
         isDataWarehouse,
+        isDataWarehousePersonProperty,
         isProperty,
+        hasSentAs,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -142,13 +144,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     />
                 </DefinitionPopover.Grid>
 
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Section>
-                    <DefinitionPopover.Card
-                        title="Sent as"
-                        value={<span className="font-mono text-xs">{_definition.name}</span>}
-                    />
-                </DefinitionPopover.Section>
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Sent as"
+                                value={<span className="font-mono text-xs">{_definition.name}</span>}
+                            />
+                        </DefinitionPopover.Section>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -170,23 +176,46 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+        const hasSentAsLabel = useMemo(() => {
+            if (isDataWarehousePersonProperty) {
+                return _definition.id
+            }
+
+            if (_definition.name !== '') {
+                return _definition.name
+            }
+
+            return <i>(empty string)</i>
+        }, [isDataWarehousePersonProperty, _definition])
+
         return (
             <>
                 {sharedComponents}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="Sent as"
-                        value={
-                            <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                            </span>
-                        }
-                    />
-                </DefinitionPopover.Grid>
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title={isDataWarehousePersonProperty ? 'Table' : 'Sent as'}
+                                value={
+                                    <span
+                                        className="truncate text-mono text-xs"
+                                        title={
+                                            isDataWarehousePersonProperty
+                                                ? _definition.id
+                                                : _definition.name ?? undefined
+                                        }
+                                    >
+                                        {hasSentAsLabel}
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -249,10 +278,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         )
     }
     if (isDataWarehouse) {
-        const _definition = definition as DataWarehouseTableType
-        const columnOptions = _definition.columns.map((column) => ({
-            label: column.key + ' (' + column.type + ')',
-            value: column.key,
+        const _definition = definition as DataWarehouseTableForInsight
+        const columnOptions = Object.values(_definition.fields).map((column) => ({
+            label: column.name + ' (' + column.type + ')',
+            value: column.name,
         }))
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
 

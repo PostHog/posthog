@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from rest_framework import (
     exceptions,
@@ -31,6 +31,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "level",
             "is_expired",
             "created_by",
             "created_at",
@@ -49,7 +50,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
-    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
+    def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
             user__email=validated_data["target_email"],
@@ -93,12 +94,8 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
-    def get_queryset(self):
-        return (
-            self.filter_queryset_by_parents_lookups(super().get_queryset())
-            .select_related("created_by")
-            .order_by(self.ordering)
-        )
+    def safely_get_queryset(self, queryset):
+        return queryset.select_related("created_by").order_by(self.ordering)
 
     def lowercase_email_domain(self, email: str):
         # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be

@@ -3,7 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
@@ -26,10 +26,10 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     }),
 
-    actions({ setQuery: (query: Node) => ({ query }) }),
+    actions({ setQuery: (query: DataTableNode) => ({ query }) }),
     reducers(({ selectors }) => ({
         query: [
-            ((state: Record<string, any>) => getDefaultQuery(selectors.queryFlagEnabled(state))) as any as Node,
+            (state: DataTableNode) => getDefaultQuery(selectors.queryFlagEnabled(state)),
             { setQuery: (_, { query }) => query },
         ],
     })),

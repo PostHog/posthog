@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -23,6 +23,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedFunnelsQueryResponse,
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -32,12 +33,13 @@ from posthog.schema import (
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
-    query_type = FunnelsQuery
+    response: FunnelsQueryResponse
+    cached_response: CachedFunnelsQueryResponse
     context: FunnelQueryContext
 
     def __init__(
         self,
-        query: FunnelsQuery | Dict[str, Any],
+        query: FunnelsQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -110,9 +112,9 @@ class FunnelsQueryRunner(QueryRunner):
     def funnel_class(self):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
-        if funnelVizType == FunnelVizType.trends:
+        if funnelVizType == FunnelVizType.TRENDS:
             return FunnelTrends(context=self.context, **self.kwargs)
-        elif funnelVizType == FunnelVizType.time_to_convert:
+        elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
             return self.funnel_order_class

@@ -1,7 +1,7 @@
 import datetime
 import json
 from contextlib import ExitStack
-from typing import Dict, List, Optional, Union
+from typing import Optional, Union
 from uuid import UUID
 
 from zoneinfo import ZoneInfo
@@ -80,7 +80,7 @@ if TEST:
     except:
         pass
 
-    def bulk_create_persons(persons_list: List[Dict]):
+    def bulk_create_persons(persons_list: list[dict]):
         persons = []
         person_mapping = {}
         for _person in persons_list:
@@ -127,7 +127,7 @@ def create_person(
     team_id: int,
     version: int,
     uuid: Optional[str] = None,
-    properties: Optional[Dict] = None,
+    properties: Optional[dict] = None,
     sync: bool = False,
     is_identified: bool = False,
     is_deleted: bool = False,
@@ -217,7 +217,7 @@ def create_person_override(
     )
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
     return Person.objects.filter(
         team_id=team_id,
         persondistinctid__team_id=team_id,
@@ -225,7 +225,7 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
     )
 
 
-def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
+def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
@@ -254,7 +254,7 @@ def _delete_person(
     )
 
 
-def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
+def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)

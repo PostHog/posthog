@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
@@ -23,7 +24,18 @@ export const toolbarLogic = kea<toolbarLogicType>([
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
-            ['enableHeatmap', 'disableHeatmap'],
+            [
+                'enableHeatmap',
+                'disableHeatmap',
+                'patchHeatmapFilters',
+                'setHeatmapFixedPositionMode',
+                'setHeatmapColorPalette',
+                'setCommonFilters',
+                'toggleClickmapsEnabled',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
+            ],
         ],
     })),
     actions(() => ({
@@ -41,6 +53,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
+        setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -117,6 +130,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             null as HedgehogActor | null,
             {
                 setHedgehogActor: (_, { actor }) => actor,
+            },
+        ],
+        isEmbeddedInApp: [
+            false,
+            {
+                setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
     })),
@@ -265,6 +284,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
+        loadHeatmap: () => {
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
+        },
+        loadHeatmapSuccess: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
+        },
+        loadHeatmapFailure: () => {
+            // if embedded we need to signal start and finish of heatmap loading to the parent
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
@@ -274,8 +304,59 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         }
         window.addEventListener('mousedown', cache.clickListener)
+
+        // the toolbar can be run within the posthog parent app
+        // if it is then it listens to parent messages
+        const isInIframe = window !== window.parent
+
+        cache.iframeEventListener = (e: MessageEvent): void => {
+            // TODO: Probably need to have strict checks here
+            const type: PostHogAppToolbarEvent = e?.data?.type
+
+            if (!type || !type.startsWith('ph-')) {
+                return
+            }
+
+            switch (type) {
+                case PostHogAppToolbarEvent.PH_APP_INIT:
+                    actions.setIsEmbeddedInApp(true)
+                    actions.patchHeatmapFilters(e.data.payload.filters)
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    actions.setCommonFilters(e.data.payload.commonFilters)
+                    actions.toggleClickmapsEnabled(false)
+                    window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
+                    actions.enableHeatmap()
+                    return
+                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
+                    actions.patchHeatmapFilters(e.data.payload.filters)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
+                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
+                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                    return
+                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
+                    actions.setCommonFilters(e.data.payload.commonFilters)
+                    return
+                default:
+                    console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+            }
+        }
+
+        if (isInIframe) {
+            window.addEventListener('message', cache.iframeEventListener, false)
+            // Post message up to parent in case we are embedded in an app
+            // Tell the parent window that we are ready
+            // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
+        }
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
+        window.removeEventListener('message', cache.iframeEventListener, false)
     }),
 ])

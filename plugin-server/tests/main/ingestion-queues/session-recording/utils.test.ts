@@ -1,7 +1,6 @@
 import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
@@ -9,7 +8,6 @@ import {
     minDefined,
     parseKafkaBatch,
     parseKafkaMessage,
-    reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
 import { UUIDT } from '../../../../src/utils/utils'
@@ -223,7 +221,7 @@ describe('session-recording utils', () => {
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
                             },
-                            waitForAck: true,
+                            waitForAck: false,
                         },
                     ],
                 ],
@@ -243,7 +241,7 @@ describe('session-recording utils', () => {
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
                             },
-                            waitForAck: true,
+                            waitForAck: false,
                         },
                     ],
                 ],
@@ -714,67 +712,6 @@ describe('session-recording utils', () => {
             expect(parsedBatch.sessions[1].team_id).toEqual(13)
             expect(parsedBatch.sessions).toMatchSnapshot()
         })
-    })
-
-    describe('reduceMessages', () => {
-        const messages: IncomingRecordingMessage[] = [
-            // Should merge
-            {
-                distinct_id: '1',
-                eventsRange: { start: 1, end: 1 },
-                eventsByWindowId: { window_1: [{ timestamp: 1, type: 1, data: {} }] },
-                metadata: { lowOffset: 1, highOffset: 1, partition: 1, timestamp: 1, topic: 'the_topic', rawSize: 5 },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            {
-                distinct_id: '1',
-                eventsRange: { start: 2, end: 2 },
-                eventsByWindowId: { window_1: [{ timestamp: 2, type: 2, data: {} }] },
-                metadata: { lowOffset: 2, highOffset: 2, partition: 1, timestamp: 2, topic: 'the_topic', rawSize: 4 },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            // Different window_id but should still merge
-            {
-                distinct_id: '1',
-                eventsRange: { start: 3, end: 3 },
-                eventsByWindowId: { window_2: [{ timestamp: 3, type: 3, data: {} }] },
-                metadata: { lowOffset: 3, highOffset: 3, partition: 1, timestamp: 3, topic: 'the_topic', rawSize: 3 },
-                session_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            // different team
-            {
-                distinct_id: '1',
-                eventsRange: { start: 4, end: 4 },
-                eventsByWindowId: { window_1: [{ timestamp: 4, type: 4, data: {} }] },
-                metadata: { lowOffset: 4, highOffset: 4, partition: 1, timestamp: 4, topic: 'the_topic', rawSize: 30 },
-                session_id: '1',
-                team_id: 2,
-                snapshot_source: null,
-            },
-            // Different session_id
-            {
-                distinct_id: '1',
-                eventsRange: { start: 5, end: 5 },
-                eventsByWindowId: { window_1: [{ timestamp: 5, type: 5, data: {} }] },
-                metadata: { lowOffset: 5, highOffset: 5, partition: 1, timestamp: 5, topic: 'the_topic', rawSize: 31 },
-                session_id: '2',
-                team_id: 1,
-                snapshot_source: null,
-            },
-        ]
-
-        // Call it once already to make sure that it doesn't mutate the input
-        expect(reduceRecordingMessages(messages)).toHaveLength(3)
-        const reduced = reduceRecordingMessages(messages)
-        expect(reduceRecordingMessages(messages)).toMatchSnapshot()
-        expect(reduced[0].eventsRange).toEqual({ start: 1, end: 3 })
-        expect(reduced[0].metadata).toMatchObject({ lowOffset: 1, highOffset: 3 })
     })
 
     describe('allSettledWithConcurrency', () => {

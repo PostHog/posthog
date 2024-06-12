@@ -7,10 +7,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SurveyQuestion } from '~/types'
+import { Survey } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
-import { SurveyAppearance } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
@@ -54,15 +54,20 @@ export function SurveyTemplates(): JSX.Element {
                             </span>
                             <div className="SurveyTemplateContainer">
                                 <div className="SurveyTemplate">
-                                    <SurveyAppearance
+                                    <SurveyAppearancePreview
                                         key={idx}
-                                        surveyType={template.type}
-                                        appearance={{
-                                            ...defaultSurveyAppearance,
-                                            whiteLabel: true,
-                                            ...template.appearance,
-                                        }}
-                                        surveyQuestionItem={template.questions[0] as SurveyQuestion}
+                                        survey={
+                                            {
+                                                id: `templateMock-${idx}`,
+                                                questions: template.questions,
+                                                appearance: {
+                                                    ...defaultSurveyAppearance,
+                                                    whiteLabel: true,
+                                                    ...template.appearance,
+                                                },
+                                            } as Survey
+                                        }
+                                        previewPageIndex={0}
                                     />
                                 </div>
                             </div>

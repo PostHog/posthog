@@ -14,10 +14,10 @@ def get_ph_client():
     region = get_instance_region()
     if region == "EU":
         api_key = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
-        host = "https://eu.posthog.com"
+        host = "https://eu.i.posthog.com"
     elif region == "US":
         api_key = "sTMFPsFhdP1Ssg"
-        host = "https://app.posthog.com"
+        host = "https://us.i.posthog.com"
 
     if not api_key:
         return

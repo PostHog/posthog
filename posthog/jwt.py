@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any
 
 import jwt
 from django.conf import settings
@@ -10,6 +10,7 @@ class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
     IMPERSONATED_USER = "posthog:impersonted_user"  # This is used by background jobs on behalf of the user e.g. exports
+    LIVESTREAM = "posthog:livestream"
 
 
 def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
@@ -32,7 +33,7 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
     return encoded_jwt
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> Dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
     info = jwt.decode(token, settings.SECRET_KEY, audience=audience.value, algorithms=["HS256"])
 
     return info

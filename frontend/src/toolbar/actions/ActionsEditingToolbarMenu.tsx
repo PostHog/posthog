@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
@@ -9,7 +9,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { posthog } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -38,7 +38,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 startingSelector={editingSelectorValue}
                 onChange={(selector) => {
                     if (selector && editingSelector !== null) {
-                        posthog.capture('toolbar_manual_selector_applied', {
+                        toolbarPosthogJS.capture('toolbar_manual_selector_applied', {
                             chosenSelector: selector,
                         })
                         setElementSelector(selector, editingSelector)
@@ -52,7 +52,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
-                <ToolbarMenu.Header>
+                <ToolbarMenu.Header className="border-b">
                     <h1 className="p-1 font-bold text-sm mb-0">
                         {selectedActionId === 'new' ? 'New ' : 'Edit '}
                         action
@@ -124,9 +124,12 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     icon={<IconPencil />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
-                                                        posthog.capture('toolbar_manual_selector_modal_opened', {
-                                                            selector: step?.selector,
-                                                        })
+                                                        toolbarPosthogJS.capture(
+                                                            'toolbar_manual_selector_modal_opened',
+                                                            {
+                                                                selector: step?.selector,
+                                                            }
+                                                        )
                                                         editSelectorWithIndex(index)
                                                     }}
                                                 >
@@ -198,22 +201,25 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
                     <span className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => selectAction(null)}
-                            sideIcon={<IconX />}
-                        >
-                            Cancel
-                        </LemonButton>
+                        {selectedActionId !== 'new' ? (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={deleteAction}
+                                icon={<IconTrash />}
+                                size="small"
+                            >
+                                Delete
+                            </LemonButton>
+                        ) : null}
                     </span>
-                    <LemonButton type="primary" htmlType="submit">
+                    <LemonButton type="secondary" size="small" onClick={() => selectAction(null)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" htmlType="submit" size="small">
                         {selectedActionId === 'new' ? 'Create ' : 'Save '}
                         action
                     </LemonButton>
-                    {selectedActionId !== 'new' ? (
-                        <LemonButton type="secondary" status="danger" onClick={deleteAction} icon={<IconTrash />} />
-                    ) : null}
                 </ToolbarMenu.Footer>
             </Form>
         </ToolbarMenu>

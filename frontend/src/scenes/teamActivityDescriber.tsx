@@ -92,10 +92,11 @@ const teamActionsMapping: Record<
         return { description: descriptions }
     },
     session_recording_linked_flag(change: ActivityChange | undefined): ChangeMapping | null {
+        const key = (change?.after as any)?.key ?? (change?.before as any)?.key ?? String(change?.after)
         return {
             description: [
                 <>
-                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {change?.after}
+                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {key}
                 </>,
             ],
         }
@@ -150,7 +151,10 @@ const teamActionsMapping: Record<
     autocapture_exceptions_errors_to_ignore: () => null,
     autocapture_exceptions_opt_in: () => null,
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'enabled' : 'disabled'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+    },
+    heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
     },
     // and.... many more
     name(change: ActivityChange | undefined): ChangeMapping | null {
@@ -200,6 +204,22 @@ const teamActionsMapping: Record<
         }
         return { description: descriptions }
     },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,
@@ -207,6 +227,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    live_events_token: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

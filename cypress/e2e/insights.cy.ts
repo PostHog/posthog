@@ -78,12 +78,6 @@ describe('Insights', () => {
         savedInsights.checkInsightIsInListView(insightName)
     })
 
-    it('Shows not found error with invalid short URL', () => {
-        cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('contain', '/insights/i_dont_exist')
-        cy.get('.LemonSkeleton').should('exist')
-    })
-
     it('Stickiness graph', () => {
         cy.get('[role=tab]').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
@@ -103,7 +97,7 @@ describe('Insights', () => {
 
     it('Loads default filters correctly', () => {
         // Test that default params are set correctly even if the app doesn't start on insights
-        cy.visit('/events/') // Should work with trailing slash just like without it
+        cy.visit('/activity/explore/') // Should work with trailing slash just like without it
         cy.reload()
 
         cy.clickNavMenu('insight')

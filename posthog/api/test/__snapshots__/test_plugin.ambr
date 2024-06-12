@@ -19,12 +19,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -49,14 +50,38 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.10
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -70,7 +95,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -114,8 +139,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -129,7 +153,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.13
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -149,40 +173,15 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.13
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
@@ -205,14 +204,38 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
   '''
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
@@ -221,7 +244,32 @@
   LIMIT 1
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -235,7 +283,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.19
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -279,8 +327,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -292,63 +339,6 @@
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   LIMIT 100
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."is_active",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.19
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.2
@@ -370,14 +360,45 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.20
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -396,14 +417,38 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
   '''
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
@@ -412,7 +457,32 @@
   LIMIT 1
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.24
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.25
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -426,7 +496,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.26
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -470,8 +540,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -496,13 +565,27 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.4
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.5
@@ -539,12 +622,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -569,8 +653,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -595,8 +678,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21

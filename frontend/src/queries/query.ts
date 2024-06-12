@@ -19,7 +19,7 @@ import {
 import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,
@@ -29,9 +29,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
-    isPathsQuery,
     isPersonsNode,
-    isRetentionQuery,
     isStickinessQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
@@ -40,10 +38,10 @@ import {
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
-const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
+const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
-export function queryExportContext<N extends DataNode = DataNode>(
+export function queryExportContext<N extends DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -89,37 +87,24 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
-    } else {
-        return { source: query }
     }
+    return { source: query }
 }
 
 const SYNC_ONLY_QUERY_KINDS = [
+    'HogQuery',
     'HogQLMetadata',
     'EventsQuery',
     'HogQLAutocomplete',
     'DatabaseSchemaQuery',
 ] satisfies NodeKind[keyof NodeKind][]
 
-/**
- * Execute a query node and return the response, use async query if enabled
- */
-async function executeQuery<N extends DataNode = DataNode>(
-    queryNode: N,
+export async function pollForResults(
+    queryId: string,
+    showProgress: boolean,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
-    queryId?: string
-): Promise<NonNullable<N['response']>> {
-    const isAsyncQuery =
-        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
-        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
-
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
-
-    if (!isAsyncQuery || !response.query_async) {
-        return response
-    }
-
+    callback?: (response: QueryStatus) => void
+): Promise<QueryStatus> {
     const pollStart = performance.now()
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
@@ -127,22 +112,57 @@ async function executeQuery<N extends DataNode = DataNode>(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = await api.queryStatus.get(response.id)
+        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
         if (statusResponse.complete || statusResponse.error) {
-            return statusResponse.results
+            return statusResponse
+        }
+        if (callback) {
+            callback(statusResponse)
         }
     }
     throw new Error('Query timed out')
 }
 
-// Return data for a given query
-export async function query<N extends DataNode = DataNode>(
+/**
+ * Execute a query node and return the response, use async query if enabled
+ */
+async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string
+    setPollResponse?: (response: QueryStatus) => void
+): Promise<NonNullable<N['response']>> {
+    const isAsyncQuery =
+        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
+        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
+
+    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
+
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+
+    if (!response.query_status?.query_async) {
+        // Executed query synchronously
+        return response
+    }
+    if (response.query_status?.complete || response.query_status?.error) {
+        // Async query returned immediately
+        return response.results
+    }
+
+    const statusResponse = await pollForResults(response.query_status.id, showProgress, methodOptions, setPollResponse)
+    return statusResponse.results
+}
+
+// Return data for a given query
+export async function query<N extends DataNode>(
+    queryNode: N,
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean,
+    queryId?: string,
+    legacyUrl?: string,
+    setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -153,19 +173,6 @@ export async function query<N extends DataNode = DataNode>(
     const startTime = performance.now()
     const allFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
 
-    const hogQLInsightsFlagEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
-    const hogQLInsightsLifecycleFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE])
-    const hogQLInsightsPathsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS])
-    const hogQLInsightsRetentionFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
-    const hogQLInsightsTrendsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
-    const hogQLInsightsStickinessFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS])
-    const hogQLInsightsFunnelsFlagEnabled =
-        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS])
     const hogQLInsightsLiveCompareEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE])
 
     async function fetchLegacyUrl(): Promise<Record<string, any>> {
@@ -209,169 +216,155 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
-            if (
-                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
-                (hogQLInsightsPathsFlagEnabled &&
-                    (isPathsQuery(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl))) ||
-                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
-                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
-                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
-                (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
-            ) {
-                if (hogQLInsightsLiveCompareEnabled) {
-                    const legacyFunction = (): any => {
-                        try {
-                            return legacyUrl ? fetchLegacyUrl() : fetchLegacyInsights()
-                        } catch (e) {
-                            console.error('Error fetching legacy insights', e)
-                        }
+            if (hogQLInsightsLiveCompareEnabled) {
+                const legacyFunction = (): any => {
+                    try {
+                        return legacyUrl ? fetchLegacyUrl() : fetchLegacyInsights()
+                    } catch (e) {
+                        console.error('Error fetching legacy insights', e)
                     }
-                    let legacyResponse: any
-                    ;[response, legacyResponse] = await Promise.all([
-                        executeQuery(queryNode, methodOptions, refresh, queryId),
-                        legacyFunction(),
-                    ])
-
-                    let res1 = response?.result || response?.results
-                    let res2 = legacyResponse?.result || legacyResponse?.results
-
-                    if (isLifecycleQuery(queryNode)) {
-                        // Results don't come back in a predetermined order for the legacy lifecycle insight
-                        const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
-                        res1.sort((a: any, b: any) => order[a.status] - order[b.status])
-                        res2.sort((a: any, b: any) => order[a.status] - order[b.status])
-                    } else if (isTrendsQuery(queryNode) || isStickinessQuery(queryNode)) {
-                        res1 = res1?.map((n: any) => ({
-                            ...n,
-                            filter: undefined,
-                            action: undefined,
-                            persons: undefined,
-                        }))
-                        res2 = res2?.map((n: any) => ({
-                            ...n,
-                            filter: undefined,
-                            action: undefined,
-                            persons: undefined,
-                        }))
-                    } else if (!isFunnelsQuery(queryNode) && res2.length > 0 && res2[0].people) {
-                        res2 = res2[0]?.people.map((n: any) => n.id)
-                        res1 = res1.map((n: any) => n[0].id)
-                        // Sort, since the order of the results is not guaranteed
-                        const bv = (v: any): string =>
-                            [null, 'null', 'none', '9007199254740990', 9007199254740990].includes(v)
-                                ? '$$_posthog_breakdown_null_$$'
-                                : ['Other', '9007199254740991', 9007199254740991].includes(v)
-                                ? '$$_posthog_breakdown_other_$$'
-                                : String(v)
-                        res1.sort((a: any, b: any) =>
-                            bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
-                        )
-                        res2.sort((a: any, b: any) =>
-                            bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
-                        )
-                    }
-
-                    const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
-                        const hogQLTimings = response?.timings
-                        const legacyTimings = legacyResponse?.timings
-
-                        if (!hogQLTimings || !legacyTimings) {
-                            return undefined
-                        }
-
-                        const hogqlTotalTime =
-                            hogQLTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
-                        const legacyTotalTime =
-                            legacyTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
-
-                        return {
-                            diff: hogqlTotalTime - legacyTotalTime,
-                            legacy: legacyTotalTime,
-                            hogql: hogqlTotalTime,
-                        }
-                    }
-
-                    const almostEqual = (n1: number, n2: number, epsilon: number = 1.0): boolean =>
-                        Math.abs(n1 - n2) < epsilon
-
-                    const timingDiff = getTimingDiff()
-
-                    const results = flattenObject(res1)
-                    const legacyResults = flattenObject(res2)
-                    const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
-                        .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
-                        .sort()
-                    const tableData: any[] = [['', 'key', 'HOGQL', 'LEGACY']]
-                    let matchCount = 0
-                    let mismatchCount = 0
-                    for (const key of sortedKeys) {
-                        let isMatch = false
-                        if (
-                            results[key] === legacyResults[key] ||
-                            (key.includes('average_conversion_time') && almostEqual(results[key], legacyResults[key]))
-                        ) {
-                            isMatch = true
-                        }
-
-                        if (isMatch) {
-                            matchCount++
-                        } else {
-                            mismatchCount++
-                        }
-
-                        tableData.push([isMatch ? '✅' : '🚨', key, results[key], legacyResults[key]])
-                    }
-
-                    if (timingDiff) {
-                        tableData.push([
-                            timingDiff.diff <= 0 ? '🚀' : '🐌',
-                            'timingDiff',
-                            timingDiff.hogql,
-                            timingDiff.legacy,
-                        ])
-                    }
-
-                    const symbols = mismatchCount === 0 ? '🍀🍀🍀' : '🏎️🏎️🏎'
-                    // eslint-disable-next-line no-console
-                    console.log(`${symbols} Insight Race ${symbols}`, {
-                        query: queryNode,
-                        duration: performance.now() - startTime,
-                        hogqlResults: results,
-                        legacyResults: legacyResults,
-                        equal: mismatchCount === 0,
-                        response,
-                        legacyResponse,
-                        timingDiff,
-                    })
-                    const resultsLabel = mismatchCount === 0 ? '👏' : '⚠️'
-                    const alertLabel = mismatchCount > 0 ? `🚨${mismatchCount}` : ''
-                    // eslint-disable-next-line no-console
-                    console.groupCollapsed(`Results: ${resultsLabel} ✅${matchCount} ${alertLabel} ${queryNode.kind}`)
-                    // eslint-disable-next-line no-console
-                    console.table(tableData)
-                    // eslint-disable-next-line no-console
-                    console.groupEnd()
-
-                    posthog.capture('hogql_compare', {
-                        query: queryNode,
-                        equal: mismatchCount === 0,
-                        mismatch_count: mismatchCount,
-                        ...(timingDiff
-                            ? {
-                                  timing_diff: timingDiff.diff,
-                                  timing_hogqL: timingDiff.hogql,
-                                  timing_legacy: timingDiff.legacy,
-                              }
-                            : {}),
-                    })
-                } else {
-                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
                 }
+                let legacyResponse: any
+                ;[response, legacyResponse] = await Promise.all([
+                    executeQuery(queryNode, methodOptions, refresh, queryId),
+                    legacyFunction(),
+                ])
+
+                let res1 = response?.result || response?.results
+                let res2 = legacyResponse?.result || legacyResponse?.results
+
+                if (isLifecycleQuery(queryNode)) {
+                    // Results don't come back in a predetermined order for the legacy lifecycle insight
+                    const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
+                    res1.sort((a: any, b: any) => order[a.status] - order[b.status])
+                    res2.sort((a: any, b: any) => order[a.status] - order[b.status])
+                } else if (isTrendsQuery(queryNode) || isStickinessQuery(queryNode)) {
+                    res1 = res1?.map((n: any) => ({
+                        ...n,
+                        filter: undefined,
+                        action: undefined,
+                        persons: undefined,
+                    }))
+                    res2 = res2?.map((n: any) => ({
+                        ...n,
+                        filter: undefined,
+                        action: undefined,
+                        persons: undefined,
+                    }))
+                } else if (!isFunnelsQuery(queryNode) && res2.length > 0 && res2[0].people) {
+                    res2 = res2[0]?.people.map((n: any) => n.id)
+                    res1 = res1.map((n: any) => n[0].id)
+                    // Sort, since the order of the results is not guaranteed
+                    const bv = (v: any): string =>
+                        [null, 'null', 'none', '9007199254740990', 9007199254740990].includes(v)
+                            ? '$$_posthog_breakdown_null_$$'
+                            : ['Other', '9007199254740991', 9007199254740991].includes(v)
+                            ? '$$_posthog_breakdown_other_$$'
+                            : String(v)
+                    res1.sort((a: any, b: any) =>
+                        bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
+                    )
+                    res2.sort((a: any, b: any) =>
+                        bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
+                    )
+                }
+
+                const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
+                    const hogQLTimings = response?.timings
+                    const legacyTimings = legacyResponse?.timings
+
+                    if (!hogQLTimings || !legacyTimings) {
+                        return undefined
+                    }
+
+                    const hogqlTotalTime = hogQLTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
+                    const legacyTotalTime = legacyTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
+
+                    return {
+                        diff: hogqlTotalTime - legacyTotalTime,
+                        legacy: legacyTotalTime,
+                        hogql: hogqlTotalTime,
+                    }
+                }
+
+                const almostEqual = (n1: number, n2: number, epsilon: number = 1.0): boolean =>
+                    Math.abs(n1 - n2) < epsilon
+
+                const timingDiff = getTimingDiff()
+
+                const results = flattenObject(res1)
+                const legacyResults = flattenObject(res2)
+                const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
+                    .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
+                    .sort()
+                const tableData: any[] = [['', 'key', 'HOGQL', 'LEGACY']]
+                let matchCount = 0
+                let mismatchCount = 0
+                for (const key of sortedKeys) {
+                    let isMatch = false
+                    if (
+                        results[key] === legacyResults[key] ||
+                        (key.includes('average_conversion_time') && almostEqual(results[key], legacyResults[key]))
+                    ) {
+                        isMatch = true
+                    }
+
+                    if (isMatch) {
+                        matchCount++
+                    } else {
+                        mismatchCount++
+                    }
+
+                    tableData.push([isMatch ? '✅' : '🚨', key, results[key], legacyResults[key]])
+                }
+
+                if (timingDiff) {
+                    tableData.push([
+                        timingDiff.diff <= 0 ? '🚀' : '🐌',
+                        'timingDiff',
+                        timingDiff.hogql,
+                        timingDiff.legacy,
+                    ])
+                }
+
+                const symbols = mismatchCount === 0 ? '🍀🍀🍀' : '🏎️🏎️🏎'
+                // eslint-disable-next-line no-console
+                console.log(`${symbols} Insight Race ${symbols}`, {
+                    query: queryNode,
+                    duration: performance.now() - startTime,
+                    hogqlResults: results,
+                    legacyResults: legacyResults,
+                    equal: mismatchCount === 0,
+                    response,
+                    legacyResponse,
+                    timingDiff,
+                })
+                const resultsLabel = mismatchCount === 0 ? '👏' : '⚠️'
+                const alertLabel = mismatchCount > 0 ? `🚨${mismatchCount}` : ''
+                // eslint-disable-next-line no-console
+                console.groupCollapsed(`Results: ${resultsLabel} ✅${matchCount} ${alertLabel} ${queryNode.kind}`)
+                // eslint-disable-next-line no-console
+                console.table(tableData)
+                // eslint-disable-next-line no-console
+                console.groupEnd()
+
+                posthog.capture('hogql_compare', {
+                    query: queryNode,
+                    equal: mismatchCount === 0,
+                    mismatch_count: mismatchCount,
+                    ...(timingDiff
+                        ? {
+                              timing_diff: timingDiff.diff,
+                              timing_hogqL: timingDiff.hogql,
+                              timing_legacy: timingDiff.legacy,
+                          }
+                        : {}),
+                })
             } else {
-                response = await fetchLegacyInsights()
+                response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             }
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
@@ -416,9 +409,8 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
         return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
     } else if (isPathsFilter(filters)) {
         return `api/projects/${currentTeamId}/insights/path${refresh ? '?refresh=true' : ''}`
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export function legacyInsightQueryData({
@@ -469,9 +461,8 @@ export function legacyInsightQueryExportContext({
             method: 'POST',
             body: filters,
         }
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export async function legacyInsightQuery({

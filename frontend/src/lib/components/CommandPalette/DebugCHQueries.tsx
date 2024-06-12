@@ -8,7 +8,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { CodeSnippet, Language } from '../CodeSnippet'
@@ -19,7 +21,7 @@ export function openCHQueriesDebugModal(): void {
         title: 'ClickHouse queries recently executed for this user',
         content: <DebugCHQueries />,
         primaryButton: null,
-        width: 1200,
+        width: 1600,
     })
 }
 
@@ -27,6 +29,7 @@ export interface Query {
     /** @example '2023-07-27T10:06:11' */
     timestamp: string
     query: string
+    query_id: string
     queryJson: string
     exception: string
     /**
@@ -123,20 +126,24 @@ function DebugCHQueries(): JSX.Element {
                 columns={[
                     {
                         title: 'Timestamp',
-                        render: (_, item) => (
-                            <div className="space-y-2">
+                        render: function Timestamp(_, item) {
+                            return (
                                 <span className="font-mono whitespace-pre">
                                     {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
                                 </span>
-                            </div>
-                        ),
+                            )
+                        },
                         width: 160,
                     },
                     {
                         title: 'Query',
-                        render: function query(_, item) {
+                        render: function Query(_, item) {
                             return (
                                 <div className="max-w-200 py-1 space-y-2">
+                                    <div>
+                                        <span className="font-bold tracking-wide">ID:</span>{' '}
+                                        <span className="font-mono">{item.query_id}</span>
+                                    </div>
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             {item.exception}
@@ -145,8 +152,8 @@ function DebugCHQueries(): JSX.Element {
                                     <CodeSnippet
                                         language={Language.SQL}
                                         thing="query"
-                                        maxLinesWithoutExpansion={5}
-                                        style={{ fontSize: 12, maxWidth: '60vw' }}
+                                        maxLinesWithoutExpansion={10}
+                                        className="text-sm max-w-[60vw]"
                                     >
                                         {item.query}
                                     </CodeSnippet>
@@ -176,13 +183,104 @@ function DebugCHQueries(): JSX.Element {
 
                     {
                         title: 'Duration',
-                        render: function exec(_, item) {
+                        render: function Duration(_, item) {
                             if (item.status === 1) {
                                 return 'In progress…'
                             }
                             return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
                         align: 'right',
+                    },
+                    {
+                        title: 'Profiling stats',
+                        render: function ProfilingStats(_, item) {
+                            const [areAllStatsShown, setAreAllStatsShown] = useState(false)
+                            const event = item['profile_events']
+                            if (!event) {
+                                return
+                            }
+                            return (
+                                <div>
+                                    {!areAllStatsShown ? (
+                                        <table className="w-80">
+                                            <tr>
+                                                <td>Bytes selected (all nodes, uncompressed)</td>
+                                                <td>
+                                                    {event['SelectedBytes'] != null ? (
+                                                        humanizeBytes(event['SelectedBytes'])
+                                                    ) : (
+                                                        <i>unknown</i>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Bytes read from disk (excl. page cache)</td>
+                                                <td>
+                                                    {event['OSReadBytes'] != null ? (
+                                                        humanizeBytes(event['OSReadBytes'])
+                                                    ) : (
+                                                        <i>unknown</i>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Bytes read from disk (incl. page cache)</td>
+                                                <td>
+                                                    {event['OSReadChars'] != null ? (
+                                                        humanizeBytes(event['OSReadChars'])
+                                                    ) : (
+                                                        <i>unknown</i>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Page cache hit rate</td>
+                                                <td>
+                                                    {event['OSReadBytes'] != null && event['OSReadChars'] != null ? (
+                                                        `${
+                                                            ((event['OSReadChars'] - event['OSReadBytes']) /
+                                                                event['OSReadChars']) *
+                                                            100
+                                                        }%`
+                                                    ) : (
+                                                        <i>unknown</i>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Bytes received over network</td>
+                                                <td>
+                                                    {event['NetworkReceiveBytes'] != null ? (
+                                                        humanizeBytes(event['NetworkReceiveBytes'])
+                                                    ) : (
+                                                        <i>unknown</i>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    ) : (
+                                        <CodeSnippet
+                                            language={Language.JSON}
+                                            maxLinesWithoutExpansion={0}
+                                            key={item.query_id}
+                                            className="text-sm mb-2"
+                                        >
+                                            {JSON.stringify(event, null, 2)}
+                                        </CodeSnippet>
+                                    )}
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => setAreAllStatsShown(!areAllStatsShown)}
+                                        className="my-1"
+                                        fullWidth
+                                        center
+                                    >
+                                        {areAllStatsShown ? 'Show key stats only' : 'Show full raw stats'}
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
                     },
                 ]}
                 dataSource={filteredQueries}

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
 import structlog
@@ -58,7 +58,6 @@ class SignupSerializer(serializers.Serializer):
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
@@ -71,7 +70,7 @@ class SignupSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         self.is_social_signup = False
 
-    def get_fields(self) -> Dict[str, serializers.Field]:
+    def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         if settings.DEMO:
             # There's no password in the demo env
@@ -156,7 +155,7 @@ class SignupSerializer(serializers.Serializer):
     def create_team(self, organization: Organization, user: User) -> Team:
         return Team.objects.create_with_data(user=user, organization=organization)
 
-    def to_representation(self, instance) -> Dict:
+    def to_representation(self, instance) -> dict:
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
         return data
@@ -171,7 +170,6 @@ class SignupViewset(generics.CreateAPIView):
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(required=False)
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
@@ -185,7 +183,7 @@ class InviteSignupSerializer(serializers.Serializer):
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
         return data
 
-    def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         if "request" not in self.context or not self.context["request"].user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
@@ -469,7 +467,7 @@ def social_create_user(
         return {"is_new": False}
 
     backend_processor = "social_create_user"
-    email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
+    email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
     full_name = (
         details.get("fullname")
         or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()

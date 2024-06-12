@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,6 +26,8 @@ function NuxtEnvVarsSnippet(): JSX.Element {
 }
 
 function NuxtAppClientCodeSnippet(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`import { defineNuxtPlugin } from '#app'
@@ -31,7 +35,12 @@ import posthog from 'posthog-js'
 export default defineNuxtPlugin(nuxtApp => {
   const runtimeConfig = useRuntimeConfig();
   const posthogClient = posthog.init(runtimeConfig.public.posthogPublicKey, {
-    api_host: runtimeConfig.public.posthogHost',
+    api_host: runtimeConfig.public.posthogHost,
+    ${
+        isPersonProfilesDisabled
+            ? ``
+            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+    }
     capture_pageview: false, // we add manual pageview capturing below
     loaded: (posthog) => {
       if (import.meta.env.MODE === 'development') posthog.debug();

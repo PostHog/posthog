@@ -2,12 +2,15 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { TeamType } from '~/types'
+
 import type { onboardingProductConfigurationLogicType } from './onboardingProductConfigurationLogicType'
 
 export interface ProductConfigOptionBase {
     title: string
     description: string
-    teamProperty: string
+    teamProperty: keyof TeamType
+    visible: boolean
 }
 
 export interface ProductConfigurationToggle extends ProductConfigOptionBase {

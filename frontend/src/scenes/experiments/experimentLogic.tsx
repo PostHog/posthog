@@ -12,12 +12,14 @@ import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -50,6 +52,7 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
+import { getMinimumDetectableEffect } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -99,6 +102,12 @@ export const experimentLogic = kea<experimentLogicType>([
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             sceneLogic,
             ['activeScene'],
+            funnelDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['results as funnelResults', 'conversionMetrics'],
+            trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['results as trendResults'],
+            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['insightDataLoading as goalInsightDataLoading'],
         ],
         actions: [
             experimentsLogic,
@@ -126,11 +135,7 @@ export const experimentLogic = kea<experimentLogicType>([
     actions({
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
-        createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
-            draft,
-            runningTime,
-            sampleSize,
-        }),
+        createExperiment: (draft?: boolean) => ({ draft }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
@@ -139,6 +144,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentCollectionGoal: true,
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
@@ -152,6 +158,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        openExperimentCollectionGoalModal: true,
+        closeExperimentCollectionGoalModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
     }),
@@ -262,6 +270,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFlagImplementationWarning: (_, { warning }) => warning,
             },
         ],
+        // TODO: delete with the old UI
         exposureAndSampleSize: [
             { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
             {
@@ -282,6 +291,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeExperimentExposureModal: () => false,
             },
         ],
+        isExperimentCollectionGoalModalOpen: [
+            false,
+            {
+                openExperimentCollectionGoalModal: () => true,
+                closeExperimentCollectionGoalModal: () => false,
+            },
+        ],
         experimentValuesChangedLocally: [
             false,
             {
@@ -298,7 +314,18 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        createExperiment: async ({ draft, runningTime, sampleSize }) => {
+        createExperiment: async ({ draft }) => {
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+            // Minimum Detectable Effect is calculated based on a loaded insight
+            // Terminate if the insight did not manage to load in time
+            if (!minimumDetectableEffect) {
+                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                return lemonToast.error(
+                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+                )
+            }
+
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
@@ -309,8 +336,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...values.experiment,
                             parameters: {
                                 ...values.experiment?.parameters,
-                                recommended_running_time: runningTime,
-                                recommended_sample_size: sampleSize,
+                                recommended_running_time: recommendedRunningTime,
+                                recommended_sample_size: recommendedSampleSize,
+                                minimum_detectable_effect: minimumDetectableEffect,
                             },
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
@@ -335,8 +363,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...values.experiment,
                         parameters: {
                             ...values.experiment?.parameters,
-                            recommended_running_time: runningTime,
-                            recommended_sample_size: sampleSize,
+                            recommended_running_time: recommendedRunningTime,
+                            recommended_sample_size: recommendedSampleSize,
+                            minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
@@ -396,7 +425,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // the new query with any existing query and that causes validation problems when there are
             // unsupported properties in the now merged query.
             const newQuery = filtersToQueryNode(newInsightFilters)
-            if (filters?.insight === InsightType.FUNNELS) {
+            if (newInsightFilters?.insight === InsightType.FUNNELS) {
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
@@ -408,6 +437,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (isFunnelsQuery(newQuery)) {
                 newQuery.aggregation_group_type_index = aggregationGroupTypeIndex
             }
+
             actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
@@ -435,10 +465,10 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
-            if (!experiment?.start_date) {
-                // loading a draft experiment
-                actions.setNewExperimentInsight(experiment?.filters)
-            } else {
+
+            actions.setNewExperimentInsight(experiment?.filters)
+
+            if (experiment?.start_date) {
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
             }
@@ -464,11 +494,48 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         updateExperimentGoal: async ({ filters }) => {
-            // We never want to update global properties in the experiment
+            // Reset MDE to the recommended setting
+            actions.setExperiment({
+                parameters: {
+                    ...values.experiment.parameters,
+                    minimum_detectable_effect: undefined,
+                },
+            })
+
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+            if (!minimumDetectableEffect) {
+                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                return lemonToast.error(
+                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+                )
+            }
+
             const filtersToUpdate = { ...filters }
             delete filtersToUpdate.properties
-            actions.updateExperiment({ filters: filtersToUpdate })
+
+            actions.updateExperiment({
+                filters: filtersToUpdate,
+                parameters: {
+                    ...values.experiment?.parameters,
+                    recommended_running_time: recommendedRunningTime,
+                    recommended_sample_size: recommendedSampleSize,
+                    minimum_detectable_effect: minimumDetectableEffect,
+                },
+            })
             actions.closeExperimentGoalModal()
+        },
+        updateExperimentCollectionGoal: async () => {
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+            actions.updateExperiment({
+                parameters: {
+                    ...values.experiment?.parameters,
+                    recommended_running_time: recommendedRunningTime,
+                    recommended_sample_size: recommendedSampleSize,
+                    minimum_detectable_effect: minimumDetectableEffect || 0,
+                },
+            })
+            actions.closeExperimentCollectionGoalModal()
         },
         updateExperimentExposure: async ({ filters }) => {
             actions.updateExperiment({
@@ -488,6 +555,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         closeExperimentExposureModal: () => {
+            if (values.experimentValuesChangedLocally) {
+                actions.loadExperiment()
+            }
+        },
+        closeExperimentCollectionGoalModal: () => {
             if (values.experimentValuesChangedLocally) {
                 actions.loadExperiment()
             }
@@ -784,19 +856,29 @@ export const experimentLogic = kea<experimentLogicType>([
                     return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
                 },
         ],
-        minimumDetectableChange: [
-            (s) => [s.experiment],
-            (newexperiment): number => {
-                return newexperiment?.parameters?.minimum_detectable_effect || 5
+        // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
+        minimumDetectableEffect: [
+            (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
+            (newExperiment, experimentInsightType, conversionMetrics, trendResults): number => {
+                return (
+                    newExperiment?.parameters?.minimum_detectable_effect ||
+                    // :KLUDGE: extracted the method due to difficulties with logic tests
+                    getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults) ||
+                    0
+                )
             },
         ],
         minimumSampleSizePerVariant: [
-            (s) => [s.minimumDetectableChange],
+            (s) => [s.minimumDetectableEffect],
             (mde) => (conversionRate: number) => {
                 // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
+                if (!mde) {
+                    return 0
+                }
+
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
@@ -879,11 +961,65 @@ export const experimentLogic = kea<experimentLogicType>([
                 return ''
             },
         ],
+        recommendedSampleSize: [
+            (s) => [s.conversionMetrics, s.minimumSampleSizePerVariant, s.variants],
+            (conversionMetrics, minimumSampleSizePerVariant, variants): number => {
+                const conversionRate = conversionMetrics.totalRate * 100
+                const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                const sampleSize = sampleSizePerVariant * variants.length
+                return sampleSize
+            },
+        ],
+        recommendedRunningTime: [
+            (s) => [
+                s.experiment,
+                s.variants,
+                s.experimentInsightType,
+                s.funnelResults,
+                s.conversionMetrics,
+                s.expectedRunningTime,
+                s.trendResults,
+                s.minimumSampleSizePerVariant,
+                s.recommendedExposureForCountData,
+            ],
+            (
+                experiment,
+                variants,
+                experimentInsightType,
+                funnelResults,
+                conversionMetrics,
+                expectedRunningTime,
+                trendResults,
+                minimumSampleSizePerVariant,
+                recommendedExposureForCountData
+            ): number => {
+                if (experimentInsightType === InsightType.FUNNELS) {
+                    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
+                    const funnelEntrants = funnelResults?.[0]?.count
+
+                    const conversionRate = conversionMetrics.totalRate * 100
+                    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                    const funnelSampleSize = sampleSizePerVariant * variants.length
+                    if (experiment?.start_date) {
+                        return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
+                    }
+                    return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
+                }
+
+                const trendCount = trendResults[0]?.count
+                const runningTime = recommendedExposureForCountData(trendCount)
+                return runningTime
+            },
+        ],
         recommendedExposureForCountData: [
-            (s) => [s.minimumDetectableChange],
+            (s) => [s.minimumDetectableEffect],
             (mde) =>
                 (baseCountData: number): number => {
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    if (!mde) {
+                        return 0
+                    }
+
                     const minCountData = (baseCountData * mde) / 100
                     const lambda1 = baseCountData
                     const lambda2 = minCountData + baseCountData
@@ -939,22 +1075,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     // display the right colour for the variant
                     if (!experimentResults || !experimentResults.insight) {
                         return null
-                    } else {
-                        let index = -1
-                        if (insightType === InsightType.FUNNELS) {
-                            // Funnel Insight is displayed in order of decreasing count
-                            index = ([...experimentResults.insight] as FunnelStep[][])
-                                .sort((a, b) => b[0]?.count - a[0]?.count)
-                                .findIndex(
-                                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                                )
-                        } else {
-                            index = (experimentResults.insight as TrendResult[]).findIndex(
-                                (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                            )
-                        }
-                        result = index === -1 ? null : index
                     }
+                    let index = -1
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+                    result = index === -1 ? null : index
+
                     if (result !== null && insightType === InsightType.FUNNELS) {
                         result++
                     }
@@ -1006,9 +1142,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal
                         return result.toFixed(2)
-                    } else {
-                        return result.toString()
                     }
+                    return result.toString()
                 },
         ],
         exposureCountDataForVariant: [
@@ -1031,9 +1166,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal
                         return result.toFixed(2)
-                    } else {
-                        return result.toString()
                     }
+                    return result.toString()
                 },
         ],
         getHighestProbabilityVariant: [
@@ -1167,10 +1301,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             },
         ],
-        recommendedSampleSize: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => experiment?.parameters?.recommended_sample_size || 100,
-        ],
         funnelResultsPersonsTotal: [
             (s) => [s.experimentResults, s.experimentInsightType],
             (experimentResults: ExperimentResults['result'], experimentInsightType: InsightType): number => {
@@ -1201,12 +1331,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 return dayjs().diff(experiment.start_date, 'day')
             },
         ],
-        recommendedRunningTime: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => experiment?.parameters?.recommended_running_time || 1,
-        ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -1221,10 +1347,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
-            submit: () => {
-                const { exposure, sampleSize } = values.exposureAndSampleSize
-                actions.createExperiment(true, exposure, sampleSize)
-            },
+            submit: () => actions.createExperiment(true),
         },
     })),
     urlToAction(({ actions, values }) => ({

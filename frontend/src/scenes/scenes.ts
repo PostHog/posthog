@@ -1,7 +1,7 @@
 import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -53,6 +53,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
+    [Scene.ErrorTracking]: {
+        projectBased: true,
+        name: 'Error tracking',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -70,7 +74,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Cohort',
         defaultDocsPath: '/docs/data/cohorts',
     },
-    [Scene.Events]: {
+    [Scene.Activity]: {
         projectBased: true,
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
@@ -163,6 +167,18 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
+    [Scene.pipelineNodeDataWarehouseNew]: {
+        projectBased: true,
+        name: 'Data warehouse new source',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/data-warehouse',
+    },
+    [Scene.PipelineNodeNew]: {
+        projectBased: true,
+        name: 'Pipeline new step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.Pipeline]: {
         projectBased: true,
@@ -393,6 +409,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Move to PostHog Cloud',
         hideProjectNotice: true,
     },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -478,6 +498,8 @@ export const routes: Record<string, Scene> = {
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.alert(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.alerts(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
@@ -494,7 +516,8 @@ export const routes: Record<string, Scene> = {
     [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
-    [urls.events()]: Scene.Events,
+    [urls.activity(':tab')]: Scene.Activity,
+    [urls.events()]: Scene.Activity,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
@@ -507,6 +530,9 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
+    [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
@@ -518,6 +544,7 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
+    [urls.errorTracking()]: Scene.ErrorTracking,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
@@ -575,4 +602,5 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
+    [urls.heatmaps()]: Scene.Heatmaps,
 }

@@ -53,7 +53,9 @@ export function getDefaultEvent(): Entity {
 }
 
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+    typeof filters.events === 'undefined' &&
+    (typeof filters.actions === 'undefined' || filters.actions.length === 0) &&
+    (typeof filters.data_warehouse === 'undefined' || filters.data_warehouse.length === 0)
 
 const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
     candidates.find((s) => typeof s === 'number')
@@ -251,7 +253,6 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'day'
     }
 
-    // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
@@ -259,9 +260,8 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'hour'
     } else if (hour_disabled) {
         return 'day'
-    } else {
-        return filters.interval
     }
+    return filters.interval
 }
 
 export function cleanFilters(
@@ -295,6 +295,7 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
+            show_mean: filters.show_mean,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }

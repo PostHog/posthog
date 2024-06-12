@@ -152,7 +152,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.client.logout()
         License.objects.filter(pk=-1).delete()  # No instance licenses
         self.create_enforced_domain()
-        self.organization.available_features = ["sso_enforcement"]
+        self.organization.available_product_features = [{"key": "sso_enforcement", "name": "sso_enforcement"}]
         self.organization.save()
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
@@ -225,7 +225,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     def test_login_with_sso_resets_session(self):
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             first_key = self.client.session.session_key
-            self.client.post("/login/google-oauth2/", {"email_opt_in": False})
+            self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
@@ -364,7 +364,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -407,7 +406,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -474,7 +472,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -514,7 +511,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -552,7 +548,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -594,7 +589,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -658,7 +652,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
 
     def test_cannot_use_saml_without_enterprise_license(self):
-        self.organization.available_features = [AvailableFeature.SSO_ENFORCEMENT]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
         self.organization.save()
 
         # Enforcement is ignored
@@ -683,7 +679,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()

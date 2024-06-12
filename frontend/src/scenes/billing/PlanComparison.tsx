@@ -6,18 +6,17 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React from 'react'
+import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 
-import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
+import { convertLargeNumberToWords, getProration, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -56,10 +55,13 @@ export function PlanIcon({
     )
 }
 
-const getProductTiers = (
-    plan: BillingV2PlanType,
+const PricingTiers = ({
+    plan,
+    product,
+}: {
+    plan: BillingV2PlanType
     product: BillingProductV2Type | BillingProductV2AddonType
-): JSX.Element => {
+}): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
     const tiers = plan?.tiers
 
@@ -118,18 +120,13 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
-    const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
-    const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
-        billing.billing_period?.current_period_start,
-        'days'
-    )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
@@ -188,34 +185,16 @@ export const PlanComparison = ({
                         ? 'View products'
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                        ? 'Subscribe'
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          !billing?.has_active_subscription
-                        ? 'Add credit card'
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          billing?.has_active_subscription
-                        ? 'Add paid plan'
-                        : 'Upgrade'}
+                        : 'Subscribe'}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or{' '}
-                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                                ? 'subscribe'
-                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                  !billing?.has_active_subscription
-                                ? 'add credit card'
-                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                  !billing?.has_active_subscription
-                                ? 'add paid plan'
-                                : 'upgrade'}{' '}
-                            without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}
@@ -239,16 +218,12 @@ export const PlanComparison = ({
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => {
-                        const prorationAmount = plan.unit_amount_usd
-                            ? (
-                                  parseInt(plan.unit_amount_usd) *
-                                  ((billingDaysRemaining || 1) / (billingDaysTotal || 1))
-                              ).toFixed(2)
-                            : 0
-                        const isProrated =
-                            billing?.has_active_subscription && plan.unit_amount_usd
-                                ? prorationAmount !== parseInt(plan.unit_amount_usd || '')
-                                : false
+                        const { prorationAmount, isProrated } = getProration({
+                            timeRemainingInSeconds,
+                            timeTotalInSeconds,
+                            amountUsd: plan.unit_amount_usd,
+                            hasActiveSubscription: billing?.has_active_subscription,
+                        })
                         return (
                             <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
                                 {plan.free_allocation && !plan.tiers
@@ -262,7 +237,7 @@ export const PlanComparison = ({
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
-                                        Pay ${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
+                                        Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
                                     </p>
@@ -282,43 +257,83 @@ export const PlanComparison = ({
                             <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
                         </th>
                         {plans?.map((plan) => (
-                            <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
+                            <td key={`${plan.plan_key}-tiers-td`}>
+                                <PricingTiers plan={plan} product={product} />
+                            </td>
                         ))}
                     </tr>
                 )}
-                {includeAddons &&
-                    product.addons?.map((addon) => {
-                        // TODO: integrated_persons addon will show up here when we add a price plan. Make sure this can handle it.
-                        return addon.tiered ? (
-                            <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
-                                <th scope="row">
-                                    <p className="ml-0">
-                                        <span className="font-bold">{addon.name}</span>
-                                        <LemonTag type="completion" className="ml-2">
-                                            addon
-                                        </LemonTag>
-                                    </p>
-                                    <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
-                                </th>
-                                {plans?.map((plan) =>
-                                    // If the plan is free, the addon isn't available
-                                    plan.free_allocation && !plan.tiers ? (
-                                        <td key={`${addon.name}-free-tiers-td`}>
-                                            <p className="text-muted text-xs">Not available on this plan.</p>
-                                        </td>
-                                    ) : (
-                                        <td key={`${addon.type}-tiers-td`}>
-                                            {getProductTiers(addon.plans?.[0], addon)}
-                                        </td>
-                                    )
-                                )}
-                            </tr>
-                        ) : null
-                    })}
                 <tr>
                     <td />
                     {upgradeButtons}
                 </tr>
+                {includeAddons && product.addons.length > 0 && (
+                    <tr>
+                        <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                            <h3 className="mt-6 mb-6">Available add-ons:</h3>
+                        </th>
+                    </tr>
+                )}
+                {includeAddons &&
+                    product.addons
+                        ?.filter((addon) => {
+                            if (addon.inclusion_only) {
+                                if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+                                    return false
+                                }
+                            }
+                            return true
+                        })
+                        .map((addon) => {
+                            return addon.tiered ? (
+                                <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
+                                    <th scope="row">
+                                        <p className="ml-0">
+                                            <Tooltip title={addon.description}>
+                                                <span className="font-bold cursor-default">{addon.name}</span>
+                                            </Tooltip>
+                                            <Tooltip
+                                                title={
+                                                    addon.inclusion_only
+                                                        ? 'Automatically charged based on SDK config options and usage.'
+                                                        : 'If subscribed, charged on all usage.'
+                                                }
+                                            >
+                                                <LemonTag
+                                                    type={addon.inclusion_only ? 'option' : 'primary'}
+                                                    className="ml-2"
+                                                >
+                                                    {addon.inclusion_only ? 'config' : 'add-on'}
+                                                </LemonTag>
+                                            </Tooltip>
+                                        </p>
+                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                    </th>
+                                    {plans?.map((plan, i) => {
+                                        // If the parent plan is free, the addon isn't available
+                                        return !addon.inclusion_only ? (
+                                            plan.free_allocation && !plan.tiers ? (
+                                                <td key={`${addon.name}-free-tiers-td`}>
+                                                    <p className="text-muted text-xs">Not available on this plan.</p>
+                                                </td>
+                                            ) : (
+                                                <td key={`${addon.type}-tiers-td`}>
+                                                    <AddonPlanTiers plan={addon.plans?.[0]} addon={addon} />
+                                                </td>
+                                            )
+                                        ) : plan.free_allocation && !plan.tiers ? (
+                                            <td key={`${addon.name}-free-tiers-td`}>
+                                                <PricingTiers plan={plan} product={product} />
+                                            </td>
+                                        ) : (
+                                            <td key={`${addon.type}-tiers-td`}>
+                                                <AddonPlanTiers plan={addon.plans?.[i]} addon={addon} />
+                                            </td>
+                                        )
+                                    })}
+                                </tr>
+                            ) : null
+                        })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
                         <h3 className="mt-6 mb-2">Product Features:</h3>
@@ -483,5 +498,40 @@ export const PlanComparisonModal = ({
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+const AddonPlanTiers = ({
+    plan,
+    addon,
+}: {
+    plan: BillingV2PlanType
+    addon: BillingProductV2AddonType
+}): JSX.Element => {
+    const [showTiers, setShowTiers] = useState(false)
+
+    return showTiers ? (
+        <>
+            <PricingTiers plan={plan} product={addon} />
+            <p className="mb-0">
+                <Link onClick={() => setShowTiers(false)} className="text-xs">
+                    Hide volume discounts
+                </Link>
+            </p>
+        </>
+    ) : (
+        <>
+            <p className="mb-1">
+                <b>
+                    First {convertLargeNumberToWords(plan?.tiers?.[0].up_to || 0, null)} {addon.unit}s free
+                </b>
+                , then just ${plan?.tiers?.[1].unit_amount_usd}.
+            </p>
+            <p className="mb-0">
+                <Link onClick={() => setShowTiers(true)} className="text-xs">
+                    Show volume discounts
+                </Link>
+            </p>
+        </>
     )
 }

@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, BreakdownType
 
 
@@ -12,7 +12,7 @@ def get_properties_chain(
     breakdown_type: BreakdownType | None,
     breakdown_field: str,
     group_type_index: Optional[float | int],
-) -> List[str | int]:
+) -> list[str | int]:
     if breakdown_type == "person":
         return ["person", "properties", breakdown_field]
 
@@ -27,5 +27,8 @@ def get_properties_chain(
 
     if breakdown_type == "data_warehouse":
         return [breakdown_field]
+
+    if breakdown_type == "data_warehouse_person_property":
+        return ["person", *breakdown_field.split(".")]
 
     return ["properties", breakdown_field]

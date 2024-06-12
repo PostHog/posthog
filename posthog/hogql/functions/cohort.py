@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -23,7 +23,7 @@ def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
     return cohort(node, [node], context)
 
 
-def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
+def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.Expr:
     arg = args[0]
     if not isinstance(arg, ast.Constant):
         raise QueryError("cohort() takes only constant arguments", node=arg)

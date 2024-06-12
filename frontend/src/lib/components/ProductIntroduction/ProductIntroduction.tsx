@@ -13,18 +13,8 @@ import { BuilderHog3, DetectiveHog } from '../hedgehogs'
  * Not to be confused with the `OnboardingProductIntroduction` scene,
  * which is shown when a team has yet to go through onboarding for the product.
  */
-export const ProductIntroduction = ({
-    productName,
-    productKey,
-    thingName,
-    description,
-    titleOverride,
-    isEmpty,
-    action,
-    actionElementOverride,
-    docsURL,
-    customHog: CustomHog,
-}: {
+
+export type ProductIntroductionProps = {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
     productKey: ProductKey
@@ -41,7 +31,20 @@ export const ProductIntroduction = ({
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
-}): JSX.Element => {
+}
+
+export const ProductIntroduction = ({
+    productName,
+    productKey,
+    thingName,
+    description,
+    titleOverride,
+    isEmpty,
+    action,
+    actionElementOverride,
+    docsURL,
+    customHog: CustomHog,
+}: ProductIntroductionProps): JSX.Element => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
     return (

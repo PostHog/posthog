@@ -70,32 +70,7 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
-    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
-        const message = supportLogic.values.sendSupportRequest.message
-
-        // do not overwrite modified message
-        if (
-            !(
-                message === SUPPORT_TICKET_TEMPLATES.bug ||
-                message === SUPPORT_TICKET_TEMPLATES.feedback ||
-                message === SUPPORT_TICKET_TEMPLATES.support ||
-                !message
-            )
-        ) {
-            return
-        }
-
-        if (kind === 'bug') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
-        } else if (kind === 'feedback') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
-        } else if (kind === 'support') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
-        }
-    }
-
     useEffect(() => {
-        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -142,7 +117,7 @@ export function SupportForm(): JSX.Element | null {
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2">
                         <LemonTextArea
-                            placeholder="Type your message here"
+                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
                             {...props}
                         />

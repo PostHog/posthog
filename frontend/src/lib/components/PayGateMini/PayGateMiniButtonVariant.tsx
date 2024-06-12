@@ -8,6 +8,7 @@ interface PayGateMiniButtonVariantProps {
     featureInfo: BillingV2FeatureType
     onCtaClick: () => void
     billing: BillingV2Type | null
+    scrollToProduct: boolean
 }
 
 export const PayGateMiniButtonVariant = ({
@@ -16,15 +17,16 @@ export const PayGateMiniButtonVariant = ({
     featureInfo,
     onCtaClick,
     billing,
+    scrollToProduct = true,
 }: PayGateMiniButtonVariantProps): JSX.Element => {
     return (
         <LemonButton
-            to={getCtaLink(gateVariant, productWithFeature, featureInfo)}
+            to={getCtaLink(gateVariant, productWithFeature, featureInfo, scrollToProduct)}
             type="primary"
             center
             onClick={onCtaClick}
         >
-            {getCtaLabel(gateVariant, productWithFeature, billing)}
+            {getCtaLabel(gateVariant, billing)}
         </LemonButton>
     )
 }
@@ -32,10 +34,11 @@ export const PayGateMiniButtonVariant = ({
 const getCtaLink = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    featureInfo: BillingV2FeatureType
+    featureInfo: BillingV2FeatureType,
+    scrollToProduct: boolean = true
 ): string | undefined => {
     if (gateVariant === 'add-card') {
-        return `/organization/billing?products=${productWithFeature.type}`
+        return `/organization/billing${scrollToProduct ? `?products=${productWithFeature.type}` : ''}`
     } else if (gateVariant === 'contact-sales') {
         return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
     } else if (gateVariant === 'move-to-cloud') {
@@ -46,14 +49,12 @@ const getCtaLink = (
 
 const getCtaLabel = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     billing: BillingV2Type | null
 ): string => {
     if (gateVariant === 'add-card') {
-        return billing?.has_active_subscription ? `Upgrade ${productWithFeature?.name}` : 'Subscribe now'
+        return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
-    } else {
-        return 'Move to PostHog Cloud'
     }
+    return 'Move to PostHog Cloud'
 }

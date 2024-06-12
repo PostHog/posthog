@@ -1,12 +1,12 @@
 import os
-from typing import Any, List
+from typing import Any
 from unittest.mock import MagicMock
 
 from posthog.email import EmailMessage
 from posthog.utils import get_absolute_path
 
 
-def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__emails__/") -> List[Any]:
+def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__emails__/") -> list[Any]:
     """
     Takes a mocked EmailMessage class and returns a list of all subsequently created EmailMessage instances
     The "send" method is spyed on to write the generated email to a file

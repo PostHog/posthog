@@ -96,7 +96,7 @@ export function AsOverlay(): JSX.Element {
     )
 }
 
-export function asOverlayWaiting(): JSX.Element {
+export function asOverlayEditing(): JSX.Element {
     return (
         <div className="relative">
             <h1>Hey there</h1>
@@ -109,7 +109,7 @@ export function asOverlayWaiting(): JSX.Element {
                 about to happen.
             </p>
 
-            <SpinnerOverlay mode="waiting" />
+            <SpinnerOverlay mode="editing" />
         </div>
     )
 }

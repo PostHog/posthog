@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from django.db import models, transaction
 from django.db.models import F, Q
@@ -6,6 +6,7 @@ from django.db.models import F, Q
 from posthog.models.utils import UUIDT
 
 from ..team import Team
+from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
@@ -21,15 +22,15 @@ class PersonManager(models.Manager):
             return person
 
     @staticmethod
-    def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
+    def distinct_ids_exist(team_id: int, distinct_ids: list[str]) -> bool:
         return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
 
 
 class Person(models.Model):
-    _distinct_ids: Optional[List[str]]
+    _distinct_ids: Optional[list[str]]
 
     @property
-    def distinct_ids(self) -> List[str]:
+    def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
             return [id.distinct_id for id in self.distinct_ids_cache]
         if hasattr(self, "_distinct_ids") and self._distinct_ids:
@@ -46,12 +47,14 @@ class Person(models.Model):
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
 
     # :DEPRECATED: This should happen through the plugin server
-    def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
+    def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
     def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
+        original_person = Person.objects.get(pk=self.pk)
+        distinct_ids = original_person.distinct_ids
+        original_person_version = original_person.version or 0
         if not main_distinct_id:
             self.properties = {}
             self.save()
@@ -65,7 +68,13 @@ class Person(models.Model):
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
-                    person = Person.objects.create(team_id=self.team_id)
+                    person, _ = Person.objects.get_or_create(
+                        uuid=uuidFromDistinctId(self.team_id, distinct_id),
+                        team_id=self.team_id,
+                        defaults={
+                            "version": original_person_version + 1,
+                        },
+                    )
                     pdi.person_id = str(person.id)
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
@@ -83,9 +92,7 @@ class Person(models.Model):
                     version=pdi.version,
                 )
                 create_person(
-                    team_id=self.team_id,
-                    uuid=str(person.uuid),
-                    version=person.version or 0,
+                    team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
                 )
 
     objects = PersonManager()
@@ -274,7 +281,7 @@ class FlatPersonOverride(models.Model):
         ]
 
 
-def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
+def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str]:
     """_summary_
     Fetching distinct_ids for a person from CH is slow, so we
     fetch them from PG for certain queries. Therfore we need

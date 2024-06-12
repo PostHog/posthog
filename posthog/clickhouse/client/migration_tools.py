@@ -1,4 +1,5 @@
-from typing import Callable, Union
+from typing import Union
+from collections.abc import Callable
 
 from infi.clickhouse_orm import migrations
 

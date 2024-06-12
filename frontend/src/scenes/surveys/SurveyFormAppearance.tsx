@@ -2,47 +2,30 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { Survey, SurveyType } from '~/types'
 
-import { defaultSurveyAppearance, NewSurvey } from './constants'
+import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { SurveyAppearance, SurveyThankYou } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 interface SurveyFormAppearanceProps {
-    activePreview: number
+    previewPageIndex: number
     survey: NewSurvey | Survey
-    setActivePreview: (activePreview: number) => void
+    handleSetSelectedPageIndex: (activePreview: number) => void
     isEditingSurvey?: boolean
 }
 
 export function SurveyFormAppearance({
-    activePreview,
+    previewPageIndex,
     survey,
-    setActivePreview,
-    isEditingSurvey,
+    handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element {
-    const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
-
     return survey.type !== SurveyType.API ? (
-        <>
-            {showThankYou ? (
-                <SurveyThankYou appearance={survey.appearance} />
-            ) : (
-                <SurveyAppearance
-                    surveyType={survey.type}
-                    surveyQuestionItem={survey.questions[activePreview]}
-                    appearance={{
-                        ...(survey.appearance || defaultSurveyAppearance),
-                        ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
-                    }}
-                    isEditingSurvey={isEditingSurvey}
-                />
-            )}
+        <div className="survey-view max-w-72">
+            <SurveyAppearancePreview survey={survey as Survey} previewPageIndex={previewPageIndex} />
             <LemonSelect
-                onChange={(activePreview) => {
-                    setActivePreview(activePreview)
-                }}
+                onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
                 className="mt-4 whitespace-nowrap"
                 fullWidth
-                value={activePreview}
+                value={previewPageIndex}
                 options={[
                     ...survey.questions.map((question, index) => ({
                         label: `${index + 1}. ${question.question ?? ''}`,
@@ -58,7 +41,7 @@ export function SurveyFormAppearance({
                         : []),
                 ]}
             />
-        </>
+        </div>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>
