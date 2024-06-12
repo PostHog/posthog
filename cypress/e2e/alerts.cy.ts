@@ -33,7 +33,7 @@ describe('Alerts', () => {
         cy.get('[aria-label="close"]').click()
     }
 
-    const setInsightDisplayType = (displayType: string = 'Number'): void => {
+    const setInsightDisplayTypeAndSave = (displayType: string): void => {
         // Only the Number representation supports alerts, so change the insight
         cy.get('[data-attr=insight-edit-button]').click()
         cy.get('[data-attr=chart-filter]').click()
@@ -47,7 +47,7 @@ describe('Alerts', () => {
         // Alerts should be disabled for trends represented with graphs
         cy.get('[data-attr=disabled-alerts-button]').should('exist')
 
-        setInsightDisplayType()
+        setInsightDisplayTypeAndSave('Number')
 
         createAlert()
         cy.reload()
@@ -67,10 +67,10 @@ describe('Alerts', () => {
         cy.contains('Alert name').should('not.exist')
     })
 
-    it('Should warn about an alert deletion', () => {
-        setInsightDisplayType('Number')
+    it.only('Should warn about an alert deletion', () => {
+        setInsightDisplayTypeAndSave('Number')
 
-        createAlert()
+        createAlert('Alert to be deleted because of a changed insight')
 
         cy.get('[data-attr=insight-edit-button]').click()
         cy.get('[data-attr=chart-filter]').click()
@@ -81,6 +81,17 @@ describe('Alerts', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Number').click()
 
+        // Assert that reverting the display type removes the banner
         cy.contains('the existing alerts will be deleted').should('not.exist')
+
+        cy.get('[data-attr=insight-cancel-edit-button]').click()
+        setInsightDisplayTypeAndSave('Line chart')
+        setInsightDisplayTypeAndSave('Number')
+
+        // Assert that saving an insight in an incompatible state removes alerts
+        cy.get('[data-attr=more-button]').click()
+        cy.contains('Alerts').click()
+        cy.contains('Manage alerts').click()
+        cy.contains('Alert to be deleted because of a changed insight').should('not.exist')
     })
 })

@@ -75,6 +75,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.alert import Alert, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -386,7 +387,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
-        updated_insight = super().update(instance, validated_data)
+        with transaction.atomic():
+            updated_insight = super().update(instance, validated_data)
+            if not are_alerts_supported_for_insight(updated_insight):
+                Alert.objects.filter(insight__id=instance.id).delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 

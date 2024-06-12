@@ -238,7 +238,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
-                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                data-attr="insight-cancel-edit-button"
+                            >
                                 Cancel
                             </LemonButton>
                         )}
