@@ -74,6 +74,8 @@ abstract class CdpConsumerBase {
         this.organizationManager = new OrganizationManager(postgres, this.teamManager)
         this.groupTypeManager = new GroupTypeManager(postgres, this.teamManager)
         this.hogFunctionManager = new HogFunctionManager(postgres, config)
+        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.config)
+        this.hogExecutor = new HogExecutor(this.config, this.hogFunctionManager, rustyHook)
     }
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
