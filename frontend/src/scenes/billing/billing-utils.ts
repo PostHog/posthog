@@ -188,7 +188,7 @@ export const getUpgradeProductLink = (
     // remove the trailing comma that will be at the end of the url
     url = url.slice(0, -1)
 
-    if (billingLimit) {
+    if (billingLimit !== null && billingLimit !== undefined) {
         url += `&custom_limits_usd=${product.type}:${billingLimit}`
     }
     if (redirectPath) {

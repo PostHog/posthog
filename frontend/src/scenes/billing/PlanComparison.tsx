@@ -121,6 +121,7 @@ export const BillingUpgradePopover = ({
     const [addonsEnabled, setAddonsEnabled] = useState<boolean[]>([])
     const [inputValue, setInputValue] = useState(500)
     const [addonsDict, setAddonsDict] = useState({})
+    const [showBillingLimit, setShowBillingLimit] = useState(true)
 
     const [filteredAddons, setFilteredAddons] = useState(product.addons)
     useEffect(() => {
@@ -153,7 +154,7 @@ export const BillingUpgradePopover = ({
     }, [addonsEnabled])
 
     return (
-        <div className="p-2">
+        <div className="p-2 w-[220px]">
             <h3>Configure your subscription</h3>
             <div className="pt-2 flex flex-col gap-3">
                 {!plan.current_plan && !plan.free_allocation && includeAddons && filteredAddons.length > 0 && (
@@ -184,20 +185,29 @@ export const BillingUpgradePopover = ({
                     </div>
                 )}
                 <div>
-                    <h4>Set a billing limit</h4>
-                    <LemonInput
-                        className="ml-2 mr-2"
-                        type="number"
-                        fullWidth={false}
-                        status="default"
-                        value={inputValue}
-                        onChange={(value) => value && setInputValue(value)}
-                        prefix={<b>$</b>}
-                        min={0}
-                        step={10}
-                        suffix={<>/ month</>}
-                        size="small"
-                    />
+                    <div className="flex mb-2">
+                        <h4 className="mb-0">Set a billing limit</h4>
+                        <LemonSwitch
+                            checked={showBillingLimit}
+                            className="ml-auto pr-2"
+                            onChange={(value) => setShowBillingLimit(value)}
+                        />
+                    </div>
+                    {showBillingLimit && (
+                        <LemonInput
+                            className="ml-2 mr-2"
+                            type="number"
+                            fullWidth={false}
+                            status="default"
+                            value={inputValue}
+                            onChange={(value) => value && setInputValue(value)}
+                            prefix={<b>$</b>}
+                            min={0}
+                            step={10}
+                            suffix={<>/ month</>}
+                            size="small"
+                        />
+                    )}
                 </div>
             </div>
 
@@ -216,7 +226,7 @@ export const BillingUpgradePopover = ({
                               redirectPath,
                               false,
                               addonsDict,
-                              inputValue
+                              showBillingLimit ? inputValue : null
                           )
                         : plan.included_if == 'has_subscription' && needsUpgrade && !billing?.has_active_subscription
                         ? urls.organizationBilling()
