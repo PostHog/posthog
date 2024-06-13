@@ -27,7 +27,8 @@ class Command(BaseCommand):
         else:
             organizations = Organization.objects.all()
 
-        print("Running update_billing_admin_emails for all organizations", len(organizations))  # noqa T201
+        print(f"Running {action} for {len(organizations)} organizations")  # noqa T201
+
         for index, organization in enumerate(organizations):
             first_owner = organization.members.filter(
                 organization_membership__level__gte=OrganizationMembership.Level.OWNER
