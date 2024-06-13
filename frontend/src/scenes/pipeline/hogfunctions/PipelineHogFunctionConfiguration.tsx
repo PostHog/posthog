@@ -40,7 +40,8 @@ export function PipelineHogFunctionConfiguration({
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
     const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
         useValues(logic)
-    const { submitConfiguration, resetForm, setShowSource, duplicate, resetToTemplate, duplicateFromTemplate } = useActions(logic)
+    const { submitConfiguration, resetForm, setShowSource, duplicate, resetToTemplate, duplicateFromTemplate } =
+        useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -180,7 +181,10 @@ export function PipelineHogFunctionConfiguration({
                                                         Reset to template
                                                     </LemonButton>
 
-                                                    <LemonButton type="secondary" onClick={() => duplicateFromTemplate(true)}>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => duplicateFromTemplate(true)}
+                                                    >
                                                         New function from template
                                                     </LemonButton>
                                                 </div>
@@ -289,6 +293,7 @@ export function PipelineHogFunctionConfiguration({
                                                         name={`inputs.${schema.key}`}
                                                         label={schema.label || schema.key}
                                                         showOptional={!schema.required}
+                                                        help={schema.description}
                                                     >
                                                         {({ value, onChange }) => {
                                                             return (

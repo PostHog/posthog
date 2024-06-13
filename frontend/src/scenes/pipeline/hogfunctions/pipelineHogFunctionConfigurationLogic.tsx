@@ -24,6 +24,8 @@ export interface PipelineHogFunctionConfigurationLogicProps {
     id?: string
 }
 
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
+
 function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     if (!filters) {
         return null
@@ -66,7 +68,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
-        resetForm: (configuration?: HogFunctionType) => ({ configuration }),
+        resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
@@ -113,7 +115,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
     forms(({ values, props, actions }) => ({
         configuration: {
-            defaults: {} as HogFunctionType,
+            defaults: {} as HogFunctionConfigurationType,
             alwaysShowErrors: true,
             errors: (data) => {
                 return {
@@ -143,7 +145,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         }
                     })
 
-                    const payload: HogFunctionType = {
+                    const payload: HogFunctionConfigurationType = {
                         ...data,
                         filters: data.filters ? sanitizeFilters(data.filters) : null,
                         inputs: sanitizedInputs,
@@ -220,10 +222,26 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        loadTemplateSuccess: () => actions.resetForm(),
+        loadTemplateSuccess: ({ template }) => {
+            // Fill defaults from template
+            const inputs = {}
+
+            template!.inputs_schema?.forEach((schema) => {
+                if (schema.default) {
+                    inputs[schema.key] = { value: schema.default }
+                }
+            })
+
+            actions.resetForm({
+                ...template!,
+                inputs,
+                enabled: false,
+            })
+        },
         loadHogFunctionSuccess: () => actions.resetForm(),
+
         resetForm: ({ configuration }) => {
-            const savedValue = configuration ?? values.hogFunction ?? values.template
+            const savedValue = configuration
             actions.resetConfiguration({
                 ...savedValue,
                 inputs: savedValue?.inputs ?? {},

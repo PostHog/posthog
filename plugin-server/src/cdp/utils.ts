@@ -4,6 +4,27 @@ import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
 import { clickHouseTimestampToISO } from '../utils/utils'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals } from './types'
 
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
+
+const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
+    const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+    const customPropertyKey = personDisplayNameProperties.find((x) => properties?.[x])
+    const propertyIdentifier = customPropertyKey ? properties[customPropertyKey] : undefined
+
+    const customIdentifier: string =
+        typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
+
+    return (customIdentifier || distinctId)?.trim()
+}
+
 // that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
@@ -16,6 +37,20 @@ export function convertToHogFunctionInvocationGlobals(
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
+    }
+
+    let person: HogFunctionInvocationGlobals['person']
+
+    if (event.person_id) {
+        const personProperties = event.person_properties ? JSON.parse(event.person_properties) : {}
+        const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
+
+        person = {
+            uuid: event.person_id,
+            name: personDisplayName,
+            properties: personProperties,
+            url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
+        }
     }
 
     let groups: HogFunctionInvocationGlobals['groups'] = undefined
@@ -59,14 +94,7 @@ export function convertToHogFunctionInvocationGlobals(
                 clickHouseTimestampToISO(event.timestamp)
             )}`,
         },
-        person: event.person_id
-            ? {
-                  uuid: event.person_id,
-                  properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-                  // TODO: IS this distinct_id or person_id?
-                  url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
-              }
-            : undefined,
+        person,
         groups,
     }
 
