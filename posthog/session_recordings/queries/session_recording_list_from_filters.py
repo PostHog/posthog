@@ -139,7 +139,7 @@ class SessionRecordingListFromFilters:
         return ast.Field(chain=[order])
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
-        mandatory_exprs: list[ast.Expr] = [
+        exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -149,7 +149,7 @@ class SessionRecordingListFromFilters:
 
         person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_id_subquery:
-            mandatory_exprs.append(
+            exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "distinct_id"]),
@@ -158,7 +158,7 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.session_ids:
-            mandatory_exprs.append(
+            exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -167,7 +167,7 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.date_from:
-            mandatory_exprs.append(
+            exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -175,7 +175,7 @@ class SessionRecordingListFromFilters:
                 )
             )
         if self._filter.date_to:
-            mandatory_exprs.append(
+            exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -253,9 +253,8 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        exprs = [*mandatory_exprs]
         if optional_exprs:
-            exprs.append(self._filter.global_operand(exprs=optional_exprs))
+            exprs.append(self._filter.ast_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 
@@ -281,7 +280,7 @@ class SessionRecordingListFromFilters:
 
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND if self._filter.operand == "AND" else PropertyOperatorType.OR,
+                type=self._filter.property_operand,
                 values=property_groups_to_keep,
             )
             if property_groups_to_keep
@@ -319,7 +318,7 @@ class PersonsPropertiesSubQuery:
         person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND if self._filter.operand == "AND" else PropertyOperatorType.OR,
+                type=self._filter.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -365,7 +364,7 @@ class PersonsIdSubQuery:
         person_property_groups = [g for g in self._filter.property_groups.flat if is_person_property(g)]
         return (
             PropertyGroup(
-                type=PropertyOperatorType.AND,
+                type=self._filter.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups

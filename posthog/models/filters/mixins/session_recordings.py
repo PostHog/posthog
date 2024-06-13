@@ -2,7 +2,7 @@ import json
 from typing import Optional, Literal, Union
 
 from posthog.hogql import ast
-from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS
+from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, PropertyOperatorType
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
@@ -20,12 +20,16 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
-    def operand(self) -> Literal["AND"] | Literal["OR"]:
+    def _operand(self) -> Literal["AND"] | Literal["OR"]:
         return self._data.get("operand", "AND")
 
     @cached_property
-    def global_operand(self) -> type[Union[ast.And, ast.Or]]:
-        return ast.And if self.operand == "AND" else ast.Or
+    def property_operand(self) -> PropertyOperatorType:
+        return PropertyOperatorType.AND if self._operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
+    def ast_operand(self) -> type[Union[ast.And, ast.Or]]:
+        return ast.And if self._operand == "AND" else ast.Or
 
     @cached_property
     def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
