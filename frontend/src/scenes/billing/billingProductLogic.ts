@@ -239,6 +239,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ].filter(Boolean)
             },
         ],
+        isAddonProduct: [
+            (s, p) => [s.billing, p.product],
+            (billing, product): boolean =>
+                !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {
