@@ -99,5 +99,5 @@ def compile_hog(hog: str) -> list[Any]:
     try:
         program = parse_program(hog)
         return create_bytecode(program, supported_functions={"fetch"})
-    except Exception as e:
-        raise serializers.ValidationError({"hog": str(e)})
+    except Exception:
+        raise serializers.ValidationError({"hog": "Hog code has errors."})
