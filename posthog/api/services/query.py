@@ -5,6 +5,7 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.bytecode import execute_hog
@@ -106,7 +107,10 @@ def process_query_model(
             try:
                 hog_result = execute_hog(query.code or "", team=team)
                 result = HogQueryResponse(
-                    results=hog_result.result, bytecode=hog_result.bytecode, stdout="".join(hog_result.stdout)
+                    results=hog_result.result,
+                    bytecode=hog_result.bytecode,
+                    coloredBytecode=color_bytecode(hog_result.bytecode),
+                    stdout="".join(hog_result.stdout),
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
