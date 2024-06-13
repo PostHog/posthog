@@ -182,10 +182,10 @@ export const PlanComparison = ({
                         : plan.included_if == 'has_subscription' &&
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
-                        ? 'Subscribe'
+                        ? 'Upgrade'
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : 'Subscribe'}
+                        : 'Upgrade'}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">

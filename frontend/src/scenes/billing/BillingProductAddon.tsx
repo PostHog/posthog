@@ -1,8 +1,9 @@
 import { IconCheckCircle, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -29,6 +30,7 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
@@ -174,7 +176,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                             )
                                         }
                                     >
-                                        Add
+                                        {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                        billing?.subscription_level === 'free'
+                                            ? 'Upgrade and add'
+                                            : 'Add'}
                                     </LemonButton>
                                 )}
                             </>

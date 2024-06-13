@@ -61,7 +61,7 @@ export const OnboardingBillingStep = ({
                         }}
                         data-attr="onboarding-subscribe-button"
                     >
-                        Subscribe to paid plan
+                        Upgrade to paid plan
                     </BillingUpgradeCTA>
                 )
             }
@@ -74,7 +74,7 @@ export const OnboardingBillingStep = ({
                                 <div className="flex gap-x-4">
                                     <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
-                                        <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
+                                        <h3 className="text-lg font-bold mb-1 text-left">Upgrade successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
