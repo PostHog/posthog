@@ -29,7 +29,7 @@ class CeleryQueue(Enum):
     DEFAULT = "celery"
     STATS = "stats"
     EMAIL = "email"
-    LONG_RUNNING = "longrunning"  # any task that has a good chance of taking more than a few seconds should go here
+    LONG_RUNNING = "long_running"  # any task that has a good chance of taking more than a few seconds should go here
     ANALYTICS_QUERIES = "analytics_queries"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
