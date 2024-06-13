@@ -100,12 +100,12 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == InCohortVia.leftjoin:
+    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
@@ -173,7 +173,9 @@ class _Printer(Visitor):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST | None):
+        if node is None:
+            return ""
         self.stack.append(node)
         self._indent += 1
         response = super().visit(node)
@@ -573,23 +575,23 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Gt:
             op = f"greater({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op > right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op > right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.GtEq:
             op = f"greaterOrEquals({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op >= right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op >= right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.Lt:
             op = f"less({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op < right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op < right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.LtEq:
             op = f"lessOrEquals({left}, {right})"
-            constant_lambda = (
-                lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
+            constant_lambda = lambda left_op, right_op: (
+                left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
@@ -956,7 +958,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -980,7 +982,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1030,7 +1032,7 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                     materialized_column = self._get_materialized_column(
                         "events", str(type.chain[0]), "person_properties"
                     )
@@ -1041,9 +1043,9 @@ class _Printer(Visitor):
 
             if materialized_property_sql is not None:
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.legacy_null_as_string:
+                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                else:  # MaterializationMode.auto.legacy_null_as_null
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
                     materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
@@ -1140,8 +1142,11 @@ class _Printer(Visitor):
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
+        identifier = self._print_identifier(node.name)
+        exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
+        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
         over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
-        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args or [])}) OVER {over}"
+        return f"{identifier}({exprs}){args} OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":

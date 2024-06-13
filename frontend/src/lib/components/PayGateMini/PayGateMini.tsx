@@ -1,5 +1,5 @@
-import { IconInfo } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -34,6 +34,7 @@ export interface PayGateMiniProps {
     className?: string
     background?: boolean
     isGrandfathered?: boolean
+    docsLink?: string
 }
 
 /** A sort of paywall for premium features.
@@ -49,14 +50,22 @@ export function PayGateMini({
     overrideShouldShowGate,
     background = true,
     isGrandfathered,
+    docsLink,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant, isAddonProduct } = useValues(
-        payGateMiniLogic({ featureKey: feature, currentUsage })
-    )
-    const { preflight } = useValues(preflightLogic)
+    const {
+        productWithFeature,
+        featureInfo,
+        featureAvailableOnOrg,
+        gateVariant,
+        isAddonProduct,
+        featureInfoOnNextPlan,
+    } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
+
+    const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
 
     useEffect(() => {
         if (gateVariant) {
@@ -97,24 +106,40 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 isAddonProduct={isAddonProduct}
                 billing={billing}
+                featureInfoOnNextPlan={featureInfoOnNextPlan}
+                handleCtaClick={handleCtaClick}
             >
-                {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
-                    <PayGateMiniButton
-                        product={productWithFeature}
-                        featureInfo={featureInfo}
-                        gateVariant={gateVariant}
-                    />
-                ) : (
-                    <PayGateMiniButtonVariant
-                        gateVariant={gateVariant}
-                        productWithFeature={productWithFeature}
-                        featureInfo={featureInfo}
-                        onCtaClick={handleCtaClick}
-                        billing={billing}
-                        isAddonProduct={isAddonProduct}
-                    />
-                )}
+                <div className="flex items-center justify-center space-x-3">
+                    {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
+                        <PayGateMiniButton
+                            product={productWithFeature}
+                            featureInfo={featureInfo}
+                            gateVariant={gateVariant}
+                        />
+                    ) : (
+                        <PayGateMiniButtonVariant
+                            gateVariant={gateVariant}
+                            productWithFeature={productWithFeature}
+                            featureInfo={featureInfo}
+                            onCtaClick={handleCtaClick}
+                            billing={billing}
+                            scrollToProduct={scrollToProduct}
+                            isAddonProduct={isAddonProduct}
+                        />
+                    )}
+                    {docsLink && isCloudOrDev && (
+                        <LemonButton
+                            type="secondary"
+                            to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                            targetBlank
+                            center
+                            data-attr={`${feature}-learn-more`}
+                        >
+                            Learn more <IconOpenSidebar className="ml-2" />
+                        </LemonButton>
+                    )}
+                </div>
             </PayGateContent>
         )
     }
@@ -132,7 +157,9 @@ interface PayGateContentProps {
     isGrandfathered?: boolean
     isAddonProduct?: boolean
     billing: BillingV2Type | null
+    featureInfoOnNextPlan?: BillingV2FeatureType
     children: React.ReactNode
+    handleCtaClick: () => void
 }
 
 function PayGateContent({
@@ -145,7 +172,9 @@ function PayGateContent({
     isGrandfathered,
     isAddonProduct,
     billing,
+    featureInfoOnNextPlan,
     children,
+    handleCtaClick,
 }: PayGateContentProps): JSX.Element {
     return (
         <div
@@ -155,17 +184,19 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">
+            <div className="flex text-4xl text-warning mb-2">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
-            <h3>{featureInfo.name}</h3>
+            <h2>{featureInfo.name}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,
+                featureInfoOnNextPlan,
                 gateVariant,
                 featureInfo,
                 productWithFeature,
                 billing,
-                isAddonProduct
+                isAddonProduct,
+                handleCtaClick
             )}
             {isGrandfathered && <GrandfatheredMessage />}
             {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
@@ -176,11 +207,13 @@ function PayGateContent({
 
 const renderUsageLimitMessage = (
     featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
+    featureInfoOnNextPlan: BillingV2FeatureType | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingV2FeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     billing: BillingV2Type | null,
-    isAddonProduct?: boolean
+    isAddonProduct?: boolean,
+    handleCtaClick?: () => void
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
         return (
@@ -201,7 +234,21 @@ const renderUsageLimitMessage = (
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
                     </span>
                 </p>
-                {billing?.subscription_level === 'free' && !isAddonProduct ? (
+                {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
+                    <>
+                        <p>
+                            Please enter your credit card details by subscribing to any product (eg. Product analytics
+                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                        </p>
+                        <p className="italic text-xs text-muted mb-4">
+                            Need unlimited projects? Check out the{' '}
+                            <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
+                                Teams addon
+                            </Link>
+                            .
+                        </p>
+                    </>
+                ) : billing?.subscription_level === 'free' && !isAddonProduct ? (
                     <p>Upgrade to our paid plan to create more {featureInfo.name}</p>
                 ) : (
                     <p>
@@ -213,7 +260,7 @@ const renderUsageLimitMessage = (
     }
     return (
         <>
-            <p>{featureInfo.description}</p>
+            <p className="max-w-140">{featureInfo.description}</p>
             <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, isAddonProduct)}</p>
         </>
     )

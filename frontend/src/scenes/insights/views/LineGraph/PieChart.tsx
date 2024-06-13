@@ -30,6 +30,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { areObjectValuesEmpty } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
+import { BreakdownFilter } from '~/queries/schema'
 import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null
@@ -53,6 +54,7 @@ function getPercentageForDataPoint(context: Context): number {
 }
 
 export interface PieChartProps extends LineGraphProps {
+    breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
 }
@@ -65,6 +67,7 @@ export function PieChart({
     onClick,
     ['data-attr']: dataAttr,
     trendsFilter,
+    breakdownFilter,
     formula,
     showValuesOnSeries,
     showLabelOnSeries,
@@ -216,6 +219,7 @@ export function PieChart({
                                 tooltipRoot.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
+                                        breakdownFilter={breakdownFilter}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
                                         showHeader={false}
                                         renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {

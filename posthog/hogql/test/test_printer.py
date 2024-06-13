@@ -141,7 +141,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -158,7 +158,7 @@ class TestPrinter(BaseTest):
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
             self.assertEqual(
@@ -243,7 +243,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "properties.'no strings'",
-            "no viable alternative at input '.'no strings'",
+            "mismatched input",
             "hogql",
         )
 
@@ -393,10 +393,10 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("(", "no viable alternative at input '('")
         self._assert_expr_error("())", "no viable alternative at input '()'")
         self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
-        self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
-        self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
+        self._assert_expr_error("select query from events", "mismatched input 'query' expecting <EOF>")
+        self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting <EOF>")
 
     def test_logic(self):
         self.assertEqual(
@@ -503,11 +503,6 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-        # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
-        self.assertEqual(
-            self._expr("event makes little sense"),
-            "((events.event AS makes) AS little) AS sense",
         )
 
     def test_case_when(self):
@@ -749,7 +744,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             query = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -772,7 +767,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             self.assertEqual(
                 self._select(
@@ -795,7 +790,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -814,7 +809,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
@@ -923,6 +918,14 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             ),
             f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_window_functions_with_arg(self):
+        self.assertEqual(
+            self._select(
+                "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
+            ),
+            f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
         )
 
     def test_nullish_concat(self):

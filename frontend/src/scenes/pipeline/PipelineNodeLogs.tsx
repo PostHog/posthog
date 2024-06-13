@@ -1,4 +1,5 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSnack, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
@@ -9,8 +10,9 @@ import { PipelineLogLevel, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic
 export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
     const logic = pipelineNodeLogsLogic({ id, stage })
 
-    const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
-    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm } = useActions(logic)
+    const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels, instanceId } =
+        useValues(logic)
+    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId } = useActions(logic)
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">
@@ -20,6 +22,13 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                 fullWidth
                 onChange={setSearchTerm}
                 allowClear
+                prefix={
+                    <>
+                        <IconSearch />
+
+                        {instanceId && <LemonSnack onClose={() => setInstanceId(null)}>{instanceId}</LemonSnack>}
+                    </>
+                }
             />
             <div className="flex items-center gap-4">
                 <span className="mr-1">Show logs of level:</span>

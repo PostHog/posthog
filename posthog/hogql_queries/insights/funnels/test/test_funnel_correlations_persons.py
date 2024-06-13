@@ -39,7 +39,7 @@ PERSON_ID_COLUMN = 2
 def get_actors(
     filters: dict[str, Any],
     team: Team,
-    funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.events,
+    funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.EVENTS,
     funnelCorrelationNames=None,
     funnelCorrelationPersonConverted: Optional[bool] = None,
     funnelCorrelationPersonEntity: Optional[EventsNode] = None,
@@ -50,7 +50,7 @@ def get_actors(
     funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
     correlation_query = FunnelCorrelationQuery(
         source=funnel_actors_query,
-        funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.events),
+        funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.EVENTS),
         funnelCorrelationNames=funnelCorrelationNames,
         # funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,
         # funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
@@ -466,7 +466,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationPersonConverted=True,
             funnelCorrelationPropertyValues=[
                 {
@@ -579,7 +579,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationPersonConverted=True,
             funnelCorrelationPropertyValues=[
                 {
@@ -613,7 +613,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationPersonConverted=False,
             funnelCorrelationPropertyValues=[
                 {

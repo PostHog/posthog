@@ -27,21 +27,21 @@ public:
 
     virtual std::any visitVarDecl(HogQLParser::VarDeclContext *context) = 0;
 
-    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
-
     virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *context) = 0;
 
     virtual std::any visitStatement(HogQLParser::StatementContext *context) = 0;
 
-    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
+    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
 
     virtual std::any visitIfStmt(HogQLParser::IfStmtContext *context) = 0;
 
     virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *context) = 0;
 
-    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
-
     virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
+
+    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
+
+    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
 
     virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *context) = 0;
 

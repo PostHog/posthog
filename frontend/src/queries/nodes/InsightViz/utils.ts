@@ -8,7 +8,9 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    InsightVizNode,
     Node,
+    NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -18,7 +20,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
+import { ActionType, ChartDisplayType, FilterType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -148,4 +150,38 @@ export const getCachedResults = (
     }
 
     return cachedInsight
+}
+
+// these types exist so that the return type reflects the input model
+// i.e. when given a partial model the return model is types as
+// partial as well
+type InputInsightModel = InsightModel | Partial<InsightModel>
+
+type ReturnInsightModel<T> = T extends InsightModel
+    ? QueryBasedInsightModel
+    : T extends Partial<InsightModel>
+    ? Partial<QueryBasedInsightModel>
+    : never
+
+/** Get an insight with `query` only. Eventual `filters` will be converted.  */
+export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+    const { filters, ...baseInsight } = insight
+    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+}
+
+/** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
+export function getQueryFromInsightLike(insight: {
+    query?: Node<Record<string, any>> | null
+    filters?: Partial<FilterType>
+}): Node<Record<string, any>> | null {
+    let query
+    if (insight.query) {
+        query = insight.query
+    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
+        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+    } else {
+        query = null
+    }
+
+    return query
 }

@@ -155,7 +155,7 @@ export function Billing(): JSX.Element {
                                     {billing?.has_active_subscription && (
                                         <>
                                             <LemonLabel
-                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far.`}
+                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
                                             >
                                                 Current bill total
                                             </LemonLabel>

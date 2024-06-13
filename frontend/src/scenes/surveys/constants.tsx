@@ -131,6 +131,10 @@ export interface NewSurvey
         | 'appearance'
         | 'targeting_flag_filters'
         | 'responses_limit'
+        | 'iteration_count'
+        | 'iteration_frequency_days'
+        | 'iteration_start_dates'
+        | 'current_iteration'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -161,6 +165,8 @@ export const NEW_SURVEY: NewSurvey = {
     archived: false,
     appearance: defaultSurveyAppearance,
     responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
 }
 
 export enum SurveyTemplateType {

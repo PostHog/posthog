@@ -112,9 +112,7 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_process_query_dict.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
 
-        execute_process_query(
-            self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context, self.refresh_requested
-        )
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
@@ -162,7 +160,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
         assert result.error_message
-        self.assertRegex(result.error_message, "Unknown table")
+        self.assertRegex(result.error_message, "no viable alternative at input")
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
@@ -251,8 +249,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         self.assertEqual(process_query_dict_mock.call_count, 0)
         self.assertEqual(process_query_task_mock.call_count, 1)
-        _, kwargs = process_query_task_mock.call_args
-        self.assertTrue(kwargs["refresh_requested"])
 
     def test_client_strips_comments_from_request(self):
         """
@@ -270,7 +266,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
         with self.capture_select_queries() as sqls:
-            tag_queries(kind="request", id="1")
+            tag_queries(kind="request", id="1", user_id=self.user_id)
             sync_execute(
                 query="""
                     -- this request returns 1

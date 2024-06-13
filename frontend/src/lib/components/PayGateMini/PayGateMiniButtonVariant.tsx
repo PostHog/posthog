@@ -12,6 +12,7 @@ interface PayGateMiniButtonVariantProps {
     onCtaClick: () => void
     billing: BillingV2Type | null
     isAddonProduct?: boolean
+    scrollToProduct: boolean
 }
 
 export const PayGateMiniButtonVariant = ({
@@ -21,6 +22,7 @@ export const PayGateMiniButtonVariant = ({
     onCtaClick,
     billing,
     isAddonProduct,
+    scrollToProduct = true,
 }: PayGateMiniButtonVariantProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     return (
@@ -31,7 +33,8 @@ export const PayGateMiniButtonVariant = ({
                 featureInfo,
                 featureFlags,
                 billing?.subscription_level,
-                isAddonProduct
+                isAddonProduct,
+                scrollToProduct
             )}
             disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
             type="primary"
@@ -49,7 +52,8 @@ const getCtaLink = (
     featureInfo: BillingV2FeatureType,
     featureFlags: FeatureFlagsSet,
     subscriptionLevel?: BillingV2Type['subscription_level'],
-    isAddonProduct?: boolean
+    isAddonProduct?: boolean,
+    scrollToProduct: boolean = true
 ): string | undefined => {
     if (
         gateVariant === 'add-card' &&
@@ -59,7 +63,7 @@ const getCtaLink = (
     ) {
         return `/api/billing/activate?products=all_products:&redirect_path=/`
     } else if (gateVariant === 'add-card') {
-        return `/organization/billing?products=${productWithFeature.type}`
+        return `/organization/billing${scrollToProduct ? `?products=${productWithFeature.type}` : ''}`
     } else if (gateVariant === 'contact-sales') {
         return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
     } else if (gateVariant === 'move-to-cloud') {

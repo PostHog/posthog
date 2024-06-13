@@ -42,8 +42,7 @@ describe('insightSceneLogic', () => {
             })
     })
 
-    // for some reason this test fails, while the tested behaviour is correct
-    it.skip('redirects when opening /insight/new with filters', async () => {
+    it('redirects when opening /insight/new with filters', async () => {
         router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)

@@ -18,6 +18,7 @@ export interface PipelineNodeNewLogicProps {
     stage: PipelineStage | null
     pluginId: number | null
     batchExportDestination: string | null
+    hogFunctionId: string | null
 }
 
 export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
@@ -25,12 +26,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
     connect({
         values: [userLogic, ['user']],
     }),
-    path((pluginIdOrBatchExportDestination) => [
-        'scenes',
-        'pipeline',
-        'pipelineNodeNewLogic',
-        pluginIdOrBatchExportDestination,
-    ]),
+    path((id) => ['scenes', 'pipeline', 'pipelineNodeNewLogic', id]),
     actions({
         createNewButtonPressed: (stage: PipelineStage, id: number | BatchExportService['type']) => ({ stage, id }),
     }),

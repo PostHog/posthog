@@ -9,7 +9,7 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -34,6 +34,12 @@ export const mergeTxnSuccessCounter = new Counter({
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
 
+export const personPropertyKeyUpdateCounter = new Counter({
+    name: 'person_property_key_update_total',
+    help: 'Number of person updates triggered by this property value changing.',
+    labelNames: ['key'],
+})
+
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 // used to prevent identify from being used with generic IDs
@@ -52,6 +58,7 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
 ]
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -92,7 +99,6 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private db: DB,
-        private lazyPersonCreation: boolean,
         private personOverrideWriter?: DeferredPersonOverrideWriter
     ) {
         this.eventProperties = event.properties!
@@ -102,68 +108,62 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
-    async update(): Promise<Person> {
+    async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            if (this.lazyPersonCreation) {
-                const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
-                if (existingPerson) {
-                    const person = existingPerson as Person
-
-                    // Ensure person properties don't propagate elsewhere, such as onto the event itself.
-                    person.properties = {}
-
-                    if (this.timestamp > person.created_at.plus({ minutes: 1 })) {
-                        // See documentation on the field.
-                        //
-                        // Note that we account for timestamp vs person creation time (with a little
-                        // padding for good measure) to account for ingestion lag. It's possible for
-                        // events to be processed after person creation even if they were sent prior
-                        // to person creation, and the user did nothing wrong in that case.
-                        person.force_upgrade = true
-                    }
-
-                    return person
-                }
-
-                // We need a value from the `person_created_column` in ClickHouse. This should be
-                // hidden from users for events without a real person, anyway. It's slightly offset
-                // from the 0 date (by 5 seconds) in order to assist in debugging by being
-                // harmlessly distinct from Unix UTC "0".
-                const createdAt = DateTime.utc(1970, 1, 1, 0, 0, 5)
-
-                const fakePerson: Person = {
-                    team_id: this.teamId,
-                    properties: {},
-                    uuid: uuidFromDistinctId(this.teamId, this.distinctId),
-                    created_at: createdAt,
-                }
-                return fakePerson
-            } else {
-                // We don't need to handle any properties for `processPerson=false` events, so we can
-                // short circuit by just finding or creating a person and returning early.
-                const [person, _] = await promiseRetry(() => this.createOrGetPerson(), 'get_person_personless')
+            const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+            if (existingPerson) {
+                const person = existingPerson as Person
 
                 // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                 person.properties = {}
 
-                return person
+                if (this.timestamp > person.created_at.plus({ minutes: 1 })) {
+                    // See documentation on the field.
+                    //
+                    // Note that we account for timestamp vs person creation time (with a little
+                    // padding for good measure) to account for ingestion lag. It's possible for
+                    // events to be processed after person creation even if they were sent prior
+                    // to person creation, and the user did nothing wrong in that case.
+                    person.force_upgrade = true
+                }
+
+                return [person, Promise.resolve()]
             }
+
+            // We need a value from the `person_created_column` in ClickHouse. This should be
+            // hidden from users for events without a real person, anyway. It's slightly offset
+            // from the 0 date (by 5 seconds) in order to assist in debugging by being
+            // harmlessly distinct from Unix UTC "0".
+            const createdAt = DateTime.utc(1970, 1, 1, 0, 0, 5)
+
+            const fakePerson: Person = {
+                team_id: this.teamId,
+                properties: {},
+                uuid: uuidFromDistinctId(this.teamId, this.distinctId),
+                created_at: createdAt,
+            }
+            return [fakePerson, Promise.resolve()]
         }
 
-        const person: InternalPerson | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
+        const [person, identifyOrAliasKafkaAck]: [InternalPerson | undefined, Promise<void>] =
+            await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
+
         if (person) {
             // try to shortcut if we have the person from identify or alias
             try {
-                return await this.updatePersonProperties(person)
+                const [updatedPerson, updateKafkaAck] = await this.updatePersonProperties(person)
+                return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // shortcut didn't work, swallow the error and try normal retry loop below
                 status.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
         }
-        return await this.handleUpdate()
+
+        const [updatedPerson, updateKafkaAck] = await this.handleUpdate()
+        return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
-    async handleUpdate(): Promise<InternalPerson> {
+    async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
         // There are various reasons why update can fail:
         // - anothe thread created the person during a race
         // - the person might have been merged between start of processing and now
@@ -171,10 +171,10 @@ export class PersonState {
         return await promiseRetry(() => this.updateProperties(), 'update_person')
     }
 
-    async updateProperties(): Promise<InternalPerson> {
+    async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return person
+            return [person, Promise.resolve()]
         }
         return await this.updatePersonProperties(person)
     }
@@ -251,7 +251,7 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(person: InternalPerson): Promise<InternalPerson> {
+    private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
         const update: Partial<InternalPerson> = {}
@@ -263,10 +263,45 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            // Note: we're not passing the client, so kafka messages are waited for within the function
-            ;[person] = await this.db.updatePersonDeprecated(person, update)
+            const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
+            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            return [updatedPerson, kafkaAck]
         }
-        return person
+
+        return [person, Promise.resolve()]
+    }
+
+    // For tracking what property keys cause us to update persons
+    // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
+    private getMetricKey(key: string): string {
+        if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
+            return 'geoIP'
+        }
+        if (eventToPersonProperties.has(key)) {
+            return key
+        }
+        if (initialEventToPersonProperties.has(key)) {
+            return key
+        }
+        return 'other'
+    }
+
+    // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
+    // They will still show up for PoE as it's not removed from the event, we just don't update the person in PG anymore
+    private shouldUpdatePersonIfOnlyChange(key: string): boolean {
+        if (PERSON_EVENTS.has(this.event.event)) {
+            // for person events always update everything
+            return true
+        }
+        // These are properties we add from the event and some change often, it's useless to update person always
+        if (eventToPersonProperties.has(key)) {
+            return false
+        }
+        // same as above, coming from GeoIP plugin
+        if (key.startsWith('$geoip_')) {
+            return false
+        }
+        return true
     }
 
     /**
@@ -282,31 +317,38 @@ export class PersonState {
             : Object.keys(unsetProps || {}) || []
 
         let updated = false
+        // tracking as set because we only care about if other or geoip was the cause of the update, not how many properties got updated
+        const metricsKeys = new Set<string>()
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
                 updated = true
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updated = true
+                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
+                    updated = true
+                }
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
                 updated = true
+                metricsKeys.add(this.getMetricKey(propertyKey))
                 delete personProperties[propertyKey]
             }
         })
-
+        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
         return updated
     }
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<InternalPerson | undefined> {
+    async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
         /**
          * strategy:
          *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
@@ -350,7 +392,7 @@ export class PersonState {
         } finally {
             clearTimeout(timeout)
         }
-        return undefined
+        return [undefined, Promise.resolve()]
     }
 
     public async merge(
@@ -358,10 +400,10 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<InternalPerson | undefined> {
+    ): Promise<[InternalPerson | undefined, Promise<void>]> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
@@ -375,7 +417,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
@@ -389,7 +431,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            return undefined
+            return [undefined, Promise.resolve()]
         }
         return promiseRetry(
             () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
@@ -402,7 +444,7 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
@@ -412,8 +454,9 @@ export class PersonState {
         // Overrides are only created when the version is > 0, see:
         //   https://github.com/PostHog/posthog/blob/92e17ce307a577c4233d4ab252eebc6c2207a5ee/posthog/models/person/sql.py#L269-L287
         //
-        // With the addition of optional person processing, we are now rolling out a change to
-        // lazily create `posthog_persondistinctid` and `posthog_person` rows. This means that:
+        // With the addition of optional person processing, we are no longer creating
+        // `posthog_persondistinctid` and `posthog_person` rows when $process_person_profile=false.
+        // This means that:
         // 1. At merge time, it's possible this `distinct_id` and its deterministically generated
         //    `person.uuid` has already been used for events in ClickHouse, but they have no
         //    corresponding rows in the `posthog_persondistinctid` or `posthog_person` tables
@@ -422,20 +465,17 @@ export class PersonState {
         //    `distinct_id` even though we're just now INSERT-ing it into Postgres/ClickHouse. We do
         //    this by starting with `version=1`, as if we had just deleted the old user and were
         //    updating the `distinct_id` row as part of the merge
-        let addDistinctIdVersion = 0
-        if (this.lazyPersonCreation) {
-            addDistinctIdVersion = 1
-        }
+        const addDistinctIdVersion = 1
 
         if (otherPerson && !mergeIntoPerson) {
             await this.db.addDistinctId(otherPerson, mergeIntoDistinctId, addDistinctIdVersion)
-            return otherPerson
+            return [otherPerson, Promise.resolve()]
         } else if (!otherPerson && mergeIntoPerson) {
             await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId, addDistinctIdVersion)
-            return mergeIntoPerson
+            return [mergeIntoPerson, Promise.resolve()]
         } else if (otherPerson && mergeIntoPerson) {
             if (otherPerson.id == mergeIntoPerson.id) {
-                return mergeIntoPerson
+                return [mergeIntoPerson, Promise.resolve()]
             }
             return await this.mergePeople({
                 mergeInto: mergeIntoPerson,
@@ -446,18 +486,21 @@ export class PersonState {
         }
 
         //  The last case: (!oldPerson && !newPerson)
-        return await this.createPerson(
-            // TODO: in this case we could skip the properties updates later
-            timestamp,
-            this.eventProperties['$set'] || {},
-            this.eventProperties['$set_once'] || {},
-            teamId,
-            null,
-            true,
-            this.event.uuid,
-            [mergeIntoDistinctId, otherPersonDistinctId],
-            addDistinctIdVersion
-        )
+        return [
+            await this.createPerson(
+                // TODO: in this case we could skip the properties updates later
+                timestamp,
+                this.eventProperties['$set'] || {},
+                this.eventProperties['$set_once'] || {},
+                teamId,
+                null,
+                true,
+                this.event.uuid,
+                [mergeIntoDistinctId, otherPersonDistinctId],
+                addDistinctIdVersion
+            ),
+            Promise.resolve(),
+        ]
     }
 
     public async mergePeople({
@@ -470,7 +513,7 @@ export class PersonState {
         mergeIntoDistinctId: string
         otherPerson: InternalPerson
         otherPersonDistinctId: string
-    }): Promise<InternalPerson> {
+    }): Promise<[InternalPerson, Promise<void>]> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
         const mergeAllowed = this.isMergeAllowed(otherPerson)
 
@@ -488,7 +531,7 @@ export class PersonState {
                 { alwaysSend: true }
             )
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
-            return mergeInto // We're returning the original person tied to distinct_id used for the event
+            return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
         // How the merge works:
@@ -508,14 +551,14 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
+        const [mergedPerson, kafkaMessages] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
-        await this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
-        return mergedPerson
+
+        return [mergedPerson, kafkaMessages]
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -529,7 +572,7 @@ export class PersonState {
         otherPerson: InternalPerson,
         createdAt: DateTime,
         properties: Properties
-    ): Promise<[ProducerRecord[], InternalPerson]> {
+    ): Promise<[InternalPerson, Promise<void>]> {
         mergeTxnAttemptCounter
             .labels({
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
@@ -539,7 +582,7 @@ export class PersonState {
             })
             .inc()
 
-        const result: [ProducerRecord[], InternalPerson] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, ProducerRecord[]] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
@@ -549,6 +592,23 @@ export class PersonState {
                         created_at: createdAt,
                         properties: properties,
                         is_identified: true,
+
+                        // By using the max version between the two Persons, we ensure that if
+                        // this Person is later split, we can use `this_person.version + 1` for
+                        // any split-off Persons and know that *that* version will be higher than
+                        // any previously deleted Person, and so the new Person row will "win" and
+                        // "undelete" the Person.
+                        //
+                        // For example:
+                        //  - Merge Person_1(version:7) into Person_2(version:2)
+                        //      - Person_1 is deleted
+                        //      - Person_2 attains version 8 via this code below
+                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                        //    its `distinct_id` to generate the deterministic Person UUID.
+                        //    That new Person_1 will have a version _at least_ as high as 8, and
+                        //    so any previously existing rows in CH or otherwise from
+                        //    Person_1(version:7) will "lose" to this new Person_1.
+                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
                     },
                     tx
                 )
@@ -573,7 +633,7 @@ export class PersonState {
                     )
                 }
 
-                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+                return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
         )
 
@@ -585,7 +645,10 @@ export class PersonState {
                 poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
-        return result
+
+        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+
+        return [mergedPerson, kafkaAck]
     }
 }
 
