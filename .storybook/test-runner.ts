@@ -155,7 +155,7 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
-    await page.waitForTimeout(400) // Wait for effects to finish
+    await page.waitForTimeout(1000) // Wait for effects to finish
 
     // Wait for all images to load
     await page.waitForFunction(() =>
