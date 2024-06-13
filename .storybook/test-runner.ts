@@ -164,7 +164,7 @@ async function expectStoryToMatchSnapshot(
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
     await waitForPageReady(page)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
