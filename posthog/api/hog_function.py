@@ -1,4 +1,3 @@
-from django.http import HttpResponse
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
@@ -7,9 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-import requests
 
-from posthog import settings
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
