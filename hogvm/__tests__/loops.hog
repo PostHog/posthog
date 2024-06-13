@@ -7,3 +7,21 @@ print('-- test while loop --')
     }
     print(i)
 }
+
+print('-- test for loop --')
+{
+    for (let i := 0; i < 3; i := i + 1) {
+        print(i)
+    }
+    print('yes')
+}
+
+print('-- test emptier for loop --')
+{
+    let i := 0;
+    for (;i < 3;) {
+        print('woo')
+        i := i + 1;
+    }
+    print('hoo')
+}

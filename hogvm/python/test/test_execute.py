@@ -319,6 +319,21 @@ class TestBytecodeExecute:
             == 3
         )
 
+    def test_bytecode_for(self):
+        assert (
+            self._run_program(
+                """
+                let j := 0
+                for (let i := 0; i < 3; i := i + 1) {
+                    print(i) -- loops 3 times
+                    j := j + 2
+                }
+                return j
+                """
+            )
+            == 6
+        )
+
     def test_bytecode_functions(self):
         program = parse_program(
             """

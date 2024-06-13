@@ -1,4 +1,3 @@
-import posthoganalytics
 import structlog
 from typing import Optional
 
@@ -88,21 +87,8 @@ def process_query_model(
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQuery):
-            if is_cloud():
-                if not posthoganalytics.feature_enabled(
-                    "hog",
-                    str(team.uuid),
-                    groups={"organization": str(team.organization_id)},
-                    group_properties={
-                        "organization": {
-                            "id": str(team.organization_id),
-                            "created_at": team.organization.created_at,
-                        }
-                    },
-                    only_evaluate_locally=True,
-                    send_feature_flag_events=False,
-                ):
-                    return {"results": "Hog queries not enabled for this organization."}
+            if is_cloud() and (user is None or not user.is_staff):
+                return {"results": "Hog queries currently require staff user privileges."}
 
             try:
                 hog_result = execute_hog(query.code or "", team=team)
