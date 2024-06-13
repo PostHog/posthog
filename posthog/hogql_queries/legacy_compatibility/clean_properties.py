@@ -77,6 +77,13 @@ def clean_property_group_filter_value(property: dict):
 def clean_property(property: dict):
     cleaned_property = {**property}
 
+    if len(cleaned_property) == 0:
+        return {"type": "hogql", "key": "true"}
+
+    # remove invalid properties without type
+    if cleaned_property.get("type") is None:
+        return {"type": "hogql", "key": "true"}
+
     # fix type typo
     if cleaned_property.get("type") == "events":
         cleaned_property["type"] = "event"
