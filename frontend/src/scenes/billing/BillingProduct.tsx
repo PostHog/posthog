@@ -208,7 +208,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             billing?.discount_percent ? 'discounted ' : ''
                                                         }amount you have been billed for this ${
                                                             billing?.billing_period?.interval
-                                                        } so far.`}
+                                                        } so far. This number updates once daily.`}
                                                     >
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
@@ -235,7 +235,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 billing?.discount_percent
                                                                     ? ', discounts on your account,'
                                                                     : ''
-                                                            } and the remaining time left in this billing period.`}
+                                                            } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-muted text-lg leading-5">

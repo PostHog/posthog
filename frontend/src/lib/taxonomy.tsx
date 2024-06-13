@@ -1075,6 +1075,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Specified group key',
         },
     },
+    replay: {
+        console_log_level: {
+            label: 'Log level',
+            description: 'Level of console logs captured',
+            examples: ['info', 'warn', 'error'],
+        },
+        console_log_query: {
+            label: 'Console log',
+            description: 'Text of console logs captured',
+        },
+    },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties

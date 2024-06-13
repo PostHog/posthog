@@ -148,6 +148,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         icon_url: data.icon_url.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
                     }
 
+                    if (props.templateId) {
+                        // Only sent on create
+                        ;(payload as any).template_id = props.templateId
+                    }
+
                     if (!props.id) {
                         return await api.hogFunctions.create(payload)
                     }

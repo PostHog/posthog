@@ -66,7 +66,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
                 'showLegend',
                 'vizSpecificOptions',
-                'isHogQLInsight',
             ],
         ],
         actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],

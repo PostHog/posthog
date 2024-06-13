@@ -165,7 +165,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     HOGQL_DASHBOARD_CARDS: 'hogql-dashboard-cards', // owner: @thmsobrmlr
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
@@ -205,12 +204,15 @@ export const FEATURE_FLAGS = {
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
+    SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
     HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
+    ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
+    SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

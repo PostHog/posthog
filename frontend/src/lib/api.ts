@@ -2030,6 +2030,12 @@ const api = {
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
+        async update(
+            sourceId: ExternalDataStripeSource['id'],
+            data: Partial<ExternalDataStripeSource>
+        ): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).update({ data })
+        },
         async database_schema(
             source_type: ExternalDataSourceType,
             payload: Record<string, any>

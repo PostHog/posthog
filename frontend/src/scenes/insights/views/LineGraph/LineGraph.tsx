@@ -279,7 +279,7 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -479,6 +479,7 @@ export function LineGraph_({
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
                                     seriesData={seriesData}
+                                    breakdownFilter={breakdownFilter}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value

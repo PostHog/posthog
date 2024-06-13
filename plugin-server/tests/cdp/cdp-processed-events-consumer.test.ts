@@ -238,8 +238,7 @@ describe('CDP Processed Events Consuner', () => {
                     vmState: expect.any(Object),
                     vmResponse: {
                         status: 200,
-                        body: '{"success":true}',
-                        json: { success: true },
+                        body: { success: true },
                     },
                 },
                 waitForAck: true,

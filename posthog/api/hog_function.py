@@ -11,6 +11,7 @@ import requests
 
 from posthog import settings
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -44,6 +45,8 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
+    template = HogFunctionTemplateSerializer(read_only=True)
+
     class Meta:
         model = HogFunction
         fields = [
@@ -60,6 +63,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs",
             "filters",
             "icon_url",
+            "template",
+            "template_id",
         ]
         read_only_fields = [
             "id",
@@ -67,7 +72,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "bytecode",
+            "template",
         ]
+        extra_kwargs = {
+            "template_id": {"write_only": True},
+        }
 
     def validate_inputs_schema(self, value):
         return validate_inputs_schema(value)
