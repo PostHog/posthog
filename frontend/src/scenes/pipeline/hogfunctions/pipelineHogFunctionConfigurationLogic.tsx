@@ -66,8 +66,10 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     path((id) => ['scenes', 'pipeline', 'pipelineHogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
-        resetForm: true,
+        resetForm: (configuration?: HogFunctionType) => ({ configuration }),
         duplicate: true,
+        duplicateFromTemplate: true,
+        resetToTemplate: true,
     }),
     reducers({
         showSource: [
@@ -220,11 +222,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
     listeners(({ actions, values, cache, props }) => ({
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => actions.resetForm(),
-        resetForm: () => {
-            const savedValue = values.hogFunction ?? values.template
+        resetForm: ({ configuration }) => {
+            const savedValue = configuration ?? values.hogFunction ?? values.template
             actions.resetConfiguration({
                 ...savedValue,
-                inputs: (savedValue as any)?.inputs ?? {},
+                inputs: savedValue?.inputs ?? {},
                 ...(cache.configFromUrl || {}),
             })
         },
@@ -254,6 +256,27 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         configuration: newConfig,
                     }
                 )
+            }
+        },
+        duplicateFromTemplate: async () => {
+            if (values.hogFunction?.template) {
+                const newConfig = {
+                    ...values.hogFunction.template,
+                }
+                router.actions.push(
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${values.hogFunction.template.id}`),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
+            }
+        },
+        resetToTemplate: async () => {
+            if (values.hogFunction?.template) {
+                actions.resetForm({
+                    ...values.hogFunction.template,
+                })
             }
         },
     })),

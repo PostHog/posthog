@@ -1,4 +1,13 @@
-import { LemonButton, LemonInput, LemonSwitch, LemonTextArea, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonInput,
+    LemonSwitch,
+    LemonTextArea,
+    Link,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -29,9 +38,9 @@ export function PipelineHogFunctionConfiguration({
 }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = pipelineHogFunctionConfigurationLogic(logicProps)
-    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded } =
+    const { isConfigurationSubmitting, configurationChanged, showSource, configuration, loading, loaded, hogFunction } =
         useValues(logic)
-    const { submitConfiguration, resetForm, setShowSource, duplicate } = useActions(logic)
+    const { submitConfiguration, resetForm, setShowSource, duplicate, resetToTemplate, duplicateFromTemplate } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -149,6 +158,41 @@ export function PipelineHogFunctionConfiguration({
                             >
                                 <LemonTextArea disabled={loading} />
                             </LemonField>
+
+                            {hogFunction?.template ? (
+                                <p className="border border-dashed rounded text-muted-alt p-2">
+                                    Built from template:{' '}
+                                    <LemonDropdown
+                                        showArrow
+                                        overlay={
+                                            <div className="max-w-120 p-1">
+                                                <p>
+                                                    This function was built from the template{' '}
+                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
+                                                    function is not affected unless you choose to update it.
+                                                </p>
+
+                                                <div className="flex flex-1 items-center border-t pt-2">
+                                                    <div className="flex-1">
+                                                        <LemonButton>Close</LemonButton>
+                                                    </div>
+                                                    <LemonButton onClick={() => resetToTemplate(true)}>
+                                                        Reset to template
+                                                    </LemonButton>
+
+                                                    <LemonButton type="secondary" onClick={() => duplicateFromTemplate(true)}>
+                                                        New function from template
+                                                    </LemonButton>
+                                                </div>
+                                            </div>
+                                        }
+                                    >
+                                        <Link subtle className="font-semibold">
+                                            {hogFunction?.template.name} <IconInfo />
+                                        </Link>
+                                    </LemonDropdown>
+                                </p>
+                            ) : null}
                         </div>
 
                         <div className="border bg-bg-light rounded p-3 space-y-2">
