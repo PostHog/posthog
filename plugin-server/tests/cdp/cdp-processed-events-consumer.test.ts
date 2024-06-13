@@ -38,7 +38,13 @@ jest.mock('../../src/kafka/batch-consumer', () => {
 
 jest.mock('../../src/utils/fetch', () => {
     return {
-        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, text: () => Promise.resolve({}) })),
+        trackedFetch: jest.fn(() =>
+            Promise.resolve({
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
+                json: () => Promise.resolve({ success: true }),
+            })
+        ),
     }
 })
 
@@ -190,9 +196,55 @@ describe('CDP Processed Events Consuner', () => {
             )
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+            // Once for the async callback, twice for the logs
+            expect(mockProducer.produce).toHaveBeenCalledTimes(3)
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toMatchObject({
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toEqual({
+                key: expect.any(String),
+                topic: 'cdp_function_callbacks_test',
+                value: {
+                    id: expect.any(String),
+                    globals: expect.objectContaining({
+                        project: { id: 2, name: 'TEST PROJECT', url: 'http://localhost:8000/project/2' },
+                        // We assume the rest is correct
+                    }),
+                    teamId: 2,
+                    hogFunctionId: expect.any(String),
+                    asyncFunctionName: 'fetch',
+                    asyncFunctionArgs: [
+                        'https://example.com/posthog-webhook',
+                        {
+                            headers: { version: 'v=1.0.0' },
+                            body: {
+                                event: {
+                                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                                    name: '$pageview',
+                                    distinct_id: 'distinct_id_1',
+                                    properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
+                                    timestamp: null,
+                                    url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                },
+                                event_url:
+                                    'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
+                                groups: null,
+                                nested: {
+                                    foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
+                                },
+                                person: null,
+                            },
+                            method: 'POST',
+                        },
+                    ],
+                    vmState: expect.any(Object),
+                    vmResponse: {
+                        status: 200,
+                        body: { success: true },
+                    },
+                },
+                waitForAck: true,
+            })
+
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
                 key: expect.any(String),
                 topic: 'log_entries_test',
                 value: {
@@ -207,7 +259,7 @@ describe('CDP Processed Events Consuner', () => {
                 waitForAck: true,
             })
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toMatchObject({
+            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toMatchObject({
                 topic: 'log_entries_test',
                 value: {
                     log_source: 'hog_function',

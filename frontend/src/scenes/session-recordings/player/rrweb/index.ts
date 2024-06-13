@@ -66,7 +66,13 @@ export const CorsPlugin: ReplayPlugin & {
     },
 }
 
+const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`
+// replaces a common rule in Shopify templates removed during capture
+// fix tracked in https://github.com/rrweb-io/rrweb/pull/1322
+const shopifyShorthandCSSFix =
+    '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [`.ph-no-capture {   background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
 }

@@ -4421,6 +4421,10 @@
                     "items": {},
                     "type": "array"
                 },
+                "coloredBytecode": {
+                    "items": {},
+                    "type": "array"
+                },
                 "results": {},
                 "stdout": {
                     "type": "string"
@@ -5989,6 +5993,10 @@
                     "additionalProperties": false,
                     "properties": {
                         "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "coloredBytecode": {
                             "items": {},
                             "type": "array"
                         },

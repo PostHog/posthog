@@ -23,6 +23,12 @@
         z-index: var(--z-content-overlay);
         content: '';
     }
+
+    .ErrorBoundary {
+        width: 100%;
+        height: 100%;
+        margin: auto;
+    }
 }
 
 .InsightCard__viz {
