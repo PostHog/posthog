@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
@@ -387,6 +387,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         value: 600,
                         operator: PropertyOperator.LessThan,
                     },
+                    operand: FilterLogicalOperator.And,
                 },
             })
 
@@ -434,6 +435,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         date_to: null,
                         events: [],
                         properties: [],
+                        operand: FilterLogicalOperator.And,
                     },
                 })
         })
