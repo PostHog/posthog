@@ -21,6 +21,7 @@ from . import (
     exports,
     feature_flag,
     hog_function,
+    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -413,6 +414,13 @@ projects_router.register(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "project_hog_functions",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"hog_function_templates",
+    hog_function_template.HogFunctionTemplateViewSet,
+    "project_hog_function_templates",
     ["team_id"],
 )
 

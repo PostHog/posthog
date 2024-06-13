@@ -44,6 +44,7 @@ export interface BatchExportBasedNode extends PipelineNodeBase {
 export interface HogFunctionBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.HogFunction
     id: string
+    hog_function: HogFunctionType
 }
 
 // Stage: Transformations
@@ -121,6 +122,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
             enabled: candidate.enabled,
             created_at: candidate.created_at,
             updated_at: candidate.created_at,
+            hog_function: candidate,
         }
     } else if (isPluginConfig(candidate)) {
         const almostNode: Omit<
