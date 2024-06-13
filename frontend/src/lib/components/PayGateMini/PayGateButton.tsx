@@ -77,7 +77,11 @@ const getCtaLabel = (
     billing: BillingV2Type | null,
     featureFlags: FeatureFlagsSet
 ): string => {
-    if (gateVariant === 'add-card' && featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS]) {
+    if (
+        gateVariant === 'add-card' &&
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+        billing?.subscription_level === 'free'
+    ) {
         return 'Upgrade now'
     } else if (gateVariant === 'add-card') {
         return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
