@@ -212,7 +212,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             label: '1 - 5',
                                             value: 5,
                                         },
-                                        ...(question.display === 'number' ? [{ label: '0 - 10', value: 10 }] : []),
+                                        ...(question.display === 'number'
+                                            ? [{ label: '0 - 10 (Net Promoter Score)', value: 10 }]
+                                            : []),
                                     ]}
                                 />
                             </LemonField>
