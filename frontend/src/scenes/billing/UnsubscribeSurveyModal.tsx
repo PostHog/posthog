@@ -31,11 +31,13 @@ export const UnsubscribeSurveyModal = ({
                 ?.subscribed) ||
         billing?.subscription_level === 'paid'
 
+    const subscribeToAllProductsAndPaid =
+        featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'paid'
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
-    if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'paid') {
+    if (subscribeToAllProductsAndPaid) {
         action = isAddonProduct ? 'Remove addon' : 'Downgrade'
-        actionVerb = isAddonProduct ? 'removing addon' : 'downgrading'
+        actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
     }
 
     return (
@@ -46,7 +48,7 @@ export const UnsubscribeSurveyModal = ({
             }}
             width="max(44vw)"
             title={
-                billing?.subscription_level === 'paid'
+                subscribeToAllProductsAndPaid
                     ? `Why are you ${actionVerb}?`
                     : `Why are you ${actionVerb} from ${product.name}?`
             }
