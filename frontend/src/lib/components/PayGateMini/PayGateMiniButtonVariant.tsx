@@ -41,7 +41,7 @@ export const PayGateMiniButtonVariant = ({
             center
             onClick={onCtaClick}
         >
-            {getCtaLabel(gateVariant)}
+            {getCtaLabel(gateVariant, featureFlags)}
         </LemonButton>
     )
 }
@@ -72,9 +72,14 @@ const getCtaLink = (
     return undefined
 }
 
-const getCtaLabel = (gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null): string => {
-    if (gateVariant === 'add-card') {
+const getCtaLabel = (
+    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    featureFlags: FeatureFlagsSet
+): string => {
+    if (gateVariant === 'add-card' && featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS]) {
         return 'Upgrade now'
+    } else if (gateVariant === 'add-card') {
+        return 'Subscribe now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
     }

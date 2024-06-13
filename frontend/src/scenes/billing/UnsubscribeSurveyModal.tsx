@@ -2,6 +2,8 @@ import './UnsubscribeSurveyModal.scss'
 
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -14,6 +16,7 @@ export const UnsubscribeSurveyModal = ({
 }: {
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagsLogic)
     const { surveyID, surveyResponse, isAddonProduct } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
@@ -28,8 +31,13 @@ export const UnsubscribeSurveyModal = ({
                 ?.subscribed) ||
         billing?.subscription_level === 'paid'
 
-    const action = isAddonProduct ? 'Remove addon' : 'Downgrade'
-    const actionVerb = isAddonProduct ? 'removing addon' : 'downgrading'
+    let action = 'Unsubscribe'
+    let actionVerb = 'unsubscribing'
+    if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'paid') {
+        action = isAddonProduct ? 'Remove addon' : 'Downgrade'
+        actionVerb = isAddonProduct ? 'removing addon' : 'downgrading'
+    }
+
     return (
         <LemonModal
             onClose={() => {
@@ -57,7 +65,9 @@ export const UnsubscribeSurveyModal = ({
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
                             deactivateProduct(
-                                billing?.subscription_level === 'paid' && !isAddonProduct
+                                featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                                    billing?.subscription_level === 'paid' &&
+                                    !isAddonProduct
                                     ? 'all_products'
                                     : product.type
                             )

@@ -3,7 +3,7 @@ import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -176,6 +176,7 @@ function PayGateContent({
     children,
     handleCtaClick,
 }: PayGateContentProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div
             className={clsx(
@@ -195,6 +196,7 @@ function PayGateContent({
                 featureInfo,
                 productWithFeature,
                 billing,
+                featureFlags,
                 isAddonProduct,
                 handleCtaClick
             )}
@@ -212,6 +214,7 @@ const renderUsageLimitMessage = (
     featureInfo: BillingV2FeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     billing: BillingV2Type | null,
+    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
@@ -248,7 +251,9 @@ const renderUsageLimitMessage = (
                             .
                         </p>
                     </>
-                ) : billing?.subscription_level === 'free' && !isAddonProduct ? (
+                ) : featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                  billing?.subscription_level === 'free' &&
+                  !isAddonProduct ? (
                     <p>Upgrade to our paid plan to create more {featureInfo.name}</p>
                 ) : (
                     <p>
@@ -261,7 +266,7 @@ const renderUsageLimitMessage = (
     return (
         <>
             <p className="max-w-140">{featureInfo.description}</p>
-            <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, isAddonProduct)}</p>
+            <p>{renderGateVariantMessage(gateVariant, productWithFeature, billing, featureFlags, isAddonProduct)}</p>
         </>
     )
 }
@@ -270,6 +275,7 @@ const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     billing: BillingV2Type | null,
+    featureFlags: FeatureFlagsSet,
     isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
@@ -280,7 +286,7 @@ const renderGateVariantMessage = (
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
             </>
         )
-    } else if (billing?.subscription_level === 'free') {
+    } else if (featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] && billing?.subscription_level === 'free') {
         return <>Upgrade to our paid plan to use this feature.</>
     }
 
