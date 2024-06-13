@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
 
-interface PayGateMiniButtonVariantProps {
+interface PayGateButtonProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     featureInfo: BillingV2FeatureType
@@ -11,14 +11,14 @@ interface PayGateMiniButtonVariantProps {
     scrollToProduct: boolean
 }
 
-export const PayGateMiniButtonVariant = ({
+export const PayGateButton = ({
     gateVariant,
     productWithFeature,
     featureInfo,
     onCtaClick,
     billing,
     scrollToProduct = true,
-}: PayGateMiniButtonVariantProps): JSX.Element => {
+}: PayGateButtonProps): JSX.Element => {
     return (
         <LemonButton
             to={getCtaLink(gateVariant, productWithFeature, featureInfo, scrollToProduct)}

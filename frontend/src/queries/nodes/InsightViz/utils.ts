@@ -20,7 +20,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
+import { ActionType, ChartDisplayType, FilterType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -163,7 +163,17 @@ type ReturnInsightModel<T> = T extends InsightModel
     ? Partial<QueryBasedInsightModel>
     : never
 
+/** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+    const { filters, ...baseInsight } = insight
+    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+}
+
+/** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
+export function getQueryFromInsightLike(insight: {
+    query?: Node<Record<string, any>> | null
+    filters?: Partial<FilterType>
+}): Node<Record<string, any>> | null {
     let query
     if (insight.query) {
         query = insight.query
@@ -173,6 +183,5 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
         query = null
     }
 
-    const { filters, ...baseInsight } = insight
-    return { ...baseInsight, query } as unknown as ReturnInsightModel<T>
+    return query
 }

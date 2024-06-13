@@ -1,9 +1,7 @@
-import { IconInfo } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -13,8 +11,7 @@ import { getProductIcon } from 'scenes/products/Products'
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
-import { PayGateMiniButton } from './PayGateMiniButton'
-import { PayGateMiniButtonVariant } from './PayGateMiniButtonVariant'
+import { PayGateButton } from './PayGateButton'
 import { payGateMiniLogic } from './payGateMiniLogic'
 
 export interface PayGateMiniProps {
@@ -28,6 +25,7 @@ export interface PayGateMiniProps {
     className?: string
     background?: boolean
     isGrandfathered?: boolean
+    docsLink?: string
 }
 
 /** A sort of paywall for premium features.
@@ -43,6 +41,7 @@ export function PayGateMini({
     overrideShouldShowGate,
     background = true,
     isGrandfathered,
+    docsLink,
 }: PayGateMiniProps): JSX.Element | null {
     const {
         productWithFeature,
@@ -52,9 +51,8 @@ export function PayGateMini({
         isAddonProduct,
         featureInfoOnNextPlan,
     } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
     const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
@@ -100,15 +98,8 @@ export function PayGateMini({
                 featureInfoOnNextPlan={featureInfoOnNextPlan}
                 handleCtaClick={handleCtaClick}
             >
-                {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
-                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
-                    <PayGateMiniButton
-                        product={productWithFeature}
-                        featureInfo={featureInfo}
-                        gateVariant={gateVariant}
-                    />
-                ) : (
-                    <PayGateMiniButtonVariant
+                <div className="flex items-center justify-center space-x-3">
+                    <PayGateButton
                         gateVariant={gateVariant}
                         productWithFeature={productWithFeature}
                         featureInfo={featureInfo}
@@ -116,7 +107,18 @@ export function PayGateMini({
                         billing={billing}
                         scrollToProduct={scrollToProduct}
                     />
-                )}
+                    {docsLink && isCloudOrDev && (
+                        <LemonButton
+                            type="secondary"
+                            to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                            targetBlank
+                            center
+                            data-attr={`${feature}-learn-more`}
+                        >
+                            Learn more <IconOpenSidebar className="ml-2" />
+                        </LemonButton>
+                    )}
+                </div>
             </PayGateContent>
         )
     }
@@ -159,10 +161,10 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">
+            <div className="flex text-4xl text-warning mb-2">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
-            <h3>{featureInfo.name}</h3>
+            <h2>{featureInfo.name}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,
                 featureInfoOnNextPlan,
@@ -231,7 +233,7 @@ const renderUsageLimitMessage = (
     }
     return (
         <>
-            <p>{featureInfo.description}</p>
+            <p className="max-w-140">{featureInfo.description}</p>
             <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
         </>
     )

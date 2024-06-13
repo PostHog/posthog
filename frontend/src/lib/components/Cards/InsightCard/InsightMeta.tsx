@@ -17,13 +17,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -72,19 +69,12 @@ export function InsightMeta({
     const { short_id, name, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
-    const summary = summarizeInsight(insight.query, null, {
-        aggregationLabel,
-        cohortsById,
-        mathDefinitions,
-    })
+    const summary = useSummarizeInsight()(insight.query)
 
     return (
         <CardMeta

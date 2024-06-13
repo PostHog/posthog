@@ -18,7 +18,6 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { HOG_FUNCTION_TEMPLATES } from './hogfunctions/templates/hog-templates'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
@@ -124,7 +123,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplates: async () => {
-                    return HOG_FUNCTION_TEMPLATES.reduce((acc, template) => {
+                    const templates = await api.hogFunctions.listTemplates()
+                    return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
                     }, {} as Record<string, HogFunctionTemplateType>)
