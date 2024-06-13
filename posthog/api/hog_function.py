@@ -16,6 +16,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -116,36 +117,16 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         if not query:
             return Response([])
 
-        if not settings.LOGO_DEV_TOKEN:
-            raise serializers.ValidationError("LOGO_DEV_TOKEN is not set")
+        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
 
-        res = requests.get(f"https://search.logo.dev/api/icons?token={settings.LOGO_DEV_TOKEN}&query={query}")
-
-        data = res.json()
-
-        parsed = [
-            {
-                "id": item["domain"],
-                "name": item["name"],
-                "url": f"/api/projects/@current/hog_functions/icon/?id={item['domain']}",
-            }
-            for item in data
-        ]
-
-        return Response(parsed)
+        return Response(icons)
 
     @action(detail=False, methods=["GET"])
     def icon(self, request: Request, *args, **kwargs):
-        # Stream the image from logo.dev
-
-        if not settings.LOGO_DEV_TOKEN:
-            raise serializers.ValidationError("LOGO_DEV_TOKEN is not set")
-
         id = request.GET.get("id")
-
         if not id:
             raise serializers.ValidationError("id is required")
 
-        res = requests.get(f"https://img.logo.dev/{id}?token={settings.LOGO_DEV_TOKEN}")
+        icon_service = CDPIconsService()
 
-        return HttpResponse(res.content, content_type=res.headers["Content-Type"])
+        return icon_service.get_icon_http_response(id)
