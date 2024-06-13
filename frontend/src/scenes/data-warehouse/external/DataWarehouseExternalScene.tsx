@@ -45,6 +45,15 @@ export function DataWarehouseExternalScene(): JSX.Element {
 
                         <LemonButton
                             type="primary"
+                            data-attr="new-data-warehouse-easy-link"
+                            key="new-data-warehouse-easy-link"
+                            to={urls.dataWarehouseTable()}
+                        >
+                            Link source
+                        </LemonButton>
+
+                        <LemonButton
+                            type="primary"
                             icon={<IconGear />}
                             data-attr="new-data-warehouse-settings-link"
                             key="new-data-warehouse-settings-link"
