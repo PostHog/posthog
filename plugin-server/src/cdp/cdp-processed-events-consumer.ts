@@ -62,7 +62,6 @@ abstract class CdpConsumerBase {
     isStopping = false
 
     protected kafkaProducer?: KafkaProducerWrapper
-    protected promises: Set<Promise<any>> = new Set()
     protected abstract name: string
     protected abstract topic: string
     protected abstract consumerGroupId: string
@@ -77,12 +76,6 @@ abstract class CdpConsumerBase {
     }
 
     public abstract handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void>
-
-    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
-        this.promises.add(promise)
-        void promise.finally(() => this.promises.delete(promise))
-        return promise
-    }
 
     public async start(): Promise<void> {
         status.info('🔁', `${this.name} - starting`, {
@@ -140,7 +133,7 @@ abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
+                return await this.handleEachBatch(messages, heartbeat)
             },
             callEachBatchWhenEmpty: false,
         })
@@ -155,21 +148,19 @@ abstract class CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<PromiseSettledResult<any>[]> {
+    public async stop(): Promise<void> {
         status.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
+        status.info('🔁', `${this.name} - stopping batch consumer`)
         await this.batchConsumer?.stop()
-
-        const promiseResults = await Promise.allSettled(this.promises)
-
+        status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
+        status.info('🔁', `${this.name} - stopping hog function manager`)
         await this.hogFunctionManager.stop()
 
         status.info('👍', `${this.name} - stopped!`)
-
-        return promiseResults
     }
 
     public isHealthy() {
