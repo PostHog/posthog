@@ -499,12 +499,18 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
-        aggregation_properties_alias = (
-            PersonQuery.PERSON_PROPERTIES_ALIAS
-            if self._filter.aggregation_group_type_index is None
-            else group_properties_field
-        )
+        if (
+            alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+            and self._filter.aggregation_group_type_index is None
+        ):
+            aggregation_properties_alias = "person_properties"
+        else:
+            group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
+            aggregation_properties_alias = (
+                PersonQuery.PERSON_PROPERTIES_ALIAS
+                if self._filter.aggregation_group_type_index is None
+                else group_properties_field
+            )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
             return (
