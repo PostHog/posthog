@@ -408,7 +408,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 geographyTab,
                 { dateFrom, dateTo, interval },
                 isPathCleaningEnabled: boolean,
-                statusCheck,
+                _statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -431,8 +431,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                const useSessionsTable = true
-
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
                         tileId: TileId.OVERVIEW,
@@ -446,7 +444,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             dateRange,
                             sampling,
                             compare,
-                            useSessionsTable,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -590,13 +587,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             properties: webAnalyticsFilters,
                                             breakdownBy: WebStatsBreakdown.Page,
                                             dateRange,
-                                            includeScrollDepth:
-                                                statusCheck?.isSendingPageLeavesScroll && !useSessionsTable,
+                                            includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                             includeBounceRate: true,
                                             sampling,
                                             doPathCleaning: isPathCleaningEnabled,
                                             limit: 10,
-                                            useSessionsTable,
                                         },
                                         embedded: false,
                                     },
