@@ -1,8 +1,11 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,19 +20,28 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
+    const { insightProps, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+        insightLogic({
+            dashboardItemId: 'new',
+            cachedInsight: null,
+        })
+    )
+
+    const { saveInsight, saveAs } = useActions(insightDataLogic(insightProps))
+
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton
-                            type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key="new-data-warehouse-easy-link"
-                            to={urls.dataWarehouseTable()}
-                        >
-                            Link source
-                        </LemonButton>
+                        <InsightSaveButton
+                            saveAs={saveAs}
+                            saveInsight={saveInsight}
+                            isSaved={hasDashboardItemId}
+                            addingToDashboard={false}
+                            insightSaving={insightSaving}
+                            insightChanged={insightChanged}
+                        />
 
                         <LemonButton
                             type="primary"

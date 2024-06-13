@@ -1,7 +1,8 @@
-import { IconBrackets, IconChevronDown, IconDatabase } from '@posthog/icons'
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconBrackets, IconChevronDown, IconDatabase, IconGear } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -82,11 +83,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                             })),
                         })),
                     })),
-                    emptyLabel: (
-                        <span className="text-muted">
-                            No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
-                        </span>
-                    ),
+                    emptyLabel: <span className="text-muted">No tables found</span>,
                     isLoading: databaseLoading,
                 },
                 {
@@ -134,11 +131,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         icon: <IconDatabase />,
                     })),
                 })),
-                emptyLabel: (
-                    <span className="text-muted">
-                        No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
-                    </span>
-                ),
+                emptyLabel: <span className="text-muted">No tables found</span>,
                 isLoading: databaseLoading,
             },
             {
@@ -181,7 +174,29 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         size="xsmall"
                         onClick={() => setCollapsed(true)}
                         fullWidth
-                        sideIcon={<IconChevronDown className="rotate-90 text-xl" />}
+                        sideIcon={
+                            <div className="flex flex-row gap-1">
+                                <LemonButton
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        router.actions.push(urls.dataWarehouseTable())
+                                    }}
+                                    type="primary"
+                                    size="xsmall"
+                                >
+                                    Link source
+                                </LemonButton>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="primary"
+                                    icon={<IconGear />}
+                                    data-attr="new-data-warehouse-settings-link"
+                                    key="new-data-warehouse-settings-link"
+                                    onClick={() => router.actions.push(urls.dataWarehouseSettings())}
+                                />
+                                <IconChevronDown className="rotate-90 text-xl" />
+                            </div>
+                        }
                     >
                         <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
                     </LemonButton>
