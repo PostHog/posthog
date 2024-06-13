@@ -1955,8 +1955,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
         assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
-            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Firefox", value="Firefox"),
+            BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
         ]
 

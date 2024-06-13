@@ -406,8 +406,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             x[1] <= breakdown_value and breakdown_value < x[2],
                         arrayMap(
                             (bucket_end, i) -> [
-                                quantile_values[i],
-                                bucket_end + if(i +1 = length(quantile_values), 0.01, 0) -- Add 0.01 to the last bucket so it's inclusive
+                                floor(quantile_values[i], 2),
+                                floor(bucket_end + if(i +1 = length(quantile_values), 0.01, 0), 2) -- Add 0.01 to the last bucket so it's inclusive
                             ],
                             arraySlice(quantile_values, 2) as _buckets, -- If there are 4 buckets, there's 5 values
                             arrayEnumerate(_buckets)
