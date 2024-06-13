@@ -173,7 +173,7 @@ export function PipelineHogFunctionConfiguration({
                                                     function is not affected unless you choose to update it.
                                                 </p>
 
-                                                <div className="flex flex-1 items-center border-t pt-2">
+                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
                                                     <div className="flex-1">
                                                         <LemonButton>Close</LemonButton>
                                                     </div>
