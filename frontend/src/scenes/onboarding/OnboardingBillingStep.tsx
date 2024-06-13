@@ -3,6 +3,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -35,6 +36,7 @@ export const OnboardingBillingStep = ({
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
+    const action = featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] ? 'Upgrade' : 'Subscribe'
     return (
         <OnboardingStep
             title="Plans"
@@ -61,7 +63,7 @@ export const OnboardingBillingStep = ({
                         }}
                         data-attr="onboarding-subscribe-button"
                     >
-                        Upgrade to paid plan
+                        {action} to paid plan
                     </BillingUpgradeCTA>
                 )
             }
@@ -74,7 +76,7 @@ export const OnboardingBillingStep = ({
                                 <div className="flex gap-x-4">
                                     <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
-                                        <h3 className="text-lg font-bold mb-1 text-left">Upgrade successful</h3>
+                                        <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
