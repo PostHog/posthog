@@ -1116,11 +1116,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-                [
-                    ("[4.95,10.05]", 2.0, [2, 0, 0, 0]),
-                    ("[0,4.95]", 1.0, [1, 0, 0, 0]),
-                    ("[10.05,15.01]", 1.0, [0, 1, 0, 0]),
-                ],
+                [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
             )
 
     @also_test_with_person_on_events_v2

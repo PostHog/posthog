@@ -59,37 +59,6 @@ class Breakdown:
     def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
 
-    def get_bucket_values(self) -> ast.Expr:
-        histogram_bin_count = (
-            self.query.breakdownFilter.breakdown_histogram_bin_count if self.query.breakdownFilter else None
-        )
-        assert isinstance(histogram_bin_count, int)
-
-        if histogram_bin_count <= 1:
-            return ast.Alias(
-                alias="quantile_values",
-                expr=ast.WindowFunction(
-                    name="quantiles",
-                    args=[ast.Field(chain=self._properties_chain)],
-                    exprs=[ast.Constant(value=quantile) for quantile in [1, 2]],
-                    over_expr=None,
-                ),
-            )
-        quantiles = []
-        bin_size = 1.0 / histogram_bin_count
-        for i in range(histogram_bin_count + 1):
-            quantiles.append(round(i * bin_size, 2))
-
-        return ast.Alias(
-            alias="quantile_values",
-            expr=ast.WindowFunction(
-                name="quantiles",
-                args=[ast.Field(chain=self._properties_chain)],
-                exprs=[ast.Constant(value=quantile) for quantile in quantiles],
-                over_expr=None,
-            ),
-        )
-
     def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))

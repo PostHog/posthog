@@ -211,8 +211,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             breakdown_expr = breakdown.column_expr()
 
             default_query.select.append(breakdown_expr)
-            if breakdown.is_histogram_breakdown:
-                default_query.select.append(breakdown.get_bucket_values())
             default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
@@ -399,21 +397,43 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         if breakdown.enabled:
             if breakdown.is_histogram_breakdown:
-                query.select.append(
-                    parse_expr("""
-                    arrayFilter(
-                        x ->
-                            x[1] <= breakdown_value and breakdown_value < x[2],
+                histogram_bin_count = (
+                    self.query.breakdownFilter.breakdown_histogram_bin_count if self.query.breakdownFilter else None
+                )
+                query.ctes = {
+                    "min_max": ast.CTE(
+                        name="min_max",
+                        expr=self._get_events_subquery(
+                            no_modifications=False, is_actors_query=False, breakdown=breakdown
+                        ),
+                        cte_type="subquery",
+                    )
+                }
+                query.select.extend(
+                    [
+                        # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
+                        # If cardinality is high it'd blow up memory
+                        # Clickhouse is reasonably clever not rereading the same data
+                        parse_expr("(select max(breakdown_value) from min_max) as max_num"),
+                        parse_expr("(select min(breakdown_value) from min_max) as min_num"),
+                        parse_expr("max_num - min_num as diff"),
+                        parse_expr(f"{histogram_bin_count} as bins"),
+                        parse_expr("""
                         arrayMap(
-                            (bucket_end, i) -> [
-                                floor(quantile_values[i], 2),
-                                floor(bucket_end + if(i +1 = length(quantile_values), 0.01, 0), 2) -- Add 0.01 to the last bucket so it's inclusive
+                            x -> [
+                               ((diff / bins) * x) + min_num,
+                               ((diff / bins) * (x + 1)) + min_num + if(x + 1 = bins, 0.01, 0)
                             ],
-                            arraySlice(quantile_values, 2) as _buckets, -- If there are 4 buckets, there's 5 values
-                            arrayEnumerate(_buckets)
-                        )
-                    )[1] as breakdown_value
-                """)
+                            range(bins)
+                        ) as buckets
+                    """),
+                        parse_expr("""arrayFilter(
+                            x ->
+                                x[1] <= breakdown_value and breakdown_value < x[2],
+                        buckets
+                        )[1] as breakdown_value
+                    """),
+                    ]
                 )
             else:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
