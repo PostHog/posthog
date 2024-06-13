@@ -27,7 +27,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
     iter_records,
     start_batch_export_run,
@@ -465,6 +464,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 is_backfill=inputs.is_backfill,
             )
 
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+
+            if first_record_batch is None:
+                return 0
+
             async with s3_upload as s3_upload:
 
                 async def flush_to_s3(
@@ -488,7 +492,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
-                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
                 first_record_batch = cast_record_batch_json_columns(first_record_batch)
                 column_names = first_record_batch.column_names
                 column_names.pop(column_names.index("_inserted_at"))
@@ -634,7 +637,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -652,20 +655,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
-
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
