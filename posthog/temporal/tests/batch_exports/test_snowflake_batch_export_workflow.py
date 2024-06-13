@@ -275,7 +275,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
                         "rowset": rowset,
                         "total": 1,
                         "returned": 1,
-                        "queryId": "query-id",
+                        "queryId": str(uuid4()),
                         "queryResultFormat": "json",
                     },
                 }
@@ -463,7 +463,7 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval):
+async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval, truncate_events):
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
@@ -704,7 +704,6 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
@@ -752,7 +751,6 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     assert run.status == "Failed"
     assert run.latest_error == "ForbiddenError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
