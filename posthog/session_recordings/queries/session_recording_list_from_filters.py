@@ -13,7 +13,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 import structlog
 
@@ -125,8 +125,6 @@ class SessionRecordingListFromFilters:
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
         )
-
-        print(paginated_response.hogql)
 
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
@@ -242,7 +240,7 @@ class SessionRecordingListFromFilters:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(exprs=console_logs_predicates),
+                where=self._filter.ast_operand(exprs=console_logs_predicates),
             )
 
             optional_exprs.append(
@@ -467,7 +465,7 @@ class EventsSubQuery:
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
-            exprs.append(ast.Or(exprs=event_where_exprs))
+            exprs.append(self._filter.events_operand(exprs=event_where_exprs))
 
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
@@ -488,7 +486,7 @@ class EventsSubQuery:
 
         if event_names:
             return ast.Call(
-                name="hasAll",
+                name="hasAll" if self._filter._operand == "AND" else "hasAny",
                 args=[
                     ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
                     # KLUDGE: sorting only so that snapshot tests are consistent

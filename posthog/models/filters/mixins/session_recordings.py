@@ -19,6 +19,13 @@ class SessionRecordingsMixin(BaseParamMixin):
     def console_search_query(self) -> str | None:
         return self._data.get("console_search_query", None)
 
+    # Supports a legacy use case where events were ORed not ANDed
+    # Can be removed and replaced with ast_operand once the new universal replay filtering is out
+    @cached_property
+    def events_operand(self) -> type[Union[ast.And, ast.Or]]:
+        operand = self._data.get("operand", "OR")
+        return ast.And if operand == "AND" else ast.Or
+
     @cached_property
     def _operand(self) -> Literal["AND"] | Literal["OR"]:
         return self._data.get("operand", "AND")
