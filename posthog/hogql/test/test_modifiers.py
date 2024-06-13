@@ -17,34 +17,34 @@ class TestModifiers(BaseTest):
     def test_create_default_modifiers_for_team_init(self):
         assert self.team.person_on_events_mode == "disabled"
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # NB! not a None
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.DISABLED  # NB! not a None
         modifiers = create_default_modifiers_for_team(
             self.team,
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         modifiers = create_default_modifiers_for_team(
             self.team,
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_team_modifiers_override(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # the default mode
+        assert modifiers.persons_on_events_mode == self.team.default_modifiers["personsOnEventsMode"]
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.DISABLED  # the default mode
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         assert self.team.default_modifiers["personsOnEventsMode"] == PersonsOnEventsMode.DISABLED  # no change here
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"

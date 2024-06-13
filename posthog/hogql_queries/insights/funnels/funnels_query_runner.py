@@ -110,7 +110,7 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_class(self):
-        funnelVizType = self.context.funnelsFilter.funnelVizType
+        funnelVizType = self.context.funnelsFilter.funnel_viz_type
 
         if funnelVizType == FunnelVizType.TRENDS:
             return FunnelTrends(context=self.context, **self.kwargs)
@@ -126,7 +126,7 @@ class FunnelsQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),

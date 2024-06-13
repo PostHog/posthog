@@ -61,8 +61,8 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
-        self.target_entity = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY
-        self.returning_entity = self.query.retentionFilter.returningEntity or DEFAULT_ENTITY
+        self.target_entity = self.query.retention_filter.target_entity or DEFAULT_ENTITY
+        self.returning_entity = self.query.retention_filter.returning_entity or DEFAULT_ENTITY
 
     @property
     def group_type_index(self) -> int | None:
@@ -98,7 +98,7 @@ class RetentionQueryRunner(QueryRunner):
             events_where.append(property_to_expr(self.query.properties, self.team))
 
         if (
-            self.query.filterTestAccounts
+            self.query.filter_test_accounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -131,7 +131,7 @@ class RetentionQueryRunner(QueryRunner):
 
         event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
+            if self.query.retention_filter.retention_type == RetentionType.RETENTION_FIRST_TIME
             else RetentionQueryType.TARGET
         )
 
@@ -300,9 +300,9 @@ class RetentionQueryRunner(QueryRunner):
                 else None
             ),
         )
-        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
+        if self.query.sampling_factor is not None and isinstance(self.query.sampling_factor, float):
             inner_query.select_from.sample = ast.SampleExpr(
-                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.sampling_factor))
             )
 
         return inner_query
@@ -336,15 +336,15 @@ class RetentionQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
-        total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
+        total_intervals = self.query.retention_filter.total_intervals or DEFAULT_TOTAL_INTERVALS
         interval = (
-            IntervalType(self.query.retentionFilter.period.lower())
-            if self.query.retentionFilter.period
+            IntervalType(self.query.retention_filter.period.lower())
+            if self.query.retention_filter.period
             else DEFAULT_INTERVAL
         )
 
         return QueryDateRangeWithIntervals(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             total_intervals=total_intervals,
             team=self.team,
             interval=interval,
@@ -388,7 +388,7 @@ class RetentionQueryRunner(QueryRunner):
 
         result_dict = {
             (tuple(breakdown_values), intervals_from_base): {
-                "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                "count": correct_result_for_sampling(count, self.query.sampling_factor),
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }

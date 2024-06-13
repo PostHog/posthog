@@ -31,8 +31,8 @@ def get_hogql_metadata(
     try:
         if isinstance(query.expr, str):
             context = HogQLContext(team_id=team.pk, modifiers=query_modifiers, debug=query.debug or False)
-            if query.exprSource is not None:
-                source_query = get_query_runner(query.exprSource, team).to_query()
+            if query.expr_source is not None:
+                source_query = get_query_runner(query.expr_source, team).to_query()
                 translate_hogql(query.expr, context=context, metadata_source=source_query)
             else:
                 translate_hogql(query.expr, context=context)

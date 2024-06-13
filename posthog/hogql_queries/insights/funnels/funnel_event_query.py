@@ -76,8 +76,8 @@ class FunnelEventQuery:
             aggregation_target = f"$group_{query.aggregation_group_type_index}"
 
         # Aggregating by HogQL
-        elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
-            aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
+        elif funnelsFilter.funnel_aggregate_by_hog_ql and funnelsFilter.funnel_aggregate_by_hog_ql != "person_id":
+            aggregation_target = parse_expr(funnelsFilter.funnel_aggregate_by_hog_ql)
 
         # TODO: is this still relevant?
         # # Aggregating by Distinct ID
@@ -92,16 +92,16 @@ class FunnelEventQuery:
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query
 
-        if query.samplingFactor is None:
+        if query.sampling_factor is None:
             return None
         else:
-            return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor)))
+            return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.sampling_factor)))
 
     def _date_range(self) -> QueryDateRange:
         team, query, now = self.context.team, self.context.query, self.context.now
 
         date_range = QueryDateRange(
-            date_range=query.dateRange,
+            date_range=query.date_range,
             team=team,
             interval=query.interval,
             now=now,

@@ -10,7 +10,7 @@ class FunnelUnorderedActors(FunnelUnordered):
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
+            and self.context.actorsQuery.include_recordings
         ):
             return [parse_expr("array() as matching_events")]
         return []

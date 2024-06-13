@@ -97,8 +97,8 @@ class PersonStrategy(ActorStrategy):
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
 
-        if self.query.fixedProperties:
-            where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
+        if self.query.fixed_properties:
+            where_exprs.append(property_to_expr(self.query.fixed_properties, self.team, scope="person"))
 
         if self.query.search is not None and self.query.search != "":
             where_exprs.append(
@@ -129,7 +129,7 @@ class PersonStrategy(ActorStrategy):
         return where_exprs
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
-        if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
+        if self.query.order_by not in [["person"], ["person DESC"], ["person ASC"]]:
             return None
 
         order_property = (
@@ -140,7 +140,7 @@ class PersonStrategy(ActorStrategy):
                 expr=ast.Field(chain=["properties", order_property]),
                 order=cast(
                     Literal["ASC", "DESC"],
-                    "DESC" if self.query.orderBy[0] == "person DESC" else "ASC",
+                    "DESC" if self.query.order_by[0] == "person DESC" else "ASC",
                 ),
             )
         ]
@@ -197,7 +197,7 @@ class GroupStrategy(ActorStrategy):
         return where_exprs
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
-        if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
+        if self.query.order_by not in [["group"], ["group DESC"], ["group ASC"]]:
             return None
 
         order_property = "name"
@@ -206,7 +206,7 @@ class GroupStrategy(ActorStrategy):
                 expr=ast.Field(chain=["properties", order_property]),
                 order=cast(
                     Literal["ASC", "DESC"],
-                    "DESC" if self.query.orderBy[0] == "group DESC" else "ASC",
+                    "DESC" if self.query.order_by[0] == "group DESC" else "ASC",
                 ),
             )
         ]

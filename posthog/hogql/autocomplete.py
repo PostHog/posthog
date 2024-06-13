@@ -302,7 +302,7 @@ def get_hogql_autocomplete(
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
     original_query_select = copy(query.select)
-    original_end_position = copy(query.endPosition)
+    original_end_position = copy(query.end_position)
 
     for extra_characters, length_to_add in [
         ("", 0),
@@ -316,7 +316,7 @@ def get_hogql_autocomplete(
                 + extra_characters
                 + original_query_select[original_end_position:]
             )
-            query.endPosition = original_end_position + length_to_add
+            query.end_position = original_end_position + length_to_add
 
             with timings.measure("parse_select"):
                 select_ast = parse_select(query.select)
@@ -332,7 +332,7 @@ def get_hogql_autocomplete(
                 ctes = select_ast.select_queries[0].ctes
 
             with timings.measure("find_node"):
-                find_node = GetNodeAtPositionTraverser(select_ast, query.startPosition, query.endPosition)
+                find_node = GetNodeAtPositionTraverser(select_ast, query.start_position, query.end_position)
             node = find_node.node
             parent_node = find_node.parent_node
             nearest_select = find_node.nearest_select_query or select_ast
@@ -404,7 +404,7 @@ def get_hogql_autocomplete(
                                     property_type = None
 
                                 if property_type is not None:
-                                    match_term = query.select[query.startPosition : query.endPosition]
+                                    match_term = query.select[query.start_position : query.end_position]
                                     if match_term == MATCH_ANY_CHARACTER:
                                         match_term = ""
 

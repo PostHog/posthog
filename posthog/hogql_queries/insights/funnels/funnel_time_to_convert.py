@@ -31,12 +31,12 @@ class FunnelTimeToConvert(FunnelBase):
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person
 
         # Conversion from which step should be calculated
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = funnelsFilter.funnel_from_step or 0
         # Conversion to which step should be calculated
-        to_step = funnelsFilter.funnelToStep or len(query.series) - 1
+        to_step = funnelsFilter.funnel_to_step or len(query.series) - 1
 
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
-        binCount = funnelsFilter.binCount
+        binCount = funnelsFilter.bin_count
         if binCount is not None:
             # Custom count is clamped between 1 and 90
             if binCount < 1:
