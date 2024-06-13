@@ -3,7 +3,6 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,7 +25,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { queryExportContext } from '~/queries/query'
 import { InsightVizNode } from '~/queries/schema'
 import {
     ActionType,
@@ -399,17 +397,6 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
-        exporterResourceParams: [
-            (s) => [s.currentTeamId, s.queryBasedInsight],
-            (currentTeamId, insight): TriggerExportProps['export_context'] | null => {
-                if (!currentTeamId || !insight.query) {
-                    return null
-                }
-
-                const filename = ['export', insight.name || insight.derived_name].join('-')
-                return { ...queryExportContext(insight.query, undefined, undefined), filename }
-            },
-        ],
         // Selectors based on legacy filters below - will be converted one-by-one
         /** converts potentially legacy (i.e. containing filters) insight to a query based one */
         queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],

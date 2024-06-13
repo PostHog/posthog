@@ -139,13 +139,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                let sourceQuery = query
-                if (isInsightVizNode(query)) {
-                    sourceQuery = query.source
-                }
-
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined),
+                    ...queryExportContext(query, undefined, undefined),
                     filename,
                 } as ExportContext
             },
