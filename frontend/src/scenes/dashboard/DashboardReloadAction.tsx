@@ -124,6 +124,7 @@ export function DashboardReloadAction(): JSX.Element {
                 }
                 visible={autoRefresh.enabled}
                 position="top-right"
+                status="muted"
             />
         </div>
     )
