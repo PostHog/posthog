@@ -1,6 +1,7 @@
 ---- Commented out because python and JS add different spaces to their JSON output
--- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }))
--- print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3))
+-- // both SQL style -- and JS/C-style // comments work
+// print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }))
+// print(jsonStringify({'$browser': 'Chrome', '$os': 'Windows' }, 3))
 
 print(jsonParse('[1,2,3]'))
 

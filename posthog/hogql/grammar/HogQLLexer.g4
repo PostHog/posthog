@@ -217,7 +217,7 @@ UNDERSCORE: '_';
 // Comments and whitespace
 
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
-SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 
