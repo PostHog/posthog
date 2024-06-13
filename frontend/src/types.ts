@@ -2649,6 +2649,11 @@ export interface SurveyQuestionBase {
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
+    branching?:
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2666,11 +2671,6 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
-    branching?:
-        | NextQuestionBranching
-        | ConfirmationMessageBranching
-        | ResponseBasedBranching
-        | SpecificQuestionBranching
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
@@ -2678,11 +2678,6 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
-    branching?:
-        | NextQuestionBranching
-        | ConfirmationMessageBranching
-        | ResponseBasedBranching
-        | SpecificQuestionBranching
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion

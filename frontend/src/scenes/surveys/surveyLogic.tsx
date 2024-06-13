@@ -670,15 +670,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (
-                        question.type !== SurveyQuestionType.Rating &&
-                        question.type !== SurveyQuestionType.SingleChoice
-                    ) {
-                        throw new Error(
-                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
-                        )
-                    }
-
                     if (value === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
                     } else if (value === SurveyQuestionBranchingType.ConfirmationMessage) {
@@ -686,6 +677,15 @@ export const surveyLogic = kea<surveyLogicType>([
                             type: SurveyQuestionBranchingType.ConfirmationMessage,
                         }
                     } else if (value === SurveyQuestionBranchingType.ResponseBased) {
+                        if (
+                            question.type !== SurveyQuestionType.Rating &&
+                            question.type !== SurveyQuestionType.SingleChoice
+                        ) {
+                            throw new Error(
+                                `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                            )
+                        }
+
                         question.branching = {
                             type: SurveyQuestionBranchingType.ResponseBased,
                             responseValue: {},

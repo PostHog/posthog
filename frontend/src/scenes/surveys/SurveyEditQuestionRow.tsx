@@ -89,9 +89,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const hasBranching =
-        featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC] &&
-        (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice)
+    const hasBranching = featureFlags[FEATURE_FLAGS.SURVEYS_BRANCHING_LOGIC]
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 

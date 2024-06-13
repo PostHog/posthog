@@ -26,6 +26,8 @@ export function QuestionBranchingInput({
         }))
         .filter((_, idx) => questionIndex !== idx)
     const branchingDropdownValue = getBranchingDropdownValue(questionIndex, question)
+    const hasResponseBasedBranching =
+        question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice
 
     return (
         <>
@@ -48,10 +50,14 @@ export function QuestionBranchingInput({
                             label: 'Confirmation message',
                             value: SurveyQuestionBranchingType.ConfirmationMessage,
                         },
-                        {
-                            label: 'Specific question based on answer',
-                            value: SurveyQuestionBranchingType.ResponseBased,
-                        },
+                        ...(hasResponseBasedBranching
+                            ? [
+                                  {
+                                      label: 'Specific question based on answer',
+                                      value: SurveyQuestionBranchingType.ResponseBased,
+                                  },
+                              ]
+                            : []),
                         ...availableNextQuestions.map((question) => ({
                             label: truncate(`${question.questionIndex + 1}. ${question.question}`, 40),
                             value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
