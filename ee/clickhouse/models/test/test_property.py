@@ -1222,23 +1222,49 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
             {"breakdown_param_1": "$browser"},
         ),
         ('array("mat_pp_$browser") AS value', {"breakdown_param_1": "$browser"}),
-    ),
-    (
-        ["$browser", "$browser_version"],
-        "events",
-        "prop",
-        "properties",
-        "group2_properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-        (
-            """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop""",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-    ),
+    )
 ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "breakdown, table, query_alias, column, materialise_column, expected_with, expected_without",
+    TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
+)
+def test_breakdown_query_expression_materialised(
+    clean_up_materialised_columns,
+    breakdown: Union[str, list[str]],
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value"],
+    column: str,
+    materialise_column: str,
+    expected_with: str,
+    expected_without: str,
+):
+    from posthog.models.team import util
+
+    util.can_enable_actor_on_events = True
+
+    materialize(table, breakdown[0], table_column="properties")
+    actual = get_single_or_multi_property_string_expr(
+        breakdown,
+        table,
+        query_alias,
+        column,
+        materialised_table_column=materialise_column,
+    )
+    assert actual == expected_with
+
+    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    actual = get_single_or_multi_property_string_expr(
+        breakdown,
+        table,
+        query_alias,
+        column,
+        materialised_table_column=materialise_column,
+    )
+
+    assert actual == expected_without
 
 
 @pytest.fixture
