@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -114,41 +115,44 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             alwaysShowErrors: true,
             errors: (data) => {
                 return {
-                    name: !data.name ? 'Name is required' : null,
+                    name: !data.name ? 'Name is required' : undefined,
                     ...values.inputFormErrors,
                 }
             },
             submit: async (data) => {
-                const sanitizedInputs = {}
-
-                data.inputs_schema?.forEach((input) => {
-                    if (input.type === 'json' && typeof data.inputs[input.key].value === 'string') {
-                        try {
-                            sanitizedInputs[input.key] = {
-                                value: JSON.parse(data.inputs[input.key].value),
-                            }
-                        } catch (e) {
-                            // Ignore
-                        }
-                    } else {
-                        sanitizedInputs[input.key] = {
-                            value: data.inputs[input.key].value,
-                        }
-                    }
-                })
-
-                const payload: HogFunctionType = {
-                    ...data,
-                    filters: data.filters ? sanitizeFilters(data.filters) : null,
-                    inputs: sanitizedInputs,
-                }
-
-                if (props.templateId) {
-                    // Only sent on create
-                    ;(payload as any).template_id = props.templateId
-                }
-
                 try {
+                    const sanitizedInputs = {}
+
+                    data.inputs_schema?.forEach((input) => {
+                        const value = data.inputs?.[input.key]?.value
+
+                        if (input.type === 'json' && typeof value === 'string') {
+                            try {
+                                sanitizedInputs[input.key] = {
+                                    value: JSON.parse(value),
+                                }
+                            } catch (e) {
+                                // Ignore
+                            }
+                        } else {
+                            sanitizedInputs[input.key] = {
+                                value: value,
+                            }
+                        }
+                    })
+
+                    const payload: HogFunctionType = {
+                        ...data,
+                        filters: data.filters ? sanitizeFilters(data.filters) : null,
+                        inputs: sanitizedInputs,
+                        icon_url: data.icon_url.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+                    }
+
+                    if (props.templateId) {
+                        // Only sent on create
+                        ;(payload as any).template_id = props.templateId
+                    }
+
                     if (!props.id) {
                         return await api.hogFunctions.create(payload)
                     }
@@ -167,7 +171,11 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                                 [maybeValidationError.attr]: maybeValidationError.detail,
                             })
                         }
+                    } else {
+                        console.error(e)
+                        lemonToast.error('Error submitting configuration')
                     }
+
                     throw e
                 }
             },

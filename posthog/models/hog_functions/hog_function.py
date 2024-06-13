@@ -22,6 +22,7 @@ class HogFunction(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     enabled: models.BooleanField = models.BooleanField(default=False)
 
+    icon_url: models.TextField = models.TextField(null=True, blank=True)
     hog: models.TextField = models.TextField()
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
     inputs_schema: models.JSONField = models.JSONField(null=True)

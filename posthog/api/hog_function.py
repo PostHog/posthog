@@ -1,14 +1,22 @@
+from django.http import HttpResponse
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
 from rest_framework.serializers import BaseSerializer
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
+import requests
+
+from posthog import settings
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -32,6 +40,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "enabled",
             "hog",
             "filters",
+            "icon_url",
         ]
         read_only_fields = fields
 
@@ -54,6 +63,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema",
             "inputs",
             "filters",
+            "icon_url",
             "template",
             "template_id",
         ]
@@ -100,3 +110,23 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+
+    @action(detail=False, methods=["GET"])
+    def icons(self, request: Request, *args, **kwargs):
+        query = request.GET.get("query")
+        if not query:
+            return Response([])
+
+        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
+
+        return Response(icons)
+
+    @action(detail=False, methods=["GET"])
+    def icon(self, request: Request, *args, **kwargs):
+        id = request.GET.get("id")
+        if not id:
+            raise serializers.ValidationError("id is required")
+
+        icon_service = CDPIconsService()
+
+        return icon_service.get_icon_http_response(id)

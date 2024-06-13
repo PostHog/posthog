@@ -6,6 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-hello-workd",
     name="Hello world",
     description="Prints your message or hello world!",
+    icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
     hog="""
 print(inputs.message ?? 'hello world!');
 """.strip(),

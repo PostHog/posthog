@@ -11,3 +11,4 @@ class HogFunctionTemplate:
     hog: str
     inputs_schema: list[dict]
     filters: Optional[dict] = None
+    icon_url: Optional[str] = None
