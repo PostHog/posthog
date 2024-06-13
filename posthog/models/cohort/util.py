@@ -372,6 +372,7 @@ def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> O
             "version": override_version if override_version is not None else cohort.version,
             "team_id": cohort.team_id,
         },
+        workload=Workload.OFFLINE,
     )
 
     if count_result and len(count_result) and len(count_result[0]):
