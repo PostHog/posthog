@@ -17,6 +17,7 @@ const meta: Meta = {
                 width: 1300,
                 height: 720,
             },
+            delay: 1000,
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
