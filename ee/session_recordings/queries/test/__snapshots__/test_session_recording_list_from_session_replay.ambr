@@ -56,7 +56,7 @@
   OFFSET %(offset)s
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_1_test_poe_being_unavailable_we_fall_back_to_person_subquery
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_1_test_poe_being_unavailable_we_fall_back_to_person_id_overrides
   '''
   -- running in PoE Mode: disabled
   

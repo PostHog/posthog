@@ -78,11 +78,11 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 True,
             ],
             [
-                "test_poe_being_unavailable_we_fall_back_to_person_subquery",
+                "test_poe_being_unavailable_we_fall_back_to_person_id_overrides",
                 False,
                 False,
                 False,
-                PersonsOnEventsMode.DISABLED,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 True,
             ],
             [
