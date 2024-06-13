@@ -137,27 +137,26 @@ class SessionRecordingListFromFilters:
         return ast.Field(chain=[order])
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
-        exprs: list[ast.Expr] = []
-
-        if self._filter.date_from:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self._filter.date_from),
-                )
+        mandatory_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["s", "min_first_timestamp"]),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             )
-        if self._filter.date_to:
-            exprs.append(
+        ]
+
+        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
+        if person_id_subquery:
+            mandatory_exprs.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self._filter.date_to),
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=person_id_subquery,
                 )
             )
 
         if self._filter.session_ids:
-            exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -165,9 +164,28 @@ class SessionRecordingListFromFilters:
                 )
             )
 
+        optional_exprs: list[ast.Expr] = []
+
+        if self._filter.date_from:
+            optional_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=self._filter.date_from),
+                )
+            )
+        if self._filter.date_to:
+            optional_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=self._filter.date_to),
+                )
+            )
+
         events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if events_sub_query:
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "session_id"]),
@@ -178,7 +196,7 @@ class SessionRecordingListFromFilters:
         # we want to avoid a join to persons since we don't ever need to select from them
         person_subquery = PersonsPropertiesSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if person_subquery:
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "distinct_id"]),
@@ -191,17 +209,7 @@ class SessionRecordingListFromFilters:
             logger.info(
                 "session_replay_query_builder has unhandled properties", unhandled_properties=remaining_properties
             )
-            exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
-
-        person_id_subquery = PersonsIdSubQuery(self._team, self._filter, self.ttl_days).get_query()
-        if person_id_subquery:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["s", "distinct_id"]),
-                    right=person_id_subquery,
-                )
-            )
+            optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:
@@ -235,7 +243,7 @@ class SessionRecordingListFromFilters:
                 where=ast.And(exprs=console_logs_predicates),
             )
 
-            exprs.append(
+            optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
@@ -243,16 +251,7 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
-                ),
-                self._filter.global_operand(exprs=exprs),
-            ]
-        )
+        return ast.And(exprs=[*mandatory_exprs, self._filter.global_operand(exprs=optional_exprs)])
 
     def _having_predicates(self) -> ast.CompareOperation | Constant:
         if not self._filter.recording_duration_filter:
