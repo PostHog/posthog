@@ -51,6 +51,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitForStmt(HogQLParser::ForStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *ctx) override {
     return visitChildren(ctx);
   }
