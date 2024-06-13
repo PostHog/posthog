@@ -441,9 +441,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
-                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp"]
+                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
         # no type information, so just use the name of the field
-        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]
+        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
@@ -498,6 +498,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable
         from posthog.hogql.database.schema.sessions import SessionsTable
+        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
             resolved_field = node.type.resolve_database_field(self.context)
@@ -507,13 +508,21 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             if isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
             return (
-                isinstance(table_type, ast.TableType)
-                and isinstance(table_type.table, EventsTable)
-                and resolved_field.name == "timestamp"
-            ) or (
-                isinstance(table_type, ast.LazyTableType)
-                and isinstance(table_type.table, SessionsTable)
-                and resolved_field.name == "$start_timestamp"
+                (
+                    isinstance(table_type, ast.TableType)
+                    and isinstance(table_type.table, EventsTable)
+                    and resolved_field.name == "timestamp"
+                )
+                or (
+                    isinstance(table_type, ast.LazyTableType)
+                    and isinstance(table_type.table, SessionsTable)
+                    and resolved_field.name == "$start_timestamp"
+                )
+                or (
+                    isinstance(table_type, ast.TableType)
+                    and isinstance(table_type.table, RawSessionReplayEventsTable)
+                    and resolved_field.name == "min_first_timestamp"
+                )
             )
 
         return self.visit(node.expr)
@@ -536,6 +545,7 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Field:
         from posthog.hogql.database.schema.events import EventsTable
         from posthog.hogql.database.schema.sessions import SessionsTable
+        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
@@ -544,12 +554,14 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
                 table_type = table_type.table_type
             table = table_type.table
             if resolved_field and isinstance(resolved_field, DatabaseField):
-                if (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
-                    isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp"
+                if (
+                    (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
+                    or (isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp")
+                    or (isinstance(table, RawSessionReplayEventsTable) and resolved_field.name == "min_first_timestamp")
                 ):
                     return ast.Field(chain=["raw_sessions", "min_timestamp"])
         # no type information, so just use the name of the field
-        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]:
+        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]:
             return ast.Field(chain=["raw_sessions", "min_timestamp"])
         return node
 
