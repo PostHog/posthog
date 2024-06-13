@@ -2726,7 +2726,7 @@ interface ConfirmationMessageBranching {
 
 interface ResponseBasedBranching {
     type: SurveyQuestionBranchingType.ResponseBased
-    responseValue: Record<string, any>
+    responseValues: Record<string, any>
 }
 
 interface SpecificQuestionBranching {

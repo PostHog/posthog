@@ -17,7 +17,7 @@ export function QuestionBranchingInput({
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 }): JSX.Element {
     const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
-    const { setQuestionBranching } = useActions(surveyLogic)
+    const { setQuestionBranchingType } = useActions(surveyLogic)
 
     const availableNextQuestions = survey.questions
         .map((question, questionIndex) => ({
@@ -36,7 +36,7 @@ export function QuestionBranchingInput({
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
                     data-attr={`branching-question-${questionIndex}`}
-                    onSelect={(value) => setQuestionBranching(questionIndex, value)}
+                    onSelect={(type) => setQuestionBranchingType(questionIndex, type)}
                     options={[
                         ...(questionIndex < survey.questions.length - 1
                             ? [

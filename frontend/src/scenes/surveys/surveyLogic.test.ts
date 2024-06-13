@@ -476,7 +476,7 @@ describe('set response-based survey branching', () => {
             const questionIndex = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setQuestionBranching(questionIndex, SurveyQuestionBranchingType.ResponseBased)
+                logic.actions.setQuestionBranchingType(questionIndex, SurveyQuestionBranchingType.ResponseBased)
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     'Yes',
@@ -489,7 +489,7 @@ describe('set response-based survey branching', () => {
                 )
             })
                 .toDispatchActions([
-                    'setQuestionBranching',
+                    'setQuestionBranchingType',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
                 ])
@@ -500,7 +500,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValue: { Yes: 1, No: 2 },
+                                    responseValues: { Yes: 1, No: 2 },
                                 },
                             },
                             { ...SURVEY.questions[1] },
@@ -547,7 +547,7 @@ describe('set response-based survey branching', () => {
             const questionIndex = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setQuestionBranching(questionIndex, SurveyQuestionBranchingType.ResponseBased)
+                logic.actions.setQuestionBranchingType(questionIndex, SurveyQuestionBranchingType.ResponseBased)
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     'negative',
@@ -565,7 +565,7 @@ describe('set response-based survey branching', () => {
                 )
             })
                 .toDispatchActions([
-                    'setQuestionBranching',
+                    'setQuestionBranchingType',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
@@ -577,7 +577,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValue: { negative: 1, neutral: 2, positive: 3 },
+                                    responseValues: { negative: 1, neutral: 2, positive: 3 },
                                 },
                             },
                             { ...SURVEY.questions[1] },
@@ -625,7 +625,7 @@ describe('set response-based survey branching', () => {
             const questionIndex = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setQuestionBranching(questionIndex, SurveyQuestionBranchingType.ResponseBased)
+                logic.actions.setQuestionBranchingType(questionIndex, SurveyQuestionBranchingType.ResponseBased)
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     'negative',
@@ -643,7 +643,7 @@ describe('set response-based survey branching', () => {
                 )
             })
                 .toDispatchActions([
-                    'setQuestionBranching',
+                    'setQuestionBranchingType',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
@@ -655,7 +655,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValue: { negative: 1, neutral: 2, positive: 3 },
+                                    responseValues: { negative: 1, neutral: 2, positive: 3 },
                                 },
                             },
                             { ...SURVEY.questions[1] },
@@ -703,7 +703,7 @@ describe('set response-based survey branching', () => {
             const questionIndex = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setQuestionBranching(questionIndex, SurveyQuestionBranchingType.ResponseBased)
+                logic.actions.setQuestionBranchingType(questionIndex, SurveyQuestionBranchingType.ResponseBased)
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     'detractors',
@@ -721,7 +721,7 @@ describe('set response-based survey branching', () => {
                 )
             })
                 .toDispatchActions([
-                    'setQuestionBranching',
+                    'setQuestionBranchingType',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
@@ -733,7 +733,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValue: { detractors: 1, passives: 2, promoters: 3 },
+                                    responseValues: { detractors: 1, passives: 2, promoters: 3 },
                                 },
                             },
                             { ...SURVEY.questions[1] },
@@ -767,7 +767,7 @@ describe('set response-based survey branching', () => {
             const questionIndex = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setQuestionBranching(questionIndex, SurveyQuestionBranchingType.ResponseBased)
+                logic.actions.setQuestionBranchingType(questionIndex, SurveyQuestionBranchingType.ResponseBased)
                 logic.actions.setResponseBasedBranchingForQuestion(
                     questionIndex,
                     'Yes',
@@ -780,7 +780,7 @@ describe('set response-based survey branching', () => {
                 )
             })
                 .toDispatchActions([
-                    'setQuestionBranching',
+                    'setQuestionBranchingType',
                     'setResponseBasedBranchingForQuestion',
                     'setResponseBasedBranchingForQuestion',
                 ])
@@ -791,7 +791,7 @@ describe('set response-based survey branching', () => {
                                 ...SURVEY.questions[0],
                                 branching: {
                                     type: SurveyQuestionBranchingType.ResponseBased,
-                                    responseValue: { Yes: SurveyQuestionBranchingType.ConfirmationMessage }, // Branching out to "Next question" is implicit
+                                    responseValues: { Yes: SurveyQuestionBranchingType.ConfirmationMessage }, // Branching out to "Next question" is implicit
                                 },
                             },
                             { ...SURVEY.questions[1] },

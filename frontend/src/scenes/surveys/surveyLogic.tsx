@@ -157,10 +157,10 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        setQuestionBranching: (questionIndex, value) => ({ questionIndex, value }),
-        setResponseBasedBranchingForQuestion: (questionIndex, value, branchingToValue) => ({
+        setQuestionBranchingType: (questionIndex, type) => ({ questionIndex, type }),
+        setResponseBasedBranchingForQuestion: (questionIndex, responseValue, branchingToValue) => ({
             questionIndex,
-            value,
+            responseValue,
             branchingToValue,
         }),
         archiveSurvey: true,
@@ -666,17 +666,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newTemplateSurvey = { ...NEW_SURVEY, ...template }
                     return newTemplateSurvey
                 },
-                setQuestionBranching: (state, { questionIndex, value }) => {
+                setQuestionBranchingType: (state, { questionIndex, type }) => {
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (value === SurveyQuestionBranchingType.NextQuestion) {
+                    if (type === SurveyQuestionBranchingType.NextQuestion) {
                         delete question.branching
-                    } else if (value === SurveyQuestionBranchingType.ConfirmationMessage) {
+                    } else if (type === SurveyQuestionBranchingType.ConfirmationMessage) {
                         question.branching = {
                             type: SurveyQuestionBranchingType.ConfirmationMessage,
                         }
-                    } else if (value === SurveyQuestionBranchingType.ResponseBased) {
+                    } else if (type === SurveyQuestionBranchingType.ResponseBased) {
                         if (
                             question.type !== SurveyQuestionType.Rating &&
                             question.type !== SurveyQuestionType.SingleChoice
@@ -688,10 +688,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                         question.branching = {
                             type: SurveyQuestionBranchingType.ResponseBased,
-                            responseValue: {},
+                            responseValues: {},
                         }
-                    } else if (value.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                        const nextQuestionIndex = parseInt(value.split(':')[1])
+                    } else if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                        const nextQuestionIndex = parseInt(type.split(':')[1])
                         question.branching = {
                             type: SurveyQuestionBranchingType.SpecificQuestion,
                             index: nextQuestionIndex,
@@ -704,7 +704,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
-                setResponseBasedBranchingForQuestion: (state, { questionIndex, value, branchingToValue }) => {
+                setResponseBasedBranchingForQuestion: (state, { questionIndex, responseValue, branchingToValue }) => {
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
@@ -723,14 +723,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     }
 
-                    if ('responseValue' in question.branching) {
+                    if ('responseValues' in question.branching) {
                         if (branchingToValue === SurveyQuestionBranchingType.NextQuestion) {
-                            delete question.branching.responseValue[value]
+                            delete question.branching.responseValues[responseValue]
                         } else if (branchingToValue === SurveyQuestionBranchingType.ConfirmationMessage) {
-                            question.branching.responseValue[value] = SurveyQuestionBranchingType.ConfirmationMessage
+                            question.branching.responseValues[responseValue] =
+                                SurveyQuestionBranchingType.ConfirmationMessage
                         } else if (branchingToValue.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
                             const nextQuestionIndex = parseInt(branchingToValue.split(':')[1])
-                            question.branching.responseValue[value] = nextQuestionIndex
+                            question.branching.responseValues[responseValue] = nextQuestionIndex
                         }
                     }
 
@@ -990,19 +991,19 @@ export const surveyLogic = kea<surveyLogicType>([
         getResponseBasedBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion, response) => {
-                if (!question.branching || !('responseValue' in question.branching)) {
+                if (!question.branching || !('responseValues' in question.branching)) {
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
                 // If a value is mapped onto an integer, we're redirecting to a specific question
-                if (Number.isInteger(question.branching.responseValue[response])) {
-                    const nextQuestionIndex = question.branching.responseValue[response]
+                if (Number.isInteger(question.branching.responseValues[response])) {
+                    const nextQuestionIndex = question.branching.responseValues[response]
                     return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
                 }
 
                 // If any other value is present (practically only Confirmation message), return that value
-                if (question.branching?.responseValue?.[response]) {
-                    return question.branching.responseValue[response]
+                if (question.branching?.responseValues?.[response]) {
+                    return question.branching.responseValues[response]
                 }
 
                 // No branching specified, default to Next question / Confirmation message
