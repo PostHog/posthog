@@ -161,6 +161,7 @@ async function expectStoryToMatchSnapshot(
 
     if (storyContext.parameters?.testOptions?.delay) {
         await page.waitForTimeout(storyContext.parameters?.testOptions?.delay)
+    }
 
     // Wait for all images to load
     await page.waitForFunction(() =>
