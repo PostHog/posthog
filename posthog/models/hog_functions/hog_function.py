@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 from django.db import models
@@ -9,7 +8,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.redis import get_client
+from posthog.plugins.reload import reload_hog_functions_on_workers
 
 
 class HogFunction(UUIDModel):
@@ -75,10 +74,7 @@ class HogFunction(UUIDModel):
 
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
-    get_client().publish(
-        "reload-hog-function",
-        json.dumps({"teamId": instance.team_id, "hogFunctionId": str(instance.id)}),
-    )
+    reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
 @receiver(post_save, sender=Action)
@@ -86,42 +82,13 @@ def action_saved(sender, instance: Action, created, **kwargs):
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
-    affected_hog_functions = (
-        HogFunction.objects.select_related("team")
-        .filter(team_id=instance.team_id)
-        .filter(filters__contains={"actions": [{"id": str(instance.id)}]})
-    )
+    from posthog.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_hog_functions(team_id=instance.team_id, affected_hog_functions=list(affected_hog_functions))
+    refresh_affected_hog_functions.delay(action_id=instance.id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: Team, created, **kwargs):
-    affected_hog_functions = (
-        HogFunction.objects.select_related("team")
-        .filter(team_id=instance.id)
-        .filter(filters__contains={"filter_test_accounts": True})
-    )
+    from posthog.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_hog_functions(team_id=instance.id, affected_hog_functions=list(affected_hog_functions))
-
-
-def refresh_hog_functions(team_id: int, affected_hog_functions: list[HogFunction]) -> int:
-    all_related_actions = (
-        Action.objects.select_related("team")
-        .filter(team_id=team_id)
-        .filter(
-            id__in=[
-                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
-            ]
-        )
-    )
-
-    actions_by_id = {action.id: action for action in all_related_actions}
-
-    for hog_function in affected_hog_functions:
-        hog_function.compile_filters_bytecode(actions=actions_by_id)
-
-    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
-
-    return updates
+    refresh_affected_hog_functions.delay(team_id=instance.id)
