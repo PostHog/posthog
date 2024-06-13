@@ -125,7 +125,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (tickDates.length === 0) {
                     return null
                 }
-                return [tickDates[0], tickDates[tickDates.length - 1].add(pointsPerTick)]
+                return [tickDates[0], tickDates[tickDates.length - 1].add(pointsPerTick, intervalUnit)]
             },
         ],
         relevantAnnotations: [
