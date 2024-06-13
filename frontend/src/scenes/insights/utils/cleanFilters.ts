@@ -465,6 +465,7 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false
+            trendLikeFilter['compare_to'] = undefined
         }
 
         if (trendLikeFilter.interval && trendLikeFilter.smoothing_intervals) {

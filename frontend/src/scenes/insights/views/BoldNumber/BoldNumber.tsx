@@ -85,14 +85,14 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, querySource, isDataWarehouseSeries } = useValues(
+    const { insightData, trendsFilter, compareFilter, querySource, isDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const showComparison = !!trendsFilter?.compare && insightData?.result?.length > 1
+    const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (
