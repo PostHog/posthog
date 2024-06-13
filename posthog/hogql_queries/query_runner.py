@@ -525,7 +525,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         has_error: Optional[list] = fresh_response_dict.get("error", None)
         cache_ttl = self.cache_ttl()
         if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
-            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
+            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump(by_alias=True))
             cache.set(cache_key, fresh_response_serialized, cache_ttl)
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
