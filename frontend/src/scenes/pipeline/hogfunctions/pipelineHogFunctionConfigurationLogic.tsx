@@ -26,6 +26,15 @@ export interface PipelineHogFunctionConfigurationLogicProps {
 
 export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at'>
 
+const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
+    id: 'new',
+    name: '',
+    description: '',
+    inputs_schema: [],
+    hog: "print('Hello, world!');",
+    status: 'stable',
+}
+
 function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
     if (!filters) {
         return null
@@ -90,6 +99,12 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         return null
                     }
 
+                    if (props.templateId === 'new') {
+                        return {
+                            ...NEW_FUNCTION_TEMPLATE,
+                        }
+                    }
+
                     const res = await api.hogFunctions.getTemplate(props.templateId)
 
                     if (!res) {
@@ -149,7 +164,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                         ...data,
                         filters: data.filters ? sanitizeFilters(data.filters) : null,
                         inputs: sanitizedInputs,
-                        icon_url: data.icon_url.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+                        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
                     }
 
                     if (props.templateId) {
@@ -294,6 +309,7 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
             if (values.hogFunction?.template) {
                 actions.resetForm({
                     ...values.hogFunction.template,
+                    enabled: false,
                 })
             }
         },

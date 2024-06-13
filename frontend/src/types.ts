@@ -4169,7 +4169,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionType = {
     id: string
-    icon_url: string
+    icon_url?: string
     name: string
     description: string
     created_by: UserBasicType | null

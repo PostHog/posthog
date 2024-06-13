@@ -177,13 +177,13 @@ export function PipelineHogFunctionConfiguration({
                                                     <div className="flex-1">
                                                         <LemonButton>Close</LemonButton>
                                                     </div>
-                                                    <LemonButton onClick={() => resetToTemplate(true)}>
+                                                    <LemonButton onClick={() => resetToTemplate()}>
                                                         Reset to template
                                                     </LemonButton>
 
                                                     <LemonButton
                                                         type="secondary"
-                                                        onClick={() => duplicateFromTemplate(true)}
+                                                        onClick={() => duplicateFromTemplate()}
                                                     >
                                                         New function from template
                                                     </LemonButton>
