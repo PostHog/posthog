@@ -1,5 +1,6 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
+# NOTE: Slack template is essentially just a webhook template with limited options
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
@@ -9,9 +10,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/api/projects/@current/hog_functions/icon/?id=slack.com",
     hog="""
 fetch(inputs.url, {
-  'headers': inputs.headers,
   'body': inputs.body,
-  'method': inputs.method
+  'method': 'POST'
 });
 """.strip(),
     inputs_schema=[
