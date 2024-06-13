@@ -214,21 +214,16 @@ export function Billing(): JSX.Element {
                     </div>
 
                     {!isOnboarding && billing?.has_active_subscription && (
-                        <div>
-                            <div className="w-fit">
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    to={billing.stripe_portal_url}
-                                    disableClientSideRouting
-                                    center
-                                >
-                                    Manage card details and view past invoices
-                                </LemonButton>
-                            </div>
-                            {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
-                                billing.subscription_level == 'paid' &&
-                                !!platformAndSupportProduct && <UnsubscribeCard product={platformAndSupportProduct} />}
+                        <div className="w-fit mt-2">
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                to={billing.stripe_portal_url}
+                                disableClientSideRouting
+                                center
+                            >
+                                Manage card details and view past invoices
+                            </LemonButton>
                         </div>
                     )}
                 </div>
@@ -294,6 +289,12 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
+
+            <div>
+                {featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] &&
+                    billing?.subscription_level == 'paid' &&
+                    !!platformAndSupportProduct && <UnsubscribeCard product={platformAndSupportProduct} />}
+            </div>
         </div>
     )
 }
