@@ -6,7 +6,7 @@ import { HogFunctionType } from '../../src/cdp/types'
  */
 export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode'>> = {
     simple_fetch: {
-        hog: "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method,\n  'payload': inputs.payload\n});",
+        hog: "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
         bytecode: [
             '_h',
             32,
@@ -33,16 +33,8 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             'inputs',
             1,
             2,
-            32,
-            'payload',
-            32,
-            'payload',
-            32,
-            'inputs',
-            1,
-            2,
             42,
-            4,
+            3,
             32,
             'url',
             32,
