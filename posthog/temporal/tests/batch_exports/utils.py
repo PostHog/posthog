@@ -9,7 +9,7 @@ from posthog.temporal.batch_exports.batch_exports import StartBatchExportRunInpu
 
 
 @activity.defn(name="start_batch_export_run")
-async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[str, int]:
+async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> str:
     """Create a run and return some count >0 to avoid early return."""
     run = await sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
@@ -19,4 +19,4 @@ async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> tu
         records_total_count=1,
     )
 
-    return str(run.id), 1
+    return str(run.id)
