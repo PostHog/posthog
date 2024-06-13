@@ -17,6 +17,7 @@ const meta: Meta = {
                 width: 1300,
                 height: 720,
             },
+            delay: 1000,
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
@@ -55,7 +56,7 @@ export const TrendsLineEdit: Story = createInsightStory(
     'edit'
 )
 TrendsLineEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas', waitForLoadersToDisappear: true },
 }
 
 export const TrendsLineMulti: Story = createInsightStory(
