@@ -5,7 +5,7 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2Type } from '~/types'
 
-interface PayGateMiniButtonVariantProps {
+interface PayGateButtonProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     featureInfo: BillingV2FeatureType
@@ -15,7 +15,7 @@ interface PayGateMiniButtonVariantProps {
     scrollToProduct: boolean
 }
 
-export const PayGateMiniButtonVariant = ({
+export const PayGateButton = ({
     gateVariant,
     productWithFeature,
     featureInfo,
@@ -23,7 +23,7 @@ export const PayGateMiniButtonVariant = ({
     billing,
     isAddonProduct,
     scrollToProduct = true,
-}: PayGateMiniButtonVariantProps): JSX.Element => {
+}: PayGateButtonProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     return (
         <LemonButton

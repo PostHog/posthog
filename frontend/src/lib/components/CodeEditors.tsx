@@ -19,6 +19,9 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
             theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
             loading={<Spinner />}
             options={{
+                // :TRICKY: We need to declare all options here, as omitting something will carry its value from one <CodeEditor> to another.
+                wordWrap: 'off',
+                lineNumbers: 'on',
                 ...options,
                 padding: { bottom: 8, top: 8 },
                 scrollbar: {
