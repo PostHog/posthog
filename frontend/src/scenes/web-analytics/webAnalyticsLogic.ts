@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -419,7 +419,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
 
                 const sampling = {
-                    enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
+                    enabled: false,
                     forceSamplingRate: { numerator: 1, denominator: 10 },
                 }
 
@@ -431,7 +431,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                const useSessionsTable = !!values.featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                const useSessionsTable = true
 
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
