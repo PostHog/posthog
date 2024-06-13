@@ -1,15 +1,34 @@
-import { afterMount, kea, path } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { ErrorTrackingGroup } from '~/types'
+import { ErrorTrackingFilters, ErrorTrackingGroup, FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
+const DEFAULT_ERROR_TRACKING_FILTERS: ErrorTrackingFilters = {
+    date_from: '-7d',
+    date_to: null,
+    filter_test_accounts: false,
+    filter_group: { type: FilterLogicalOperator.And, values: [] },
+}
+
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
+
+    actions({
+        setFilters: (filters: ErrorTrackingFilters) => ({ filters }),
+    }),
+    reducers({
+        filters: [
+            DEFAULT_ERROR_TRACKING_FILTERS,
+            {
+                setFilters: (_, { filters }) => filters,
+            },
+        ],
+    }),
 
     loaders(() => ({
         errorGroups: [

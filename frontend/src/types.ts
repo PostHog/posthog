@@ -995,6 +995,13 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export type ErrorTrackingFilters = {
+    date_from: string | null
+    date_to: string | null
+    filter_test_accounts: boolean
+    filter_group: UniversalFiltersGroup
+}
+
 export type ErrorCluster = {
     cluster: number
     sample: string

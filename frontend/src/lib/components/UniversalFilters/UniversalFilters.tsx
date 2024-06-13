@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -132,7 +132,7 @@ const Value = ({
     )
 }
 
-const AddFilterButton = (): JSX.Element => {
+const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'>): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
 
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
@@ -153,11 +153,10 @@ const AddFilterButton = (): JSX.Element => {
             onClickOutside={() => setDropdownOpen(false)}
         >
             <LemonButton
-                type="secondary"
-                size="small"
                 icon={<IconPlusSmall />}
                 sideIcon={null}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
+                {...props}
             >
                 Add filter
             </LemonButton>
