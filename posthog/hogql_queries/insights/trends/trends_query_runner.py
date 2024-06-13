@@ -63,6 +63,7 @@ from posthog.schema import (
     TrendsQueryResponse,
     HogQLQueryModifiers,
     DataWarehouseEventsModifier,
+    BreakdownType,
 )
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.utils import format_label_date, multisort
@@ -156,6 +157,13 @@ class TrendsQueryRunner(QueryRunner):
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
+                if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
+                    self.query.breakdownFilter = None
+                elif isinstance(self.query.breakdownFilter.breakdown, list):
+                    self.query.breakdownFilter.breakdown = [
+                        x for x in self.query.breakdownFilter.breakdown if x != "all"
+                    ]
             query_builder = TrendsActorsQueryBuilder(
                 trends_query=self.query,
                 team=self.team,
@@ -165,7 +173,7 @@ class TrendsQueryRunner(QueryRunner):
                 # actors related args
                 time_frame=time_frame,
                 series_index=series_index,
-                breakdown_value=breakdown_value,
+                breakdown_value=breakdown_value if breakdown_value != "all" else None,
                 compare_value=compare_value,
                 include_recordings=include_recordings,
             )
@@ -243,9 +251,9 @@ class TrendsQueryRunner(QueryRunner):
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
-                    cohort_name = "all users" if str(value) == "0" else Cohort.objects.get(pk=value).name
-                    label = cohort_name
-                    value = value
+                    is_all = value == "all" or str(value) == "0"
+                    label = "all users" if is_all else Cohort.objects.get(pk=value).name
+                    value = "all" if is_all else value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL:
                     label = BREAKDOWN_OTHER_DISPLAY
                 elif value == BREAKDOWN_NULL_STRING_LABEL:
@@ -435,7 +443,7 @@ class TrendsQueryRunner(QueryRunner):
                     },
                 }
             else:
-                if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+                if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
                     count = get_value("total", val)[-1]
                 else:
                     count = float(sum(get_value("total", val)))
@@ -579,14 +587,14 @@ class TrendsQueryRunner(QueryRunner):
 
     def update_hogql_modifiers(self) -> None:
         if (
-            self.modifiers.inCohortVia == InCohortVia.auto
+            self.modifiers.inCohortVia == InCohortVia.AUTO
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and len(self.query.breakdownFilter.breakdown) > 1
             and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
         ):
-            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
 
         datawarehouse_modifiers = []
         for series in self.query.series:
@@ -615,7 +623,7 @@ class TrendsQueryRunner(QueryRunner):
         ]
 
         if (
-            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
@@ -688,7 +696,7 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, list)
             and "all" in self.query.breakdownFilter.breakdown
-            and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and not in_breakdown_clause
             and self.query.trendsFilter
             and self.query.trendsFilter.formula
@@ -880,7 +888,7 @@ class TrendsQueryRunner(QueryRunner):
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
-            display = ChartDisplayType.ActionsLineGraph
+            display = ChartDisplayType.ACTIONS_LINE_GRAPH
         else:
             display = self.query.trendsFilter.display
 

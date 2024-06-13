@@ -15,12 +15,13 @@ ruff~=0.4.3
 mypy~=1.10.0
 mypy-baseline~=0.7.0
 mypy-extensions==1.0.0
-datamodel-code-generator==0.25.2
+datamodel-code-generator==0.25.6
 djangorestframework-stubs~=3.14.5
 django-stubs==4.2.7
 Faker==17.5.0
 fakeredis[lua]==2.11.0
 freezegun==1.2.2
+inline-snapshot==0.10.2
 packaging==23.1
 black~=23.9.1
 boto3-stubs[s3]
@@ -44,6 +45,7 @@ pytest-icdiff==0.6
 pytest-mock==3.11.1
 pytest-split==0.8.1
 pytest-watch==4.2.0
+pytest-xdist==3.6.1
 python-dateutil>=2.8.2
 responses==0.23.1
 syrupy~=4.6.0

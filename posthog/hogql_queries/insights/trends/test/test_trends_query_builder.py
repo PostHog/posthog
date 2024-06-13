@@ -11,7 +11,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
+    InsightDateRange,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryResponse,
@@ -73,8 +73,8 @@ class TestTrendsQueryBuilder(BaseTest):
     def test_column_names(self):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[EventsNode(event="$pageview", math=BaseMathType.total)],
+            dateRange=InsightDateRange(date_from="2023-01-01"),
+            series=[EventsNode(event="$pageview", math=BaseMathType.TOTAL)],
         )
 
         response = self.get_response(trends_query)
@@ -85,7 +85,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
         )
@@ -98,10 +98,10 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type_and_breakdowns(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
-            breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.event),
+            breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.EVENT),
         )
 
         response = self.get_response(trends_query)
@@ -110,20 +110,20 @@ class TestTrendsQueryBuilder(BaseTest):
         assert set(response.columns).issubset({"date", "total", "breakdown_value"})
 
     def test_column_names_with_display_type(self):
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsAreaGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBar)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBarValue)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsPie)
-        self.assert_column_names_with_display_type(ChartDisplayType.BoldNumber)
-        self.assert_column_names_with_display_type(ChartDisplayType.WorldMap)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraphCumulative)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_AREA_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR_VALUE)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_PIE)
+        self.assert_column_names_with_display_type(ChartDisplayType.BOLD_NUMBER)
+        self.assert_column_names_with_display_type(ChartDisplayType.WORLD_MAP)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
     def test_column_names_with_display_type_and_breakdowns(self):
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsAreaGraph)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsBar)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsBarValue)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsLineGraph)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsPie)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.WorldMap)
-        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ActionsLineGraphCumulative)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_AREA_GRAPH)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_BAR)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_BAR_VALUE)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_LINE_GRAPH)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_PIE)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.WORLD_MAP)
+        self.assert_column_names_with_display_type_and_breakdowns(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)

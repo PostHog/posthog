@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { query as performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     InsightActorsQuery,
     InsightActorsQueryOptions,

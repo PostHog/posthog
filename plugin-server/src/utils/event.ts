@@ -1,6 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 
+import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     ClickHouseEvent,
     GroupTypeToColumnIndex,
@@ -9,6 +10,7 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../types'
+import { status } from '../utils/status'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -16,6 +18,14 @@ import {
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
 } from './utils'
+
+const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
+const KNOWN_SET_EVENTS = new Set([
+    '$feature_interaction',
+    '$feature_enrollment_update',
+    'survey dismissed',
+    'survey sent',
+])
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -204,7 +214,7 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
     return event
 }
 
-export function normalizeEvent(event: PluginEvent): PluginEvent {
+export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     let properties = event.properties ?? {}
@@ -235,10 +245,29 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
 export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+
+    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+    if (
+        combinedEvent.properties &&
+        !PERSON_EVENTS.has(combinedEvent.event) &&
+        !KNOWN_SET_EVENTS.has(combinedEvent.event) &&
+        ('$set' in combinedEvent.properties ||
+            '$set_once' in combinedEvent.properties ||
+            '$unset' in combinedEvent.properties)
+    ) {
+        setUsageInNonPersonEventsCounter.inc()
+        if (Math.random() < 0.001) {
+            status.info('👀', 'Found $set usage in non-person event', {
+                event: combinedEvent.event,
+                team_id: combinedEvent.team_id,
+                token: combinedEvent.token,
+            })
+        }
+    }
+
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
     })
     return event
 }

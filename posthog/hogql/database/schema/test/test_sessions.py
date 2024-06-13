@@ -1,6 +1,11 @@
+from parameterized import parameterized
+
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.property_definition import PropertyType
+from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -137,27 +142,28 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
 
-    def test_bounce_rate(self):
+    @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
+    def test_bounce_rate(self, bounceRatePageViewMode):
         # person with 2 different sessions
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"$session_id": "s1a"},
+            properties={"$session_id": "s1a", "$current_url": "https://example.com/1"},
             timestamp="2023-12-02",
         )
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"$session_id": "s1a"},
+            properties={"$session_id": "s1a", "$current_url": "https://example.com/2"},
             timestamp="2023-12-03",
         )
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"$session_id": "s1b"},
+            properties={"$session_id": "s1b", "$current_url": "https://example.com/3"},
             timestamp="2023-12-12",
         )
         # session with 1 pageview
@@ -165,7 +171,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="d2",
-            properties={"$session_id": "s2"},
+            properties={"$session_id": "s2", "$current_url": "https://example.com/4"},
             timestamp="2023-12-11",
         )
         # session with 1 pageview and 1 autocapture
@@ -173,14 +179,14 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="d3",
-            properties={"$session_id": "s3"},
+            properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
         )
         _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="d3",
-            properties={"$session_id": "s3"},
+            properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
         )
         # short session with a pageleave
@@ -188,14 +194,14 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="d4",
-            properties={"$session_id": "s4"},
+            properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
             team=self.team,
             distinct_id="d4",
-            properties={"$session_id": "s4"},
+            properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:01",
         )
         # long session with a pageleave
@@ -203,14 +209,14 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="d5",
-            properties={"$session_id": "s5"},
+            properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
             team=self.team,
             distinct_id="d5",
-            properties={"$session_id": "s5"},
+            properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:11",
         )
         response = execute_hogql_query(
@@ -218,6 +224,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
             self.team,
+            modifiers=HogQLQueryModifiers(bounceRatePageViewMode=bounceRatePageViewMode),
         )
         self.assertEqual(
             [
@@ -229,4 +236,52 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
                 (0, "s5"),
             ],
             response.results or [],
+        )
+
+
+class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
+    def test_all(self):
+        results = get_lazy_session_table_properties(None)
+        self.assertEqual(len(results), 19)
+        self.assertEqual(
+            results[0],
+            {
+                "id": "$start_timestamp",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$start_timestamp",
+                "property_type": PropertyType.Datetime,
+                "tags": [],
+            },
+        )
+
+    def test_source(self):
+        results = get_lazy_session_table_properties("source")
+        self.assertEqual(
+            results,
+            [
+                {
+                    "id": "$entry_utm_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_utm_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                },
+                {
+                    "id": "$entry_gad_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_gad_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                },
+            ],
+        )
+
+    def test_entry_utm(self):
+        results = get_lazy_session_table_properties("entry utm")
+        self.assertEqual(
+            [result["name"] for result in results],
+            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
         )

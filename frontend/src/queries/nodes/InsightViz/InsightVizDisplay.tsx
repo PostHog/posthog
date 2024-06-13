@@ -116,18 +116,19 @@ export function InsightVizDisplay({
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
-                return <TrendInsight view={InsightType.TRENDS} context={context} />
+                return <TrendInsight view={InsightType.TRENDS} context={context} embedded={embedded} />
             case InsightType.STICKINESS:
-                return <TrendInsight view={InsightType.STICKINESS} context={context} />
+                return <TrendInsight view={InsightType.STICKINESS} context={context} embedded={embedded} />
             case InsightType.LIFECYCLE:
-                return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
+                return <TrendInsight view={InsightType.LIFECYCLE} context={context} embedded={embedded} />
             case InsightType.FUNNELS:
-                return <Funnel />
+                return <Funnel inCardView={embedded} />
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
+                        inCardView={embedded}
                     />
                 )
             case InsightType.PATHS:
@@ -215,7 +216,7 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {(isFunnels || isPaths || showComputationMetadata) && (
+                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
                                 <div className="flex items-center gap-2">
                                     {showComputationMetadata && (

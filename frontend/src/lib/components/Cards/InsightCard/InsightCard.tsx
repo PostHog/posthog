@@ -31,7 +31,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { getCachedResults, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -159,6 +159,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     placement: DashboardPlacement | 'SavedInsightGrid'
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
+    doNotLoad?: boolean
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -235,7 +236,7 @@ export function FilterBasedCardContent({
 
 function InsightCardInternal(
     {
-        insight,
+        insight: legacyInsight,
         dashboardId,
         ribbonColor,
         loadingQueued,
@@ -260,33 +261,26 @@ function InsightCardInternal(
         moreButtons,
         placement,
         loadPriority,
+        doNotLoad,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const insight = getQueryBasedInsightModel(legacyInsight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
-        cachedInsight: insight,
+        cachedInsight: legacyInsight, // TODO: use query based insight here
         loadPriority,
+        doNotLoad,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, useQueryDashboardCards } = useValues(insightDataLogic(insightLogicProps))
     const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
-    let tooFewFunnelSteps = false
-    let empty = false
-    if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!isFunnelWithEnoughSteps) {
-            tooFewFunnelSteps = true
-        }
-        if (!hasFunnelResults && !apiErrored) {
-            empty = true
-        }
-    }
     if (insightLoading || insightDataLoading) {
         loading = true
     }
@@ -321,39 +315,36 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {insight.query ? (
+                {legacyInsight.query || useQueryDashboardCards ? (
                     <div className="InsightCard__viz">
                         <Query
                             query={insight.query}
-                            cachedResults={insight}
+                            cachedResults={legacyInsight}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
-                            readOnly
                             stale={stale}
+                            readOnly
+                            embedded
                         />
                     </div>
-                ) : insight.filters?.insight ? (
+                ) : (
                     <FilterBasedCardContent
-                        insight={insight}
+                        insight={legacyInsight}
                         insightProps={insightLogicProps}
                         loading={loading}
                         stale={stale}
+                        setAreDetailsShown={setAreDetailsShown}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
-                        empty={empty}
-                        tooFewFunnelSteps={tooFewFunnelSteps}
+                        empty={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored
+                        }
+                        tooFewFunnelSteps={
+                            legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
+                        }
                         validationError={validationError}
-                        setAreDetailsShown={setAreDetailsShown}
                     />
-                ) : (
-                    <div className="flex justify-between items-center h-full">
-                        <InsightErrorState
-                            query={insight.query}
-                            excludeDetail
-                            title="Missing 'filters.insight' property, can't display insight"
-                        />
-                    </div>
                 )}
             </BindLogic>
             {showResizeHandles && (

@@ -6,6 +6,7 @@ import pytest
 from django.test import override_settings
 from parameterized import parameterized
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
 from posthog.hogql.errors import ExposedHogQLError
@@ -16,7 +17,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaDataWarehouseTable
+from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
@@ -245,14 +246,14 @@ class TestDatabase(BaseTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000"
+            == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
         sql = "select double from (select double from numbers(2))"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT double AS double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+            == f"SELECT double AS double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
         # expression fields are not included in select *
@@ -260,7 +261,7 @@ class TestDatabase(BaseTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT number AS number, expression AS expression, double AS double FROM (SELECT numbers.number AS number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+            == f"SELECT number AS number, expression AS expression, double AS double FROM (SELECT numbers.number AS number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
     def test_database_warehouse_joins(self):
@@ -449,3 +450,36 @@ class TestDatabase(BaseTest):
 
         sql = "select e.some_field.key from event_view as e"
         print_ast(parse_select(sql), context, dialect="clickhouse")
+
+    def test_selecting_from_persons_ignores_future_persons(self):
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql = "select id from persons"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            in query
+        ), query
+
+    def test_selecting_persons_from_events_ignores_future_persons(self):
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+            # disable PoE
+            modifiers=create_default_modifiers_for_team(
+                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+            ),
+        )
+        sql = "select person.id from events"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            in query
+        ), query

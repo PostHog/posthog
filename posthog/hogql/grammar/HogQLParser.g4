@@ -6,38 +6,31 @@ options {
 
 
 program: declaration* EOF;
-declaration
-    : varDecl
-    | statement ;
 
-expression: columnExpr | dict;
+declaration: varDecl | statement ;
 
-varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
-varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
+expression: columnExpr;
+
+varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
-               | emptyStmt
-               | exprStmt
                | ifStmt
                | whileStmt
                | funcStmt
                | varAssignment
-               | returnStmt
+               | exprStmt
+               | emptyStmt
                | block ;
 
-exprStmt       : expression SEMICOLON ;
-ifStmt         : IF LPAREN expression RPAREN statement
-                 ( ELSE statement )? ;
-whileStmt      : WHILE LPAREN expression RPAREN statement;
-returnStmt     : RETURN expression SEMICOLON ;
+returnStmt     : RETURN expression? SEMICOLON?;
+ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+varAssignment  : expression COLON EQ_SINGLE expression ;
+exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
-
-
-dict:
-    | LBRACE (kvPairList)? RBRACE ;
 
 kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* ;
@@ -144,9 +137,9 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
@@ -188,16 +181,17 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with ClickHouse: we also support "AS string" as a shortcut for naming columns
-    | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
+    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
+    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
+
 columnArgList: columnArgExpr (COMMA columnArgExpr)*;
 columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
@@ -265,11 +259,10 @@ interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
-    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT
-    | DATE | DESC | DESCENDING
+    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
-    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID
-    | IF | ILIKE | IN | INNER | INTERVAL | IS | JOIN | KEY
+    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
+    | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW

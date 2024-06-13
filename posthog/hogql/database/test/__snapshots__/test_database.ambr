@@ -11,7 +11,7 @@
   WHERE equals(groups.team_id, 420) 
   GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 10000
+  LIMIT 50000
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events
@@ -351,6 +351,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -839,6 +840,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -1090,6 +1092,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "$num_uniq_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$num_uniq_urls`",
+                  "name": "$num_uniq_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "$entry_current_url": {
                   "chain": null,
@@ -1700,6 +1711,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -2188,6 +2200,7 @@
                       "$start_timestamp",
                       "$end_timestamp",
                       "$urls",
+                      "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
                       "$exit_current_url",
@@ -2439,6 +2452,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "$num_uniq_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$num_uniq_urls`",
+                  "name": "$num_uniq_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "$entry_current_url": {
                   "chain": null,

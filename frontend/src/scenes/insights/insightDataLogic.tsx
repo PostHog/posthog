@@ -15,15 +15,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import {
-    isFunnelsQuery,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { isInsightVizNode } from '~/queries/utils'
 import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import type { insightDataLogicType } from './insightDataLogicType'
@@ -32,7 +24,7 @@ import { insightLogic } from './insightLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
-const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
@@ -110,20 +102,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
-        isHogQLInsight: [
-            (s) => [s.featureFlags, s.query],
-            (featureFlags, query) => {
-                return (
-                    isInsightVizNode(query) &&
-                    (!!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
-                        (isTrendsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) ||
-                        (isFunnelsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]) ||
-                        (isRetentionQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) ||
-                        (isPathsQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]) ||
-                        (isStickinessQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) ||
-                        (isLifecycleQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]))
-                )
-            },
+        useQueryDashboardCards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
         ],
 
         query: [
@@ -150,8 +131,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight, s.isHogQLInsight],
-            (query, insight, isHogQLInsight) => {
+            (s) => [s.query, s.insight],
+            (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -164,7 +145,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined, !isHogQLInsight),
+                    ...queryExportContext(sourceQuery, undefined, undefined),
                     filename,
                 } as ExportContext
             },

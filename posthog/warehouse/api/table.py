@@ -12,6 +12,7 @@ from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
+    DataWarehouseJoin,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
@@ -66,7 +67,7 @@ class TableSerializer(serializers.ModelSerializer):
             fields = table.hogql_definition().fields
 
         serializes_fields = serialize_fields(
-            fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.columns
+            fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.name, table.columns
         )
 
         return [
@@ -125,7 +126,9 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         if not database:
             database = create_hogql_database(team_id=self.context["team_id"])
 
-        fields = serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
+        fields = serialize_fields(
+            table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id), table.name
+        )
         return [
             SerializedField(
                 key=field.name,
@@ -168,6 +171,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
+        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
         DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
         self.perform_destroy(instance)
 
@@ -195,7 +200,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in updates.items():
             try:
-                DatabaseSerializedFieldType[value]
+                DatabaseSerializedFieldType[value.upper()]
             except:
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST,

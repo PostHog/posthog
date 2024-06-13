@@ -64,7 +64,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 True,
                 False,
                 False,
-                PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -80,7 +80,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 False,
                 False,
-                PersonsOnEventsMode.disabled,
+                PersonsOnEventsMode.DISABLED,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -96,7 +96,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 False,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "event_names": [],
                     "event_start_time": mock.ANY,
@@ -112,7 +112,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 True,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
                     "event_end_time": mock.ANY,
                     "event_names": [],
@@ -157,7 +157,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     ]
                 },
             )
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=filter, team=self.team)
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=filter, team=self.team, hogql_query_modifiers=None
+            )
             [generated_query, query_params] = session_recording_list_instance.get_query()
             assert query_params == {
                 "clamped_to_storage_ttl": mock.ANY,
@@ -258,7 +260,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             )
 
             session_recording_list_instance = SessionRecordingListFromFilters(
-                filter=match_everyone_filter, team=self.team
+                filter=match_everyone_filter, team=self.team, hogql_query_modifiers=None
             )
             (session_recordings, _) = session_recording_list_instance.run()
 
@@ -278,7 +280,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 },
             )
 
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=match_bla_filter, team=self.team)
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=match_bla_filter, team=self.team, hogql_query_modifiers=None
+            )
             (session_recordings, _) = session_recording_list_instance.run()
 
             assert len(session_recordings) == 1
@@ -342,6 +346,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             self._add_replay_with_pageview(session_id_three, three_user_ids[2])
 
             filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=filter, team=self.team)
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=filter, team=self.team, hogql_query_modifiers=None
+            )
             (session_recordings, _) = session_recording_list_instance.run()
             assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])

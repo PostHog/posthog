@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { SDKKey } from '~/types'
 
 import { SDKInstallAndroidInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function AndroidCaptureSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Kotlin}>{`PostHog.capture(event = "test-event")`}</CodeSnippet>
@@ -48,6 +49,7 @@ export function ProductAnalyticsAndroidInstructions(): JSX.Element {
             <SDKInstallAndroidInstructions />
             <h3>Send an Event</h3>
             <AndroidCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
                 <AdvertiseAndroidReplay context="product-analytics-onboarding" />
             </FlaggedFeature>

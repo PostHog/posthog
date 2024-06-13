@@ -15,7 +15,7 @@ import type { editor, MarkerSeverity } from 'monaco-editor'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
@@ -103,7 +103,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
             await breakpoint(300)
             const { queryInput } = values
-            const response = await query<HogQLMetadata>({
+            const response = await performQuery<HogQLMetadata>({
                 kind: NodeKind.HogQLMetadata,
                 select: queryInput,
                 filters: props.query.filters,

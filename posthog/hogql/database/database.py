@@ -48,7 +48,6 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable,
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
-    join_with_person_overrides_table,
 )
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -75,7 +74,10 @@ from posthog.schema import (
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from posthog.warehouse.models.table import (
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -183,35 +185,21 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
-def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    if use_distinct_id_overrides:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-    else:
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    database.events.fields["override"] = LazyJoin(
+        from_field=["distinct_id"],
+        join_table=PersonDistinctIdOverridesTable(),
+        join_function=join_with_person_distinct_id_overrides_table,
+    )
+    database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+            start=None,
+        ),
+    )
 
 
 def create_hogql_database(
@@ -229,22 +217,22 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled:
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
         _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
-        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
@@ -421,7 +409,7 @@ def serialize_database(
         elif isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context)
+        fields = serialize_fields(field_input, context, table_key)
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
 
@@ -449,7 +437,7 @@ def serialize_database(
         if isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, warehouse_table.columns)
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns)
         fields_dict = {field.name: field for field in fields}
 
         # Schema
@@ -505,7 +493,7 @@ def serialize_database(
         if view is None:
             continue
 
-        fields = serialize_fields(view.fields, context)
+        fields = serialize_fields(view.fields, context, view_name)
         fields_dict = {field.name: field for field in fields}
 
         saved_query: list[DataWarehouseSavedQuery] = list(
@@ -519,13 +507,36 @@ def serialize_database(
     return tables
 
 
+def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
+    if isinstance(constant_type, ast.StringType):
+        return DatabaseSerializedFieldType.STRING
+    if isinstance(constant_type, ast.BooleanType):
+        return DatabaseSerializedFieldType.BOOLEAN
+    if isinstance(constant_type, ast.DateType):
+        return DatabaseSerializedFieldType.DATE
+    if isinstance(constant_type, ast.DateTimeType):
+        return DatabaseSerializedFieldType.DATETIME
+    if isinstance(constant_type, ast.UUIDType):
+        return DatabaseSerializedFieldType.STRING
+    if isinstance(constant_type, ast.ArrayType):
+        return DatabaseSerializedFieldType.ARRAY
+    if isinstance(constant_type, ast.TupleType):
+        return DatabaseSerializedFieldType.JSON
+    if isinstance(constant_type, ast.IntegerType):
+        return DatabaseSerializedFieldType.INTEGER
+    if isinstance(constant_type, ast.FloatType):
+        return DatabaseSerializedFieldType.FLOAT
+    return None
+
+
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 
 
 def serialize_fields(
-    field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
+    field_input, context: HogQLContext, table_name: str, db_columns: Optional[DataWarehouseTableColumns] = None
 ) -> list[DatabaseSchemaField]:
     from posthog.hogql.database.models import SavedQuery
+    from posthog.hogql.resolver import resolve_types_from_table
 
     field_output: list[DatabaseSchemaField] = []
     for field_key, field in field_input.items():
@@ -558,7 +569,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.integer,
+                        type=DatabaseSerializedFieldType.INTEGER,
                         schema_valid=schema_valid,
                     )
                 )
@@ -567,7 +578,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.float,
+                        type=DatabaseSerializedFieldType.FLOAT,
                         schema_valid=schema_valid,
                     )
                 )
@@ -576,7 +587,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.string,
+                        type=DatabaseSerializedFieldType.STRING,
                         schema_valid=schema_valid,
                     )
                 )
@@ -585,7 +596,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.datetime,
+                        type=DatabaseSerializedFieldType.DATETIME,
                         schema_valid=schema_valid,
                     )
                 )
@@ -594,7 +605,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.date,
+                        type=DatabaseSerializedFieldType.DATE,
                         schema_valid=schema_valid,
                     )
                 )
@@ -603,7 +614,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.boolean,
+                        type=DatabaseSerializedFieldType.BOOLEAN,
                         schema_valid=schema_valid,
                     )
                 )
@@ -612,7 +623,7 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.json,
+                        type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
                     )
                 )
@@ -621,16 +632,24 @@ def serialize_fields(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.array,
+                        type=DatabaseSerializedFieldType.ARRAY,
                         schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, ExpressionField):
+                field_expr = resolve_types_from_table(field.expr, table_name, context, "hogql")
+                assert field_expr.type is not None
+                constant_type = field_expr.type.resolve_constant_type(context)
+
+                field_type = constant_type_to_serialized_field_type(constant_type)
+                if field_type is None:
+                    field_type = DatabaseSerializedFieldType.EXPRESSION
+
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,
                         hogql_value=hogql_value,
-                        type=DatabaseSerializedFieldType.expression,
+                        type=field_type,
                         schema_valid=schema_valid,
                     )
                 )
@@ -640,7 +659,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
+                    type=DatabaseSerializedFieldType.VIEW if is_view else DatabaseSerializedFieldType.LAZY_TABLE,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
@@ -651,7 +670,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.virtual_table,
+                    type=DatabaseSerializedFieldType.VIRTUAL_TABLE,
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
                     fields=list(field.fields.keys()),
@@ -662,7 +681,7 @@ def serialize_fields(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.field_traverser,
+                    type=DatabaseSerializedFieldType.FIELD_TRAVERSER,
                     schema_valid=schema_valid,
                     chain=field.chain,
                 )

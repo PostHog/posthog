@@ -67,8 +67,7 @@ export function SurveyTemplates(): JSX.Element {
                                                 },
                                             } as Survey
                                         }
-                                        activePreview="survey"
-                                        questionIndex={0}
+                                        previewPageIndex={0}
                                     />
                                 </div>
                             </div>

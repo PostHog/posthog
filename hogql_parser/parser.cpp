@@ -1059,9 +1059,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprAlias) {
     string alias;
-    if (ctx->alias()) {
-      alias = visitAsString(ctx->alias());
-    } else if (ctx->identifier()) {
+    if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
     } else if (ctx->STRING_LITERAL()) {
       alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
@@ -1104,6 +1102,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprArray) {
     RETURN_NEW_AST_NODE("Array", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(ctx->columnExprList()));
   }
+
+  VISIT_UNSUPPORTED(ColumnExprDict)
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
@@ -1620,27 +1620,42 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto column_expr_list_ctx = ctx->columnExprList();
     string name = visitAsString(ctx->identifier(0));
     string over_identifier = visitAsString(ctx->identifier(1));
-    PyObject* args = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    PyObject* args;
+    try {
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+    } catch (...) {
+      Py_DECREF(exprs);
+      throw;
+    }
     RETURN_NEW_AST_NODE(
-        "WindowFunction", "{s:s#,s:N,s:s#}", "name", name.data(), name.size(), "args", args, "over_identifier",
-        over_identifier.data(), over_identifier.size()
+        "WindowFunction", "{s:s#,s:N,s:N,s:s#}", "name", name.data(), name.size(), "exprs", exprs, "args", args,
+        "over_identifier", over_identifier.data(), over_identifier.size()
     );
   }
 
   VISIT(ColumnExprWinFunction) {
     string identifier = visitAsString(ctx->identifier());
     auto column_expr_list_ctx = ctx->columnExprList();
-    PyObject* args = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    PyObject* args;
+    try {
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+    } catch (...) {
+      Py_DECREF(exprs);
+      throw;
+    }
     PyObject* over_expr;
     try {
       over_expr = visitAsPyObjectOrNone(ctx->windowExpr());
     } catch (...) {
+      Py_DECREF(exprs);
       Py_DECREF(args);
       throw;
     }
     RETURN_NEW_AST_NODE(
-        "WindowFunction", "{s:s#,s:N,s:N}", "name", identifier.data(), identifier.size(), "args", args, "over_expr",
-        over_expr
+        "WindowFunction", "{s:s#,s:N,s:N,s:N}", "name", identifier.data(), identifier.size(), "exprs", exprs,
+        "args", args, "over_expr", over_expr
     );
   }
 

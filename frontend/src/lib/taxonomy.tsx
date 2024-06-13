@@ -817,6 +817,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Survey ID',
             description: 'The unique identifier for the survey.',
         },
+        $survey_iteration: {
+            label: 'Survey Iteration Number',
+            description: 'The iteration number for the survey.',
+        },
+        $survey_iteration_start_date: {
+            label: 'Survey Iteration Start Date',
+            description: 'The start date for the current iteration of the survey.',
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
@@ -1065,6 +1073,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $group_key: {
             label: 'Group Key',
             description: 'Specified group key',
+        },
+    },
+    replay: {
+        console_log_level: {
+            label: 'Log level',
+            description: 'Level of console logs captured',
+            examples: ['info', 'warn', 'error'],
+        },
+        console_log_query: {
+            label: 'Console log',
+            description: 'Text of console logs captured',
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>

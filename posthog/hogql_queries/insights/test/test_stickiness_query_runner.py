@@ -14,7 +14,7 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
-    DateRange,
+    InsightDateRange,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventPropertyFilter,
@@ -27,7 +27,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyOperator,
-    RecordingDurationFilter,
+    RecordingPropertyFilter,
     SessionPropertyFilter,
     StickinessFilter,
     StickinessQuery,
@@ -58,7 +58,7 @@ StickinessProperties = Union[
             ElementPropertyFilter,
             SessionPropertyFilter,
             CohortPropertyFilter,
-            RecordingDurationFilter,
+            RecordingPropertyFilter,
             GroupPropertyFilter,
             FeaturePropertyFilter,
             HogQLPropertyFilter,
@@ -205,11 +205,11 @@ class TestStickinessQueryRunner(APIBaseTest):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
         query_date_to = None if date_to == "now" else date_to or self.default_date_to
-        query_interval = interval or IntervalType.day
+        query_interval = interval or IntervalType.DAY
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
+            dateRange=InsightDateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
             properties=properties,
             stickinessFilter=filters,
@@ -276,7 +276,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_interval_hour(self):
         self._create_test_events()
 
-        response = self._run_query(interval=IntervalType.hour, date_from="2020-01-11", date_to="2020-01-12")
+        response = self._run_query(interval=IntervalType.HOUR, date_from="2020-01-11", date_to="2020-01-12")
 
         result = response.results[0]
 
@@ -293,7 +293,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_events()
 
         with freeze_time("2020-01-20T12:00:00Z"):
-            response = self._run_query(interval=IntervalType.hour, date_from="-2d", date_to="now")
+            response = self._run_query(interval=IntervalType.HOUR, date_from="-2d", date_to="now")
             result = response.results[0]
             # 61 = 48 + 12 + 1
             hours_labels = [f"{hour + 1} hour{'' if hour == 0 else 's'}" for hour in range(61)]
@@ -309,7 +309,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_interval_day(self):
         self._create_test_events()
 
-        response = self._run_query(interval=IntervalType.day)
+        response = self._run_query(interval=IntervalType.DAY)
 
         result = response.results[0]
 
@@ -343,7 +343,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_interval_week(self):
         self._create_test_events()
 
-        response = self._run_query(interval=IntervalType.week)
+        response = self._run_query(interval=IntervalType.WEEK)
 
         result = response.results[0]
 
@@ -356,7 +356,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_events()
 
         with freeze_time("2020-01-23T12:00:00Z"):
-            response = self._run_query(interval=IntervalType.week, date_from="-30d", date_to="now")
+            response = self._run_query(interval=IntervalType.WEEK, date_from="-30d", date_to="now")
 
             result = response.results[0]
 
@@ -368,7 +368,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_interval_month(self):
         self._create_test_events()
 
-        response = self._run_query(interval=IntervalType.month)
+        response = self._run_query(interval=IntervalType.MONTH)
 
         result = response.results[0]
 
@@ -381,7 +381,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_events()
 
         response = self._run_query(
-            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.exact, value="Chrome")]
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")]
         )
 
         result = response.results[0]
@@ -425,7 +425,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         series: list[EventsNode | ActionsNode] = [
             EventsNode(
                 event="$pageview",
-                properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.exact, value="Chrome")],
+                properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
             )
         ]
 
@@ -545,7 +545,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_events()
 
         series: list[EventsNode | ActionsNode] = [
-            EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
+            EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.NUMBER_0)
         ]
 
         response = self._run_query(series=series)

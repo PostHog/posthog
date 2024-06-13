@@ -1,6 +1,7 @@
 from typing import Union, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -306,7 +307,7 @@ FROM
         sessions.session_id) AS sessions
 WHERE
     ifNull(greater(toTimeZone(sessions.`$start_timestamp`, %(hogql_val_2)s), %(hogql_val_3)s), 0)
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_join_with_events(self):
@@ -340,7 +341,7 @@ WHERE
     and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))
 GROUP BY
     sessions.session_id
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_union(self):
@@ -355,7 +356,7 @@ WHERE events.timestamp < today()
         )
         expected = f"""SELECT
     0 AS duration
-LIMIT 10000
+LIMIT {MAX_SELECT_RETURNED_ROWS}
 UNION ALL
 SELECT
     events__session.`$session_duration` AS duration
@@ -373,7 +374,7 @@ FROM
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
 WHERE
     and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_2)s), today()))
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
     def test_session_breakdown(self):
@@ -455,5 +456,38 @@ WHERE
 GROUP BY
     day_start,
     breakdown_value
-LIMIT 10000"""
+LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
+
+    def test_session_replay_query(self):
+        actual = self.print_query(
+            """
+SELECT
+    s.session_id,
+    min(s.min_first_timestamp) as start_time
+FROM raw_session_replay_events s
+WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01:12:34' AND min_first_timestamp < now()
+GROUP BY session_id
+        """
+        )
+        expected = f"""SELECT
+    s.session_id AS session_id,
+    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
+FROM
+    session_replay_events AS s
+    LEFT JOIN (SELECT
+        path(nullIf(argMinMerge(sessions.entry_url), %(hogql_val_0)s)) AS `$entry_pathname`,
+        sessions.session_id AS session_id
+    FROM
+        sessions
+    WHERE
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), now64(6, %(hogql_val_4)s)), 0))
+    GROUP BY
+        sessions.session_id,
+        sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
+WHERE
+    and(equals(s.team_id, {self.team.id}), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+GROUP BY
+    s.session_id
+LIMIT 50000"""
+        self.assertEqual(expected, actual)

@@ -30,7 +30,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[list[str]]
+    breakdown_values_override: Optional[list[str | int]]
     limit_context: LimitContext
 
     def __init__(
@@ -42,7 +42,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[list[str]] = None,
+        breakdown_values_override: Optional[list[str | int]] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
@@ -81,7 +81,7 @@ class Breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
         if self.query.breakdownFilter.breakdown_type == "cohort":
-            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+            if self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
                 return ast.Alias(
                     alias="breakdown_value",
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
@@ -103,10 +103,16 @@ class Breakdown:
             and self.query.breakdownFilter.breakdown is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
         ):
-            if self.query.breakdownFilter.breakdown == "all":
+            breakdown = (
+                self.breakdown_values_override
+                if self.breakdown_values_override
+                else self.query.breakdownFilter.breakdown
+            )
+
+            if breakdown == "all":
                 return None
 
-            if isinstance(self.query.breakdownFilter.breakdown, list):
+            if isinstance(breakdown, list):
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
@@ -114,12 +120,12 @@ class Breakdown:
                             op=ast.CompareOperationOp.InCohort,
                             right=ast.Constant(value=breakdown),
                         )
-                        for breakdown in self.query.breakdownFilter.breakdown
+                        for breakdown in breakdown
                     ]
                 )
-                if len(self.query.breakdownFilter.breakdown) > 1:
+                if len(breakdown) > 1:
                     return or_clause
-                elif len(self.query.breakdownFilter.breakdown) == 1:
+                elif len(breakdown) == 1:
                     return or_clause.exprs[0]
                 else:
                     return ast.Constant(value=True)
@@ -127,7 +133,7 @@ class Breakdown:
             return ast.CompareOperation(
                 left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,
-                right=ast.Constant(value=self.query.breakdownFilter.breakdown),
+                right=ast.Constant(value=breakdown),
             )
 
         # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
