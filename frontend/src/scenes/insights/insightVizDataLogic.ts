@@ -5,7 +5,7 @@ import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { dateMapping, getEventNamesForAction, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -14,6 +14,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
@@ -50,6 +51,7 @@ import {
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
+    isInsightQueryWithSeries,
     isInsightVizNode,
     isLifecycleQuery,
     isNodeWithSource,
@@ -356,6 +358,32 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ...seriesNodeToFilter(rest),
                 })),
             }),
+        ],
+
+        // all events used in the insight (useful for fetching only relevant property definitions)
+        allEventNames: [
+            (s) => [s.querySource, actionsModel.selectors.actions],
+            (querySource, actions) => {
+                if (!isInsightQueryWithSeries(querySource)) {
+                    return []
+                }
+
+                const allEvents = querySource.series.flatMap((e) => {
+                    if (e.kind == NodeKind.EventsNode) {
+                        return e.event
+                    } else if (e.kind == NodeKind.ActionsNode) {
+                        return getEventNamesForAction(e.id, actions)
+                    }
+                })
+
+                // has one "all events" event
+                if (allEvents.some((e) => e === null)) {
+                    return []
+                }
+
+                // remove duplicates and empty events
+                return Array.from(new Set(allEvents.filter((e): e is string => !!e)))
+            },
         ],
     }),
 

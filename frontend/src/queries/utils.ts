@@ -205,7 +205,7 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
 }
 
 export function isInsightQueryWithSeries(
-    node?: Node
+    node?: Node | null
 ): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }

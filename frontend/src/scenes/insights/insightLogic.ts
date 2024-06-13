@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getEventNamesForAction, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -18,7 +18,6 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -27,7 +26,6 @@ import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
 import {
-    ActionType,
     FilterType,
     InsightLogicProps,
     InsightModel,
@@ -401,21 +399,6 @@ export const insightLogic = kea<insightLogicType>([
         /** converts potentially legacy (i.e. containing filters) insight to a query based one */
         queryBasedInsight: [(s) => [s.insight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
         isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
-        allEventNames: [
-            (s) => [s.filters, actionsModel.selectors.actions],
-            (filters, actions: ActionType[]) => {
-                const allEvents = [
-                    ...(filters.events || []).map((e) => e.id),
-                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
-                ]
-                // Has one "all events" event.
-                if (allEvents.some((e) => e === null)) {
-                    return []
-                }
-                // remove duplicates and empty events
-                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
-            },
-        ],
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
