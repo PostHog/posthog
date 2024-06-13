@@ -40,8 +40,6 @@ declare module '@storybook/types' {
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
-            /** Wait a number of milliseconds before taking the snapshot. You should probably only use this for debugging. */
-            delay?: number
         }
         msw?: {
             mocks?: Mocks
@@ -166,7 +164,7 @@ async function expectStoryToMatchSnapshot(
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
     await waitForPageReady(page)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(500)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 

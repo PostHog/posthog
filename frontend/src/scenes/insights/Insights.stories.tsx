@@ -56,7 +56,7 @@ export const TrendsLineEdit: Story = createInsightStory(
     'edit'
 )
 TrendsLineEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas', waitForLoadersToDisappear: true },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
 export const TrendsLineMulti: Story = createInsightStory(
