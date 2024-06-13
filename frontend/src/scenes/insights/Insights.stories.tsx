@@ -12,11 +12,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium', 'webkit'],
-            viewport: {
-                // needs a slightly larger width to push the rendered scene away from breakpoint boundary
-                width: 1300,
-                height: 720,
-            },
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
