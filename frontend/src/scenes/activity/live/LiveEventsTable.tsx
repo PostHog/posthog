@@ -41,7 +41,6 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
 
     return (
         <div data-attr="manage-events-table">
