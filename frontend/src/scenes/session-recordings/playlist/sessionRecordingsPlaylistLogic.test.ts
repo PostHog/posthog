@@ -409,6 +409,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             value: 600,
                             operator: PropertyOperator.LessThan,
                         },
+                        operand: FilterLogicalOperator.And,
                     },
                 })
         })
