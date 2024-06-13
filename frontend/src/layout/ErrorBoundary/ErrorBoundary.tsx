@@ -5,7 +5,7 @@ import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/rea
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-export function ErrorBoundary({ children }: { children: React.ReactElement }): JSX.Element {
+export function ErrorBoundary({ children }: { children: React.ReactElement | React.ReactElement[] }): JSX.Element {
     const isSentryInitialized = !!getCurrentHub().getClient()
 
     return (
