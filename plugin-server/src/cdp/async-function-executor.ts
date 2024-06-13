@@ -79,11 +79,16 @@ export class AsyncFunctionExecutor {
                     timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
                 })
 
-                const maybeJson = await fetchResponse.json().catch(() => null)
+                let body = await fetchResponse.text()
+                try {
+                    body = JSON.parse(body)
+                } catch (err) {
+                    body
+                }
 
                 response.vmResponse = {
                     status: fetchResponse.status,
-                    body: maybeJson ? maybeJson : await fetchResponse.text(),
+                    body: body,
                 }
             } catch (err) {
                 status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
