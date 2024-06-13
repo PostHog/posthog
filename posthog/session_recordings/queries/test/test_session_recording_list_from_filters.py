@@ -1310,34 +1310,108 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
-    # @snapshot_clickhouse_queries
-    # def test_operand_or_filter(self):
-    #     user = "test_operand_or_filter-user"
-    #     Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+    @snapshot_clickhouse_queries
+    def test_operand_or_filter(self):
+        user = "test_operand_or_filter-user"
+        person = Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-    #     produce_replay_summary(
-    #         distinct_id=user,
-    #         session_id="three days before base time",
-    #         first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
-    #         last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
-    #         team_id=self.team.id,
-    #     )
-    #     produce_replay_summary(
-    #         distinct_id=user,
-    #         session_id="two days before base time",
-    #         first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
-    #         last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
-    #         team_id=self.team.id,
-    #     )
+        second_user = "test_operand_or_filter-second_user"
+        second_person = Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "bla"})
 
-    #     (session_recordings, _, _) = self._filter_recordings_by({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")})
-    #     assert session_recordings == []
+        session_id_one = "session_id_one"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago + relativedelta(seconds=10),
+            properties={"$session_id": session_id_one},
+        )
 
-    #     (session_recordings, _, _) = self._filter_recordings_by(
-    #         {"date_from": (self.an_hour_ago - relativedelta(days=2)).strftime("%Y-%m-%d")}
-    #     )
-    #     assert len(session_recordings) == 1
-    #     assert session_recordings[0]["session_id"] == "two days before base time"
+        session_id_two = "session_id_two"
+        produce_replay_summary(
+            distinct_id=second_user,
+            session_id=session_id_two,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            team_id=self.team.id,
+        )
+
+        # person or event -> person matches, event matches -> returns session
+        # person or event -> person does not match, event matches -> does not return session
+
+        # person must always match, irrespective of OR filter
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "person_uuid": str(person.uuid),
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "person_uuid": str(second_person.uuid),
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "OR",
+            }
+        )
+        print(session_recordings)
+        assert len(session_recordings) == 0
+
+        # session must always match, irrespective of OR filter
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "session_ids": [session_id_one],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
+
+        # (session_recordings, _, _) = self._filter_recordings_by(
+        #     {
+        #         "session_ids": [session_id_two],
+        #         "events": [
+        #             {
+        #                 "id": "$pageview",
+        #                 "type": "events",
+        #                 "order": 0,
+        #                 "name": "$pageview",
+        #             }
+        #         ],
+        #         "operand": "OR",
+        #     }
+        # )
+        # assert len(session_recordings) == 0
 
     @snapshot_clickhouse_queries
     def test_date_from_filter(self):

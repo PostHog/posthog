@@ -126,6 +126,8 @@ class SessionRecordingListFromFilters:
             modifiers=self._hogql_query_modifiers,
         )
 
+        print(paginated_response.hogql)
+
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
             has_more_recording=self._paginator.has_more(),
@@ -164,10 +166,8 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        optional_exprs: list[ast.Expr] = []
-
         if self._filter.date_from:
-            optional_exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
@@ -175,13 +175,15 @@ class SessionRecordingListFromFilters:
                 )
             )
         if self._filter.date_to:
-            optional_exprs.append(
+            mandatory_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=self._filter.date_to),
                 )
             )
+
+        optional_exprs: list[ast.Expr] = []
 
         events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if events_sub_query:
@@ -251,7 +253,11 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        return ast.And(exprs=[*mandatory_exprs, self._filter.global_operand(exprs=optional_exprs)])
+        exprs = [*mandatory_exprs]
+        if optional_exprs:
+            exprs.append(self._filter.global_operand(exprs=optional_exprs))
+
+        return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.CompareOperation | Constant:
         if not self._filter.recording_duration_filter:
