@@ -235,7 +235,7 @@ export function LogLevelDisplay(level: PipelineLogLevel): JSX.Element {
             color = 'text-muted'
             break
         case PipelineLogLevel.Log:
-            color = 'text-default'
+            color = 'text-text-3000'
             break
         case PipelineLogLevel.Info:
             color = 'text-primary'

@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import {
     AnyPropertyFilter,
     DurationType,
+    FilterableLogLevel,
     FilterType,
     PropertyFilterType,
     PropertyOperator,
@@ -128,6 +129,8 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
     const actions: FilterType['actions'] = []
+    let console_logs: FilterableLogLevel[] = []
+    let console_search_query = ''
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
@@ -136,7 +139,11 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
             actions.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (f.type === PropertyFilterType.Recording) {
-                // TODO: add console log filtering
+                if (f.key === 'console_log_level') {
+                    console_logs = f.value as FilterableLogLevel[]
+                } else if (f.key === 'console_log_query') {
+                    console_search_query = (f.value || '') as string
+                }
             } else {
                 properties.push(f)
             }
@@ -152,6 +159,8 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         actions,
         session_recording_duration: { ...durationFilter, key: 'duration' },
         duration_type_filter: durationFilter.key,
+        console_search_query,
+        console_logs,
     }
 }
 

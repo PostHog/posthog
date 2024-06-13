@@ -121,7 +121,7 @@ function BatchExportLogEntryLevelDisplay(type: PipelineLogLevel): JSX.Element {
             color = 'var(--muted)'
             break
         case PipelineLogLevel.Log:
-            color = 'var(--default)'
+            color = 'var(--text-3000)'
             break
         case PipelineLogLevel.Info:
             color = 'var(--blue)'

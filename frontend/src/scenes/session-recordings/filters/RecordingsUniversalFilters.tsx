@@ -89,11 +89,10 @@ export const RecordingsUniversalFilters = (): JSX.Element => {
                 <UniversalFilters
                     rootKey="session-recordings"
                     group={universalFilters.filter_group}
-                    taxonomicEntityFilterGroupTypes={[
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.Replay,
                         TaxonomicFilterGroupType.Events,
                         TaxonomicFilterGroupType.Actions,
-                    ]}
-                    taxonomicPropertyFilterGroupTypes={[
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.SessionProperties,

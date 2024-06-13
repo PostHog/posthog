@@ -1,7 +1,7 @@
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
-from dateutil import parser
+from dateutil.parser import isoparse
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
@@ -386,11 +386,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             item_trends.refresh_from_db()
 
             self.assertEqual(
-                parser.isoparse(response_data["tiles"][0]["last_refresh"]),
+                isoparse(response_data["tiles"][0]["last_refresh"]),
                 item_default.caching_state.last_refresh,
             )
             self.assertEqual(
-                parser.isoparse(response_data["tiles"][1]["last_refresh"]),
+                isoparse(response_data["tiles"][1]["last_refresh"]),
                 item_default.caching_state.last_refresh,
             )
 
