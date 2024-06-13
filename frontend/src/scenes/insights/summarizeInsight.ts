@@ -3,15 +3,6 @@ import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/compone
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
 import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
@@ -42,7 +33,7 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
+import { EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
@@ -77,119 +68,6 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
         return `${noun}'s ${propertyLabel}`
     }
     return null
-}
-
-function summarizeInsightFilters(filters: AnyPartialFilterType, context: SummaryContext): string {
-    const localFilters = toLocalFilters(filters)
-
-    if (isRetentionFilter(filters)) {
-        const areTargetAndReturningIdentical =
-            filters.returning_entity?.id === filters.target_entity?.id &&
-            filters.returning_entity?.type === filters.target_entity?.type
-        return (
-            `Retention of ${context.aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
-            ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
-            ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
-            (areTargetAndReturningIdentical
-                ? 'the same event'
-                : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
-        )
-    } else if (isPathsFilter(filters)) {
-        // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
-        if (filters.start_point) {
-            summary += ` starting at ${filters.start_point}`
-        }
-        if (filters.end_point) {
-            summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
-        }
-        return summary
-    } else if (isLifecycleFilter(filters)) {
-        return `${capitalizeFirstLetter(
-            context.aggregationLabel(filters.aggregation_group_type_index, true).singular
-        )} lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
-    } else if (isFunnelsFilter(filters)) {
-        let summary
-        const linkSymbol =
-            filters.funnel_order_type === StepOrderValue.STRICT
-                ? '⇉'
-                : filters.funnel_order_type === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
-        summary = `${localFilters.map((filter) => getDisplayNameFromEntityFilter(filter)).join(` ${linkSymbol} `)} ${
-            context.aggregationLabel(filters.aggregation_group_type_index, true).singular
-        } conversion`
-        if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-            summary += ' time'
-        } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
-            summary += ' trend'
-        } else {
-            // Steps are the default viz type
-            summary += ' rate'
-        }
-        if (filters.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(filters, context)}`
-        }
-        return summary
-    } else if (isStickinessFilter(filters)) {
-        return capitalizeFirstLetter(
-            localFilters
-                .map((localFilter) => {
-                    const actor = context.aggregationLabel(
-                        localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
-                        true
-                    ).singular
-                    return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
-                })
-                .join(' & ')
-        )
-    } else if (isTrendsFilter(filters)) {
-        let summary = localFilters
-            .map((localFilter, localFilterIndex) => {
-                const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
-                const mathDefinition = context.mathDefinitions[mathType] as MathDefinition | undefined
-                let series: string
-                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
-                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[localFilter.math_property as string]?.label ||
-                        localFilter.math_property
-                    } ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : localFilter.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                } else if (mathDefinition?.category === MathCategory.HogQLExpression) {
-                    series = localFilter.math_hogql ?? 'HogQL'
-                } else {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)} ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : localFilter.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                }
-                if (filters.formula) {
-                    series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
-                }
-                return series
-            })
-            .join(' & ')
-
-        if (filters.breakdown_type) {
-            summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(filters, context)}`
-        }
-        if (filters.formula) {
-            summary = `${filters.formula} on ${summary}`
-        }
-
-        return summary
-    }
-    return ''
 }
 
 export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
@@ -353,25 +231,18 @@ export interface SummaryContext {
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 }
 
-export function summarizeInsight(
-    query: Node | undefined | null,
-    filters: Partial<FilterType> | undefined | null,
-    context: SummaryContext
-): string {
+export function summarizeInsight(query: Node | undefined | null, context: SummaryContext): string {
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
         ? summarizeQuery(query)
-        : filters && Object.keys(filters).length > 0
-        ? summarizeInsightFilters(filters, context)
         : ''
 }
 
-export function useSummarizeInsight(): (query: Node | undefined | null, filters?: Partial<FilterType>) => string {
+export function useSummarizeInsight(): (query: Node | undefined | null) => string {
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
-    return (query, filters) =>
-        summarizeInsight(query, filters || {}, { aggregationLabel, cohortsById, mathDefinitions })
+    return (query) => summarizeInsight(query, { aggregationLabel, cohortsById, mathDefinitions })
 }

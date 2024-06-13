@@ -9,7 +9,7 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -34,6 +34,12 @@ export const mergeTxnSuccessCounter = new Counter({
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
 
+export const personPropertyKeyUpdateCounter = new Counter({
+    name: 'person_property_key_update_total',
+    help: 'Number of person updates triggered by this property value changing.',
+    labelNames: ['key'],
+})
+
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 // used to prevent identify from being used with generic IDs
@@ -52,6 +58,7 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
 ]
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -264,6 +271,39 @@ export class PersonState {
         return [person, Promise.resolve()]
     }
 
+    // For tracking what property keys cause us to update persons
+    // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
+    private getMetricKey(key: string): string {
+        if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
+            return 'geoIP'
+        }
+        if (eventToPersonProperties.has(key)) {
+            return key
+        }
+        if (initialEventToPersonProperties.has(key)) {
+            return key
+        }
+        return 'other'
+    }
+
+    // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
+    // They will still show up for PoE as it's not removed from the event, we just don't update the person in PG anymore
+    private shouldUpdatePersonIfOnlyChange(key: string): boolean {
+        if (PERSON_EVENTS.has(this.event.event)) {
+            // for person events always update everything
+            return true
+        }
+        // These are properties we add from the event and some change often, it's useless to update person always
+        if (eventToPersonProperties.has(key)) {
+            return false
+        }
+        // same as above, coming from GeoIP plugin
+        if (key.startsWith('$geoip_')) {
+            return false
+        }
+        return true
+    }
+
     /**
      * @param personProperties Properties of the person to be updated, these are updated in place.
      * @returns true if the properties were changed, false if they were not
@@ -277,25 +317,32 @@ export class PersonState {
             : Object.keys(unsetProps || {}) || []
 
         let updated = false
+        // tracking as set because we only care about if other or geoip was the cause of the update, not how many properties got updated
+        const metricsKeys = new Set<string>()
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
                 updated = true
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updated = true
+                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
+                    updated = true
+                }
+                metricsKeys.add(this.getMetricKey(key))
                 personProperties[key] = value
             }
         })
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
                 updated = true
+                metricsKeys.add(this.getMetricKey(propertyKey))
                 delete personProperties[propertyKey]
             }
         })
-
+        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
         return updated
     }
 

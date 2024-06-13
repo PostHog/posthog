@@ -47,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -65,6 +65,14 @@ class IfStatement(Statement):
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
     expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
     body: Statement
 
 

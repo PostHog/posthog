@@ -53,15 +53,15 @@ export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Mess
 
 export const insertHogFunction = async (
     postgres: PostgresRouter,
-    team: Team,
+    team_id: Team['id'],
     hogFunction: Partial<HogFunctionType> = {}
 ) => {
     const res = await insertRow(
         postgres,
         'posthog_hogfunction',
         createHogFunction({
-            team_id: team.id,
             ...hogFunction,
+            team_id: team_id,
         })
     )
     return res

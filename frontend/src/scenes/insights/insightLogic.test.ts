@@ -28,7 +28,6 @@ import {
     InsightType,
     ItemMode,
     PropertyFilterType,
-    PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
 
@@ -669,67 +668,6 @@ describe('insightLogic', () => {
                     'Chrome OS': undefined,
                     Windows: true,
                 },
-            })
-        })
-    })
-
-    describe('filterPropertiesCount selector', () => {
-        const standardPropertyFilter: AnyPropertyFilter = {
-            value: 'lol',
-            operator: PropertyOperator.Exact,
-            key: 'lol',
-            type: PropertyFilterType.Person,
-        }
-        const cases: {
-            properties: AnyPropertyFilter[] | PropertyGroupFilter
-            count: number
-        }[] = [
-            {
-                properties: [standardPropertyFilter],
-                count: 1,
-            },
-            {
-                properties: [standardPropertyFilter, standardPropertyFilter],
-                count: 2,
-            },
-            {
-                properties: {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: FilterLogicalOperator.Or,
-                            values: [standardPropertyFilter, standardPropertyFilter],
-                        },
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [standardPropertyFilter, standardPropertyFilter, standardPropertyFilter],
-                        },
-                    ],
-                },
-                count: 5,
-            },
-        ]
-
-        cases.forEach(({ properties, count }) => {
-            it(`returns the correct count (${count}) for filter properties "${JSON.stringify(
-                properties
-            )}"`, async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight44,
-                    cachedInsight: {
-                        short_id: Insight44,
-                        results: ['cached result'],
-                        filters: {
-                            insight: InsightType.TRENDS,
-                            events: [{ id: 2 }],
-                            properties,
-                        },
-                    },
-                })
-                logic.mount()
-                await expectLogic(logic).toMatchValues({
-                    filterPropertiesCount: count,
-                })
             })
         })
     })

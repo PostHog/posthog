@@ -36,7 +36,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         render: (_, cluster) => {
                             const displayTitle = parseTitle(cluster.sample)
                             return (
-                                <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
+                                <div title={displayTitle} className="font-semibold text-sm text-text-3000 line-clamp-1">
                                     {displayTitle}
                                 </div>
                             )

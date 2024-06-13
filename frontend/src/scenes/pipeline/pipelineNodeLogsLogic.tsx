@@ -36,7 +36,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setInstanceId: (instanceId: string) => ({ instanceId }),
+        setInstanceId: (instanceId: string | null) => ({ instanceId }),
         clearBackgroundLogs: true,
         markLogsEnd: true,
     }),
@@ -179,7 +179,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
         instanceId: [
-            '',
+            null as null | string,
             {
                 setInstanceId: (_, { instanceId }) => instanceId,
             },

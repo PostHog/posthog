@@ -1,9 +1,27 @@
-print('-- test while loop --');
+print('-- test while loop --')
+{
+    let i := 0
+    while (i < 3) {
+        i := i + 1
+        print(i)
+    }
+    print(i)
+}
+
+print('-- test for loop --')
+{
+    for (let i := 0; i < 3; i := i + 1) {
+        print(i) -- prints 3 times
+    }
+    print(i) -- global does not print
+}
+
+print('-- test emptier for loop --')
 {
     let i := 0;
-    while (i < 3) {
+    for (;i < 3;) {
+        print('woo')
         i := i + 1;
-        print(i);
     }
-    print(i);
+    print('hoo')
 }

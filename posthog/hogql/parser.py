@@ -185,7 +185,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
-        return ast.Program(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
+        return ast.Program(declarations=declarations)
 
     def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
         return self.visitChildren(ctx)
@@ -212,7 +217,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprStatement(expr=self.visit(ctx.expression()))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
-        return ast.ReturnStatement(expr=self.visit(ctx.expression()))
+        return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
         return ast.IfStatement(
@@ -225,6 +230,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.WhileStatement(
             expr=self.visit(ctx.expression()),
             body=self.visit(ctx.statement()) if ctx.statement() else None,
+        )
+
+    def visitForStmt(self, ctx: HogQLParser.ForStmtContext):
+        initializer = ctx.initializerVarDeclr or ctx.initializerVarAssignment or ctx.initializerExpression
+        increment = ctx.incrementVarDeclr or ctx.incrementVarAssignment or ctx.incrementExpression
+
+        return ast.ForStatement(
+            initializer=self.visit(initializer) if initializer else None,
+            condition=self.visit(ctx.condition) if ctx.condition else None,
+            increment=self.visit(increment) if increment else None,
+            body=self.visit(ctx.statement()),
         )
 
     def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
@@ -245,10 +261,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [ident.getText() for ident in ctx.identifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
-        return ast.ExprStatement(expr=ast.Constant(value=True))
+        return ast.ExprStatement(expr=None)
 
     def visitBlock(self, ctx: HogQLParser.BlockContext):
-        return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
+        return ast.Block(declarations=declarations)
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
@@ -573,9 +594,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         alias: str
-        if ctx.alias():
-            alias = self.visit(ctx.alias())
-        elif ctx.identifier():
+        if ctx.identifier():
             alias = self.visit(ctx.identifier())
         elif ctx.STRING_LITERAL():
             alias = parse_string_literal_ctx(ctx.STRING_LITERAL())
