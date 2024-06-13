@@ -1,4 +1,3 @@
-import asyncio
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -27,7 +26,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -329,12 +328,11 @@ class StartBatchExportRunInputs:
     is_backfill: bool = False
 
 
-RecordsTotalCount = int | None
 BatchExportRunId = str
 
 
 @activity.defn
-async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[BatchExportRunId, RecordsTotalCount]:
+async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
     """Activity that creates an BatchExportRun and returns the count of records to export.
 
     Intended to be used in all export workflows, usually at the start, to create a model
@@ -350,56 +348,14 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
         inputs.data_interval_end,
     )
 
-    delta = dt.datetime.fromisoformat(inputs.data_interval_end) - dt.datetime.fromisoformat(inputs.data_interval_start)
-    async with get_client(team_id=inputs.team_id) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        try:
-            count = await asyncio.wait_for(
-                get_rows_count(
-                    client=client,
-                    team_id=inputs.team_id,
-                    interval_start=inputs.data_interval_start,
-                    interval_end=inputs.data_interval_end,
-                    exclude_events=inputs.exclude_events,
-                    include_events=inputs.include_events,
-                    is_backfill=inputs.is_backfill,
-                ),
-                timeout=(delta / 12).total_seconds(),
-            )
-        except asyncio.TimeoutError:
-            count = None
-
-    if count is None:
-        logger.info(
-            "Batch export for range %s - %s will continue without a count of rows to export",
-            inputs.data_interval_start,
-            inputs.data_interval_end,
-        )
-    elif count > 0:
-        logger.info(
-            "Batch export for range %s - %s will export %s rows",
-            inputs.data_interval_start,
-            inputs.data_interval_end,
-            count,
-        )
-    else:
-        logger.info(
-            "Batch export for range %s - %s has no rows to export",
-            inputs.data_interval_start,
-            inputs.data_interval_end,
-        )
-
     run = await acreate_batch_export_run(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
-        records_total_count=count,
     )
 
-    return str(run.id), count
+    return str(run.id)
 
 
 @dataclasses.dataclass
