@@ -54,8 +54,9 @@ export type HogFunctionInvocationGlobals = {
     }
     person?: {
         uuid: string
-        properties: Record<string, any>
+        name: string
         url: string
+        properties: Record<string, any>
     }
     groups?: Record<
         string,
