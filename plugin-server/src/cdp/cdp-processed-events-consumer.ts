@@ -283,7 +283,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
     protected name = 'CdpFunctionCallbackConsumer'
     protected topic = KAFKA_CDP_FUNCTION_CALLBACKS
-    protected consumerGroupId = 'cdp-processed-events-consumer'
+    protected consumerGroupId = 'cdp-function-callback-consumer'
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         await runInstrumentedFunction({
