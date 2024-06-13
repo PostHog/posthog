@@ -44,8 +44,8 @@ from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
+from posthog.plugins.reload import populate_plugin_capabilities_on_workers
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
-from posthog.redis import get_client
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -487,10 +487,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             plugin.updated_at = now()
             plugin.save()
         # Trigger capabilities update in plugin server, in case the app source changed the methods etc
-        get_client().publish(
-            "populate-plugin-capabilities",
-            json.dumps({"plugin_id": str(plugin.id)}),
-        )
+
+        populate_plugin_capabilities_on_workers(str(plugin.id))
+
         return Response(response)
 
     @action(methods=["POST"], detail=True)
