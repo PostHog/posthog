@@ -132,7 +132,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # If it's total value, we should order the results as there's no outer query to do the ordering
         if self._trends_display.is_total_value():
-            default_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["total"]), order="DESC")]
+            default_query.order_by = [ast.OrderExpr(expr=parse_expr("1"), order="DESC")]
             if breakdown.enabled:
                 default_query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="DESC"))
 

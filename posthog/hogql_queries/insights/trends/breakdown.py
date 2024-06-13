@@ -69,7 +69,7 @@ class Breakdown:
             return ast.Alias(
                 alias="quantile_values",
                 expr=ast.WindowFunction(
-                    name="quantilesDistinct",
+                    name="quantiles",
                     args=[ast.Field(chain=self._properties_chain)],
                     exprs=[ast.Constant(value=quantile) for quantile in [1, 2]],
                     over_expr=None,
@@ -83,7 +83,7 @@ class Breakdown:
         return ast.Alias(
             alias="quantile_values",
             expr=ast.WindowFunction(
-                name="quantilesDistinct",
+                name="quantiles",
                 args=[ast.Field(chain=self._properties_chain)],
                 exprs=[ast.Constant(value=quantile) for quantile in quantiles],
                 over_expr=None,

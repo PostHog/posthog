@@ -6502,9 +6502,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 1)
+        self.assertEqual(response[0]["aggregated_value"], 2)
         self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[2]["aggregated_value"], 1)  # the events without breakdown value
         self.assertEqual(response[0]["days"], [])
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
