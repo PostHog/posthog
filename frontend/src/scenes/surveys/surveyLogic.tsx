@@ -163,6 +163,7 @@ export const surveyLogic = kea<surveyLogicType>([
             responseValue,
             nextStep,
         }),
+        resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
@@ -734,6 +735,17 @@ export const surveyLogic = kea<surveyLogicType>([
                             question.branching.responseValues[responseValue] = nextQuestionIndex
                         }
                     }
+
+                    newQuestions[questionIndex] = question
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                resetBranchingForQuestion: (state, { questionIndex }) => {
+                    const newQuestions = [...state.questions]
+                    const question = newQuestions[questionIndex]
+                    delete question.branching
 
                     newQuestions[questionIndex] = question
                     return {
