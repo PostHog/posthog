@@ -557,6 +557,7 @@ class HogQueryResponse(BaseModel):
         extra="forbid",
     )
     bytecode: Optional[list] = None
+    coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
 
@@ -812,6 +813,7 @@ class QueryResponseAlternative6(BaseModel):
         extra="forbid",
     )
     bytecode: Optional[list] = None
+    coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
 

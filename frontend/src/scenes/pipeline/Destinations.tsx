@@ -12,6 +12,7 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
+import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { Destination } from './types'
@@ -60,6 +61,8 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                             switch (destination.backend) {
                                 case 'plugin':
                                     return <RenderApp plugin={destination.plugin} />
+                                case 'hog_function':
+                                    return <HogFunctionIcon src={destination.hog_function.icon_url} size="small" />
                                 case 'batch_export':
                                     return <RenderBatchExportIcon type={destination.service.type} />
                                 default:
