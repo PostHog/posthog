@@ -68,5 +68,8 @@ export const CorsPlugin: ReplayPlugin & {
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [`.ph-no-capture {   background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`],
+    insertStyleRules: [
+        `.ph-no-capture {   background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`,
+        '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }',
+    ],
 }
