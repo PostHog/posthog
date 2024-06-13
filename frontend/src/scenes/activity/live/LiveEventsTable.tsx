@@ -8,7 +8,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
