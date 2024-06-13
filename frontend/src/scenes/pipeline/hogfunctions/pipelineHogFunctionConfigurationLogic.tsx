@@ -137,10 +137,15 @@ export const pipelineHogFunctionConfigurationLogic = kea<pipelineHogFunctionConf
                     }
                 })
 
-                const payload = {
+                const payload: HogFunctionType = {
                     ...data,
                     filters: data.filters ? sanitizeFilters(data.filters) : null,
                     inputs: sanitizedInputs,
+                }
+
+                if (props.templateId) {
+                    // Only sent on create
+                    ;(payload as any).template_id = props.templateId
                 }
 
                 try {

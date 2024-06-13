@@ -5,6 +5,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -26,6 +27,13 @@ class HogFunction(UUIDModel):
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
+    template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+    @property
+    def template(self) -> Optional[HogFunctionTemplate]:
+        from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+
+        return HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
 
     @property
     def filter_action_ids(self) -> list[int]:
