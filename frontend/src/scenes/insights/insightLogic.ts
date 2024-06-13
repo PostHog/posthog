@@ -409,7 +409,6 @@ export const insightLogic = kea<insightLogicType>([
                 return {}
             },
         ],
-        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
         isUsingSessionAnalysis: [
             (s) => [s.filters],
             (filters: Partial<FilterType>): boolean => {
